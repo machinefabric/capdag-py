@@ -1,4 +1,4 @@
-# Capns-Py Test Catalog
+# CapDag-Py Test Catalog
 
 **Total Tests:** 398
 
