@@ -79,11 +79,11 @@ def test_137_parse_registry_json():
                 "urn": "media:listing-id",
                 "media_type": "text/plain",
                 "title": "Listing ID",
-                "profile_uri": "https://filegrind.com/schema/listing-id",
+                "profile_uri": "https://machinefabric.com/schema/listing-id",
                 "schema": {
                     "type": "string",
                     "pattern": "[0-9a-f-]{36}",
-                    "description": "FileGrind listing UUID"
+                    "description": "MachineFabric listing UUID"
                 }
             }
         ],

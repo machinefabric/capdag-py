@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /Users/bahram/ws/prj/filegrind/capns-py
+cd /Users/bahram/ws/prj/machinefabric/capns-py
 
 # Create module directories
 mkdir -p src/capns/urn src/capns/cap src/capns/media src/capns/bifaci
