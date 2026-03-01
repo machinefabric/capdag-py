@@ -16,9 +16,9 @@ import time
 
 import pytest
 
-from capns.bifaci.host_runtime import PluginHost
-from capns.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
-from capns.bifaci.io import (
+from capdag.bifaci.host_runtime import PluginHost
+from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
     handshake_accept,

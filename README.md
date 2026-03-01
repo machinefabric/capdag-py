@@ -1,6 +1,6 @@
-# capns-py
+# capdag-py
 
-Python implementation of the capns (Cap SDK) - Core cap URN and definition system for MACINA plugins.
+Python implementation of the capdag (Cap SDK) - Core cap URN and definition system for MACINA plugins.
 
 This library provides the fundamental cap URN system used across all MACINA plugins and providers. It defines the formal structure for cap identifiers with flat tag-based naming, wildcard support, and specificity comparison.
 
@@ -29,7 +29,7 @@ pip install -e ".[dev]"
 ## Usage
 
 ```python
-from capns import (
+from capdag import (
     MediaUrn,
     CapUrn,
     CapUrnBuilder,
@@ -74,7 +74,7 @@ pytest tests/test_cap_urn.py
 pytest tests/test_media_urn.py
 
 # Run with coverage
-pytest --cov=capns tests/
+pytest --cov=capdag tests/
 ```
 
 ### Test Coverage
@@ -169,6 +169,6 @@ MIT
 
 ## Reference
 
-- Rust reference implementation: [capns](../capns)
+- Rust reference implementation: [capdag](../capdag)
 - Tagged URN Python: [tagged-urn-py](../tagged-urn-py)
 - Tagged URN Rust: [tagged-urn-rs](https://github.com/tagged-urn-rs)

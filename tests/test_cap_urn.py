@@ -1,11 +1,11 @@
-"""Tests for CapUrn - mirroring capns Rust tests
+"""Tests for CapUrn - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
 import hashlib
-from capns import (
+from capdag import (
     CapUrn,
     CapUrnError,
     CapUrnBuilder,

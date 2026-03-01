@@ -5,9 +5,9 @@ import threading
 
 import pytest
 
-from capns.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
-from capns.bifaci.io import FrameReader, FrameWriter
-from capns.bifaci.relay import RelaySlave, RelayMaster
+from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.io import FrameReader, FrameWriter
+from capdag.bifaci.relay import RelaySlave, RelayMaster
 
 
 def make_pipe():

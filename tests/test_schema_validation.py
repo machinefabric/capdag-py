@@ -1,19 +1,19 @@
-"""Tests for schema_validation - mirroring capns Rust tests
+"""Tests for schema_validation - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
 import json
-from capns import CapUrn, Cap, CapArg, CapOutput
-from capns.cap.definition import PositionSource, MediaSpecDef
-from capns.cap.schema_validation import (
+from capdag import CapUrn, Cap, CapArg, CapOutput
+from capdag.cap.definition import PositionSource, MediaSpecDef
+from capdag.cap.schema_validation import (
     SchemaValidator,
     ArgumentValidationError,
     OutputValidationError,
     SchemaCompilationError,
 )
-from capns.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
+from capdag.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
 
 
 def _test_urn(tags: str) -> str:

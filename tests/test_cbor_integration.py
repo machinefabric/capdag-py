@@ -13,7 +13,7 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 import socket
 import threading
-from capns.bifaci.frame import (
+from capdag.bifaci.frame import (
     Frame,
     FrameType,
     MessageId,
@@ -22,7 +22,7 @@ from capns.bifaci.frame import (
     DEFAULT_MAX_CHUNK,
     compute_checksum,
 )
-from capns.bifaci.io import (
+from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
     handshake,

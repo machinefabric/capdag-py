@@ -16,7 +16,7 @@ This matches the Rust PluginHostRuntime and Go PluginHost architectures exactly.
 
 Usage:
 ```python
-from capns.plugin_host_runtime import PluginHost
+from capdag.plugin_host_runtime import PluginHost
 
 host = PluginHost()
 host.register_plugin("/path/to/plugin", ["cap:op=convert"])
@@ -31,14 +31,14 @@ import queue
 from typing import Optional, List, Callable
 from dataclasses import dataclass
 
-from capns.bifaci.frame import Frame, FrameType, Limits
-from capns.bifaci.io import (
+from capdag.bifaci.frame import Frame, FrameType, Limits
+from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
     handshake,
     CborError,
 )
-from capns.urn.cap_urn import CapUrn, CapUrnError
+from capdag.urn.cap_urn import CapUrn, CapUrnError
 
 
 # =========================================================================

@@ -1,12 +1,12 @@
-"""Tests for validation - mirroring capns Rust tests
+"""Tests for validation - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns import CapUrn, Cap, CapArg
-from capns.cap.definition import PositionSource, CliFlagSource, StdinSource
-from capns.cap.validation import (
+from capdag import CapUrn, Cap, CapArg
+from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
+from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,
     MissingRequiredArgumentError,
@@ -14,7 +14,7 @@ from capns.cap.validation import (
     TooManyArgumentsError,
     RESERVED_CLI_FLAGS,
 )
-from capns.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_OBJECT
+from capdag.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_OBJECT
 
 
 def _test_urn(tags: str) -> str:

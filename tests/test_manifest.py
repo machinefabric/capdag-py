@@ -1,14 +1,14 @@
-"""Tests for CapManifest - mirroring capns Rust tests
+"""Tests for CapManifest - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
 import json
-from capns import CapUrn
-from capns.cap.definition import Cap, CapArg, StdinSource
-from capns.bifaci.manifest import CapManifest
-from capns.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT
+from capdag import CapUrn
+from capdag.cap.definition import Cap, CapArg, StdinSource
+from capdag.bifaci.manifest import CapManifest
+from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT
 
 
 def _test_urn(tags: str) -> str:

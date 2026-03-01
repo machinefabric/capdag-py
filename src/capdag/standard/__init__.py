@@ -1,6 +1,6 @@
 """Standard capability definitions and helpers"""
 
-from capns.standard.caps import (
+from capdag.standard.caps import (
     model_availability_urn,
     model_path_urn,
     llm_conversation_urn,

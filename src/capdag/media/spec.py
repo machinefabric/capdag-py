@@ -12,36 +12,36 @@ Built-in primitives are available without explicit declaration.
 
 ## MediaSpec Format
 Canonical form: `<media-type>; profile=<url>`
-Example: `text/plain; profile=https://capns.org/schema/str`
+Example: `text/plain; profile=https://capdag.com/schema/str`
 """
 
 import os
 from typing import List, Optional, Any, Dict
 
-from capns.urn.media_urn import MediaUrn
+from capdag.urn.media_urn import MediaUrn
 
 
 # =============================================================================
 # PROFILE URLS (canonical /schema/ path)
 # =============================================================================
 
-# Base URL for capns schemas (default, use `get_schema_base()` for configurable version)
-SCHEMA_BASE = "https://capns.org/schema"
+# Base URL for capdag schemas (default, use `get_schema_base()` for configurable version)
+SCHEMA_BASE = "https://capdag.com/schema"
 
 
 def get_schema_base() -> str:
     """Get the schema base URL from environment variables or default
 
     Checks in order:
-    1. `CAPNS_SCHEMA_BASE_URL` environment variable
-    2. `CAPNS_REGISTRY_URL` environment variable + "/schema"
-    3. Default: "https://capns.org/schema"
+    1. `CAPDAG_SCHEMA_BASE_URL` environment variable
+    2. `CAPDAG_REGISTRY_URL` environment variable + "/schema"
+    3. Default: "https://capdag.com/schema"
     """
-    schema_url = os.getenv("CAPNS_SCHEMA_BASE_URL")
+    schema_url = os.getenv("CAPDAG_SCHEMA_BASE_URL")
     if schema_url:
         return schema_url
 
-    registry_url = os.getenv("CAPNS_REGISTRY_URL")
+    registry_url = os.getenv("CAPDAG_REGISTRY_URL")
     if registry_url:
         return f"{registry_url}/schema"
 
@@ -58,93 +58,93 @@ def get_profile_url(profile_name: str) -> str:
 
 
 # Profile URL for string type
-PROFILE_STR = "https://capns.org/schema/str"
+PROFILE_STR = "https://capdag.com/schema/str"
 # Profile URL for integer type
-PROFILE_INT = "https://capns.org/schema/int"
+PROFILE_INT = "https://capdag.com/schema/int"
 # Profile URL for number type
-PROFILE_NUM = "https://capns.org/schema/num"
+PROFILE_NUM = "https://capdag.com/schema/num"
 # Profile URL for boolean type
-PROFILE_BOOL = "https://capns.org/schema/bool"
+PROFILE_BOOL = "https://capdag.com/schema/bool"
 # Profile URL for JSON object type
-PROFILE_OBJ = "https://capns.org/schema/obj"
+PROFILE_OBJ = "https://capdag.com/schema/obj"
 # Profile URL for string array type
-PROFILE_STR_ARRAY = "https://capns.org/schema/str-array"
+PROFILE_STR_ARRAY = "https://capdag.com/schema/str-array"
 # Profile URL for integer array type
-PROFILE_INT_ARRAY = "https://capns.org/schema/int-array"
+PROFILE_INT_ARRAY = "https://capdag.com/schema/int-array"
 # Profile URL for number array type
-PROFILE_NUM_ARRAY = "https://capns.org/schema/num-array"
+PROFILE_NUM_ARRAY = "https://capdag.com/schema/num-array"
 # Profile URL for boolean array type
-PROFILE_BOOL_ARRAY = "https://capns.org/schema/bool-array"
+PROFILE_BOOL_ARRAY = "https://capdag.com/schema/bool-array"
 # Profile URL for object array type
-PROFILE_OBJ_ARRAY = "https://capns.org/schema/obj-array"
+PROFILE_OBJ_ARRAY = "https://capdag.com/schema/obj-array"
 # Profile URL for void (no input)
-PROFILE_VOID = "https://capns.org/schema/void"
+PROFILE_VOID = "https://capdag.com/schema/void"
 
 # =============================================================================
 # SEMANTIC CONTENT TYPE PROFILE URLS
 # =============================================================================
 
 # Profile URL for image data (png, jpg, gif, etc.)
-PROFILE_IMAGE = "https://capns.org/schema/image"
+PROFILE_IMAGE = "https://capdag.com/schema/image"
 # Profile URL for audio data (wav, mp3, flac, etc.)
-PROFILE_AUDIO = "https://capns.org/schema/audio"
+PROFILE_AUDIO = "https://capdag.com/schema/audio"
 # Profile URL for video data (mp4, webm, mov, etc.)
-PROFILE_VIDEO = "https://capns.org/schema/video"
+PROFILE_VIDEO = "https://capdag.com/schema/video"
 # Profile URL for generic text
-PROFILE_TEXT = "https://capns.org/schema/text"
+PROFILE_TEXT = "https://capdag.com/schema/text"
 
 # =============================================================================
 # DOCUMENT TYPE PROFILE URLS (PRIMARY naming)
 # =============================================================================
 
 # Profile URL for PDF documents
-PROFILE_PDF = "https://capns.org/schema/pdf"
+PROFILE_PDF = "https://capdag.com/schema/pdf"
 # Profile URL for EPUB documents
-PROFILE_EPUB = "https://capns.org/schema/epub"
+PROFILE_EPUB = "https://capdag.com/schema/epub"
 
 # =============================================================================
 # TEXT FORMAT TYPE PROFILE URLS (PRIMARY naming)
 # =============================================================================
 
 # Profile URL for Markdown text
-PROFILE_MD = "https://capns.org/schema/md"
+PROFILE_MD = "https://capdag.com/schema/md"
 # Profile URL for plain text
-PROFILE_TXT = "https://capns.org/schema/txt"
+PROFILE_TXT = "https://capdag.com/schema/txt"
 # Profile URL for reStructuredText
-PROFILE_RST = "https://capns.org/schema/rst"
+PROFILE_RST = "https://capdag.com/schema/rst"
 # Profile URL for log files
-PROFILE_LOG = "https://capns.org/schema/log"
+PROFILE_LOG = "https://capdag.com/schema/log"
 # Profile URL for HTML documents
-PROFILE_HTML = "https://capns.org/schema/html"
+PROFILE_HTML = "https://capdag.com/schema/html"
 # Profile URL for XML documents
-PROFILE_XML = "https://capns.org/schema/xml"
+PROFILE_XML = "https://capdag.com/schema/xml"
 # Profile URL for JSON data
-PROFILE_JSON = "https://capns.org/schema/json"
+PROFILE_JSON = "https://capdag.com/schema/json"
 # Profile URL for YAML data
-PROFILE_YAML = "https://capns.org/schema/yaml"
+PROFILE_YAML = "https://capdag.com/schema/yaml"
 
 # =============================================================================
-# CAPNS OUTPUT PROFILE URLS
+# CAPDAG OUTPUT PROFILE URLS
 # =============================================================================
 
 # Profile URL for model download output
-PROFILE_CAPNS_DOWNLOAD_OUTPUT = "https://capns.org/schema/download-output"
+PROFILE_CAPDAG_DOWNLOAD_OUTPUT = "https://capdag.com/schema/download-output"
 # Profile URL for model load output
-PROFILE_CAPNS_LOAD_OUTPUT = "https://capns.org/schema/load-output"
+PROFILE_CAPDAG_LOAD_OUTPUT = "https://capdag.com/schema/load-output"
 # Profile URL for model unload output
-PROFILE_CAPNS_UNLOAD_OUTPUT = "https://capns.org/schema/unload-output"
+PROFILE_CAPDAG_UNLOAD_OUTPUT = "https://capdag.com/schema/unload-output"
 # Profile URL for model list output
-PROFILE_CAPNS_LIST_OUTPUT = "https://capns.org/schema/model-list"
+PROFILE_CAPDAG_LIST_OUTPUT = "https://capdag.com/schema/model-list"
 # Profile URL for model status output
-PROFILE_CAPNS_STATUS_OUTPUT = "https://capns.org/schema/status-output"
+PROFILE_CAPDAG_STATUS_OUTPUT = "https://capdag.com/schema/status-output"
 # Profile URL for model contents output
-PROFILE_CAPNS_CONTENTS_OUTPUT = "https://capns.org/schema/contents-output"
+PROFILE_CAPDAG_CONTENTS_OUTPUT = "https://capdag.com/schema/contents-output"
 # Profile URL for embeddings generate output
-PROFILE_CAPNS_GENERATE_OUTPUT = "https://capns.org/schema/embeddings"
+PROFILE_CAPDAG_GENERATE_OUTPUT = "https://capdag.com/schema/embeddings"
 # Profile URL for structured query output
-PROFILE_CAPNS_STRUCTURED_QUERY_OUTPUT = "https://capns.org/schema/structured-query-output"
+PROFILE_CAPDAG_STRUCTURED_QUERY_OUTPUT = "https://capdag.com/schema/structured-query-output"
 # Profile URL for questions array
-PROFILE_CAPNS_QUESTIONS_ARRAY = "https://capns.org/schema/questions-array"
+PROFILE_CAPDAG_QUESTIONS_ARRAY = "https://capdag.com/schema/questions-array"
 
 
 # =============================================================================
@@ -528,7 +528,7 @@ class DuplicateMediaUrn(MediaSpecError):
 async def resolve_media_urn(
     media_urn: str,
     media_specs: Optional[List[MediaSpecDef]],
-    registry: "capns.media_registry.MediaUrnRegistry",
+    registry: "capdag.media_registry.MediaUrnRegistry",
 ) -> ResolvedMediaSpec:
     """Resolve a media URN to a full media spec definition.
 
@@ -590,7 +590,7 @@ async def resolve_media_urn(
         # Log and continue to error
         print(
             f"[WARN] Media URN '{media_urn}' not found in registry: {e} - "
-            f"ensure it's defined in capns-dot-org/standard/media/"
+            f"ensure it's defined in capdag-dot-com/standard/media/"
         )
 
     # Fail - not found in any source

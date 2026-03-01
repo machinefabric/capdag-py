@@ -1,10 +1,10 @@
-"""Tests for cbor_frame - mirroring capns Rust tests
+"""Tests for cbor_frame - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns.bifaci.frame import (
+from capdag.bifaci.frame import (
     FrameType,
     MessageId,
     Limits,

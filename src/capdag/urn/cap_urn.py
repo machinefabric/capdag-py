@@ -10,7 +10,7 @@ tags default to "media:" (wildcard). Explicit "*" also expands to "media:".
 
 from typing import Dict, List, Optional
 from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
-from capns.urn.media_urn import MediaUrn, MediaUrnError
+from capdag.urn.media_urn import MediaUrn, MediaUrnError
 
 
 class CapUrnError(Exception):

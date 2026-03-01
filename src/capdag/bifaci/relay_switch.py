@@ -33,9 +33,9 @@ import queue
 from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass
 
-from capns.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
-from capns.bifaci.io import FrameReader, FrameWriter, CborError
-from capns.urn.cap_urn import CapUrn
+from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
+from capdag.bifaci.io import FrameReader, FrameWriter, CborError
+from capdag.urn.cap_urn import CapUrn
 
 # =============================================================================
 # ERROR TYPES

@@ -20,7 +20,7 @@ runtime handles all I/O mechanics:
 # Example
 
 ```python
-from capns import PluginRuntime, CapManifest
+from capdag import PluginRuntime, CapManifest
 
 def main():
     manifest = build_manifest()  # Your manifest with caps
@@ -56,13 +56,13 @@ import cbor2
 
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 
-from capns.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey
-from capns.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
-from capns.cap.caller import CapArgumentValue
-from capns.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
-from capns.urn.cap_urn import CapUrn
-from capns.bifaci.manifest import CapManifest
-from capns.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY
+from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey
+from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
+from capdag.cap.caller import CapArgumentValue
+from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
+from capdag.urn.cap_urn import CapUrn
+from capdag.bifaci.manifest import CapManifest
+from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY
 
 
 class RuntimeError(Exception):
@@ -544,7 +544,7 @@ class ThreadSafeEmitter:
 # =============================================================================
 
 class Request:
-    """Bundles capns I/O for WetContext. Op handlers extract this from WetContext
+    """Bundles capdag I/O for WetContext. Op handlers extract this from WetContext
     to access streaming input frames, output emitter, and peer invocation.
     """
 
@@ -965,7 +965,7 @@ class PluginRuntime:
         IMPORTANT: Manifest MUST declare CAP_IDENTITY - fails hard if missing.
         """
         # Validate manifest - FAIL HARD if CAP_IDENTITY not declared
-        from capns.standard.caps import CAP_IDENTITY
+        from capdag.standard.caps import CAP_IDENTITY
         identity_urn = CapUrn.from_string(CAP_IDENTITY)
 
         has_identity = any(
@@ -994,7 +994,7 @@ class PluginRuntime:
 
         Plugin authors can override either by calling register_op() after construction.
         """
-        from capns.standard.caps import CAP_IDENTITY, CAP_DISCARD
+        from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
 
         # Auto-register if not already present (mirrors Rust: find_handler check)
         if self.find_handler(CAP_IDENTITY) is None:
@@ -1860,7 +1860,7 @@ class PluginRuntime:
                 raise CliError(f"Invalid media URN '{arg_def.media_urn}': {e}")
 
             # Check if this arg requires file-path to bytes conversion using pattern matching
-            from capns.cap.definition import StdinSource
+            from capdag.cap.definition import StdinSource
 
             file_path_pattern = MediaUrn.from_string(MEDIA_FILE_PATH)
             file_path_array_pattern = MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY)
@@ -1917,7 +1917,7 @@ class PluginRuntime:
         - arg.media_urn is "media:file-path" or "media:file-path-array"
         - arg has a stdin source (indicating bytes are the canonical type)
         """
-        from capns.cap.definition import StdinSource, PositionSource, CliFlagSource
+        from capdag.cap.definition import StdinSource, PositionSource, CliFlagSource
 
         # Check if this arg requires file-path to bytes conversion using pattern matching
         try:

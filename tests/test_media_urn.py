@@ -1,10 +1,10 @@
-"""Tests for MediaUrn - mirroring capns Rust tests
+"""Tests for MediaUrn - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns import (
+from capdag import (
     MediaUrn,
     MediaUrnError,
     MEDIA_VOID,

@@ -12,10 +12,10 @@ from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 from collections import deque
 
-from capns.cap.definition import Cap
-from capns.urn.cap_urn import CapUrn
-from capns.urn.media_urn import MediaUrn
-from capns.cap.caller import CapSet
+from capdag.cap.definition import Cap
+from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MediaUrn
+from capdag.cap.caller import CapSet
 
 
 class CapMatrixError(Exception):

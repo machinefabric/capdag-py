@@ -5,7 +5,7 @@ This module defines the unified manifest interface with standardized cap-based d
 
 import json
 from typing import List, Optional, Dict, Any
-from capns.cap.definition import Cap
+from capdag.cap.definition import Cap
 
 
 class CapManifest:
@@ -85,8 +85,8 @@ class CapManifest:
 
         Raises ValueError if identity cap is missing.
         """
-        from capns.urn.cap_urn import CapUrn
-        from capns.standard.caps import CAP_IDENTITY
+        from capdag.urn.cap_urn import CapUrn
+        from capdag.standard.caps import CAP_IDENTITY
 
         identity_urn = CapUrn.from_string(CAP_IDENTITY)
         has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.caps)
@@ -98,8 +98,8 @@ class CapManifest:
 
         Returns self for method chaining.
         """
-        from capns.urn.cap_urn import CapUrn
-        from capns.standard.caps import CAP_IDENTITY
+        from capdag.urn.cap_urn import CapUrn
+        from capdag.standard.caps import CAP_IDENTITY
 
         identity_urn = CapUrn.from_string(CAP_IDENTITY)
         has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.caps)

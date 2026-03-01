@@ -1,11 +1,11 @@
-"""Tests for cbor_io - mirroring capns Rust tests
+"""Tests for cbor_io - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
 import io
-from capns.bifaci.io import (
+from capdag.bifaci.io import (
     encode_frame,
     decode_frame,
     read_frame,
@@ -20,7 +20,7 @@ from capns.bifaci.io import (
     UnexpectedEofError,
     HandshakeError,
 )
-from capns.bifaci.frame import (
+from capdag.bifaci.frame import (
     Frame,
     FrameType,
     MessageId,

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "capns"
+name = "capdag"
 version = "{{ project.version }}"
 description = "Core cap URN and definition system for MACINA plugins"
 authors = [{name = "https://github.com/machinefabric"}]

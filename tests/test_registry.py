@@ -1,4 +1,4 @@
-"""Tests for registry - mirroring capns Rust tests
+"""Tests for registry - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
@@ -8,9 +8,9 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from capns import Cap, CapUrn, CapArg
-from capns.cap.definition import PositionSource, StdinSource
-from capns.cap.registry import (
+from capdag import Cap, CapUrn, CapArg
+from capdag.cap.definition import PositionSource, StdinSource
+from capdag.cap.registry import (
     CapRegistry,
     RegistryConfig,
     normalize_cap_urn,
@@ -19,7 +19,7 @@ from capns.cap.registry import (
     ValidationError,
     CacheError,
 )
-from capns.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT, MEDIA_STRING
+from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT, MEDIA_STRING
 
 
 def _test_urn(tags: str) -> str:
@@ -199,13 +199,13 @@ def test_142_normalize_handles_different_tag_orders():
     assert normalized1 == normalized2
 
 
-# TEST143: Test default config uses capns.org or environment variable values
+# TEST143: Test default config uses capdag.com or environment variable values
 def test_143_default_config():
     """Test default configuration"""
     config = RegistryConfig()
 
-    # Default should use capns.org (unless env var is set)
-    assert "capns.org" in config.registry_base_url or os.getenv("CAPNS_REGISTRY_URL") is not None
+    # Default should use capdag.com (unless env var is set)
+    assert "capdag.com" in config.registry_base_url or os.getenv("CAPDAG_REGISTRY_URL") is not None
     assert "/schema" in config.schema_base_url
 
 

@@ -12,8 +12,8 @@ All other frames pass through transparently in both directions.
 import threading
 from typing import Optional
 
-from capns.bifaci.frame import Frame, FrameType, Limits
-from capns.bifaci.io import (
+from capdag.bifaci.frame import Frame, FrameType, Limits
+from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
     CborError,

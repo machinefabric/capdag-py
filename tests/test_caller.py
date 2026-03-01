@@ -1,19 +1,19 @@
-"""Tests for caller - mirroring capns Rust tests
+"""Tests for caller - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns.cap.caller import (
+from capdag.cap.caller import (
     StdinSourceData,
     StdinSourceFileReference,
     CapArgumentValue,
     CapCaller,
     CapSet,
 )
-from capns import Cap, CapUrn, CapArg
-from capns.cap.definition import PositionSource
-from capns.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
+from capdag import Cap, CapUrn, CapArg
+from capdag.cap.definition import PositionSource
+from capdag.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
 
 
 def _test_urn(tags: str) -> str:

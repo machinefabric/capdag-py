@@ -147,7 +147,7 @@ class CapCaller:
 
         Returns only arguments that have a position source set.
         """
-        from capns.cap.definition import PositionSource
+        from capdag.cap.definition import PositionSource
 
         positions = {}
         for arg in self.cap_definition.get_args():
@@ -200,7 +200,7 @@ class CapCaller:
             ValueError: If validation fails
             RuntimeError: If execution fails
         """
-        from capns.cap.response import ResponseWrapper
+        from capdag.cap.response import ResponseWrapper
 
         # Validate arguments against cap definition
         self.validate_arguments(arguments)

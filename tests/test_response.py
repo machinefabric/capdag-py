@@ -1,4 +1,4 @@
-"""Tests for ResponseWrapper - mirroring capns Rust tests
+"""Tests for ResponseWrapper - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
@@ -6,7 +6,7 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 import json
 from dataclasses import dataclass
-from capns.cap.response import ResponseWrapper
+from capdag.cap.response import ResponseWrapper
 
 
 @dataclass

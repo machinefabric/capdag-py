@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "capns"
-version = "0.79.31424"
+name = "capdag"
+version = "0.80.31440"
 description = "Core cap URN and definition system for MACINA plugins"
 authors = [{name = "https://github.com/machinefabric"}]
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
-    "tagged-urn>=0.12.2986",
+    "tagged-urn>=0.13.2996",
     "cbor2>=5.4.0",
 ]
 

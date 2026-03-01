@@ -1,10 +1,10 @@
-"""Tests for cap_matrix - mirroring capns Rust tests
+"""Tests for cap_matrix - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns import (
+from capdag import (
     Cap, CapUrn, CapOutput, CapSet, CapArgumentValue,
     CapGraph, CapGraphEdge, CapMatrix, CapBlock, BestCapSetMatch,
     CapMatrixError, NoSetsFoundError, InvalidUrnError,
@@ -645,7 +645,7 @@ def test_575_cap_block_get_registry():
 
 # TEST568: CapGraph::find_best_path returns highest-specificity path over shortest
 def test_568_cap_graph_find_best_path():
-    from capns.urn.cap_matrix import CapGraph
+    from capdag.urn.cap_matrix import CapGraph
     graph = CapGraph()
 
     # Direct path: binary -> obj (low specificity, just op)
@@ -708,7 +708,7 @@ def test_573_cap_matrix_iter_hosts_and_caps():
 
 # TEST577: CapGraph::get_input_specs and get_output_specs return correct sets
 def test_577_cap_graph_input_output_specs():
-    from capns.urn.cap_matrix import CapGraph
+    from capdag.urn.cap_matrix import CapGraph
     graph = CapGraph()
 
     cap = make_cap(

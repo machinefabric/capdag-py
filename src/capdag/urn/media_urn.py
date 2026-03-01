@@ -107,7 +107,7 @@ MEDIA_MLX_MODEL_PATH = "media:mlx-model-path;textable"
 # Media URN for model repository (input for list-models) - matches CATALOG
 MEDIA_MODEL_REPO = "media:model-repo;record;textable"
 
-# CAPNS output types - all record structures (JSON objects)
+# CAPDAG output types - all record structures (JSON objects)
 # Media URN for model dimension output - matches CATALOG
 MEDIA_MODEL_DIM = "media:integer;model-dim;numeric;textable"
 # Media URN for model download output - record structure

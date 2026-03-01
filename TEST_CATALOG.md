@@ -2,7 +2,7 @@
 
 **Total Tests:** 398
 
-This catalog lists all numbered tests in the capns-py codebase.
+This catalog lists all numbered tests in the capdag-py codebase.
 
 | Test # | Function Name | Description | Location |
 |--------|---------------|-------------|----------|
@@ -120,7 +120,7 @@ This catalog lists all numbered tests in the capns-py codebase.
 | test140 | `test_140_url_encodes_quoted_media_urns` | TEST140: Test URL encodes media URNs with proper percent encoding for special characters | tests/test_registry.py:153 |
 | test141 | `test_141_exact_url_format` | TEST141: Test exact URL format contains properly encoded media URN components | tests/test_registry.py:173 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:190 |
-| test143 | `test_143_default_config` | TEST143: Test default config uses capns.org or environment variable values | tests/test_registry.py:203 |
+| test143 | `test_143_default_config` | TEST143: Test default config uses capdag.com or environment variable values | tests/test_registry.py:203 |
 | test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:213 |
 | test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:222 |
 | test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:233 |
@@ -407,5 +407,5 @@ This catalog lists all numbered tests in the capns-py codebase.
 
 ---
 
-*Generated from capns-py source tree*
+*Generated from capdag-py source tree*
 *Total numbered tests: 398*

@@ -4,8 +4,8 @@ This module provides standard capability URN builders used across
 all MACINA providers. These are the single source of truth for URN construction.
 """
 
-from capns.urn.cap_urn import CapUrn, CapUrnBuilder
-from capns.urn.media_urn import (
+from capdag.urn.cap_urn import CapUrn, CapUrnBuilder
+from capdag.urn.media_urn import (
     # Primitives
     MEDIA_STRING,
     MEDIA_INTEGER,
@@ -29,7 +29,7 @@ from capns.urn.media_urn import (
     MEDIA_JSON_SCHEMA,
     # Semantic output types
     MEDIA_IMAGE_THUMBNAIL,
-    # CAPNS output types
+    # CAPDAG output types
     MEDIA_MODEL_DIM,
     MEDIA_DOWNLOAD_OUTPUT,
     MEDIA_LIST_OUTPUT,
@@ -58,7 +58,7 @@ CAP_IDENTITY = "cap:"
 
 # Discard capability — the terminal morphism. Standard, NOT mandatory.
 # Accepts any media type as input and produces void output.
-# The capns lib provides a default implementation; plugins may override.
+# The capdag lib provides a default implementation; plugins may override.
 CAP_DISCARD = "cap:in=media:;out=media:void"
 
 

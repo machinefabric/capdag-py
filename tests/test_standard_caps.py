@@ -1,16 +1,16 @@
-"""Tests for standard caps URN builders - mirroring capns Rust tests
+"""Tests for standard caps URN builders - mirroring capdag Rust tests
 
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
 import pytest
-from capns import CapUrn, MediaUrn
-from capns.standard.caps import (
+from capdag import CapUrn, MediaUrn
+from capdag.standard.caps import (
     model_availability_urn,
     model_path_urn,
     llm_conversation_urn,
 )
-from capns.urn.media_urn import (
+from capdag.urn.media_urn import (
     MEDIA_MODEL_SPEC,
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_PATH_OUTPUT,

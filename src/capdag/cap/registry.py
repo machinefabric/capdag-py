@@ -24,11 +24,11 @@ try:
 except ImportError:
     HTTPX_AVAILABLE = False
 
-from capns.cap.definition import Cap
-from capns.urn.cap_urn import CapUrn
+from capdag.cap.definition import Cap
+from capdag.urn.cap_urn import CapUrn
 
 
-DEFAULT_REGISTRY_BASE_URL = "https://capns.org"
+DEFAULT_REGISTRY_BASE_URL = "https://capdag.com"
 CACHE_DURATION_HOURS = 24
 
 
@@ -107,12 +107,12 @@ class CacheEntry:
 
 
 class RegistryConfig:
-    """Configuration for the CAPNS registry
+    """Configuration for the CAPDAG registry
 
     Supports configuration via:
     1. Builder methods (highest priority)
-    2. Environment variables (CAPNS_REGISTRY_URL, CAPNS_SCHEMA_BASE_URL)
-    3. Default values (https://capns.org)
+    2. Environment variables (CAPDAG_REGISTRY_URL, CAPDAG_SCHEMA_BASE_URL)
+    3. Default values (https://capdag.com)
     """
 
     def __init__(
@@ -127,10 +127,10 @@ class RegistryConfig:
             schema_base_url: Base URL for schema profiles
         """
         if registry_base_url is None:
-            registry_base_url = os.getenv("CAPNS_REGISTRY_URL", DEFAULT_REGISTRY_BASE_URL)
+            registry_base_url = os.getenv("CAPDAG_REGISTRY_URL", DEFAULT_REGISTRY_BASE_URL)
 
         if schema_base_url is None:
-            schema_base_url = os.getenv("CAPNS_SCHEMA_BASE_URL", f"{registry_base_url}/schema")
+            schema_base_url = os.getenv("CAPDAG_SCHEMA_BASE_URL", f"{registry_base_url}/schema")
 
         self.registry_base_url = registry_base_url
         self.schema_base_url = schema_base_url
@@ -186,8 +186,8 @@ class CapRegistry:
         """Create a new CapRegistry with default configuration
 
         Uses configuration from environment variables or defaults:
-        - `CAPNS_REGISTRY_URL`: Base URL for the registry (default: https://capns.org)
-        - `CAPNS_SCHEMA_BASE_URL`: Base URL for schemas (default: {registry_url}/schema)
+        - `CAPDAG_REGISTRY_URL`: Base URL for the registry (default: https://capdag.com)
+        - `CAPDAG_SCHEMA_BASE_URL`: Base URL for schemas (default: {registry_url}/schema)
         """
         return await cls.with_config(RegistryConfig())
 
@@ -223,7 +223,7 @@ class CapRegistry:
         else:
             cache_base = Path.home() / '.cache'
 
-        return cache_base / 'capns'
+        return cache_base / 'capdag'
 
     def _load_all_cached_caps(self) -> None:
         """Load all cached caps from disk into memory"""
@@ -462,7 +462,7 @@ class CapRegistry:
         This is a synchronous constructor that doesn't perform any initialization.
         Intended for use in tests only.
         """
-        cache_dir = Path("/tmp/capns-test-cache")
+        cache_dir = Path("/tmp/capdag-test-cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
@@ -475,7 +475,7 @@ class CapRegistry:
 
         Intended for use in tests only.
         """
-        cache_dir = Path("/tmp/capns-test-cache")
+        cache_dir = Path("/tmp/capdag-test-cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None

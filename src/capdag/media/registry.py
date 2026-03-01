@@ -1,7 +1,7 @@
 """Media URN Registry - Remote lookup and caching for media specs
 
 This module provides the `MediaUrnRegistry` which handles:
-- Remote lookup of media specs via `https://capns.org/media:xxx`
+- Remote lookup of media specs via `https://capdag.com/media:xxx`
 - Two-level caching (in-memory dict + disk with TTL)
 - Bundled standard media specs
 
@@ -33,8 +33,8 @@ try:
 except ImportError:
     HTTPX_AVAILABLE = False
 
-from capns.urn.media_urn import MediaUrn
-from capns.cap.registry import RegistryConfig
+from capdag.urn.media_urn import MediaUrn
+from capdag.cap.registry import RegistryConfig
 
 
 CACHE_DURATION_HOURS = 24
@@ -198,8 +198,8 @@ class MediaUrnRegistry:
         """Create a new MediaUrnRegistry with standard media specs bundled
 
         Uses configuration from environment variables or defaults:
-        - `CAPNS_REGISTRY_URL`: Base URL for the registry (default: https://capns.org)
-        - `CAPNS_SCHEMA_BASE_URL`: Base URL for schemas (default: {registry_url}/schema)
+        - `CAPDAG_REGISTRY_URL`: Base URL for the registry (default: https://capdag.com)
+        - `CAPDAG_SCHEMA_BASE_URL`: Base URL for schemas (default: {registry_url}/schema)
         """
         return await cls.with_config(RegistryConfig())
 
@@ -234,7 +234,7 @@ class MediaUrnRegistry:
         else:
             cache_base = Path.home() / '.cache'
 
-        return cache_base / 'capns' / 'media'
+        return cache_base / 'capdag' / 'media'
 
     def _load_all_cached_specs(self) -> None:
         """Load all cached specs from disk into memory"""
@@ -291,7 +291,7 @@ class MediaUrnRegistry:
         adjacent to the Rust implementation.
         """
         # Try to find standard media specs directory
-        standard_dir = Path(__file__).parent.parent.parent.parent.parent / "capns" / "standard" / "media"
+        standard_dir = Path(__file__).parent.parent.parent.parent.parent / "capdag" / "standard" / "media"
 
         if not standard_dir.exists():
             # Alternative: look in sibling directory
@@ -338,7 +338,7 @@ class MediaUrnRegistry:
 
     def get_standard_specs(self) -> List[StoredMediaSpec]:
         """Get all bundled standard media specs without network access"""
-        standard_dir = Path(__file__).parent.parent.parent.parent.parent / "capns" / "standard" / "media"
+        standard_dir = Path(__file__).parent.parent.parent.parent.parent / "capdag" / "standard" / "media"
 
         if not standard_dir.exists():
             standard_dir = Path(__file__).parent.parent.parent.parent / "standard" / "media"
@@ -456,7 +456,7 @@ class MediaUrnRegistry:
             if ext_lower not in self.extension_index:
                 raise ExtensionNotFoundError(
                     f"No media spec registered for extension '{extension}'. "
-                    f"Ensure the media spec is defined in capns-dot-org/standard/media/ with an 'extension' field."
+                    f"Ensure the media spec is defined in capdag-dot-com/standard/media/ with an 'extension' field."
                 )
             return self.extension_index[ext_lower].copy()
 

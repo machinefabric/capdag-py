@@ -6,7 +6,7 @@ identifiers with flat tag-based naming, wildcard support, and specificity compar
 """
 
 # URN module
-from capns.urn.media_urn import (
+from capdag.urn.media_urn import (
     MediaUrn,
     MediaUrnError,
     # Standard media URN constants
@@ -66,14 +66,14 @@ from capns.urn.media_urn import (
     audio_media_urn_for_ext,
 )
 
-from capns.urn.cap_urn import (
+from capdag.urn.cap_urn import (
     CapUrn,
     CapUrnError,
     CapUrnBuilder,
     CapMatcher,
 )
 
-from capns.urn.cap_matrix import (
+from capdag.urn.cap_matrix import (
     CapGraph,
     CapGraphEdge,
     CapMatrix,
@@ -86,9 +86,9 @@ from capns.urn.cap_matrix import (
 )
 
 # Cap module
-from capns.cap.response import ResponseWrapper
-from capns.cap.definition import Cap, CapArg, CapOutput, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
-from capns.cap.validation import (
+from capdag.cap.response import ResponseWrapper
+from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
+from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,
     ValidationError,
@@ -99,7 +99,7 @@ from capns.cap.validation import (
     MediaSpecValidationError,
     RESERVED_CLI_FLAGS,
 )
-from capns.cap.schema_validation import (
+from capdag.cap.schema_validation import (
     SchemaValidator,
     SchemaValidationError,
     SchemaCompilationError,
@@ -107,14 +107,14 @@ from capns.cap.schema_validation import (
     OutputValidationError,
     MediaUrnNotResolvedError,
 )
-from capns.cap.caller import (
+from capdag.cap.caller import (
     StdinSourceData,
     StdinSourceFileReference,
     CapArgumentValue,
     CapSet,
     CapCaller,
 )
-from capns.cap.registry import (
+from capdag.cap.registry import (
     CapRegistry,
     RegistryConfig,
     RegistryError,
@@ -126,14 +126,14 @@ from capns.cap.registry import (
 )
 
 # Media module
-from capns.media.registry import (
+from capdag.media.registry import (
     MediaUrnRegistry,
     StoredMediaSpec,
     MediaRegistryError,
     ExtensionNotFoundError,
     normalize_media_urn,
 )
-from capns.media.spec import (
+from capdag.media.spec import (
     MediaValidation,
     ResolvedMediaSpec,
     MediaSpecError,
@@ -168,29 +168,29 @@ from capns.media.spec import (
     PROFILE_XML,
     PROFILE_JSON,
     PROFILE_YAML,
-    PROFILE_CAPNS_DOWNLOAD_OUTPUT,
-    PROFILE_CAPNS_LOAD_OUTPUT,
-    PROFILE_CAPNS_UNLOAD_OUTPUT,
-    PROFILE_CAPNS_LIST_OUTPUT,
-    PROFILE_CAPNS_STATUS_OUTPUT,
-    PROFILE_CAPNS_CONTENTS_OUTPUT,
-    PROFILE_CAPNS_GENERATE_OUTPUT,
-    PROFILE_CAPNS_STRUCTURED_QUERY_OUTPUT,
-    PROFILE_CAPNS_QUESTIONS_ARRAY,
+    PROFILE_CAPDAG_DOWNLOAD_OUTPUT,
+    PROFILE_CAPDAG_LOAD_OUTPUT,
+    PROFILE_CAPDAG_UNLOAD_OUTPUT,
+    PROFILE_CAPDAG_LIST_OUTPUT,
+    PROFILE_CAPDAG_STATUS_OUTPUT,
+    PROFILE_CAPDAG_CONTENTS_OUTPUT,
+    PROFILE_CAPDAG_GENERATE_OUTPUT,
+    PROFILE_CAPDAG_STRUCTURED_QUERY_OUTPUT,
+    PROFILE_CAPDAG_QUESTIONS_ARRAY,
     get_schema_base,
     get_profile_url,
 )
 
 # Bifaci module
-from capns.bifaci.manifest import CapManifest
-from capns.bifaci.relay import (
+from capdag.bifaci.manifest import CapManifest
+from capdag.bifaci.relay import (
     RelaySlave,
     RelayMaster,
     RelayError,
 )
 
 # Standard module
-from capns.standard.caps import (
+from capdag.standard.caps import (
     CAP_IDENTITY,
     CAP_DISCARD,
     model_availability_urn,
@@ -346,15 +346,15 @@ __all__ = [
     "PROFILE_XML",
     "PROFILE_JSON",
     "PROFILE_YAML",
-    "PROFILE_CAPNS_DOWNLOAD_OUTPUT",
-    "PROFILE_CAPNS_LOAD_OUTPUT",
-    "PROFILE_CAPNS_UNLOAD_OUTPUT",
-    "PROFILE_CAPNS_LIST_OUTPUT",
-    "PROFILE_CAPNS_STATUS_OUTPUT",
-    "PROFILE_CAPNS_CONTENTS_OUTPUT",
-    "PROFILE_CAPNS_GENERATE_OUTPUT",
-    "PROFILE_CAPNS_STRUCTURED_QUERY_OUTPUT",
-    "PROFILE_CAPNS_QUESTIONS_ARRAY",
+    "PROFILE_CAPDAG_DOWNLOAD_OUTPUT",
+    "PROFILE_CAPDAG_LOAD_OUTPUT",
+    "PROFILE_CAPDAG_UNLOAD_OUTPUT",
+    "PROFILE_CAPDAG_LIST_OUTPUT",
+    "PROFILE_CAPDAG_STATUS_OUTPUT",
+    "PROFILE_CAPDAG_CONTENTS_OUTPUT",
+    "PROFILE_CAPDAG_GENERATE_OUTPUT",
+    "PROFILE_CAPDAG_STRUCTURED_QUERY_OUTPUT",
+    "PROFILE_CAPDAG_QUESTIONS_ARRAY",
     "get_schema_base",
     "get_profile_url",
     # CapMatrix

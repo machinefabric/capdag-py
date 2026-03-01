@@ -8,7 +8,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from capns.media.spec import (
+from capdag.media.spec import (
     MediaValidation,
     MediaSpecDef,
     ResolvedMediaSpec,
@@ -18,7 +18,7 @@ from capns.media.spec import (
     UnresolvableMediaUrn,
     DuplicateMediaUrn,
 )
-from capns.media.registry import MediaUrnRegistry
+from capdag.media.registry import MediaUrnRegistry
 
 
 # Helper to create a test registry
@@ -68,7 +68,7 @@ async def test_090_resolve_from_registry_binary():
             urn="media:",
             media_type="application/octet-stream",
             title="Bytes",
-            profile_uri="https://capns.org/schema/bytes",
+            profile_uri="https://capdag.com/schema/bytes",
             schema=None,
             description="Raw byte sequence.",
             validation=None,
@@ -458,7 +458,7 @@ async def test_107_extensions_propagation():
             urn="media:custom-pdf",
             media_type="application/pdf",
             title="PDF Document",
-            profile_uri="https://capns.org/schema/pdf",
+            profile_uri="https://capdag.com/schema/pdf",
             schema=None,
             description="A PDF document",
             validation=None,
@@ -534,7 +534,7 @@ async def test_110_multiple_extensions():
             urn="media:image;jpeg",
             media_type="image/jpeg",
             title="JPEG Image",
-            profile_uri="https://capns.org/schema/jpeg",
+            profile_uri="https://capdag.com/schema/jpeg",
             schema=None,
             description="JPEG image data",
             validation=None,
