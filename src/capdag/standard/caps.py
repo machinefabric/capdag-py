@@ -11,7 +11,7 @@ from capdag.urn.media_urn import (
     MEDIA_INTEGER,
     MEDIA_BOOLEAN,
     MEDIA_OBJECT,
-    MEDIA_BINARY,
+    MEDIA_IDENTITY,
     # Semantic media types
     MEDIA_PNG,
     # Document types
@@ -261,10 +261,10 @@ def model_path_urn() -> CapUrn:
 # -----------------------------------------------------------------------------
 
 
-def generate_thumbnail_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
+def generate_thumbnail_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
     """Build URN for generate-thumbnail capability.
 
-    input_media is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_BINARY).
+    input_media is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_IDENTITY).
     """
     return (
         CapUrnBuilder()
@@ -275,7 +275,7 @@ def generate_thumbnail_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
     )
 
 
-def disbind_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
+def disbind_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
     """Build URN for disbind capability.
 
     input_media is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_TXT).
@@ -289,7 +289,7 @@ def disbind_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
     )
 
 
-def extract_metadata_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
+def extract_metadata_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
     """Build URN for extract-metadata capability.
 
     input_media is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_TXT).
@@ -303,7 +303,7 @@ def extract_metadata_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
     )
 
 
-def extract_outline_urn(input_media: str = MEDIA_BINARY) -> CapUrn:
+def extract_outline_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
     """Build URN for extract-outline capability.
 
     input_media is the media URN for the input type (e.g., MEDIA_PDF, MEDIA_TXT).

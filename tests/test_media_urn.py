@@ -13,7 +13,7 @@ from capdag import (
     MEDIA_NUMBER,
     MEDIA_BOOLEAN,
     MEDIA_OBJECT,
-    MEDIA_BINARY,
+    MEDIA_IDENTITY,
     MEDIA_PNG,
     MEDIA_JSON,
     MEDIA_PDF,
@@ -46,7 +46,7 @@ def test_060_wrong_prefix_fails():
 
 # TEST061: Test is_binary returns true when textable marker tag is NOT present
 def test_061_is_binary():
-    binary_urn = MediaUrn.from_string(MEDIA_BINARY)
+    binary_urn = MediaUrn.from_string(MEDIA_IDENTITY)
     assert binary_urn.is_binary()
 
     # PNG is also binary
@@ -116,7 +116,7 @@ def test_065_record_and_list():
     assert not scalar_urn.is_record()
 
     # Binary wildcard is opaque
-    bin_urn = MediaUrn.from_string(MEDIA_BINARY)
+    bin_urn = MediaUrn.from_string(MEDIA_IDENTITY)
     assert bin_urn.is_opaque()
     assert not bin_urn.is_record()
 
@@ -140,7 +140,7 @@ def test_067_is_text():
     assert json_urn.is_text()
 
     # Binary is not textable
-    bin_urn = MediaUrn.from_string(MEDIA_BINARY)
+    bin_urn = MediaUrn.from_string(MEDIA_IDENTITY)
     assert not bin_urn.is_text()
 
 
@@ -172,7 +172,7 @@ def test_072_all_constants_parse():
         MEDIA_NUMBER,
         MEDIA_BOOLEAN,
         MEDIA_OBJECT,
-        MEDIA_BINARY,
+        MEDIA_IDENTITY,
         MEDIA_PNG,
         MEDIA_JSON,
     ]
@@ -311,7 +311,7 @@ def test_549_is_numeric():
     # Non-numeric types
     assert not MediaUrn.from_string(MEDIA_STRING).is_numeric()
     assert not MediaUrn.from_string(MEDIA_BOOLEAN).is_numeric()
-    assert not MediaUrn.from_string(MEDIA_BINARY).is_numeric()
+    assert not MediaUrn.from_string(MEDIA_IDENTITY).is_numeric()
 
 
 # TEST550: is_bool returns true only when bool marker tag is present
@@ -323,7 +323,7 @@ def test_550_is_bool():
     # Non-bool types
     assert not MediaUrn.from_string(MEDIA_STRING).is_bool()
     assert not MediaUrn.from_string(MEDIA_INTEGER).is_bool()
-    assert not MediaUrn.from_string(MEDIA_BINARY).is_bool()
+    assert not MediaUrn.from_string(MEDIA_IDENTITY).is_bool()
 
 
 # TEST551: is_file_path returns true for scalar file-path, false for array
@@ -333,7 +333,7 @@ def test_551_is_file_path():
     assert not MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY).is_file_path()
     # Non-file-path types
     assert not MediaUrn.from_string(MEDIA_STRING).is_file_path()
-    assert not MediaUrn.from_string(MEDIA_BINARY).is_file_path()
+    assert not MediaUrn.from_string(MEDIA_IDENTITY).is_file_path()
 
 
 # TEST552: is_file_path_array returns true for list file-path, false for scalar

@@ -37,7 +37,7 @@ MEDIA_BOOLEAN = "media:bool;textable"
 # Media URN for JSON object type - record (key-value structure), textable (via JSON.stringify)
 MEDIA_OBJECT = "media:record"
 # Media URN for binary data (wildcard - matches everything)
-MEDIA_BINARY = "media:"
+MEDIA_IDENTITY = "media:"
 
 # Array types - URNs must match base.toml definitions
 # Media URN for string array type - list marker, textable (no primary type prefix)

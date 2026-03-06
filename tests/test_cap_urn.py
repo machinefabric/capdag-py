@@ -15,7 +15,7 @@ from capdag import (
     MEDIA_OBJECT,
     MEDIA_STRING,
     MEDIA_INTEGER,
-    MEDIA_BINARY,
+    MEDIA_IDENTITY,
     CAP_IDENTITY,
 )
 
@@ -58,7 +58,7 @@ def test_002_direction_specs_default_to_wildcard():
 def test_003_direction_matching():
     in_str = "media:textable"  # MEDIA_STRING
     out_obj = "media:record;textable"  # MEDIA_OBJECT
-    in_bin = "media:"  # MEDIA_BINARY
+    in_bin = "media:"  # MEDIA_IDENTITY
     out_int = "media:integer;textable;numeric"  # MEDIA_INTEGER
 
     # Direction specs must match for caps to match
