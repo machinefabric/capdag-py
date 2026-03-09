@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "0.82.32066"
+version = "0.83.32108"
 description = "Core cap URN and definition system for MACINA plugins"
 authors = [{name = "https://github.com/machinefabric"}]
 license = {text = "MIT"}
