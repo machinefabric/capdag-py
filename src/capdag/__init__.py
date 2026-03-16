@@ -200,6 +200,14 @@ from capdag.bifaci.relay import (
     RelayError,
 )
 
+# Route module
+from capdag.route import (
+    RouteNotationError,
+    RouteEdge,
+    RouteGraph,
+    parse_route_notation,
+)
+
 # Standard module
 from capdag.standard.caps import (
     CAP_IDENTITY,
