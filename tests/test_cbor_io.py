@@ -751,3 +751,59 @@ def test_400a_relay_state_roundtrip():
 
     assert decoded.frame_type == FrameType.RELAY_STATE
     assert decoded.payload == resources
+
+
+# TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode
+def test_440_chunk_index_checksum_roundtrip():
+    rid = MessageId.random()
+    payload = b"test chunk data"
+    cs = compute_checksum(payload)
+
+    frame = Frame.chunk(rid, "test-stream", 5, payload, 3, cs)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.frame_type == FrameType.CHUNK
+    assert decoded.id == rid
+    assert decoded.stream_id == "test-stream"
+    assert decoded.seq == 5
+    assert decoded.payload == payload
+    assert decoded.chunk_index == 3, "chunk_index must roundtrip"
+    assert decoded.checksum == cs, "checksum must roundtrip"
+
+
+# TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode
+def test_441_stream_end_chunk_count_roundtrip():
+    rid = MessageId.random()
+
+    frame = Frame.stream_end(rid, "test-stream", chunk_count=42)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.frame_type == FrameType.STREAM_END
+    assert decoded.id == rid
+    assert decoded.stream_id == "test-stream"
+    assert decoded.chunk_count == 42, "chunk_count must roundtrip"
+
+
+# TEST497: Corrupted payload detectable via checksum mismatch
+def test_497_chunk_corrupted_payload_rejected():
+    rid = MessageId.random()
+    payload = b"original data"
+    cs = compute_checksum(payload)
+
+    frame = Frame.chunk(rid, "stream-test", 0, payload, 0, cs)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.checksum == cs
+
+    # Corrupt the payload but keep the checksum
+    decoded.payload = b"corrupted data"
+
+    corrupted_cs = compute_checksum(decoded.payload)
+    assert corrupted_cs != cs, "Checksums should differ for corrupted data"
+    assert decoded.checksum == cs, "Frame still has original checksum"

@@ -701,3 +701,86 @@ class SeqAssigner:
     def remove(self, key: FlowKey) -> None:
         """Remove tracking for a flow (call after END/ERR delivery)."""
         self._counters.pop(key, None)
+
+
+# =============================================================================
+# REORDER BUFFER — Per-flow frame reordering at relay boundaries
+# =============================================================================
+
+
+class _FlowState:
+    """Per-flow state for the reorder buffer."""
+    __slots__ = ("expected_seq", "buffer")
+
+    def __init__(self):
+        self.expected_seq: int = 0
+        self.buffer: dict[int, "Frame"] = {}
+
+
+class ReorderBuffer:
+    """Reorder buffer for validating and reordering frames at relay boundaries.
+    Keyed by FlowKey (RID + optional XID). Each flow tracks expected seq
+    and buffers out-of-order frames until gaps are filled.
+
+    Protocol errors:
+    - Stale/duplicate seq (frame.seq < expected_seq)
+    - Buffer overflow (buffered frames exceed max_buffer_per_flow)
+
+    (matches Rust ReorderBuffer)
+    """
+
+    def __init__(self, max_buffer_per_flow: int):
+        self._flows: dict[FlowKey, _FlowState] = {}
+        self._max_buffer_per_flow = max_buffer_per_flow
+
+    def accept(self, frame: "Frame") -> list["Frame"]:
+        """Accept a frame into the reorder buffer.
+        Returns a list of frames ready for delivery (in seq order).
+        Non-flow frames bypass reordering and are returned immediately.
+
+        Raises:
+            ProtocolError: If stale/duplicate seq or buffer overflow.
+        """
+        from capdag.bifaci.io import ProtocolError
+
+        if not frame.is_flow_frame():
+            return [frame]
+
+        key = FlowKey.from_frame(frame)
+        if key not in self._flows:
+            self._flows[key] = _FlowState()
+        state = self._flows[key]
+
+        if frame.seq == state.expected_seq:
+            # In-order: deliver this frame + drain consecutive buffered frames
+            ready = [frame]
+            state.expected_seq += 1
+            while state.expected_seq in state.buffer:
+                ready.append(state.buffer.pop(state.expected_seq))
+                state.expected_seq += 1
+            return ready
+        elif frame.seq > state.expected_seq:
+            # Out-of-order: buffer it
+            if frame.seq in state.buffer:
+                raise ProtocolError(
+                    f"stale/duplicate seq: seq {frame.seq} already buffered "
+                    f"(expected >= {state.expected_seq})"
+                )
+            if len(state.buffer) >= self._max_buffer_per_flow:
+                raise ProtocolError(
+                    f"reorder buffer overflow: flow has {len(state.buffer)} "
+                    f"buffered frames (max {self._max_buffer_per_flow}), "
+                    f"expected seq {state.expected_seq} but got seq {frame.seq}"
+                )
+            state.buffer[frame.seq] = frame
+            return []
+        else:
+            # Stale or duplicate
+            raise ProtocolError(
+                f"stale/duplicate seq: expected >= {state.expected_seq} "
+                f"but got {frame.seq}"
+            )
+
+    def cleanup_flow(self, key: FlowKey) -> None:
+        """Remove flow state after terminal frame delivery (END/ERR)."""
+        self._flows.pop(key, None)

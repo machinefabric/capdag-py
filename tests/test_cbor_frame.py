@@ -12,12 +12,15 @@ from capdag.bifaci.frame import (
     Keys,
     FlowKey,
     SeqAssigner,
+    ReorderBuffer,
     PROTOCOL_VERSION,
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
+    DEFAULT_MAX_REORDER_BUFFER,
     compute_checksum,
     verify_chunk_checksum,
 )
+from capdag.bifaci.io import ProtocolError
 
 
 # TEST171: Test all FrameType discriminants roundtrip through u8 conversion preserving identity
@@ -764,3 +767,169 @@ def test_450_flow_key_hash_lookup():
 
     d = {key1: "value"}
     assert d[key2] == "value", "Identical keys should hash to same bucket"
+
+
+# =============================================================================
+# REORDER BUFFER TESTS
+# =============================================================================
+
+
+# Helper: create a flow frame with given type, rid, and seq
+def _flow_frame(frame_type, rid, seq):
+    f = Frame.new(frame_type, rid)
+    f.seq = seq
+    return f
+
+
+# TEST451: ReorderBuffer delivers frames immediately when in order
+def test_451_reorder_buffer_in_order():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    r0 = rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(r0) == 1
+
+    r1 = rb.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(r1) == 1
+
+    r2 = rb.accept(_flow_frame(FrameType.END, rid, 2))
+    assert len(r2) == 1
+
+
+# TEST452: ReorderBuffer holds out-of-order, releases when gap filled
+def test_452_reorder_buffer_out_of_order():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    # Submit seq=1 before seq=0
+    r1 = rb.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(r1) == 0, "seq=1 before seq=0 should be buffered"
+
+    # Submit seq=0 — should release both
+    r0 = rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(r0) == 2, "seq=0 should release seq=0 and seq=1"
+    assert r0[0].seq == 0
+    assert r0[1].seq == 1
+
+
+# TEST453: ReorderBuffer gap fill with arrival order 0, 2, 1
+def test_453_reorder_buffer_gap_fill():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    r0 = rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(r0) == 1, "seq=0 delivers immediately"
+
+    r2 = rb.accept(_flow_frame(FrameType.END, rid, 2))
+    assert len(r2) == 0, "seq=2 buffered (gap at seq=1)"
+
+    r1 = rb.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(r1) == 2, "seq=1 fills gap, releases seq=1 and seq=2"
+    assert r1[0].seq == 1
+    assert r1[1].seq == 2
+
+
+# TEST454: ReorderBuffer rejects stale/duplicate seq
+def test_454_reorder_buffer_stale_seq():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+    rb.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+
+    # Submit stale seq=0 again
+    with pytest.raises(ProtocolError, match="stale"):
+        rb.accept(_flow_frame(FrameType.CHUNK, rid, 0))
+
+
+# TEST455: ReorderBuffer overflow
+def test_455_reorder_buffer_overflow():
+    rb = ReorderBuffer(max_buffer_per_flow=3)
+    rid = MessageId.random()
+
+    # Submit seq 1,2,3,4 (never seq 0) — 4th should overflow
+    for i in range(1, 4):
+        rb.accept(_flow_frame(FrameType.CHUNK, rid, i))
+
+    with pytest.raises(ProtocolError, match="overflow"):
+        rb.accept(_flow_frame(FrameType.CHUNK, rid, 4))
+
+
+# TEST456: ReorderBuffer independent flows
+def test_456_reorder_buffer_independent_flows():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid_a = MessageId.random()
+    rid_b = MessageId.random()
+
+    # Flow A: submit seq=1 (out of order)
+    ra1 = rb.accept(_flow_frame(FrameType.CHUNK, rid_a, 1))
+    assert len(ra1) == 0, "A seq=1 buffered"
+
+    # Flow B: submit seq=0 (in order) — independent of A
+    rb0 = rb.accept(_flow_frame(FrameType.REQ, rid_b, 0))
+    assert len(rb0) == 1, "B seq=0 delivers immediately regardless of A's gap"
+
+    # Flow A: submit seq=0 — releases both A frames
+    ra0 = rb.accept(_flow_frame(FrameType.REQ, rid_a, 0))
+    assert len(ra0) == 2, "A seq=0 releases seq=0 and seq=1"
+
+
+# TEST457: ReorderBuffer cleanup_flow resets state
+def test_457_reorder_buffer_cleanup():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    f0 = _flow_frame(FrameType.REQ, rid, 0)
+    rb.accept(f0)
+    rb.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+
+    # Cleanup the flow
+    key = FlowKey.from_frame(f0)
+    rb.cleanup_flow(key)
+
+    # Same RID can start over at seq=0 without stale error
+    r = rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(r) == 1
+
+
+# TEST458: ReorderBuffer non-flow frames bypass reordering
+def test_458_reorder_buffer_non_flow_bypass():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+
+    hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER)
+    hb = Frame.heartbeat(MessageId.random())
+    rn = Frame.relay_notify(b"", DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER)
+    rs = Frame.relay_state(b"")
+
+    for frame in [hello, hb, rn, rs]:
+        r = rb.accept(frame)
+        assert len(r) == 1, f"Non-flow frame {frame.frame_type} should bypass reorder buffer"
+
+
+# TEST459: ReorderBuffer handles END frame correctly
+def test_459_reorder_buffer_end_frame():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+
+    end = _flow_frame(FrameType.END, rid, 1)
+    r = rb.accept(end)
+    assert len(r) == 1
+    assert r[0].frame_type == FrameType.END
+    assert r[0].seq == 1
+
+
+# TEST460: ReorderBuffer handles ERR frame correctly
+def test_460_reorder_buffer_err_frame():
+    rb = ReorderBuffer(max_buffer_per_flow=10)
+    rid = MessageId.random()
+
+    rb.accept(_flow_frame(FrameType.REQ, rid, 0))
+
+    err = _flow_frame(FrameType.ERR, rid, 1)
+    r = rb.accept(err)
+    assert len(r) == 1
+    assert r[0].frame_type == FrameType.ERR
+    assert r[0].seq == 1
+    assert r[0].seq == 1
