@@ -192,6 +192,7 @@ from capdag.media.spec import (
 )
 
 # Bifaci module
+from capdag.bifaci import decode_chunk_payload
 from capdag.bifaci.manifest import CapManifest
 from capdag.bifaci.relay import (
     RelaySlave,
@@ -301,6 +302,8 @@ __all__ = [
     "MediaSpecDef",
     # Manifest
     "CapManifest",
+    # Bifaci utilities
+    "decode_chunk_payload",
     # Validation
     "validate_cap_args",
     "validate_positional_arguments",

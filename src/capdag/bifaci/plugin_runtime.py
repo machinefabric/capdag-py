@@ -178,9 +178,24 @@ class StreamEmitter(Protocol):
         Raises: RuntimeError on write failure."""
         ...
 
+    def write(self, data: bytes) -> None:
+        """Write raw bytes as output, split into max_chunk-sized CHUNK frames.
+        Unlike emit_cbor which CBOR-encodes the value, this sends raw bytes directly."""
+        ...
+
+    def emit_list_item(self, value: Any) -> None:
+        """Emit a single CBOR value as one item in an RFC 8742 CBOR sequence.
+        For list outputs: CBOR-encodes the value, then splits across chunk frames.
+        The receiver concatenates raw payloads to reconstruct the CBOR sequence."""
+        ...
+
     def emit_log(self, level: str, message: str) -> None:
         """Emit a log message at the given level.
         Sends a LOG frame (side-channel, does not affect response stream)."""
+        ...
+
+    def progress(self, progress: float, message: str) -> None:
+        """Emit a progress update (0.0-1.0) with a human-readable status message."""
         ...
 
 
@@ -361,9 +376,22 @@ class CliStreamEmitter:
             stdout.write(b'\n')
         stdout.flush()
 
+    def write(self, data: bytes) -> None:
+        """In CLI mode, write raw bytes to stdout"""
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+
+    def emit_list_item(self, value: Any) -> None:
+        """In CLI mode, emit list items as individual output"""
+        self.emit_cbor(value)
+
     def emit_log(self, level: str, message: str) -> None:
         """In CLI mode, logs go to stderr"""
         print(f"[{level.upper()}] {message}", file=sys.stderr)
+
+    def progress(self, progress: float, message: str) -> None:
+        """In CLI mode, progress goes to stderr"""
+        print(f"[PROGRESS {progress*100:.0f}%] {message}", file=sys.stderr)
 
 
 class ThreadSafeEmitter:
@@ -530,12 +558,70 @@ class ThreadSafeEmitter:
         end_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(end_frame)
 
+    def write(self, data: bytes) -> None:
+        """Write raw bytes as output, split into max_chunk-sized CHUNK frames.
+
+        Unlike emit_cbor which CBOR-encodes the value, this sends raw bytes
+        directly as frame payloads. Each chunk is independently processable.
+        """
+        self._ensure_stream_started()
+        offset = 0
+        while offset < len(data):
+            chunk_size = min(self.max_chunk, len(data) - offset)
+            chunk_payload = data[offset:offset + chunk_size]
+
+            with self.chunk_lock:
+                idx = self.chunk_index
+                self.chunk_index += 1
+
+            frame = Frame.chunk(self.request_id, self.stream_id, 0, chunk_payload, idx, compute_checksum(chunk_payload))
+            frame.routing_id = self.routing_id
+            self.writer.write(frame)
+
+            offset += chunk_size
+
+    def emit_list_item(self, value: Any) -> None:
+        """Emit a single CBOR value as one item in an RFC 8742 CBOR sequence.
+
+        For list outputs: the receiver concatenates raw frame payloads and stores
+        the result as a CBOR sequence. This method CBOR-encodes the value, then
+        splits the encoded bytes across chunk frames at max_chunk boundaries.
+        The receiver's concatenation reconstructs the original CBOR encoding,
+        producing exactly one self-delimiting CBOR value in the sequence per call.
+
+        Unlike emit_cbor (which re-wraps each piece as a separate CBOR value),
+        this sends raw CBOR bytes as frame payloads directly.
+        """
+        self._ensure_stream_started()
+        cbor_bytes = cbor2.dumps(value)
+
+        offset = 0
+        while offset < len(cbor_bytes):
+            chunk_size = min(self.max_chunk, len(cbor_bytes) - offset)
+            chunk_payload = cbor_bytes[offset:offset + chunk_size]
+
+            with self.chunk_lock:
+                idx = self.chunk_index
+                self.chunk_index += 1
+
+            frame = Frame.chunk(self.request_id, self.stream_id, 0, chunk_payload, idx, compute_checksum(chunk_payload))
+            frame.routing_id = self.routing_id
+            self.writer.write(frame)
+
+            offset += chunk_size
+
     def emit_log(self, level: str, message: str) -> None:
         """Emit a log message at the given level.
         Sends a LOG frame (side-channel, does not affect response stream).
         Seq assigned by SyncFrameWriter."""
         frame = Frame.log(self.request_id, level, message)
         frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+        self.writer.write(frame)
+
+    def progress(self, progress: float, message: str) -> None:
+        """Emit a progress update (0.0-1.0) with a human-readable status message."""
+        frame = Frame.progress(self.request_id, progress, message)
+        frame.routing_id = self.routing_id
         self.writer.write(frame)
 
 

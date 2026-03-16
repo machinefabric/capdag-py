@@ -402,6 +402,21 @@ class Frame:
         return frame
 
     @classmethod
+    def progress(cls, id: MessageId, progress: float, message: str) -> "Frame":
+        """Create a LOG frame with progress (0.0-1.0) and a human-readable status message.
+
+        Uses level="progress" with an additional "progress" key in metadata.
+        """
+        meta = {
+            "level": "progress",
+            "message": message,
+            "progress": progress,
+        }
+        frame = cls.new(FrameType.LOG, id)
+        frame.meta = meta
+        return frame
+
+    @classmethod
     def err(cls, id: MessageId, code: str, message: str) -> "Frame":
         """Create an ERR frame"""
         meta = {
@@ -561,6 +576,20 @@ class Frame:
             return None
         message = self.meta.get("message")
         return message if isinstance(message, str) else None
+
+    def log_progress(self) -> Optional[float]:
+        """Get progress value (0.0-1.0) if this is a LOG frame with level="progress"."""
+        if self.frame_type != FrameType.LOG:
+            return None
+        if self.meta is None:
+            return None
+        level = self.meta.get("level")
+        if level != "progress":
+            return None
+        progress = self.meta.get("progress")
+        if isinstance(progress, (int, float)):
+            return float(progress)
+        return None
 
     def hello_max_frame(self) -> Optional[int]:
         """Extract max_frame from HELLO metadata"""
