@@ -149,8 +149,8 @@ def encode_frame(frame: Frame) -> bytes:
     if frame.routing_id is not None:
         frame_map[Keys.ROUTING_ID] = frame.routing_id.to_cbor()
 
-    if frame.index is not None:
-        frame_map[Keys.INDEX] = frame.index
+    if frame.chunk_index is not None:
+        frame_map[Keys.INDEX] = frame.chunk_index
 
     if frame.chunk_count is not None:
         frame_map[Keys.CHUNK_COUNT] = frame.chunk_count
@@ -239,14 +239,14 @@ def decode_frame(data: bytes) -> Frame:
     routing_id_cbor = lookup.get(Keys.ROUTING_ID)
     routing_id = MessageId.from_cbor(routing_id_cbor) if routing_id_cbor is not None else None
 
-    index = lookup.get(Keys.INDEX)
+    chunk_index = lookup.get(Keys.INDEX)
     chunk_count = lookup.get(Keys.CHUNK_COUNT)
     checksum = lookup.get(Keys.CHECKSUM)
 
     # Validate required fields based on frame type
     if frame_type == FrameType.CHUNK:
-        if index is None:
-            raise InvalidFrameError("CHUNK frame missing required field: index")
+        if chunk_index is None:
+            raise InvalidFrameError("CHUNK frame missing required field: chunk_index")
         if checksum is None:
             raise InvalidFrameError("CHUNK frame missing required field: checksum")
     if frame_type == FrameType.STREAM_END:
@@ -268,7 +268,7 @@ def decode_frame(data: bytes) -> Frame:
         stream_id=stream_id,
         media_urn=media_urn,
         routing_id=routing_id,
-        index=index,
+        chunk_index=chunk_index,
         chunk_count=chunk_count,
         checksum=checksum,
     )

@@ -118,6 +118,14 @@ class Protocol(AsyncHostError):
     pass
 
 
+class PeerInvokeNotSupported(AsyncHostError):
+    """Peer invoke not supported for this cap URN"""
+
+    def __init__(self, cap_urn: str):
+        super().__init__(f"Peer invoke not supported: {cap_urn}")
+        self.cap_urn = cap_urn
+
+
 # =========================================================================
 # Response types (used by test harnesses and interop)
 # =========================================================================

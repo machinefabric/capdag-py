@@ -7,6 +7,8 @@ import pytest
 from capdag import CapUrn, MediaUrn
 from capdag.standard.caps import (
     CAP_DISCARD,
+    coercion_urn,
+    all_coercion_paths,
     model_availability_urn,
     model_path_urn,
     llm_conversation_urn,
@@ -17,6 +19,7 @@ from capdag.urn.media_urn import (
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_PATH_OUTPUT,
     MEDIA_STRING,
+    MEDIA_INTEGER,
     MEDIA_LLM_INFERENCE_OUTPUT,
 )
 
@@ -104,3 +107,39 @@ def test_474_cap_discard_accepts_specific_void_cap():
     non_void = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:string"')
     assert not discard.accepts(non_void), \
         "CAP_DISCARD must NOT accept a cap with non-void output"
+
+
+# TEST605: all_coercion_paths builds valid URNs with op=coerce and target tag
+def test_605_all_coercion_paths_build_valid_urns():
+    paths = all_coercion_paths()
+    assert len(paths) > 0, "Coercion paths must not be empty"
+
+    for source, target in paths:
+        urn = coercion_urn(source, target)
+        assert urn.has_tag("op", "coerce"), \
+            f"Coercion URN for {source}→{target} must have op=coerce"
+        assert urn.has_tag("target", target), \
+            f"Coercion URN for {source}→{target} must have target={target}"
+
+        # Verify roundtrip through string parsing
+        urn_str = urn.to_string()
+        reparsed = CapUrn.from_string(urn_str)
+        assert reparsed is not None, \
+            f"Coercion URN for {source}→{target} must roundtrip through parsing"
+
+
+# TEST606: coercion_urn in/out specs match the type's media URN constant
+def test_606_coercion_urn_specs():
+    urn = coercion_urn("string", "integer")
+
+    # in_spec should conform to MEDIA_STRING
+    in_urn = MediaUrn.from_string(urn.in_spec())
+    expected_in = MediaUrn.from_string(MEDIA_STRING)
+    assert in_urn.conforms_to(expected_in), \
+        f"in_spec '{urn.in_spec()}' should conform to '{MEDIA_STRING}'"
+
+    # out_spec should conform to MEDIA_INTEGER
+    out_urn = MediaUrn.from_string(urn.out_spec())
+    expected_out = MediaUrn.from_string(MEDIA_INTEGER)
+    assert out_urn.conforms_to(expected_out), \
+        f"out_spec '{urn.out_spec()}' should conform to '{MEDIA_INTEGER}'"

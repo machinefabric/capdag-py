@@ -315,6 +315,13 @@ class Cap:
         self._registered_by: Optional["RegisteredBy"] = None
 
     @classmethod
+    def with_description(cls, urn: CapUrn, title: str, command: str, description: str) -> "Cap":
+        """Create a Cap with a description"""
+        cap = cls(urn, title, command)
+        cap.cap_description = description
+        return cap
+
+    @classmethod
     def with_metadata(cls, urn: CapUrn, title: str, command: str, metadata: Dict[str, str]) -> "Cap":
         """Create a Cap with metadata"""
         cap = cls(urn, title, command)

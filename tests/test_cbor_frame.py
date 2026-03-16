@@ -10,6 +10,8 @@ from capdag.bifaci.frame import (
     Limits,
     Frame,
     Keys,
+    FlowKey,
+    SeqAssigner,
     PROTOCOL_VERSION,
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
@@ -172,7 +174,7 @@ def test_184_chunk_frame():
     assert frame.stream_id == "stream-1"
     assert frame.seq == 3
     assert frame.payload == payload
-    assert frame.index == 0
+    assert frame.chunk_index == 0
     assert frame.checksum == compute_checksum(payload)
     assert not frame.is_eof(), "plain chunk should not be EOF"
 
@@ -544,3 +546,221 @@ def test_667_verify_chunk_checksum_detects_corruption():
     with pytest.raises(ValueError) as exc_info:
         verify_chunk_checksum(frame)
     assert "missing" in str(exc_info.value)
+
+
+# TEST436: compute_checksum determinism and sensitivity
+def test_436_compute_checksum():
+    data_a = b"hello world"
+    data_b = b"hello world"
+    data_c = b"different data"
+
+    checksum_a = compute_checksum(data_a)
+    checksum_b = compute_checksum(data_b)
+    checksum_c = compute_checksum(data_c)
+
+    # Same data produces same checksum
+    assert checksum_a == checksum_b, "Identical data must produce identical checksum"
+
+    # Different data produces different checksum
+    assert checksum_a != checksum_c, "Different data must produce different checksum"
+
+    # Non-empty data has non-zero checksum
+    assert checksum_a != 0, "Non-empty data should have non-zero checksum"
+
+
+# TEST442: SeqAssigner assigns monotonically increasing seq for same RID
+def test_442_seq_assigner_monotonic_same_rid():
+    assigner = SeqAssigner()
+    rid = MessageId.random()
+
+    f0 = Frame.req(rid, b"cap:op=test", b"")
+    f1 = Frame.stream_start(rid, b"media:text")
+    f2 = Frame.chunk(rid, b"payload")
+    f3 = Frame.end(rid)
+
+    assigner.assign(f0)
+    assigner.assign(f1)
+    assigner.assign(f2)
+    assigner.assign(f3)
+
+    assert f0.seq == 0
+    assert f1.seq == 1
+    assert f2.seq == 2
+    assert f3.seq == 3
+
+
+# TEST443: SeqAssigner maintains independent per-RID counters
+def test_443_seq_assigner_independent_rids():
+    assigner = SeqAssigner()
+    rid_a = MessageId.random()
+    rid_b = MessageId.random()
+
+    a0 = Frame.req(rid_a, b"cap:op=a", b"")
+    a1 = Frame.stream_start(rid_a, b"media:text")
+    a2 = Frame.chunk(rid_a, b"payload")
+    b0 = Frame.req(rid_b, b"cap:op=b", b"")
+    b1 = Frame.stream_start(rid_b, b"media:text")
+
+    assigner.assign(a0)
+    assigner.assign(a1)
+    assigner.assign(a2)
+    assigner.assign(b0)
+    assigner.assign(b1)
+
+    assert a0.seq == 0
+    assert a1.seq == 1
+    assert a2.seq == 2
+    assert b0.seq == 0
+    assert b1.seq == 1
+
+
+# TEST444: SeqAssigner skips non-flow frames
+def test_444_seq_assigner_skips_non_flow():
+    assigner = SeqAssigner()
+
+    hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
+    heartbeat = Frame.heartbeat()
+
+    assigner.assign(hello)
+    assigner.assign(heartbeat)
+
+    assert hello.seq == 0, "Hello seq should remain 0"
+    assert heartbeat.seq == 0, "Heartbeat seq should remain 0"
+
+
+# TEST445: SeqAssigner remove resets only the matching flow counter
+def test_445_seq_assigner_remove_by_flow_key():
+    assigner = SeqAssigner()
+    rid = MessageId.random()
+    xid = MessageId.random()
+
+    # Flow 1: (rid, no xid) — seq 0, 1
+    f0 = Frame.req(rid, b"cap:op=test", b"")
+    f1 = Frame.stream_start(rid, b"media:text")
+    assigner.assign(f0)
+    assigner.assign(f1)
+    assert f0.seq == 0
+    assert f1.seq == 1
+
+    # Flow 2: (rid, xid) — seq 0, 1
+    f2 = Frame.req(rid, b"cap:op=test", b"")
+    f2.routing_id = xid
+    f3 = Frame.stream_start(rid, b"media:text")
+    f3.routing_id = xid
+    assigner.assign(f2)
+    assigner.assign(f3)
+    assert f2.seq == 0
+    assert f3.seq == 1
+
+    # Remove flow 1 only
+    key1 = FlowKey(rid.to_string(), "")
+    assigner.remove(key1)
+
+    # Flow 1 restarts at 0
+    f4 = Frame.chunk(rid, b"payload")
+    assigner.assign(f4)
+    assert f4.seq == 0
+
+    # Flow 2 continues at 2
+    f5 = Frame.chunk(rid, b"payload")
+    f5.routing_id = xid
+    assigner.assign(f5)
+    assert f5.seq == 2
+
+
+# TEST445a: SeqAssigner same RID different XIDs are independent
+def test_445a_seq_assigner_same_rid_different_xids_independent():
+    assigner = SeqAssigner()
+    rid = MessageId.random()
+    xid_a = MessageId.random()
+    xid_b = MessageId.random()
+
+    # Flow (rid, xid_a): 0, 1
+    fa0 = Frame.req(rid, b"cap:op=a", b"")
+    fa0.routing_id = xid_a
+    fa1 = Frame.stream_start(rid, b"media:text")
+    fa1.routing_id = xid_a
+    assigner.assign(fa0)
+    assigner.assign(fa1)
+    assert fa0.seq == 0
+    assert fa1.seq == 1
+
+    # Flow (rid, xid_b): 0
+    fb0 = Frame.req(rid, b"cap:op=b", b"")
+    fb0.routing_id = xid_b
+    assigner.assign(fb0)
+    assert fb0.seq == 0
+
+    # Flow (rid, None): 0
+    fn0 = Frame.req(rid, b"cap:op=n", b"")
+    assigner.assign(fn0)
+    assert fn0.seq == 0
+
+
+# TEST446: SeqAssigner counts across mixed flow frame types
+def test_446_seq_assigner_mixed_types():
+    assigner = SeqAssigner()
+    rid = MessageId.random()
+
+    f_req = Frame.req(rid, b"cap:op=test", b"")
+    f_log = Frame.log(rid, b"log message")
+    f_chunk = Frame.chunk(rid, b"payload")
+    f_end = Frame.end(rid)
+
+    assigner.assign(f_req)
+    assigner.assign(f_log)
+    assigner.assign(f_chunk)
+    assigner.assign(f_end)
+
+    assert f_req.seq == 0
+    assert f_log.seq == 1
+    assert f_chunk.seq == 2
+    assert f_end.seq == 3
+
+
+# TEST447: FlowKey from frame with routing_id extracts (rid, xid)
+def test_447_flow_key_with_xid():
+    rid = MessageId.random()
+    xid = MessageId.random()
+
+    frame = Frame.req(rid, b"cap:op=test", b"")
+    frame.routing_id = xid
+
+    key = FlowKey.from_frame(frame)
+    assert key._rid == rid.to_string()
+    assert key._xid == xid.to_string()
+
+
+# TEST448: FlowKey from frame without routing_id extracts (rid, "")
+def test_448_flow_key_without_xid():
+    rid = MessageId.random()
+
+    frame = Frame.req(rid, b"cap:op=test", b"")
+    key = FlowKey.from_frame(frame)
+    assert key._rid == rid.to_string()
+    assert key._xid == ""
+
+
+# TEST449: FlowKey equality semantics
+def test_449_flow_key_equality():
+    rid = MessageId.random()
+    xid = MessageId.random()
+
+    key1 = FlowKey(rid.to_string(), xid.to_string())
+    key2 = FlowKey(rid.to_string(), xid.to_string())
+    key3 = FlowKey(rid.to_string(), "")
+
+    assert key1 == key2, "Same rid+xid should be equal"
+    assert key1 != key3, "Different xid should not be equal"
+
+
+# TEST450: FlowKey hash allows HashMap lookup
+def test_450_flow_key_hash_lookup():
+    rid = MessageId.random()
+    xid = MessageId.random()
+
+    key1 = FlowKey(rid.to_string(), xid.to_string())
+    key2 = FlowKey(rid.to_string(), xid.to_string())
+
+    d = {key1: "value"}
+    assert d[key2] == "value", "Identical keys should hash to same bucket"

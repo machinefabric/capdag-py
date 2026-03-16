@@ -4,14 +4,25 @@ This module provides standard capability URN builders used across
 all MACINA providers. These are the single source of truth for URN construction.
 """
 
+from typing import List, Tuple
+
 from capdag.urn.cap_urn import CapUrn, CapUrnBuilder
+from capdag.cap.definition import Cap, CapOutput
 from capdag.urn.media_urn import (
     # Primitives
     MEDIA_STRING,
     MEDIA_INTEGER,
+    MEDIA_NUMBER,
     MEDIA_BOOLEAN,
     MEDIA_OBJECT,
     MEDIA_IDENTITY,
+    MEDIA_VOID,
+    # Array types
+    MEDIA_STRING_ARRAY,
+    MEDIA_INTEGER_ARRAY,
+    MEDIA_NUMBER_ARRAY,
+    MEDIA_BOOLEAN_ARRAY,
+    MEDIA_OBJECT_ARRAY,
     # Semantic media types
     MEDIA_PNG,
     # Document types
@@ -67,6 +78,115 @@ CAP_DISCARD = "cap:in=media:;out=media:void"
 # =============================================================================
 
 
+def identity_urn() -> CapUrn:
+    """Parse and return the canonical identity CapUrn from CAP_IDENTITY."""
+    return CapUrn.from_string(CAP_IDENTITY)
+
+
+def discard_urn() -> CapUrn:
+    """Parse and return the canonical discard CapUrn from CAP_DISCARD."""
+    return CapUrn.from_string(CAP_DISCARD)
+
+
+def identity_cap() -> Cap:
+    """Construct the canonical Identity Cap definition."""
+    urn = identity_urn()
+    cap = Cap.with_description(
+        urn,
+        "Identity",
+        "identity",
+        "The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.",
+    )
+    cap.set_output(CapOutput("media:", "The input data, unchanged"))
+    return cap
+
+
+def discard_cap() -> Cap:
+    """Construct the canonical Discard Cap definition."""
+    urn = discard_urn()
+    cap = Cap.with_description(
+        urn,
+        "Discard",
+        "discard",
+        "The terminal morphism. Consumes input and produces void output.",
+    )
+    cap.set_output(CapOutput(MEDIA_VOID, "Void (no output)"))
+    return cap
+
+
+_MEDIA_URN_FOR_TYPE = {
+    "string": MEDIA_STRING,
+    "integer": MEDIA_INTEGER,
+    "number": MEDIA_NUMBER,
+    "boolean": MEDIA_BOOLEAN,
+    "object": MEDIA_OBJECT,
+    "string-array": MEDIA_STRING_ARRAY,
+    "integer-array": MEDIA_INTEGER_ARRAY,
+    "number-array": MEDIA_NUMBER_ARRAY,
+    "boolean-array": MEDIA_BOOLEAN_ARRAY,
+    "object-array": MEDIA_OBJECT_ARRAY,
+}
+
+
+def media_urn_for_type(type_name: str) -> str:
+    """Map a type name to its media URN constant.
+
+    Raises ValueError if type_name is unknown.
+    """
+    result = _MEDIA_URN_FOR_TYPE.get(type_name)
+    if result is None:
+        valid = ", ".join(sorted(_MEDIA_URN_FOR_TYPE.keys()))
+        raise ValueError(f"Unknown media type: {type_name}. Valid types are: {valid}")
+    return result
+
+
+def coercion_urn(source_type: str, target_type: str) -> CapUrn:
+    """Build a generic coercion URN given source and target types.
+
+    Raises ValueError if source_type or target_type is not a known media type.
+    """
+    in_spec = media_urn_for_type(source_type)
+    out_spec = media_urn_for_type(target_type)
+    return (
+        CapUrnBuilder()
+        .tag("op", "coerce")
+        .tag("target", target_type)
+        .in_spec(in_spec)
+        .out_spec(out_spec)
+        .build()
+    )
+
+
+def all_coercion_paths() -> List[Tuple[str, str]]:
+    """Get list of all valid coercion paths.
+
+    Returns (source_type, target_type) pairs for all supported coercions.
+    """
+    return [
+        # To string (from all textable types)
+        ("integer", "string"),
+        ("number", "string"),
+        ("boolean", "string"),
+        ("object", "string"),
+        ("string-array", "string"),
+        ("integer-array", "string"),
+        ("number-array", "string"),
+        ("boolean-array", "string"),
+        ("object-array", "string"),
+        # To integer
+        ("string", "integer"),
+        ("number", "integer"),
+        ("boolean", "integer"),
+        # To number
+        ("string", "number"),
+        ("integer", "number"),
+        ("boolean", "number"),
+        # To object (wrap in object)
+        ("string", "object"),
+        ("integer", "object"),
+        ("number", "object"),
+        ("boolean", "object"),
+    ]
 
 
 # =============================================================================

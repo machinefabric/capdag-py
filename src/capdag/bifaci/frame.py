@@ -260,7 +260,7 @@ class Frame:
         stream_id: Optional[str] = None,
         media_urn: Optional[str] = None,
         routing_id: Optional[MessageId] = None,
-        index: Optional[int] = None,
+        chunk_index: Optional[int] = None,
         chunk_count: Optional[int] = None,
         checksum: Optional[int] = None,
     ):
@@ -281,7 +281,7 @@ class Frame:
             stream_id: Stream identifier for multiplexing
             media_urn: Media URN for stream typing
             routing_id: Routing ID assigned by RelaySwitch (separates logical ID from routing)
-            index: Chunk sequence index within stream (CHUNK frames only, starts at 0)
+            chunk_index: Chunk sequence index within stream (CHUNK frames only, starts at 0)
             chunk_count: Total chunk count (STREAM_END frames only, by source's reckoning)
             checksum: FNV-1a checksum of payload (CHUNK frames only)
         """
@@ -299,7 +299,7 @@ class Frame:
         self.stream_id = stream_id
         self.media_urn = media_urn
         self.routing_id = routing_id
-        self.index = index
+        self.chunk_index = chunk_index
         self.chunk_count = chunk_count
         self.checksum = checksum
 
@@ -349,13 +349,13 @@ class Frame:
         return frame
 
     @classmethod
-    def chunk(cls, req_id: MessageId, stream_id: str, seq: int, payload: bytes, index: int, checksum: int) -> "Frame":
+    def chunk(cls, req_id: MessageId, stream_id: str, seq: int, payload: bytes, chunk_index: int, checksum: int) -> "Frame":
         """Create a CHUNK frame for streaming (Protocol v2: stream_id required)"""
         frame = cls.new(FrameType.CHUNK, req_id)
         frame.stream_id = stream_id
         frame.seq = seq
         frame.payload = payload
-        frame.index = index
+        frame.chunk_index = chunk_index
         frame.checksum = checksum
         return frame
 
