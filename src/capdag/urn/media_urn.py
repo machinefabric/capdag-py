@@ -167,9 +167,9 @@ MEDIA_DISBOUND_PAGE = "media:disbound-page;list;textable"
 MEDIA_IMAGE_DESCRIPTION = "media:image-description;textable"
 # Media URN for transcription output - record structure
 MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
-# Media URN for decision output (bit choice) - matches CATALOG
+# Media URN for decision output (Make Decision) - matches CATALOG
 MEDIA_DECISION = "media:bool;decision;textable"
-# Media URN for decision array output (bit choices) - matches CATALOG
+# Media URN for decision array output (Make Multiple Decisions) - matches CATALOG
 MEDIA_DECISION_ARRAY = "media:bool;decision;list;textable"
 
 

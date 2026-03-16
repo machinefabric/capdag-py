@@ -472,7 +472,7 @@ def bit_choice_urn(lang_code: str) -> CapUrn:
     """Build URN for bit-choice capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "choose_bit")
+        .tag("op", "make_decision")
         .tag("language", lang_code)
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)
@@ -481,11 +481,11 @@ def bit_choice_urn(lang_code: str) -> CapUrn:
     )
 
 
-def bit_choices_urn(lang_code: str) -> CapUrn:
-    """Build URN for bit-choices capability"""
+def make_multiple_decisions_urn(lang_code: str) -> CapUrn:
+    """Build URN for make-multiple-decisions capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "choose_bits")
+        .tag("op", "make_multiple_decisions")
         .tag("language", lang_code)
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)

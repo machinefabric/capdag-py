@@ -22,7 +22,7 @@ from capdag.standard.caps import (
     frontmatter_summarization_urn,
     structured_query_urn,
     bit_choice_urn,
-    bit_choices_urn,
+    make_multiple_decisions_urn,
 )
 
 __all__ = [
@@ -47,5 +47,5 @@ __all__ = [
     "frontmatter_summarization_urn",
     "structured_query_urn",
     "bit_choice_urn",
-    "bit_choices_urn",
+    "make_multiple_decisions_urn",
 ]
