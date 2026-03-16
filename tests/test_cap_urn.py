@@ -743,7 +743,7 @@ def test_568_dispatch_output_tag_order():
     )
 
     # After parsing, both should be normalized to same canonical form
-    assert provider.out_spec == request.out_spec, \
+    assert provider.out_spec() == request.out_spec(), \
         "Output specs should be normalized to same canonical form"
 
     # And dispatch should work

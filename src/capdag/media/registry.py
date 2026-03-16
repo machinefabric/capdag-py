@@ -575,19 +575,61 @@ class MediaUrnRegistry:
 
     @classmethod
     def new_for_test(cls, cache_dir: Path) -> "MediaUrnRegistry":
-        """Create a lightweight MediaUrnRegistry for testing purposes
+        """Create a MediaUrnRegistry for testing with bundled standard specs.
 
-        This skips the standard spec installation and uses a provided cache directory.
-        Available for downstream tests as well.
+        Installs standard specs synchronously so tests can resolve
+        standard media URNs without network access.
 
         Args:
             cache_dir: Directory to use for caching
 
         Returns:
-            MediaUrnRegistry instance
+            MediaUrnRegistry instance with standard specs loaded
         """
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
 
-        return cls(cache_dir, RegistryConfig(), client)
+        registry = cls(cache_dir, RegistryConfig(), client)
+        registry._install_standard_specs_sync()
+        registry._load_all_cached_specs()
+        return registry
+
+    def _install_standard_specs_sync(self) -> None:
+        """Install bundled standard media specs to cache synchronously.
+
+        Same logic as _install_standard_specs but without async,
+        for use in test constructors.
+        """
+        standard_dir = Path(__file__).parent.parent.parent.parent.parent / "capdag" / "standard" / "media"
+
+        if not standard_dir.exists():
+            standard_dir = Path(__file__).parent.parent.parent.parent / "standard" / "media"
+
+        if not standard_dir.exists():
+            return
+
+        for spec_file in standard_dir.glob("*.json"):
+            try:
+                with open(spec_file, 'r') as f:
+                    data = json.load(f)
+
+                spec = StoredMediaSpec.from_dict(data)
+                normalized_urn = normalize_media_urn(spec.urn)
+
+                cache_file = self._cache_file_path(normalized_urn)
+                if not cache_file.exists():
+                    cache_entry = MediaCacheEntry(
+                        spec=spec,
+                        cached_at=int(time.time()),
+                        ttl_hours=CACHE_DURATION_HOURS,
+                    )
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(cache_file, 'w') as f:
+                        json.dump(cache_entry.to_dict(), f, indent=2)
+
+                    with self.cache_lock:
+                        self._update_extension_index(spec)
+                        self.cached_specs[normalized_urn] = spec
+            except Exception:
+                pass

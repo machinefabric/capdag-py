@@ -37,8 +37,23 @@ class CapUrn:
 
         Keys are normalized to lowercase; values are preserved as-is.
         in_urn and out_urn are required direction specifiers (media URN strings).
+        Specs are canonicalized through MediaUrn parsing for consistent tag ordering.
         'in' and 'out' keys in tags dict are filtered out.
         """
+        # Canonicalize specs through MediaUrn parsing for consistent tag ordering.
+        # Silently skip if not parseable — validation is the caller's responsibility
+        # (from_string validates before reaching here; direct callers pass known-good specs).
+        # Special values like "*" are not media URNs and should pass through unchanged.
+        if in_urn and in_urn != "media:" and in_urn.startswith("media:"):
+            try:
+                in_urn = str(MediaUrn.from_string(in_urn))
+            except Exception:
+                pass
+        if out_urn and out_urn != "media:" and out_urn.startswith("media:"):
+            try:
+                out_urn = str(MediaUrn.from_string(out_urn))
+            except Exception:
+                pass
         # Filter out 'in' and 'out' from tags, normalize remaining keys
         self.in_urn = in_urn
         self.out_urn = out_urn
@@ -118,17 +133,20 @@ class CapUrn:
         in_urn = cls._process_direction_tag(tagged, "in")
         out_urn = cls._process_direction_tag(tagged, "out")
 
-        # Validate that in and out specs are valid media URNs (or wildcard "media:")
-        # After processing, "media:" is the wildcard (not "*")
+        # Validate and canonicalize in/out specs as media URNs.
+        # Parse through MediaUrn and re-serialize to get canonical tag ordering.
+        # After processing, "media:" is the wildcard (not "*").
         if in_urn != "media:":
             try:
-                MediaUrn.from_string(in_urn)
+                in_media = MediaUrn.from_string(in_urn)
+                in_urn = str(in_media)
             except Exception as e:
                 raise CapUrnError(f"Invalid media URN for in spec '{in_urn}': {e}") from e
 
         if out_urn != "media:":
             try:
-                MediaUrn.from_string(out_urn)
+                out_media = MediaUrn.from_string(out_urn)
+                out_urn = str(out_media)
             except Exception as e:
                 raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
 

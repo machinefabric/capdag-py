@@ -18,12 +18,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
-from capdag.planner.cardinality import InputCardinality, CardinalityFromMediaUrn
-
-
-def CardinalityFromMediaUrn(urn_str: str) -> InputCardinality:
-    """Helper: parse cardinality from media URN string."""
-    return InputCardinality.from_media_urn(urn_str)
+from capdag.planner.cardinality import InputCardinality
 
 
 class LiveCapEdgeType(Enum):

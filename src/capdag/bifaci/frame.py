@@ -104,6 +104,11 @@ class MessageId:
         return cls(uuid_module.uuid4().bytes)
 
     @classmethod
+    def random(cls) -> "MessageId":
+        """Alias for new_uuid() — create a new random UUID message ID."""
+        return cls.new_uuid()
+
+    @classmethod
     def from_uuid_str(cls, s: str) -> Optional["MessageId"]:
         """Create from a UUID string"""
         try:
@@ -369,14 +374,20 @@ class Frame:
         offset: int,
         total_len: Optional[int],
         is_last: bool,
+        chunk_index: int,
+        checksum: int,
     ) -> "Frame":
-        """Create a CHUNK frame with offset info (Protocol v2: stream_id required)"""
+        """Create a CHUNK frame with offset info (Protocol v2: stream_id required).
+        Matches Rust Frame::chunk_with_offset signature exactly.
+        """
         frame = cls.new(FrameType.CHUNK, req_id)
         frame.stream_id = stream_id
         frame.seq = seq
         frame.payload = payload
         frame.offset = offset
-        if seq == 0:
+        frame.chunk_index = chunk_index
+        frame.checksum = checksum
+        if chunk_index == 0:
             frame.len = total_len
         if is_last:
             frame.eof = True

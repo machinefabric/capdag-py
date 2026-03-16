@@ -223,26 +223,31 @@ def test_188_end_frame_without_payload():
     assert frame.payload is None
 
 
-# TEST189: Test chunk_with_offset sets offset on all chunks but len only on seq=0
+# TEST189: Test chunk_with_offset sets offset on all chunks but len only on chunk_index=0
 def test_189_chunk_with_offset():
     """Test CHUNK frame with offset information"""
     id = MessageId.new_uuid()
 
-    # First chunk carries total len (Protocol v2: stream_id required)
-    first = Frame.chunk_with_offset(id, "stream-1", 0, b"data", 0, 1000, False)
+    # First chunk (chunk_index=0) carries total len (Protocol v2: stream_id required)
+    first = Frame.chunk_with_offset(id, "stream-1", 0, b"data", 0, 1000, False,
+                                     chunk_index=0, checksum=compute_checksum(b"data"))
     assert first.seq == 0
     assert first.offset == 0
     assert first.stream_id == "stream-1"
-    assert first.len == 1000, "first chunk must carry total len"
+    assert first.len == 1000, "chunk_index=0 must carry total len"
     assert not first.is_eof()
+    assert first.chunk_index == 0
+    assert first.checksum == compute_checksum(b"data")
 
-    # Middle chunk doesn't carry len
-    mid = Frame.chunk_with_offset(id, "stream-1", 3, b"mid", 500, 9999, False)
-    assert mid.len is None, "non-first chunk must not carry len, seq != 0"
+    # Middle chunk (chunk_index > 0) doesn't carry len
+    mid = Frame.chunk_with_offset(id, "stream-1", 3, b"mid", 500, 9999, False,
+                                   chunk_index=3, checksum=compute_checksum(b"mid"))
+    assert mid.len is None, "chunk_index > 0 must not carry len"
     assert mid.offset == 500
 
     # Last chunk sets EOF
-    last = Frame.chunk_with_offset(id, "stream-1", 5, b"last", 900, None, True)
+    last = Frame.chunk_with_offset(id, "stream-1", 5, b"last", 900, None, True,
+                                    chunk_index=5, checksum=compute_checksum(b"last"))
     assert last.is_eof()
     assert last.len is None
 
@@ -576,9 +581,9 @@ def test_442_seq_assigner_monotonic_same_rid():
     assigner = SeqAssigner()
     rid = MessageId.random()
 
-    f0 = Frame.req(rid, b"cap:op=test", b"")
-    f1 = Frame.stream_start(rid, b"media:text")
-    f2 = Frame.chunk(rid, b"payload")
+    f0 = Frame.req(rid, "cap:op=test", b"", "")
+    f1 = Frame.stream_start(rid, "s0", "media:text")
+    f2 = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f3 = Frame.end(rid)
 
     assigner.assign(f0)
@@ -598,11 +603,11 @@ def test_443_seq_assigner_independent_rids():
     rid_a = MessageId.random()
     rid_b = MessageId.random()
 
-    a0 = Frame.req(rid_a, b"cap:op=a", b"")
-    a1 = Frame.stream_start(rid_a, b"media:text")
-    a2 = Frame.chunk(rid_a, b"payload")
-    b0 = Frame.req(rid_b, b"cap:op=b", b"")
-    b1 = Frame.stream_start(rid_b, b"media:text")
+    a0 = Frame.req(rid_a, "cap:op=a", b"", "")
+    a1 = Frame.stream_start(rid_a, "s0", "media:text")
+    a2 = Frame.chunk(rid_a, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
+    b0 = Frame.req(rid_b, "cap:op=b", b"", "")
+    b1 = Frame.stream_start(rid_b, "s0", "media:text")
 
     assigner.assign(a0)
     assigner.assign(a1)
@@ -622,7 +627,7 @@ def test_444_seq_assigner_skips_non_flow():
     assigner = SeqAssigner()
 
     hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
-    heartbeat = Frame.heartbeat()
+    heartbeat = Frame.heartbeat(MessageId(0))
 
     assigner.assign(hello)
     assigner.assign(heartbeat)
@@ -638,17 +643,17 @@ def test_445_seq_assigner_remove_by_flow_key():
     xid = MessageId.random()
 
     # Flow 1: (rid, no xid) — seq 0, 1
-    f0 = Frame.req(rid, b"cap:op=test", b"")
-    f1 = Frame.stream_start(rid, b"media:text")
+    f0 = Frame.req(rid, "cap:op=test", b"", "")
+    f1 = Frame.stream_start(rid, "s0", "media:text")
     assigner.assign(f0)
     assigner.assign(f1)
     assert f0.seq == 0
     assert f1.seq == 1
 
     # Flow 2: (rid, xid) — seq 0, 1
-    f2 = Frame.req(rid, b"cap:op=test", b"")
+    f2 = Frame.req(rid, "cap:op=test", b"", "")
     f2.routing_id = xid
-    f3 = Frame.stream_start(rid, b"media:text")
+    f3 = Frame.stream_start(rid, "s0", "media:text")
     f3.routing_id = xid
     assigner.assign(f2)
     assigner.assign(f3)
@@ -660,12 +665,12 @@ def test_445_seq_assigner_remove_by_flow_key():
     assigner.remove(key1)
 
     # Flow 1 restarts at 0
-    f4 = Frame.chunk(rid, b"payload")
+    f4 = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     assigner.assign(f4)
     assert f4.seq == 0
 
     # Flow 2 continues at 2
-    f5 = Frame.chunk(rid, b"payload")
+    f5 = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f5.routing_id = xid
     assigner.assign(f5)
     assert f5.seq == 2
@@ -679,9 +684,9 @@ def test_445a_seq_assigner_same_rid_different_xids_independent():
     xid_b = MessageId.random()
 
     # Flow (rid, xid_a): 0, 1
-    fa0 = Frame.req(rid, b"cap:op=a", b"")
+    fa0 = Frame.req(rid, "cap:op=a", b"", "")
     fa0.routing_id = xid_a
-    fa1 = Frame.stream_start(rid, b"media:text")
+    fa1 = Frame.stream_start(rid, "s0", "media:text")
     fa1.routing_id = xid_a
     assigner.assign(fa0)
     assigner.assign(fa1)
@@ -689,13 +694,13 @@ def test_445a_seq_assigner_same_rid_different_xids_independent():
     assert fa1.seq == 1
 
     # Flow (rid, xid_b): 0
-    fb0 = Frame.req(rid, b"cap:op=b", b"")
+    fb0 = Frame.req(rid, "cap:op=b", b"", "")
     fb0.routing_id = xid_b
     assigner.assign(fb0)
     assert fb0.seq == 0
 
     # Flow (rid, None): 0
-    fn0 = Frame.req(rid, b"cap:op=n", b"")
+    fn0 = Frame.req(rid, "cap:op=n", b"", "")
     assigner.assign(fn0)
     assert fn0.seq == 0
 
@@ -705,9 +710,9 @@ def test_446_seq_assigner_mixed_types():
     assigner = SeqAssigner()
     rid = MessageId.random()
 
-    f_req = Frame.req(rid, b"cap:op=test", b"")
-    f_log = Frame.log(rid, b"log message")
-    f_chunk = Frame.chunk(rid, b"payload")
+    f_req = Frame.req(rid, "cap:op=test", b"", "")
+    f_log = Frame.log(rid, "info", "log message")
+    f_chunk = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f_end = Frame.end(rid)
 
     assigner.assign(f_req)
@@ -726,7 +731,7 @@ def test_447_flow_key_with_xid():
     rid = MessageId.random()
     xid = MessageId.random()
 
-    frame = Frame.req(rid, b"cap:op=test", b"")
+    frame = Frame.req(rid, "cap:op=test", b"", "")
     frame.routing_id = xid
 
     key = FlowKey.from_frame(frame)
@@ -738,7 +743,7 @@ def test_447_flow_key_with_xid():
 def test_448_flow_key_without_xid():
     rid = MessageId.random()
 
-    frame = Frame.req(rid, b"cap:op=test", b"")
+    frame = Frame.req(rid, "cap:op=test", b"", "")
     key = FlowKey.from_frame(frame)
     assert key._rid == rid.to_string()
     assert key._xid == ""
@@ -1027,12 +1032,13 @@ def test_497_chunk_corrupted_payload_rejected():
 
     frame = Frame.chunk(req_id, "s1", 0, payload, 0, checksum)
 
-    # Verify valid frame
-    assert verify_chunk_checksum(frame) is True
+    # Verify valid frame — should not raise
+    verify_chunk_checksum(frame)
 
-    # Corrupt the payload
+    # Corrupt the payload — should raise
     frame.payload = b"corrupted!"
-    assert verify_chunk_checksum(frame) is False
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        verify_chunk_checksum(frame)
 
 
 # TEST498: routing_id field roundtrips through CBOR encoding
@@ -1245,7 +1251,7 @@ def test_511_reorder_buffer_cleanup_with_buffered_frames():
     buf.accept(_flow_frame(FrameType.CHUNK, rid, 2))  # buffered
     buf.accept(_flow_frame(FrameType.CHUNK, rid, 3))  # buffered
 
-    key = FlowKey(rid=rid, xid=None)
+    key = FlowKey(rid.to_string(), "")
     buf.cleanup_flow(key)
 
     # After cleanup, seq 0 should work again (flow reset)
@@ -1311,7 +1317,7 @@ def test_514_reorder_buffer_xid_cleanup_isolation():
     buf.accept(make_xid_frame(rid, xid_b, 0))
 
     # Cleanup flow A
-    key_a = FlowKey(rid=rid, xid=xid_a)
+    key_a = FlowKey(rid.to_string(), xid_a.to_string())
     buf.cleanup_flow(key_a)
 
     # Flow B should still expect seq 1
