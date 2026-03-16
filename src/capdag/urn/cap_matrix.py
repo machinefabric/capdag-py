@@ -524,9 +524,8 @@ class CapMatrix:
 
         for entry in self.sets.values():
             for cap in entry.capabilities:
-                # Routing direction: request.accepts(registered_cap)
-                # request is pattern, cap is instance
-                if request.accepts(cap.urn):
+                # Use is_dispatchable: can this provider handle this request?
+                if cap.urn.is_dispatchable(request):
                     matching_sets.append(entry.host)
                     break  # Found a matching capability for this host
 
@@ -559,9 +558,8 @@ class CapMatrix:
 
         for entry in self.sets.values():
             for cap in entry.capabilities:
-                # Routing direction: request.accepts(registered_cap)
-                # request is pattern, cap is instance
-                if request.accepts(cap.urn):
+                # Use is_dispatchable: can this provider handle this request?
+                if cap.urn.is_dispatchable(request):
                     specificity = cap.urn.specificity()
                     if best_match is None or specificity > best_match[2]:
                         best_match = (entry.host, cap, specificity)

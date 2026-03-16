@@ -475,7 +475,7 @@ def test_434_limits_negotiation_minimum():
 
 # TEST435: URN matching (exact vs accepts())
 def test_435_urn_matching_exact_and_accepts():
-    """Verify exact and URN-level matching for cap routing"""
+    """Verify exact and is_dispatchable contravariant/covariant matching for cap routing"""
     engine_read, slave_write = socket.socketpair()
     slave_read, engine_write = socket.socketpair()
 
@@ -512,13 +512,15 @@ def test_435_urn_matching_exact_and_accepts():
     resp1 = switch.read_from_masters()
     assert resp1.payload == bytes([42])
 
-    # More specific request should NOT match less specific registered cap
-    # (request is more specific, registered is less specific → no match)
+    # More specific request SHOULD match under is_dispatchable semantics:
+    # Input (contravariant): request's media:text;utf8;normalized conforms_to provider's media:text;utf8
+    # Output (covariant): provider's media:text;utf8 conforms_to request's media:text
     req2 = Frame.req(
         MessageId(2),
         'cap:in="media:text;utf8;normalized";op=process;out="media:text"',
         bytes(),
         "text/plain"
     )
-    with pytest.raises(NoHandlerError):
-        switch.send_to_master(req2)
+    switch.send_to_master(req2)
+    resp2 = switch.read_from_masters()
+    assert resp2.payload == bytes([42])

@@ -15,7 +15,7 @@ Media URNs are just tagged URNs with the "media" prefix. Comparison and
 matching use standard tagged URN semantics.
 """
 
-from typing import Optional
+from typing import List, Optional
 from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
 
 
@@ -227,6 +227,54 @@ class MediaUrn:
         new_urn = self._urn.without_tag(key)
         return MediaUrn(new_urn)
 
+    def with_list(self) -> "MediaUrn":
+        """Create a new MediaUrn with the list marker tag added.
+        Returns a new URN representing a list of this media type.
+        Idempotent — adding list to an already-list URN is a no-op.
+        """
+        return self.with_tag("list", "*")
+
+    def without_list(self) -> "MediaUrn":
+        """Create a new MediaUrn with the list marker tag removed.
+        Returns a new URN representing a scalar of this media type.
+        No-op if list tag is absent.
+        """
+        return self.without_tag("list")
+
+    @staticmethod
+    def least_upper_bound(urns: "List[MediaUrn]") -> "MediaUrn":
+        """Compute the least upper bound (most specific common type) of a set of MediaUrns.
+
+        Returns the MediaUrn whose tag set is the intersection of all input tag sets:
+        only tags present in ALL inputs with matching values are kept.
+
+        - Empty input -> media: (universal type)
+        - Single input -> returned as-is
+        - [media:pdf, media:pdf] -> media:pdf
+        - [media:pdf, media:png] -> media: (no common tags)
+        - [media:json;textable, media:csv;textable] -> media:textable
+        """
+        from tagged_urn import TaggedUrn
+
+        if not urns:
+            return MediaUrn.from_string("media:")
+
+        if len(urns) == 1:
+            return urns[0]
+
+        # Start with the first URN's tags, intersect with each subsequent URN
+        common_tags = dict(urns[0]._urn.tags)
+
+        for urn in urns[1:]:
+            common_tags = {
+                key: value
+                for key, value in common_tags.items()
+                if urn._urn.tags.get(key) == value
+            }
+
+        result_urn = TaggedUrn("media", common_tags)
+        return MediaUrn(result_urn)
+
     def tags_to_string(self) -> str:
         """Serialize just the tags portion (without "media:" prefix)
 
@@ -255,6 +303,24 @@ class MediaUrn:
         Equivalent to instance.conforms_to(self).
         """
         return self._urn.accepts(instance._urn)
+
+    def is_comparable(self, other: "MediaUrn") -> bool:
+        """Check if two media URNs are comparable in the order-theoretic sense.
+
+        Two URNs are comparable if either one accepts (subsumes) the other.
+        This is the symmetric closure of the accepts relation.
+        Use for discovery/validation: are they on the same specialization chain?
+        """
+        return self.accepts(other) or other.accepts(self)
+
+    def is_equivalent(self, other: "MediaUrn") -> bool:
+        """Check if two media URNs are equivalent in the order-theoretic sense.
+
+        Two URNs are equivalent if each accepts (subsumes) the other.
+        This means they have the same tag set (order-independent equality).
+        Use for exact stream matching.
+        """
+        return self.accepts(other) and other.accepts(self)
 
     def specificity(self) -> int:
         """Get the specificity of this media URN

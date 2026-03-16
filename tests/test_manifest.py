@@ -197,3 +197,26 @@ def test_155_cap_manifest_complex_roundtrip():
     assert restored.caps[0].title == manifest.caps[0].title
     assert restored.caps[0].command == manifest.caps[0].command
     assert len(restored.caps[0].get_args()) == len(manifest.caps[0].get_args())
+
+
+# TEST475: CapManifest.validate() passes when CAP_IDENTITY is present
+def test_475_validate_passes_with_identity():
+    from capdag.standard.caps import CAP_IDENTITY
+
+    identity_urn = CapUrn.from_string(CAP_IDENTITY)
+    identity_cap = Cap(identity_urn, "Identity", "identity")
+    manifest = CapManifest("TestPlugin", "1.0.0", "Test", [identity_cap])
+    # Should succeed without raising
+    manifest.validate()
+
+
+# TEST476: CapManifest.validate() fails when CAP_IDENTITY is missing
+def test_476_validate_fails_without_identity():
+    specific_urn = CapUrn.from_string(_test_urn("op=convert"))
+    specific_cap = Cap(specific_urn, "Convert", "convert")
+    manifest = CapManifest("TestPlugin", "1.0.0", "Test", [specific_cap])
+
+    with pytest.raises(ValueError) as exc_info:
+        manifest.validate()
+
+    assert "CAP_IDENTITY" in str(exc_info.value)

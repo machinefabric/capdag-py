@@ -245,6 +245,17 @@ def test_077_serde_roundtrip():
     assert urn == reparsed
 
 
+# TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING
+def test_078_object_does_not_conform_to_string():
+    str_urn = MediaUrn.from_string(MEDIA_STRING)
+    obj_urn = MediaUrn.from_string(MEDIA_OBJECT)
+
+    assert str_urn.conforms_to(str_urn), "string conforms to string"
+    assert obj_urn.conforms_to(obj_urn), "object conforms to object"
+    assert not obj_urn.conforms_to(str_urn), \
+        "MEDIA_OBJECT should NOT conform to MEDIA_STRING (missing textable)"
+
+
 # TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 def test_304_media_availability_output_constant():
     urn = MediaUrn.from_string(MEDIA_AVAILABILITY_OUTPUT)
@@ -422,3 +433,117 @@ def test_558_predicate_constant_consistency():
     assert not void_urn.is_text()
     assert void_urn.is_binary()  # void has no textable tag
     assert not void_urn.is_numeric()
+
+
+# TEST850: with_list adds list marker, without_list removes it
+def test_850_with_list_without_list():
+    pdf = MediaUrn.from_string("media:pdf")
+    assert pdf.is_scalar()
+    assert not pdf.is_list()
+
+    pdf_list = pdf.with_list()
+    assert pdf_list.is_list()
+    assert not pdf_list.is_scalar()
+    # The list URN should contain all original tags plus list
+    assert pdf_list.conforms_to(pdf), "list version should still conform to scalar pattern"
+
+    back_to_scalar = pdf_list.without_list()
+    assert back_to_scalar.is_scalar()
+    assert back_to_scalar.is_equivalent(pdf), "removing list should restore original"
+
+
+# TEST851: with_list is idempotent
+def test_851_with_list_idempotent():
+    list_urn = MediaUrn.from_string("media:json;list;textable")
+    assert list_urn.is_list()
+
+    double_list = list_urn.with_list()
+    assert double_list.is_list()
+    assert double_list.is_equivalent(list_urn), "adding list to already-list should be no-op"
+
+
+# TEST852: LUB of identical URNs returns the same URN
+def test_852_lub_identical():
+    pdf = MediaUrn.from_string("media:pdf")
+    lub = MediaUrn.least_upper_bound([pdf, pdf])
+    assert lub.is_equivalent(pdf)
+
+
+# TEST853: LUB of URNs with no common tags returns media: (universal)
+def test_853_lub_no_common_tags():
+    pdf = MediaUrn.from_string("media:pdf")
+    png = MediaUrn.from_string("media:png")
+    lub = MediaUrn.least_upper_bound([pdf, png])
+    universal = MediaUrn.from_string("media:")
+    assert lub.is_equivalent(universal), \
+        f"LUB of pdf and png should be media: but got {lub.to_string()}"
+
+
+# TEST854: LUB keeps common tags, drops differing ones
+def test_854_lub_partial_overlap():
+    json_text = MediaUrn.from_string("media:json;textable")
+    csv_text = MediaUrn.from_string("media:csv;textable")
+    lub = MediaUrn.least_upper_bound([json_text, csv_text])
+    expected = MediaUrn.from_string("media:textable")
+    assert lub.is_equivalent(expected), \
+        f"LUB should be media:textable but got {lub.to_string()}"
+
+
+# TEST855: LUB of list and non-list drops list tag
+def test_855_lub_list_vs_scalar():
+    json_list = MediaUrn.from_string("media:json;list;textable")
+    json_scalar = MediaUrn.from_string("media:json;textable")
+    lub = MediaUrn.least_upper_bound([json_list, json_scalar])
+    expected = MediaUrn.from_string("media:json;textable")
+    assert lub.is_equivalent(expected), \
+        f"LUB should drop list tag, got {lub.to_string()}"
+
+
+# TEST856: LUB of empty input returns universal type
+def test_856_lub_empty():
+    lub = MediaUrn.least_upper_bound([])
+    universal = MediaUrn.from_string("media:")
+    assert lub.is_equivalent(universal)
+
+
+# TEST857: LUB of single input returns that input
+def test_857_lub_single():
+    pdf = MediaUrn.from_string("media:pdf")
+    lub = MediaUrn.least_upper_bound([pdf])
+    assert lub.is_equivalent(pdf)
+
+
+# TEST858: LUB with three+ inputs narrows correctly
+def test_858_lub_three_inputs():
+    a = MediaUrn.from_string("media:json;list;record;textable")
+    b = MediaUrn.from_string("media:csv;list;record;textable")
+    c = MediaUrn.from_string("media:ndjson;list;textable")
+    lub = MediaUrn.least_upper_bound([a, b, c])
+    expected = MediaUrn.from_string("media:list;textable")
+    assert lub.is_equivalent(expected), \
+        f"LUB should be media:list;textable but got {lub.to_string()}"
+
+
+# TEST859: LUB with valued tags (non-marker) that differ
+def test_859_lub_valued_tags():
+    v1 = MediaUrn.from_string("media:image;format=png")
+    v2 = MediaUrn.from_string("media:image;format=jpeg")
+    lub = MediaUrn.least_upper_bound([v1, v2])
+    expected = MediaUrn.from_string("media:image")
+    assert lub.is_equivalent(expected), \
+        f"LUB should drop conflicting format tag, got {lub.to_string()}"
+
+
+# TEST628: Verify media URN constants all start with "media:" prefix
+def test_628_media_urn_constants_format():
+    assert MEDIA_STRING.startswith("media:")
+    assert MEDIA_INTEGER.startswith("media:")
+    assert MEDIA_OBJECT.startswith("media:")
+    assert MEDIA_IDENTITY.startswith("media:")
+
+
+# TEST629: Verify profile URL constants all start with capdag.com schema prefix
+def test_629_profile_constants_format():
+    from capdag.media.spec import PROFILE_STR, PROFILE_OBJ
+    assert PROFILE_STR.startswith("https://capdag.com/schema/")
+    assert PROFILE_OBJ.startswith("https://capdag.com/schema/")

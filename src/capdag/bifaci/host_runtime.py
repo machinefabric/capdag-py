@@ -380,21 +380,32 @@ class PluginHost:
             if entry.cap_urn == cap_urn:
                 return entry.plugin_idx
 
-        # URN-level matching: request is pattern, registered cap is instance
+        # URN-level matching: use is_dispatchable (provider can handle request)
         try:
             request_urn = CapUrn.from_string(cap_urn)
         except CapUrnError:
             return None
+
+        request_specificity = request_urn.specificity()
+        matches = []  # (plugin_idx, signed_distance)
 
         for entry in self._cap_table:
             try:
                 registered_urn = CapUrn.from_string(entry.cap_urn)
             except CapUrnError:
                 continue
-            if request_urn.accepts(registered_urn):
-                return entry.plugin_idx
+            if registered_urn.is_dispatchable(request_urn):
+                specificity = registered_urn.specificity()
+                signed_distance = specificity - request_specificity
+                matches.append((entry.plugin_idx, signed_distance))
 
-        return None
+        if not matches:
+            return None
+
+        # Rank: non-negative distance (refinement/exact) before negative (fallback),
+        # then by smallest absolute distance
+        matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
+        return matches[0][0]
 
     def run(self, relay_read, relay_write, resource_fn: Optional[Callable] = None) -> None:
         """Run the main event loop, reading from relay and plugins.

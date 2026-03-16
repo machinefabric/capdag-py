@@ -163,9 +163,41 @@ class CapArg:
     default_value: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
 
+    @classmethod
+    def with_full_definition(
+        cls,
+        media_urn: str,
+        required: bool,
+        sources: List[ArgSource],
+        arg_description: Optional[str] = None,
+        default_value: Optional[Any] = None,
+        metadata: Optional[Any] = None,
+    ) -> "CapArg":
+        """Create a CapArg with all fields set"""
+        return cls(
+            media_urn=media_urn,
+            required=required,
+            sources=sources,
+            arg_description=arg_description,
+            default_value=default_value,
+            metadata=metadata,
+        )
+
     def get_media_urn(self) -> str:
         """Get the media URN"""
         return self.media_urn
+
+    def get_metadata(self) -> Optional[Any]:
+        """Get the metadata"""
+        return self.metadata
+
+    def set_metadata(self, metadata: Any):
+        """Set the metadata"""
+        self.metadata = metadata
+
+    def clear_metadata(self):
+        """Clear the metadata"""
+        self.metadata = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
@@ -203,9 +235,35 @@ class CapOutput:
     output_description: str
     metadata: Optional[Dict[str, Any]] = None
 
+    @classmethod
+    def with_full_definition(
+        cls,
+        media_urn: str,
+        output_description: str,
+        metadata: Optional[Any] = None,
+    ) -> "CapOutput":
+        """Create a CapOutput with all fields set"""
+        return cls(
+            media_urn=media_urn,
+            output_description=output_description,
+            metadata=metadata,
+        )
+
     def get_media_urn(self) -> str:
         """Get the media URN"""
         return self.media_urn
+
+    def get_metadata(self) -> Optional[Any]:
+        """Get the metadata"""
+        return self.metadata
+
+    def set_metadata(self, metadata: Any):
+        """Set the metadata"""
+        self.metadata = metadata
+
+    def clear_metadata(self):
+        """Clear the metadata"""
+        self.metadata = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
@@ -227,6 +285,13 @@ class CapOutput:
         )
 
 
+@dataclass
+class RegisteredBy:
+    """Registration attribution — who registered a capability and when"""
+    username: str
+    registered_at: str
+
+
 class Cap:
     """Formal cap definition
 
@@ -246,12 +311,47 @@ class Cap:
         self.output: Optional[CapOutput] = None
         self.metadata: Dict[str, str] = {}
         self.media_specs: List[Dict[str, Any]] = []
+        self._metadata_json: Optional[Any] = None
+        self._registered_by: Optional["RegisteredBy"] = None
 
     @classmethod
     def with_metadata(cls, urn: CapUrn, title: str, command: str, metadata: Dict[str, str]) -> "Cap":
         """Create a Cap with metadata"""
         cap = cls(urn, title, command)
         cap.metadata = metadata
+        return cap
+
+    @classmethod
+    def with_args(
+        cls, urn: CapUrn, title: str, command: str, args: List[CapArg]
+    ) -> "Cap":
+        """Create a Cap with arguments"""
+        cap = cls(urn, title, command)
+        cap.args = args
+        return cap
+
+    @classmethod
+    def with_full_definition(
+        cls,
+        urn: CapUrn,
+        title: str,
+        cap_description: Optional[str],
+        metadata: Dict[str, str],
+        command: str,
+        media_specs: List[Any],
+        args: List[CapArg],
+        output: Optional[CapOutput] = None,
+        metadata_json: Optional[Any] = None,
+    ) -> "Cap":
+        """Create a Cap with all fields set"""
+        cap = cls(urn, title, command)
+        cap.cap_description = cap_description
+        cap.metadata = metadata
+        cap.args = args
+        cap.output = output
+        cap._metadata_json = metadata_json
+        if media_specs:
+            cap.set_media_specs(media_specs)
         return cap
 
     def urn_string(self) -> str:
@@ -266,9 +366,17 @@ class Cap:
         """Add an argument"""
         self.args.append(arg)
 
+    def get_output(self) -> Optional[CapOutput]:
+        """Get the output definition"""
+        return self.output
+
     def set_output(self, output: CapOutput):
         """Set the output definition"""
         self.output = output
+
+    def get_command(self) -> str:
+        """Get the command"""
+        return self.command
 
     def set_description(self, description: str):
         """Set the capability description"""
@@ -285,6 +393,49 @@ class Cap:
     def set_metadata(self, key: str, value: str):
         """Set metadata value"""
         self.metadata[key] = value
+
+    def remove_metadata(self, key: str) -> Optional[str]:
+        """Remove a metadata value. Returns the removed value or None."""
+        return self.metadata.pop(key, None)
+
+    def get_metadata_json(self) -> Optional[Any]:
+        """Get the metadata JSON"""
+        return self._metadata_json
+
+    def set_metadata_json(self, metadata_json: Any):
+        """Set the metadata JSON"""
+        self._metadata_json = metadata_json
+
+    def clear_metadata_json(self):
+        """Clear the metadata JSON"""
+        self._metadata_json = None
+
+    def get_registered_by(self) -> Optional["RegisteredBy"]:
+        """Get the registration attribution"""
+        return self._registered_by
+
+    def set_registered_by(self, registered_by: "RegisteredBy"):
+        """Set the registration attribution"""
+        self._registered_by = registered_by
+
+    def clear_registered_by(self):
+        """Clear the registration attribution"""
+        self._registered_by = None
+
+    def accepts_request(self, request_str: str) -> bool:
+        """Check if this cap accepts a request string.
+        Uses routing direction: request is the pattern, cap is the instance.
+        """
+        request = CapUrn.from_string(request_str)
+        return request.accepts(self.urn)
+
+    def is_more_specific_than(self, other: "Cap", request: str) -> bool:
+        """Check if this cap is more specific than another for a given request.
+        Both caps must accept the request; then compares specificity.
+        """
+        if not self.accepts_request(request) or not other.accepts_request(request):
+            return False
+        return self.urn.is_more_specific_than(other.urn)
 
     def accepts_stdin(self) -> bool:
         """Check if this cap accepts stdin input"""
@@ -340,6 +491,15 @@ class Cap:
         if self.media_specs:
             result["media_specs"] = self.media_specs
 
+        if self._metadata_json is not None:
+            result["metadata_json"] = self._metadata_json
+
+        if self._registered_by is not None:
+            result["registered_by"] = {
+                "username": self._registered_by.username,
+                "registered_at": self._registered_by.registered_at,
+            }
+
         return result
 
     @classmethod
@@ -362,6 +522,16 @@ class Cap:
 
         if "media_specs" in data:
             cap.media_specs = data["media_specs"]
+
+        if "metadata_json" in data:
+            cap._metadata_json = data["metadata_json"]
+
+        if "registered_by" in data:
+            rb = data["registered_by"]
+            cap._registered_by = RegisteredBy(
+                username=rb["username"],
+                registered_at=rb["registered_at"],
+            )
 
         return cap
 

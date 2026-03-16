@@ -335,21 +335,17 @@ class RelaySwitch:
             except:
                 continue
 
-            # Determine if this is a match
-            if preferred_urn:
-                # Comparable: either side accepts the other (broader match set)
-                is_match = request_urn.accepts(registered_urn) or registered_urn.accepts(request_urn)
-            else:
-                # Standard: request is pattern, registered cap is instance
-                is_match = request_urn.accepts(registered_urn)
+            # Use is_dispatchable: can this provider handle this request?
+            dispatchable = registered_urn.is_dispatchable(request_urn)
 
-            if is_match:
+            if dispatchable:
                 specificity = registered_urn.specificity()
+                signed_distance = specificity - request_specificity
                 # Check if this registered cap is equivalent to the preferred cap
                 is_preferred = False
                 if preferred_urn:
-                    is_preferred = preferred_urn.accepts(registered_urn) and registered_urn.accepts(preferred_urn)
-                matches.append((master_idx, specificity, is_preferred))
+                    is_preferred = preferred_urn.is_equivalent(registered_urn)
+                matches.append((master_idx, signed_distance, is_preferred))
 
         if not matches:
             return None
@@ -359,11 +355,10 @@ class RelaySwitch:
             if is_pref:
                 return idx
 
-        # Fall back to closest-specificity (ties broken by first match)
-        min_distance = min(abs(s - request_specificity) for _, s, _ in matches)
-        for idx, s, _ in matches:
-            if abs(s - request_specificity) == min_distance:
-                return idx
+        # Rank: non-negative distance (refinement/exact) before negative (fallback),
+        # then by smallest absolute distance. This prefers exact or more-specific providers.
+        matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
+        return matches[0][0]
 
         return None
 

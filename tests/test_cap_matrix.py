@@ -643,8 +643,8 @@ def test_575_cap_block_get_registry():
     assert composite.get_registry("nonexistent") is None
 
 
-# TEST568: CapGraph::find_best_path returns highest-specificity path over shortest
-def test_568_cap_graph_find_best_path():
+# TEST976: CapGraph::find_best_path returns highest-specificity path over shortest
+def test_976_cap_graph_find_best_path():
     from capdag.urn.cap_matrix import CapGraph
     graph = CapGraph()
 

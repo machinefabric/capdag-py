@@ -6,11 +6,13 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 from capdag import CapUrn, MediaUrn
 from capdag.standard.caps import (
+    CAP_DISCARD,
     model_availability_urn,
     model_path_urn,
     llm_conversation_urn,
 )
 from capdag.urn.media_urn import (
+    MEDIA_VOID,
     MEDIA_MODEL_SPEC,
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_PATH_OUTPUT,
@@ -81,3 +83,24 @@ def test_312_all_urn_builders_produce_valid_urns():
     assert parsed is not None, "model_path_urn must be parseable"
 
 
+# TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void
+def test_473_cap_discard_parses_as_valid_urn():
+    urn = CapUrn.from_string(CAP_DISCARD)
+    assert urn.in_spec() == "media:", "CAP_DISCARD input must be wildcard media:"
+    assert urn.out_spec() == MEDIA_VOID, "CAP_DISCARD output must be media:void"
+
+
+# TEST474: CAP_DISCARD accepts specific-input/void-output caps
+def test_474_cap_discard_accepts_specific_void_cap():
+    discard = CapUrn.from_string(CAP_DISCARD)
+    specific = CapUrn.from_string('cap:in="media:pdf";op=shred;out="media:void"')
+
+    # discard (pattern) accepts specific (instance) — the specific cap
+    # IS more specific (has op=shred and specific input)
+    assert discard.accepts(specific), \
+        "CAP_DISCARD must accept a more specific cap with void output"
+
+    # But a cap with non-void output must NOT conform to discard
+    non_void = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:string"')
+    assert not discard.accepts(non_void), \
+        "CAP_DISCARD must NOT accept a cap with non-void output"

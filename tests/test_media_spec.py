@@ -18,7 +18,12 @@ from capdag.media.spec import (
     UnresolvableMediaUrn,
     DuplicateMediaUrn,
 )
-from capdag.media.registry import MediaUrnRegistry
+from capdag.media.registry import (
+    MediaUrnRegistry,
+    StoredMediaSpec,
+    normalize_media_urn,
+    ExtensionNotFoundError,
+)
 
 
 # Helper to create a test registry
@@ -546,3 +551,126 @@ async def test_110_multiple_extensions():
     resolved = await resolve_media_urn("media:image;jpeg", media_specs, registry)
     assert resolved.extensions == ["jpg", "jpeg"]
     assert len(resolved.extensions) == 2
+
+
+# =============================================================================
+# Media URN Registry tests (607-610, 614-617)
+# =============================================================================
+
+
+# TEST607: media_urns_for_extension returns error for unknown extension
+def test_607_media_urns_for_extension_unknown():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    with pytest.raises(ExtensionNotFoundError) as exc_info:
+        registry.media_urns_for_extension("zzzzunknown")
+    assert "zzzzunknown" in str(exc_info.value)
+
+
+# TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
+def test_608_media_urns_for_extension_populated():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+
+    spec = StoredMediaSpec(
+        urn="media:pdf",
+        media_type="application/pdf",
+        title="PDF Document",
+        extensions=["pdf"],
+    )
+    normalized = normalize_media_urn(spec.urn)
+    registry.cached_specs[normalized] = spec
+    registry._update_extension_index(spec)
+
+    urns = registry.media_urns_for_extension("pdf")
+    assert len(urns) > 0, "Should have at least one URN for pdf"
+    assert any("pdf" in u for u in urns), f"URNs should contain pdf: {urns}"
+
+    # Case-insensitive
+    urns_upper = registry.media_urns_for_extension("PDF")
+    assert urns == urns_upper
+
+
+# TEST609: get_extension_mappings returns all registered extension->URN pairs
+def test_609_get_extension_mappings():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+
+    for urn_str, ext in [("media:pdf", "pdf"), ("media:epub", "epub")]:
+        spec = StoredMediaSpec(
+            urn=urn_str,
+            media_type="application/octet-stream",
+            title="Test",
+            extensions=[ext],
+        )
+        normalized = normalize_media_urn(urn_str)
+        registry.cached_specs[normalized] = spec
+        registry._update_extension_index(spec)
+
+    mappings = registry.get_extension_mappings()
+    ext_names = [m[0] for m in mappings]
+    assert "pdf" in ext_names, "Should contain pdf"
+    assert "epub" in ext_names, "Should contain epub"
+
+
+# TEST610: get_cached_spec returns None for unknown and Some for known
+def test_610_get_cached_spec():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+
+    # Unknown spec
+    assert registry.get_cached_spec("media:nonexistent;xyzzy") is None
+
+    # Add a spec and verify we can retrieve it
+    spec = StoredMediaSpec(
+        urn="media:test-spec;textable",
+        media_type="text/plain",
+        title="Test Spec",
+    )
+    normalized = normalize_media_urn(spec.urn)
+    registry.cached_specs[normalized] = spec
+
+    retrieved = registry.get_cached_spec("media:test-spec;textable")
+    assert retrieved is not None, "Should find spec by URN"
+    assert retrieved.title == "Test Spec"
+
+
+# TEST614: Verify registry creation succeeds and cache directory exists
+def test_614_registry_creation():
+    cache_dir = Path(tempfile.mkdtemp()) / "media"
+    registry = MediaUrnRegistry.new_for_test(cache_dir)
+    assert registry.cache_dir.exists()
+
+
+# TEST615: Verify cache key generation is deterministic and distinct for different URNs
+def test_615_cache_key_generation():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    key1 = registry._cache_key("media:textable")
+    key2 = registry._cache_key("media:textable")
+    key3 = registry._cache_key("media:integer")
+
+    assert key1 == key2
+    assert key1 != key3
+
+
+# TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields
+def test_616_stored_media_spec_to_def():
+    spec = StoredMediaSpec(
+        urn="media:pdf",
+        media_type="application/pdf",
+        title="PDF Document",
+        profile_uri="https://capdag.com/schema/pdf",
+        description="PDF document data",
+        extensions=["pdf"],
+    )
+
+    d = spec.to_dict()
+    assert d["urn"] == "media:pdf"
+    assert d["media_type"] == "application/pdf"
+    assert d["title"] == "PDF Document"
+    assert d["description"] == "PDF document data"
+    assert d["extensions"] == ["pdf"]
+
+
+# TEST617: Verify normalize_media_urn produces consistent non-empty results
+def test_617_normalize_media_urn():
+    urn1 = normalize_media_urn("media:string")
+    urn2 = normalize_media_urn("media:string")
+    assert urn1
+    assert urn2

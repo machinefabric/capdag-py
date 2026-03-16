@@ -644,83 +644,6 @@ def test_050_matching_semantics_direction_mismatch():
     assert not cap.accepts(request), "Test 10: Direction mismatch should not accept"
 
 
-# TEST051: Semantic direction matching - generic provider matches specific request
-def test_051_direction_semantic_matching():
-    # A cap accepting media: (generic) should match a request with media:pdf (specific)
-    generic_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    pdf_request = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    assert generic_cap.accepts(pdf_request), "Generic provider must accept specific pdf request"
-
-    # Generic cap also accepts epub (any subtype)
-    epub_request = CapUrn.from_string(
-        'cap:in="media:epub";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    assert generic_cap.accepts(epub_request), "Generic provider must accept epub request"
-
-    # Reverse: specific cap does NOT accept generic request
-    pdf_cap = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    generic_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    assert not pdf_cap.accepts(generic_request), "Specific pdf cap must NOT accept generic request"
-
-    # Incompatible types: pdf cap does NOT accept epub request
-    assert not pdf_cap.accepts(epub_request), "PDF-specific cap must NOT accept epub request"
-
-    # Output direction: cap producing more specific output accepts less specific request
-    specific_out_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    generic_out_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image"'
-    )
-    assert specific_out_cap.accepts(generic_out_request), "Cap producing specific output must satisfy generic request"
-
-    # Reverse output: generic output cap does NOT accept specific output request
-    generic_out_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image"'
-    )
-    specific_out_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    assert not generic_out_cap.accepts(specific_out_request), "Cap producing generic output must NOT satisfy specific request"
-
-
-# TEST052: Semantic direction specificity - more media URN tags = higher specificity
-def test_052_direction_semantic_specificity():
-    # media: has 0 tags, media:pdf has 1 tag
-    # media:image;png;thumbnail has 3 tags
-    generic_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    specific_cap = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-
-    # generic: (0 tags) + image;png;thumbnail(3) + op(1) = 4
-    assert generic_cap.specificity() == 4
-    # specific: pdf(1) + image;png;thumbnail(3) + op(1) = 5
-    assert specific_cap.specificity() == 5
-
-    assert specific_cap.specificity() > generic_cap.specificity(), "pdf cap must be more specific than wildcard cap"
-
-    # Find best match: should prefer the more specific cap when both match
-    pdf_request = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
-    )
-    caps = [generic_cap, specific_cap]
-    matching = [c for c in caps if c.accepts(pdf_request)]
-    best = max(matching, key=lambda c: c.specificity())
-    # Check the more specific pdf provider was preferred
-    assert best.in_spec() == "media:pdf", "Must prefer the more specific pdf provider"
-
-
 # =============================================================================
 # Tier Tests (TEST559-TEST567)
 # =============================================================================
@@ -808,6 +731,24 @@ def test_562_canonical_option():
     # Some invalid input -> error
     with pytest.raises(Exception):
         CapUrn.canonical_option("invalid")
+
+
+# TEST568: is_dispatchable with tags in different order (record;textable vs textable;record)
+def test_568_dispatch_output_tag_order():
+    provider = CapUrn.from_string(
+        'cap:in="media:model-spec;textable";op=download-model;out="media:download-result;record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:model-spec;textable";op=download-model;out="media:download-result;textable;record"'
+    )
+
+    # After parsing, both should be normalized to same canonical form
+    assert provider.out_spec == request.out_spec, \
+        "Output specs should be normalized to same canonical form"
+
+    # And dispatch should work
+    assert provider.is_dispatchable(request), \
+        "Provider should dispatch request with same tags in different order"
 
 
 # TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
@@ -1031,3 +972,265 @@ def test_653_wildcard_identity_routing_isolation():
 
     # Identity (no tag constraints) accepts the specific request
     assert identity.accepts(specific_request), "Identity pattern accepts any instance"
+
+
+# TEST823: is_dispatchable exact match
+def test_823_dispatch_exact_match():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    assert provider.is_dispatchable(request)
+
+
+# TEST824: is_dispatchable contravariant input
+def test_824_dispatch_contravariant_input():
+    provider = CapUrn.from_string(
+        'cap:in="media:";op=analyze;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=analyze;out="media:record;textable"'
+    )
+    assert provider.is_dispatchable(request)
+
+
+# TEST825: is_dispatchable request unconstrained input
+def test_825_dispatch_request_unconstrained_input():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=analyze;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:";op=analyze;out="media:record;textable"'
+    )
+    assert provider.is_dispatchable(request), \
+        "Request in=media: is unconstrained — axis is vacuously true"
+
+
+# TEST826: is_dispatchable covariant output
+def test_826_dispatch_covariant_output():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:textable"'
+    )
+    assert provider.is_dispatchable(request), \
+        "Provider output record;textable conforms to request output textable"
+
+
+# TEST827: is_dispatchable generic output fails
+def test_827_dispatch_generic_output_fails():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    assert not provider.is_dispatchable(request), \
+        "Provider out=media: cannot guarantee specific output"
+
+
+# TEST828: is_dispatchable wildcard requires tag presence
+def test_828_dispatch_wildcard_requires_tag_presence():
+    provider = CapUrn.from_string(
+        'cap:in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    assert not provider.is_dispatchable(request), \
+        "Wildcard * means tag must be present — provider has no candle tag"
+
+
+# TEST829: is_dispatchable wildcard with tag present
+def test_829_dispatch_wildcard_with_tag_present():
+    provider = CapUrn.from_string(
+        'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    assert provider.is_dispatchable(request), \
+        "Provider has candle=metal, request has candle=* — tag present, any value OK"
+
+
+# TEST830: is_dispatchable provider extra tags
+def test_830_dispatch_provider_extra_tags():
+    provider = CapUrn.from_string(
+        'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    assert provider.is_dispatchable(request), \
+        "Provider extra tag candle=metal is refinement — always OK"
+
+
+# TEST831: is_dispatchable cross-backend mismatch
+def test_831_dispatch_cross_backend_mismatch():
+    gguf_provider = CapUrn.from_string(
+        'cap:gguf=q4_k_m;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    candle_request = CapUrn.from_string(
+        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+    )
+    assert not gguf_provider.is_dispatchable(candle_request), \
+        "GGUF provider has no candle tag — cross-backend mismatch"
+
+
+# TEST832: is_dispatchable is asymmetric
+def test_832_dispatch_asymmetric():
+    broad = CapUrn.from_string(
+        'cap:in="media:";op=process;out="media:record;textable"'
+    )
+    narrow = CapUrn.from_string(
+        'cap:in="media:pdf";op=process;out="media:textable"'
+    )
+    # broad provider CAN dispatch narrow request:
+    #   input: provider in=media: accepts anything -> OK
+    #   output: provider out=media:record;textable conforms to request out=media:textable -> OK
+    assert broad.is_dispatchable(narrow)
+    # narrow provider CANNOT dispatch broad request:
+    #   input: request in=media: unconstrained -> OK
+    #   output: provider out=media:textable, request out=media:record;textable
+    #           textable does NOT conform to record;textable -> FAIL
+    assert not narrow.is_dispatchable(broad)
+
+
+# TEST833: is_comparable symmetric
+def test_833_comparable_symmetric():
+    a = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:textable"'
+    )
+    b = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    assert a.is_comparable(b)
+    assert b.is_comparable(a)
+
+
+# TEST834: is_comparable unrelated
+def test_834_comparable_unrelated():
+    a = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:textable"'
+    )
+    b = CapUrn.from_string(
+        'cap:in="media:audio";op=transcribe;out="media:record;textable"'
+    )
+    assert not a.is_comparable(b)
+    assert not b.is_comparable(a)
+
+
+# TEST835: is_equivalent identical
+def test_835_equivalent_identical():
+    a = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    b = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    assert a.is_equivalent(b)
+    assert b.is_equivalent(a)
+
+
+# TEST836: is_equivalent non-equivalent
+def test_836_equivalent_non_equivalent():
+    a = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:textable"'
+    )
+    b = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    assert a.is_comparable(b)
+    assert not a.is_equivalent(b)
+
+
+# TEST837: is_dispatchable op mismatch
+def test_837_dispatch_op_mismatch():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=summarize;out="media:record;textable"'
+    )
+    assert not provider.is_dispatchable(request)
+
+
+# TEST838: is_dispatchable request wildcard output
+def test_838_dispatch_request_wildcard_output():
+    provider = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+    )
+    request = CapUrn.from_string(
+        'cap:in="media:pdf";op=extract;out="media:"'
+    )
+    assert provider.is_dispatchable(request), \
+        "Request out=media: is unconstrained — any provider output accepted"
+
+
+# TEST890: Direction semantic matching (accepts method)
+def test_890_direction_semantic_matching():
+    generic_cap = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    pdf_request = CapUrn.from_string(
+        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    assert generic_cap.accepts(pdf_request)
+
+    epub_request = CapUrn.from_string(
+        'cap:in="media:epub";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    assert generic_cap.accepts(epub_request)
+
+    pdf_cap = CapUrn.from_string(
+        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    generic_request = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    assert not pdf_cap.accepts(generic_request)
+    assert not pdf_cap.accepts(epub_request)
+
+    specific_out_cap = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    generic_out_request = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image"'
+    )
+    assert specific_out_cap.accepts(generic_out_request)
+
+    generic_out_cap = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image"'
+    )
+    specific_out_request = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    assert not generic_out_cap.accepts(specific_out_request)
+
+
+# TEST891: Direction semantic specificity
+def test_891_direction_semantic_specificity():
+    generic_cap = CapUrn.from_string(
+        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    specific_cap = CapUrn.from_string(
+        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+
+    # generic: wildcard(0) + image;png;thumbnail(3) + op(1) = 4
+    assert generic_cap.specificity() == 4
+    # specific: pdf(1) + image;png;thumbnail(3) + op(1) = 5
+    assert specific_cap.specificity() == 5
+
+    assert specific_cap.specificity() > generic_cap.specificity()
+
+    pdf_request = CapUrn.from_string(
+        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+    )
+    caps = [generic_cap, specific_cap]
+    best = CapMatcher.find_best_match(caps, pdf_request)
+    assert best is not None
+    assert best.in_spec() == "media:pdf"

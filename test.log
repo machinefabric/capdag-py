@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.10.14, pytest-8.4.1, pluggy-1.6.0
+rootdir: /Users/bahram/ws/prj/machinefabric/capdag-py
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.12.1, timeout-2.4.0, cov-6.2.1, asyncio-1.3.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 493 items
+
+tests/test_caller.py .....................                               [  4%]
+tests/test_cap.py .................                                      [  7%]
+tests/test_cap_matrix.py ............................                    [ 13%]
+tests/test_cap_urn.py .................................................. [ 23%]
+............................................                             [ 32%]
+tests/test_cbor_frame.py ...........................................     [ 41%]
+tests/test_cbor_integration.py ........                                  [ 42%]
+tests/test_cbor_io.py ......................................             [ 50%]
+tests/test_manifest.py ........                                          [ 52%]
+tests/test_media_spec.py ...............................                 [ 58%]
+tests/test_media_urn.py ............................................     [ 67%]
+tests/test_plugin_host.py .............                                  [ 69%]
+tests/test_plugin_host_runtime.py ..............                         [ 72%]
+tests/test_plugin_relay.py .........                                     [ 74%]
+tests/test_plugin_runtime.py ........................................... [ 83%]
+...............                                                          [ 86%]
+tests/test_registry.py .................                                 [ 89%]
+tests/test_relay_switch.py ..........                                    [ 91%]
+tests/test_response.py ........                                          [ 93%]
+tests/test_schema_validation.py ..........                               [ 95%]
+tests/test_standard_caps.py ........                                     [ 97%]
+tests/test_validation.py ..............                                  [100%]
+
+============================= 493 passed in 4.55s ==============================

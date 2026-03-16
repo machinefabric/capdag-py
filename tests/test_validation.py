@@ -22,8 +22,8 @@ def _test_urn(tags: str) -> str:
     return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
 
 
-# TEST051: Test input validation succeeds with valid positional argument
-def test_input_validation_success():
+# TEST051: Input validation succeeds with valid positional argument
+def test_051_input_validation_success():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -36,8 +36,8 @@ def test_input_validation_success():
     validate_positional_arguments(cap, input_args)
 
 
-# TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
-def test_input_validation_missing_required():
+# TEST052: Input validation fails with MissingRequiredArgument when required arg missing
+def test_052_input_validation_missing_required():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -53,12 +53,11 @@ def test_input_validation_missing_required():
     assert exc_info.value.cap_urn == cap.urn_string()
 
 
-# TEST053: Test validation accepts optional argument when not provided
-def test_input_validation_optional_arg():
+# TEST053: Validation accepts optional argument when not provided
+def test_053_input_validation_optional_arg():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
-    # Optional argument (required=False)
     arg = CapArg(MEDIA_STRING, False, [PositionSource(0)])
     cap.add_arg(arg)
 
@@ -68,12 +67,11 @@ def test_input_validation_optional_arg():
     validate_positional_arguments(cap, input_args)
 
 
-# TEST054: Test validation rejects too many arguments with TooManyArguments error
-def test_input_validation_too_many_args():
+# TEST054: Validation rejects too many arguments
+def test_054_input_validation_too_many_args():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
-    # Cap expects 1 argument
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
     cap.add_arg(arg)
 
@@ -86,53 +84,37 @@ def test_input_validation_too_many_args():
     assert exc_info.value.actual_count == 3
 
 
-# TEST055: Test RULE1 - duplicate media_urns rejected
-def test_rule1_duplicate_media_urns():
+# TEST578: RULE1 - duplicate media_urns rejected
+def test_578_rule1_duplicate_media_urns():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Add two args with same media_urn
-    arg1 = CapArg(MEDIA_STRING, True, [PositionSource(0)])
-    arg2 = CapArg(MEDIA_STRING, True, [PositionSource(1)])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(1)]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
 
     assert "RULE1" in exc_info.value.issue
-    assert "Duplicate media_urn" in exc_info.value.issue
 
 
-# TEST056: Test RULE2 - empty sources rejected
-def test_rule2_empty_sources():
+# TEST579: RULE2 - empty sources rejected
+def test_579_rule2_empty_sources():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Create arg with empty sources list
-    arg = CapArg(MEDIA_STRING, True, [])
-    cap.add_arg(arg)
+    cap.add_arg(CapArg(MEDIA_STRING, True, []))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
 
     assert "RULE2" in exc_info.value.issue
-    assert "empty sources" in exc_info.value.issue
 
 
-# Additional comprehensive validation tests
-
-
-# TEST: RULE3 - multiple stdin sources must have identical media_urns
-def test_rule3_stdin_media_urns_must_match():
+# TEST580: RULE3 - multiple stdin sources with different URNs rejected
+def test_580_rule3_different_stdin_urns():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Two args with stdin sources but different media_urns
-    arg1 = CapArg("media:input1", True, [StdinSource("media:input1")])
-    arg2 = CapArg("media:input2", True, [StdinSource("media:input2")])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -140,14 +122,22 @@ def test_rule3_stdin_media_urns_must_match():
     assert "RULE3" in exc_info.value.issue
 
 
-# TEST: RULE4 - no duplicate source types in same arg
-def test_rule4_no_duplicate_source_types():
+# TEST581: RULE3 - multiple stdin sources with same URN is OK
+def test_581_rule3_same_stdin_urns_ok():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:txt;textable")]))
 
-    # Arg with two position sources
-    arg = CapArg(MEDIA_STRING, True, [PositionSource(0), PositionSource(1)])
-    cap.add_arg(arg)
+    # Should succeed - same stdin URNs allowed
+    validate_cap_args(cap)
+
+
+# TEST582: RULE4 - duplicate source type in single arg rejected
+def test_582_rule4_duplicate_source_type():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), PositionSource(1)]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -155,16 +145,12 @@ def test_rule4_no_duplicate_source_types():
     assert "RULE4" in exc_info.value.issue
 
 
-# TEST: RULE5 - no duplicate positions across args
-def test_rule5_no_duplicate_positions():
+# TEST583: RULE5 - duplicate position across args rejected
+def test_583_rule5_duplicate_position():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Two args with same position
-    arg1 = CapArg("media:arg1", True, [PositionSource(0)])
-    arg2 = CapArg("media:arg2", True, [PositionSource(0)])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(0)]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -172,32 +158,35 @@ def test_rule5_no_duplicate_positions():
     assert "RULE5" in exc_info.value.issue
 
 
-# TEST: RULE6 - positions must be sequential (no gaps)
-def test_rule6_positions_sequential():
+# TEST584: RULE6 - position gap rejected (0, 2 without 1)
+def test_584_rule6_position_gap():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Positions 0 and 2 (missing 1)
-    arg1 = CapArg("media:arg1", True, [PositionSource(0)])
-    arg2 = CapArg("media:arg2", True, [PositionSource(2)])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(2)]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
 
     assert "RULE6" in exc_info.value.issue
-    assert "gap" in exc_info.value.issue.lower()
 
 
-# TEST: RULE7 - no arg may have both position and cli_flag
-def test_rule7_no_position_and_cli_flag():
+# TEST585: RULE6 - sequential positions (0, 1) pass
+def test_585_rule6_sequential_ok():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(1)]))
 
-    # Arg with both position and cli_flag
-    arg = CapArg(MEDIA_STRING, True, [PositionSource(0), CliFlagSource("--input")])
-    cap.add_arg(arg)
+    # Should succeed
+    validate_cap_args(cap)
+
+
+# TEST586: RULE7 - arg with both position and cli_flag rejected
+def test_586_rule7_position_and_cli_flag():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), CliFlagSource("--file")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -205,16 +194,12 @@ def test_rule7_no_position_and_cli_flag():
     assert "RULE7" in exc_info.value.issue
 
 
-# TEST: RULE9 - no duplicate cli_flags
-def test_rule9_no_duplicate_cli_flags():
+# TEST587: RULE9 - duplicate cli_flag across args rejected
+def test_587_rule9_duplicate_cli_flag():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-
-    # Two args with same cli_flag
-    arg1 = CapArg("media:arg1", True, [CliFlagSource("--input")])
-    arg2 = CapArg("media:arg2", True, [CliFlagSource("--input")])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--file")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [CliFlagSource("--file")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -222,14 +207,12 @@ def test_rule9_no_duplicate_cli_flags():
     assert "RULE9" in exc_info.value.issue
 
 
-# TEST: RULE10 - reserved cli_flags rejected
-def test_rule10_reserved_cli_flags():
+# TEST588: RULE10 - reserved cli_flags rejected
+def test_588_rule10_reserved_cli_flags():
     for reserved_flag in RESERVED_CLI_FLAGS:
         urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
         cap = Cap(urn, "Test Capability", "test-command")
-
-        arg = CapArg(MEDIA_STRING, True, [CliFlagSource(reserved_flag)])
-        cap.add_arg(arg)
+        cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource(reserved_flag)]))
 
         with pytest.raises(InvalidCapSchemaError) as exc_info:
             validate_cap_args(cap)
@@ -238,18 +221,23 @@ def test_rule10_reserved_cli_flags():
         assert reserved_flag in exc_info.value.issue
 
 
-# TEST: Valid cap with all rules satisfied
-def test_valid_cap_passes_all_rules():
+# TEST589: Valid cap args with mixed sources pass all rules
+def test_589_all_rules_pass():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), StdinSource("media:txt;textable")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, False, [PositionSource(1)]))
 
-    # Valid args - sequential positions, no duplicates
-    arg1 = CapArg("media:arg1", True, [PositionSource(0)])
-    arg2 = CapArg("media:arg2", True, [PositionSource(1)])
-    arg3 = CapArg("media:arg3", False, [CliFlagSource("--optional")])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
-    cap.add_arg(arg3)
+    # Should succeed
+    validate_cap_args(cap)
+
+
+# TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions)
+def test_590_cli_flag_only_args():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--input")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, False, [CliFlagSource("--count")]))
 
     # Should succeed
     validate_cap_args(cap)

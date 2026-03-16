@@ -40,6 +40,23 @@ class ResponseWrapper:
         """Create from binary output (like PNG images)"""
         return cls(data, ResponseContentType.BINARY)
 
+    def is_empty(self) -> bool:
+        """Check if response has no content"""
+        return len(self.raw_bytes) == 0
+
+    def size(self) -> int:
+        """Get the exact byte count of content"""
+        return len(self.raw_bytes)
+
+    def get_content_type(self) -> str:
+        """Get the MIME type string for this response"""
+        if self.content_type == ResponseContentType.JSON:
+            return "application/json"
+        elif self.content_type == ResponseContentType.TEXT:
+            return "text/plain"
+        else:
+            return "application/octet-stream"
+
     def as_bytes(self) -> bytes:
         """Get raw bytes"""
         return self.raw_bytes
@@ -95,7 +112,12 @@ class ResponseWrapper:
         """Deserialize to a specific type
 
         For JSON content types, uses json.loads and type construction.
+        Binary responses cannot be deserialized to structured types.
         """
+        if self.content_type == ResponseContentType.BINARY:
+            raise ValueError(
+                f"Cannot deserialize binary response to structured type {type_class}"
+            )
         if self.content_type == ResponseContentType.JSON:
             data = json.loads(self.raw_bytes.decode('utf-8'))
             # If it's a dict and the type has a from_dict method, use it

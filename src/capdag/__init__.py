@@ -87,7 +87,7 @@ from capdag.urn.cap_matrix import (
 
 # Cap module
 from capdag.cap.response import ResponseWrapper
-from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
+from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
 from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,

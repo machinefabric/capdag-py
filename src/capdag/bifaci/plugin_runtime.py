@@ -677,13 +677,11 @@ def collect_args_by_media_urn(frames: queue.Queue, media_urn: str) -> bytes:
         elif frame.frame_type == FrameType.STREAM_END:
             if frame.stream_id and frame.stream_id in streams:
                 stream_media_urn, chunks = streams[frame.stream_id]
-                # Check if this stream matches target
-                # target_urn is pattern (what we're looking for)
-                # stream_urn is instance (what the stream provides)
-                # Pattern must accept instance: target_urn.accepts(stream_urn)
+                # Check if this stream matches target using is_equivalent
+                # Both URNs are concrete — exact tag-set match required
                 try:
                     stream_urn = MediaUrn.from_string(stream_media_urn)
-                    if target_urn.accepts(stream_urn):
+                    if target_urn.is_equivalent(stream_urn):
                         result = b''.join(chunks)
                         # Found match - consume rest of frames and return
                         for _ in iter(frames.get, None):
@@ -891,9 +889,8 @@ def extract_effective_payload(
         if expected_media_urn is not None:
             try:
                 arg_urn = MediaUrn.from_string(stream.media_urn)
-                fwd = arg_urn.conforms_to(expected_media_urn)
-                rev = expected_media_urn.accepts(arg_urn)
-                if fwd or rev:
+                # Use is_comparable for discovery: are they on the same chain?
+                if arg_urn.is_comparable(expected_media_urn):
                     return stream_data
             except Exception:
                 continue
@@ -1017,12 +1014,13 @@ class PluginRuntime:
         """Find an Op factory for a cap URN.
         Returns the factory if found, None otherwise.
 
-        Matching direction: request.accepts(registered_cap) — the incoming request
-        (pattern) must accept the registered cap (instance). Mirrors Rust exactly:
-          `request_urn.accepts(&registered_urn)`
+        Uses is_dispatchable(provider, request): can this registered handler
+        dispatch the incoming request? Mirrors Rust exactly:
+          `registered_urn.is_dispatchable(&request_urn)`
 
-        Selects the closest-specificity match to the request (not max-specificity),
-        to prevent identity handlers from stealing routes from specific handlers.
+        Ranks by: non-negative signed distance (refinement/exact) first,
+        then by smallest absolute distance. This prevents identity handlers
+        from stealing routes from specific handlers.
         """
         # First try exact match
         if cap_urn in self.handlers:
@@ -1035,23 +1033,26 @@ class PluginRuntime:
             return None
 
         request_specificity = request_urn.specificity()
-        best_handler = None
-        best_distance = None
+        matches = []  # (handler, signed_distance)
 
         for registered_cap_str, handler in self.handlers.items():
             try:
                 registered_urn = CapUrn.from_string(registered_cap_str)
-                # Routing direction: request.accepts(registered_cap) (mirrors Rust)
-                if request_urn.accepts(registered_urn):
+                # Use is_dispatchable: can this provider handle this request?
+                if registered_urn.is_dispatchable(request_urn):
                     specificity = registered_urn.specificity()
-                    distance = abs(specificity - request_specificity)
-                    if best_distance is None or distance < best_distance:
-                        best_handler = handler
-                        best_distance = distance
+                    signed_distance = specificity - request_specificity
+                    matches.append((handler, signed_distance))
             except Exception:
                 continue
 
-        return best_handler
+        if not matches:
+            return None
+
+        # Rank: non-negative distance (refinement/exact) before negative (fallback),
+        # then by smallest absolute distance
+        matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
+        return matches[0][0]
 
     def run(self) -> None:
         """Run the plugin runtime.

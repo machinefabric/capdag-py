@@ -308,6 +308,134 @@ class CapUrn:
         """
         return cap.accepts(self)
 
+    def _input_dispatchable(self, request: "CapUrn") -> bool:
+        """Check if provider's input is dispatchable for request's input.
+
+        Input is CONTRAVARIANT: provider with looser input constraint can handle
+        request with stricter input. media: is the identity (top) and means
+        "unconstrained" — vacuously true on either side.
+
+        - Request in=media: (unconstrained) + any provider -> YES (no constraint)
+        - Provider in=media: (accepts any) + Request in=media:pdf -> YES
+        - Both specific -> request input must conform to provider's accepted input
+        """
+        # Request wildcard: any provider input is fine
+        if request.in_urn == "media:":
+            return True
+
+        # Provider wildcard: provider accepts any input
+        if self.in_urn == "media:":
+            return True
+
+        # Both specific: request input must conform to provider input requirement
+        try:
+            req_in = MediaUrn.from_string(request.in_urn)
+        except Exception:
+            return False
+        try:
+            prov_in = MediaUrn.from_string(self.in_urn)
+        except Exception:
+            return False
+
+        return req_in.conforms_to(prov_in)
+
+    def _output_dispatchable(self, request: "CapUrn") -> bool:
+        """Check if provider's output is dispatchable for request's output.
+
+        Output is COVARIANT: provider must produce at least what request needs.
+
+        - Request out=media: (unconstrained): any provider output is fine
+        - Provider out=media: + request specific: FAIL (cannot guarantee)
+        - Both specific: provider output must conform to request output
+        """
+        # Request wildcard: any provider output is fine
+        if request.out_urn == "media:":
+            return True
+
+        # Provider wildcard: cannot guarantee specific output request needs
+        # This is asymmetric with input! Generic output doesn't satisfy specific requirement.
+        if self.out_urn == "media:":
+            return False
+
+        # Both specific: provider output must conform to request output
+        try:
+            req_out = MediaUrn.from_string(request.out_urn)
+        except Exception:
+            return False
+        try:
+            prov_out = MediaUrn.from_string(self.out_urn)
+        except Exception:
+            return False
+
+        return prov_out.conforms_to(req_out)
+
+    def _cap_tags_dispatchable(self, request: "CapUrn") -> bool:
+        """Check if provider's cap-tags are dispatchable for request's cap-tags.
+
+        Every explicit request tag must be satisfied by provider.
+        Provider may have extra tags (refinement is OK).
+        Wildcard (*) in request means any value acceptable.
+        Wildcard (*) in provider means provider can handle any value.
+        """
+        # Every explicit request tag must be satisfied by provider
+        for key, request_value in request.tags.items():
+            provider_value = self.tags.get(key)
+            if provider_value is not None:
+                # Both have the tag - check compatibility
+                if request_value == "*":
+                    continue  # request wildcard accepts anything
+                if provider_value == "*":
+                    continue  # provider wildcard handles anything
+                if request_value != provider_value:
+                    return False  # value conflict
+            else:
+                # Provider missing a tag that request specifies.
+                # Even wildcard (*) means "any value is fine" — the tag
+                # must still be present. Without this, a GGUF plugin
+                # (no candle tag) would match a registry cap that
+                # requires candle=*, causing cross-backend mismatches.
+                return False
+
+        # Provider may have extra tags not in request - refinement, always OK
+        return True
+
+    def is_dispatchable(self, request: "CapUrn") -> bool:
+        """Check if this provider can dispatch (handle) the given request.
+
+        This is the PRIMARY predicate for routing/dispatch decisions.
+
+        A provider is dispatchable for a request iff:
+        1. Input axis: provider can handle request's input (contravariant)
+        2. Output axis: provider meets request's output needs (covariant)
+        3. Cap-tags: provider satisfies all explicit request tags, may add more
+
+        Key insight: This is NOT symmetric. provider.is_dispatchable(request) may
+        be true while request.is_dispatchable(provider) is false.
+        """
+        if not self._input_dispatchable(request):
+            return False
+        if not self._output_dispatchable(request):
+            return False
+        if not self._cap_tags_dispatchable(request):
+            return False
+        return True
+
+    def is_comparable(self, other: "CapUrn") -> bool:
+        """Check if two cap URNs are comparable in the order-theoretic sense.
+
+        Two URNs are comparable if either one can dispatch the other.
+        This is the symmetric closure of the is_dispatchable relation.
+        """
+        return self.is_dispatchable(other) or other.is_dispatchable(self)
+
+    def is_equivalent(self, other: "CapUrn") -> bool:
+        """Check if two cap URNs are equivalent in the order-theoretic sense.
+
+        Two URNs are equivalent if each can dispatch the other.
+        This means they have the same position in the specificity lattice.
+        """
+        return self.is_dispatchable(other) and other.is_dispatchable(self)
+
     def accepts_str(self, request_str: str) -> bool:
         """Check if this cap accepts a string-specified request"""
         request = CapUrn.from_string(request_str)
