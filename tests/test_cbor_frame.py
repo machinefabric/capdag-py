@@ -933,3 +933,613 @@ def test_460_reorder_buffer_err_frame():
     assert r[0].frame_type == FrameType.ERR
     assert r[0].seq == 1
     assert r[0].seq == 1
+
+
+# =========================================================================
+# Tests 491-528, 902-904, 907 — checksum, chunk_index, chunk_count, CBOR roundtrips
+# =========================================================================
+
+from capdag.bifaci.io import encode_frame, decode_frame, InvalidFrameError
+
+
+# TEST491: CHUNK frame requires chunk_index and checksum
+def test_491_chunk_requires_chunk_index_and_checksum():
+    req_id = MessageId.random()
+    payload = b"test data"
+    checksum = compute_checksum(payload)
+
+    frame = Frame.chunk(req_id, "stream-1", 0, payload, 5, checksum)
+
+    assert frame.frame_type == FrameType.CHUNK
+    assert frame.chunk_index == 5, "chunk_index must be set"
+    assert frame.checksum == checksum, "checksum must be set"
+    assert frame.payload == payload
+
+
+# TEST492: STREAM_END frame requires and sets chunk_count
+def test_492_stream_end_requires_chunk_count():
+    req_id = MessageId.random()
+    frame = Frame.stream_end(req_id, "stream-1", 42)
+
+    assert frame.frame_type == FrameType.STREAM_END
+    assert frame.chunk_count == 42, "chunk_count must be set"
+    assert frame.stream_id == "stream-1"
+
+
+# TEST493: compute_checksum produces correct FNV-1a hash for known test vectors
+def test_493_compute_checksum_fnv1a_test_vectors():
+    assert compute_checksum(b"") == 0xcbf29ce484222325, "empty string hash"
+    assert compute_checksum(b"a") == 0xaf63dc4c8601ec8c, "single byte 'a'"
+    assert compute_checksum(b"foobar") == 0x85944171f73967e8, "foobar string"
+
+
+# TEST494: compute_checksum is deterministic
+def test_494_compute_checksum_deterministic():
+    data = b"test data for hashing"
+    hash1 = compute_checksum(data)
+    hash2 = compute_checksum(data)
+    hash3 = compute_checksum(data)
+    assert hash1 == hash2
+    assert hash2 == hash3
+
+
+# TEST495: CBOR decode REJECTS CHUNK frame missing chunk_index field
+def test_495_cbor_rejects_chunk_without_chunk_index():
+    req_id = MessageId.random()
+    payload = b"data"
+    checksum = compute_checksum(payload)
+
+    # Create frame without chunk_index to simulate corruption
+    frame = Frame.new(FrameType.CHUNK, req_id)
+    frame.stream_id = "s1"
+    frame.payload = payload
+    frame.checksum = checksum
+    # chunk_index deliberately missing (None)
+
+    encoded = encode_frame(frame)
+
+    with pytest.raises(InvalidFrameError, match="chunk_index"):
+        decode_frame(encoded)
+
+
+# TEST496: CBOR decode REJECTS CHUNK frame missing checksum field
+def test_496_cbor_rejects_chunk_without_checksum():
+    req_id = MessageId.random()
+    payload = b"data"
+
+    frame = Frame.new(FrameType.CHUNK, req_id)
+    frame.stream_id = "s1"
+    frame.payload = payload
+    frame.chunk_index = 0
+    # checksum deliberately missing (None)
+
+    encoded = encode_frame(frame)
+
+    with pytest.raises(InvalidFrameError, match="checksum"):
+        decode_frame(encoded)
+
+
+# TEST497: chunk corrupted payload is detected by checksum mismatch
+def test_497_chunk_corrupted_payload_rejected():
+    req_id = MessageId.random()
+    payload = b"original data"
+    checksum = compute_checksum(payload)
+
+    frame = Frame.chunk(req_id, "s1", 0, payload, 0, checksum)
+
+    # Verify valid frame
+    assert verify_chunk_checksum(frame) is True
+
+    # Corrupt the payload
+    frame.payload = b"corrupted!"
+    assert verify_chunk_checksum(frame) is False
+
+
+# TEST498: routing_id field roundtrips through CBOR encoding
+def test_498_routing_id_cbor_roundtrip():
+    req_id = MessageId.random()
+    routing_id = MessageId.random()
+
+    frame = Frame.req(req_id, 'cap:in="media:void";op=test;out="media:void"', b"", "text/plain")
+    frame.routing_id = routing_id
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.routing_id == routing_id, "routing_id must roundtrip"
+    assert decoded.id == req_id
+
+
+# TEST499: chunk_index and checksum roundtrip through CBOR encoding
+def test_499_chunk_index_checksum_cbor_roundtrip():
+    req_id = MessageId.random()
+    payload = b"test payload"
+    checksum = compute_checksum(payload)
+
+    frame = Frame.chunk(req_id, "s1", 0, payload, 7, checksum)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.chunk_index == 7, "chunk_index must roundtrip"
+    assert decoded.checksum == checksum, "checksum must roundtrip"
+    assert decoded.payload == payload
+
+
+# TEST500: chunk_count roundtrips through CBOR encoding
+def test_500_chunk_count_cbor_roundtrip():
+    req_id = MessageId.random()
+
+    frame = Frame.stream_end(req_id, "s1", 42)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.chunk_count == 42, "chunk_count must roundtrip"
+    assert decoded.stream_id == "s1"
+
+
+# TEST501: Frame.new initializes new fields to None
+def test_501_frame_new_initializes_optional_fields_none():
+    frame = Frame.new(FrameType.REQ, MessageId.random())
+
+    assert frame.routing_id is None
+    assert frame.chunk_index is None
+    assert frame.chunk_count is None
+    assert frame.checksum is None
+
+
+# TEST502: Keys module has constants for new fields
+def test_502_keys_module_new_field_constants():
+    assert Keys.ROUTING_ID == 13
+    assert Keys.INDEX == 14
+    assert Keys.CHUNK_COUNT == 15
+    assert Keys.CHECKSUM == 16
+
+
+# TEST503: compute_checksum handles empty data correctly
+def test_503_compute_checksum_empty_data():
+    h = compute_checksum(b"")
+    assert h == 0xcbf29ce484222325, "empty data should produce FNV offset basis"
+
+
+# TEST504: compute_checksum handles large payloads without overflow
+def test_504_compute_checksum_large_payload():
+    large_data = bytes([0xAA] * 1_000_000)
+    h = compute_checksum(large_data)
+    assert h != 0, "large payload should produce non-zero hash"
+
+    h2 = compute_checksum(large_data)
+    assert h == h2, "large payload hash must be deterministic"
+
+
+# TEST505: chunk_with_offset sets chunk_index correctly
+def test_505_chunk_with_offset_sets_chunk_index():
+    req_id = MessageId.random()
+    payload = b"data"
+    checksum = compute_checksum(payload)
+
+    frame = Frame.chunk_with_offset(
+        req_id=req_id,
+        stream_id="s1",
+        seq=0,
+        payload=payload,
+        offset=1024,
+        total_len=10000,
+        is_last=False,
+        chunk_index=5,
+        checksum=checksum,
+    )
+
+    assert frame.chunk_index == 5, "chunk_index must be set"
+    assert frame.checksum == checksum, "checksum must be set"
+    assert frame.offset == 1024
+
+
+# TEST506: Different data produces different checksums
+def test_506_compute_checksum_different_data_different_hash():
+    data1 = b"hello"
+    data2 = b"world"
+
+    hash1 = compute_checksum(data1)
+    hash2 = compute_checksum(data2)
+
+    assert hash1 != hash2, "different data must produce different hashes"
+
+
+# TEST507: ReorderBuffer isolates flows by XID (routing_id)
+def test_507_reorder_buffer_xid_isolation():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+    xid_a = MessageId.random()
+    xid_b = MessageId.random()
+
+    def make_xid_frame(rid, xid, seq):
+        f = Frame.new(FrameType.CHUNK, rid)
+        f.seq = seq
+        f.routing_id = xid
+        return f
+
+    # Flow A: receive seq 1 first
+    ready_a1 = buf.accept(make_xid_frame(rid, xid_a, 1))
+    assert len(ready_a1) == 0, "xid_a seq 1 buffered"
+
+    # Flow B: receive seq 0 (different flow, should deliver immediately)
+    ready_b0 = buf.accept(make_xid_frame(rid, xid_b, 0))
+    assert len(ready_b0) == 1, "xid_b seq 0 delivers immediately"
+
+    # Flow A: receive seq 0, should deliver 0+1
+    ready_a0 = buf.accept(make_xid_frame(rid, xid_a, 0))
+    assert len(ready_a0) == 2, "xid_a delivers 0 and buffered 1"
+    assert ready_a0[0].seq == 0
+    assert ready_a0[1].seq == 1
+
+
+# TEST508: ReorderBuffer rejects duplicate seq already in buffer
+def test_508_reorder_buffer_duplicate_buffered_seq():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    # Buffer seq 1 (waiting for seq 0)
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+
+    # Try to buffer seq 1 again - this is a duplicate
+    with pytest.raises(Exception, match="stale|duplicate"):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+
+
+# TEST509: ReorderBuffer handles large seq gaps without DOS
+def test_509_reorder_buffer_large_gap_rejected():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+
+    # Buffer frames until we hit the limit
+    for seq in range(2, 66):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, seq))
+
+    # This should overflow the buffer
+    with pytest.raises(Exception, match="overflow"):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, 66))
+
+
+# TEST510: ReorderBuffer with multiple interleaved gaps fills correctly
+def test_510_reorder_buffer_multiple_gaps():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    # Send: 0, 3, 5, then fill the gaps
+    ready0 = buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(ready0) == 1
+
+    ready3 = buf.accept(_flow_frame(FrameType.CHUNK, rid, 3))
+    assert len(ready3) == 0, "seq 3 buffered"
+
+    ready5 = buf.accept(_flow_frame(FrameType.CHUNK, rid, 5))
+    assert len(ready5) == 0, "seq 5 buffered"
+
+    # Fill gap with seq 1
+    ready1 = buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(ready1) == 1, "only seq 1 delivered, still missing 2"
+
+    # Fill gap with seq 2 - should deliver 2, 3
+    ready2 = buf.accept(_flow_frame(FrameType.CHUNK, rid, 2))
+    assert len(ready2) == 2, "delivers 2 and 3"
+    assert ready2[0].seq == 2
+    assert ready2[1].seq == 3
+
+    # Fill final gap with seq 4 - should deliver 4, 5
+    ready4 = buf.accept(_flow_frame(FrameType.CHUNK, rid, 4))
+    assert len(ready4) == 2, "delivers 4 and 5"
+    assert ready4[0].seq == 4
+    assert ready4[1].seq == 5
+
+
+# TEST511: ReorderBuffer cleanup with buffered frames discards them
+def test_511_reorder_buffer_cleanup_with_buffered_frames():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 2))  # buffered
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 3))  # buffered
+
+    key = FlowKey(rid=rid, xid=None)
+    buf.cleanup_flow(key)
+
+    # After cleanup, seq 0 should work again (flow reset)
+    ready = buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(ready) == 1
+    assert ready[0].seq == 0
+
+
+# TEST512: ReorderBuffer delivers burst of consecutive buffered frames
+def test_512_reorder_buffer_burst_delivery():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    # Buffer seq 1-10 (all waiting for seq 0)
+    for seq in range(1, 11):
+        ready = buf.accept(_flow_frame(FrameType.CHUNK, rid, seq))
+        assert len(ready) == 0, f"seq {seq} buffered"
+
+    # Now send seq 0 - should deliver all 11 frames at once
+    ready = buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(ready) == 11, "delivers seq 0 plus 10 buffered frames"
+    for i, frame in enumerate(ready):
+        assert frame.seq == i, f"frame {i} has correct seq"
+
+
+# TEST513: ReorderBuffer different frame types in same flow maintain order
+def test_513_reorder_buffer_mixed_types_same_flow():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    req = Frame.new(FrameType.REQ, rid)
+    req.seq = 1
+    log = Frame.new(FrameType.LOG, rid)
+    log.seq = 2
+    chunk = Frame.new(FrameType.CHUNK, rid)
+    chunk.seq = 0
+
+    # Send out of order: REQ(1), LOG(2), then CHUNK(0)
+    buf.accept(req)  # buffered
+    buf.accept(log)  # buffered
+
+    ready = buf.accept(chunk)
+    assert len(ready) == 3, "all three frames delivered in order"
+    assert ready[0].frame_type == FrameType.CHUNK
+    assert ready[1].frame_type == FrameType.REQ
+    assert ready[2].frame_type == FrameType.LOG
+
+
+# TEST514: ReorderBuffer with XID cleanup doesn't affect different XID
+def test_514_reorder_buffer_xid_cleanup_isolation():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+    xid_a = MessageId.random()
+    xid_b = MessageId.random()
+
+    def make_xid_frame(rid, xid, seq):
+        f = Frame.new(FrameType.CHUNK, rid)
+        f.seq = seq
+        f.routing_id = xid
+        return f
+
+    buf.accept(make_xid_frame(rid, xid_a, 0))
+    buf.accept(make_xid_frame(rid, xid_b, 0))
+
+    # Cleanup flow A
+    key_a = FlowKey(rid=rid, xid=xid_a)
+    buf.cleanup_flow(key_a)
+
+    # Flow B should still expect seq 1
+    ready = buf.accept(make_xid_frame(rid, xid_b, 1))
+    assert len(ready) == 1
+    assert ready[0].seq == 1
+
+    # Flow A was reset, seq 0 works again
+    ready_a = buf.accept(make_xid_frame(rid, xid_a, 0))
+    assert len(ready_a) == 1
+
+
+# TEST515: ReorderBuffer overflow error includes diagnostic information
+def test_515_reorder_buffer_overflow_error_details():
+    max_buffer = 3
+    buf = ReorderBuffer(max_buffer_per_flow=max_buffer)
+    rid = MessageId.random()
+
+    # Fill buffer to capacity
+    for seq in range(1, 4):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, seq))
+
+    # Overflow
+    with pytest.raises(Exception, match="overflow") as exc_info:
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, 4))
+
+    err = str(exc_info.value)
+    assert "overflow" in err.lower()
+
+
+# TEST516: ReorderBuffer stale error includes diagnostic information
+def test_516_reorder_buffer_stale_error_details():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 2))
+
+    # Send stale seq 1
+    with pytest.raises(Exception, match="stale|duplicate"):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+
+
+# TEST517: FlowKey with None XID differs from Some(xid)
+def test_517_flow_key_none_vs_some_xid():
+    rid = MessageId.random()
+    xid = MessageId.random()
+
+    key_none = FlowKey(rid=rid, xid=None)
+    key_some = FlowKey(rid=rid, xid=xid)
+
+    assert key_none != key_some, "None XID must differ from Some(xid)"
+    assert hash(key_none) != hash(key_some), "different XID states must hash differently"
+
+
+# TEST518: ReorderBuffer handles zero-length ready vec correctly
+def test_518_reorder_buffer_empty_ready_vec():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    # Send seq 1 first - should return empty list (buffered)
+    ready = buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(ready) == 0, "buffered frame returns empty list"
+
+
+# TEST519: ReorderBuffer state persists across accept calls
+def test_519_reorder_buffer_state_persistence():
+    buf = ReorderBuffer(max_buffer_per_flow=64)
+    rid = MessageId.random()
+
+    # First call: buffer seq 2
+    buf.accept(_flow_frame(FrameType.CHUNK, rid, 2))
+
+    # Second call: send seq 1, should still be buffered (missing 0)
+    ready = buf.accept(_flow_frame(FrameType.CHUNK, rid, 1))
+    assert len(ready) == 0, "seq 1 buffered, still waiting for seq 0"
+
+    # Third call: send seq 0, should deliver 0, 1, 2
+    ready = buf.accept(_flow_frame(FrameType.REQ, rid, 0))
+    assert len(ready) == 3, "state persisted correctly"
+
+
+# TEST520: ReorderBuffer max_buffer_per_flow is per-flow not global
+def test_520_reorder_buffer_per_flow_limit():
+    buf = ReorderBuffer(max_buffer_per_flow=2)
+    rid_a = MessageId.random()
+    rid_b = MessageId.random()
+
+    # Flow A: buffer 2 frames (at limit)
+    buf.accept(_flow_frame(FrameType.CHUNK, rid_a, 1))
+    buf.accept(_flow_frame(FrameType.CHUNK, rid_a, 2))
+
+    # Flow B: can still buffer 2 frames (separate limit)
+    buf.accept(_flow_frame(FrameType.CHUNK, rid_b, 1))
+    buf.accept(_flow_frame(FrameType.CHUNK, rid_b, 2))
+
+    # Flow A: overflow
+    with pytest.raises(Exception, match="overflow"):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid_a, 3))
+
+    # Flow B: also overflow
+    with pytest.raises(Exception, match="overflow"):
+        buf.accept(_flow_frame(FrameType.CHUNK, rid_b, 3))
+
+
+# TEST521: RelayNotify CBOR roundtrip preserves manifest and limits
+def test_521_relay_notify_cbor_roundtrip():
+    manifest = b'{"caps":["cap:in=\\"media:void\\";op=convert;out=\\"media:image\\""}'
+    frame = Frame.relay_notify(manifest, 3_000_000, 256_000, 128)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.frame_type == FrameType.RELAY_NOTIFY
+    assert decoded.relay_notify_manifest() == manifest, "manifest must roundtrip"
+
+    decoded_limits = decoded.relay_notify_limits()
+    assert decoded_limits is not None, "limits must be present"
+    assert decoded_limits.max_frame == 3_000_000, "max_frame must roundtrip"
+    assert decoded_limits.max_chunk == 256_000, "max_chunk must roundtrip"
+    assert decoded_limits.max_reorder_buffer == 128, "max_reorder_buffer must roundtrip"
+
+
+# TEST522: RelayState CBOR roundtrip preserves payload
+def test_522_relay_state_cbor_roundtrip():
+    state_data = b'{"memory_mb":8192,"cpu_cores":16,"active_flows":42}'
+    frame = Frame.relay_state(state_data)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.frame_type == FrameType.RELAY_STATE
+    assert decoded.payload == state_data, "state payload must roundtrip exactly"
+    assert decoded.id == MessageId(0)
+
+
+# TEST523: is_flow_frame returns false for RelayNotify
+def test_523_relay_notify_not_flow_frame():
+    frame = Frame.relay_notify(b"test", DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
+    assert not frame.is_flow_frame(), "RelayNotify must not be a flow frame"
+
+
+# TEST524: is_flow_frame returns false for RelayState
+def test_524_relay_state_not_flow_frame():
+    frame = Frame.relay_state(b"test")
+    assert not frame.is_flow_frame(), "RelayState must not be a flow frame"
+
+
+# TEST525: RelayNotify with empty manifest is valid
+def test_525_relay_notify_empty_manifest():
+    frame = Frame.relay_notify(b"", DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
+    assert frame.frame_type == FrameType.RELAY_NOTIFY
+    assert frame.relay_notify_manifest() == b""
+
+
+# TEST526: RelayState with empty payload is valid
+def test_526_relay_state_empty_payload():
+    frame = Frame.relay_state(b"")
+    assert frame.frame_type == FrameType.RELAY_STATE
+    assert frame.payload == b""
+
+
+# TEST527: RelayNotify with large manifest roundtrips correctly
+def test_527_relay_notify_large_manifest():
+    parts = [f'"cap:in=\\"media:void\\";op=op{i};out=\\"media:void\\""' for i in range(100)]
+    large_manifest = ('{"caps":[' + ",".join(parts) + "]}").encode()
+
+    frame = Frame.relay_notify(large_manifest, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
+
+    encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+
+    assert decoded.relay_notify_manifest() == large_manifest
+
+
+# TEST528: RelayNotify and RelayState use MessageId(0)
+def test_528_relay_frames_use_uint_zero_id():
+    notify = Frame.relay_notify(b"test", DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
+    state = Frame.relay_state(b"test")
+
+    assert notify.id == MessageId(0), "RelayNotify must use Uint(0) as sentinel ID"
+    assert state.id == MessageId(0), "RelayState must use Uint(0) as sentinel ID"
+
+
+# TEST902: Verify FNV-1a checksum handles empty data
+def test_902_compute_checksum_empty():
+    checksum = compute_checksum(b"")
+    assert checksum == 0xcbf29ce484222325, "empty data produces FNV offset basis"
+
+
+# TEST903: Verify CHUNK frame can store chunk_index and checksum fields
+def test_903_chunk_with_chunk_index_and_checksum():
+    rid = MessageId.random()
+    payload = b"chunk data"
+    checksum = compute_checksum(payload)
+
+    frame = Frame.chunk(rid, "test-stream", 5, payload, 3, checksum)
+
+    assert frame.frame_type == FrameType.CHUNK
+    assert frame.id == rid
+    assert frame.stream_id == "test-stream"
+    assert frame.seq == 5
+    assert frame.chunk_index == 3, "chunk_index should be set"
+    assert frame.checksum == checksum, "checksum should be set"
+
+
+# TEST904: Verify STREAM_END frame can store chunk_count field
+def test_904_stream_end_with_chunk_count():
+    rid = MessageId.random()
+    frame = Frame.stream_end(rid, "test-stream", 42)
+
+    assert frame.frame_type == FrameType.STREAM_END
+    assert frame.id == rid
+    assert frame.stream_id == "test-stream"
+    assert frame.chunk_count == 42, "chunk_count should be set"
+
+
+# TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+def test_907_cbor_rejects_stream_end_without_chunk_count():
+    req_id = MessageId.random()
+
+    # Create STREAM_END without chunk_count
+    frame = Frame.new(FrameType.STREAM_END, req_id)
+    frame.stream_id = "s1"
+    # chunk_count deliberately missing (None)
+
+    encoded = encode_frame(frame)
+
+    with pytest.raises(InvalidFrameError, match="chunk_count"):
+        decode_frame(encoded)

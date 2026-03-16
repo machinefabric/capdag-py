@@ -101,7 +101,38 @@ MEDIA_FILE_PATH_ARRAY = "media:file-path;list;textable"
 # Media URN for frontmatter text (book metadata)
 MEDIA_FRONTMATTER_TEXT = "media:frontmatter;textable"
 # Media URN for model spec (provider:model format, HuggingFace name, etc.)
+# Generic, backend-agnostic — used by modelcartridge for download/status/path operations.
 MEDIA_MODEL_SPEC = "media:model-spec;textable"
+
+# Backend + use-case specific model-spec variants.
+# Each inference cap declares the variant matching its backend and purpose,
+# so slot values can target a specific cartridge+task without ambiguity.
+
+# GGUF backend
+# GGUF vision model spec (e.g. moondream2)
+MEDIA_MODEL_SPEC_GGUF_VISION = "media:model-spec;gguf;textable;vision"
+# GGUF LLM model spec (e.g. Mistral-7B)
+MEDIA_MODEL_SPEC_GGUF_LLM = "media:model-spec;gguf;textable;llm"
+# GGUF embeddings model spec (e.g. nomic-embed)
+MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS = "media:model-spec;gguf;textable;embeddings"
+
+# MLX backend
+# MLX vision model spec (e.g. Qwen2.5-VL)
+MEDIA_MODEL_SPEC_MLX_VISION = "media:model-spec;mlx;textable;vision"
+# MLX LLM model spec (e.g. Llama-3.2-3B)
+MEDIA_MODEL_SPEC_MLX_LLM = "media:model-spec;mlx;textable;llm"
+# MLX embeddings model spec (e.g. all-MiniLM-L6-v2)
+MEDIA_MODEL_SPEC_MLX_EMBEDDINGS = "media:model-spec;mlx;textable;embeddings"
+
+# Candle backend
+# Candle vision model spec (e.g. BLIP)
+MEDIA_MODEL_SPEC_CANDLE_VISION = "media:model-spec;candle;textable;vision"
+# Candle text embeddings model spec (e.g. BERT)
+MEDIA_MODEL_SPEC_CANDLE_EMBEDDINGS = "media:model-spec;candle;textable;embeddings"
+# Candle image embeddings model spec (e.g. CLIP)
+MEDIA_MODEL_SPEC_CANDLE_IMAGE_EMBEDDINGS = "media:model-spec;candle;image-embeddings;textable"
+# Candle transcription model spec (e.g. Whisper)
+MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION = "media:model-spec;candle;textable;transcription"
 # Media URN for MLX model path
 MEDIA_MLX_MODEL_PATH = "media:mlx-model-path;textable"
 # Media URN for model repository (input for list-models) - matches CATALOG

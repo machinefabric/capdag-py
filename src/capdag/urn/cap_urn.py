@@ -212,6 +212,13 @@ class CapUrn:
         else:
             return self.tags.get(key_lower) == value
 
+    def has_marker_tag(self, tag_name: str) -> bool:
+        """Check if a marker tag (solo tag with no value) is present.
+        A marker tag is stored as key="*" in the cap URN.
+        Example: `cap:constrained;...` has marker tag "constrained"
+        """
+        return self.tags.get(tag_name.lower()) == "*"
+
     def with_tag(self, key: str, value: str) -> "CapUrn":
         """Add or update a tag
 
