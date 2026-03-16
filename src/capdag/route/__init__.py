@@ -27,6 +27,9 @@ from capdag.route.error import RouteNotationError
 from capdag.route.graph import RouteEdge, RouteGraph
 from capdag.route.parser import parse_route_notation
 
+# Import serializer to attach to_route_notation methods to RouteGraph
+import capdag.route.serializer as _serializer  # noqa: F401
+
 __all__ = [
     "RouteNotationError",
     "RouteEdge",

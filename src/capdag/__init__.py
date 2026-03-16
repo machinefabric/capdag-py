@@ -208,6 +208,9 @@ from capdag.route import (
     parse_route_notation,
 )
 
+# Orchestrator module (imported as submodule to avoid name collisions with RegistryError)
+import capdag.orchestrator  # noqa: F401
+
 # Standard module
 from capdag.standard.caps import (
     CAP_IDENTITY,
@@ -422,4 +425,9 @@ __all__ = [
     "RelaySlave",
     "RelayMaster",
     "RelayError",
+    # Route notation
+    "RouteNotationError",
+    "RouteEdge",
+    "RouteGraph",
+    "parse_route_notation",
 ]

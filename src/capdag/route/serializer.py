@@ -172,6 +172,37 @@ def to_route_notation_multiline(graph: RouteGraph) -> str:
     return "\n".join(output_lines)
 
 
+def from_path(path) -> RouteGraph:
+    """Convert a CapChainPathInfo (resolved linear path) into a RouteGraph.
+
+    The conversion:
+    - Each Cap step becomes a RouteEdge with a single source
+    - ForEach steps set is_loop=True on the next Cap edge
+    - Collect and WrapInList steps are elided (implicit in transitions)
+    """
+    from capdag.route.graph import RouteEdge
+    from capdag.planner.live_cap_graph import CapChainStepType
+
+    edges: List[RouteEdge] = []
+    pending_loop = False
+
+    for step in path.steps:
+        if step.step_type == CapChainStepType.CAP:
+            edges.append(RouteEdge(
+                sources=[step.from_spec],
+                cap_urn=step.cap_urn,
+                target=step.to_spec,
+                is_loop=pending_loop,
+            ))
+            pending_loop = False
+        elif step.step_type == CapChainStepType.FOR_EACH:
+            pending_loop = True
+        # Collect and WrapInList are elided
+
+    return RouteGraph(edges)
+
+
 # Attach methods to RouteGraph
 RouteGraph.to_route_notation = to_route_notation  # type: ignore[attr-defined]
 RouteGraph.to_route_notation_multiline = to_route_notation_multiline  # type: ignore[attr-defined]
+RouteGraph.from_path = staticmethod(from_path)  # type: ignore[attr-defined]
