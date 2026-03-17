@@ -353,7 +353,7 @@ class PlanExecutor:
             is_required = arg_required.get(name, False)
             try:
                 resolved = resolve_binding(
-                    binding, context, cap_urn,
+                    binding, context, cap_urn, node_id,
                     arg_defaults.get(name), is_required,
                 )
             except Exception as e:

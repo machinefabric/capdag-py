@@ -119,20 +119,18 @@ class StepArgumentRequirements:
 class PathArgumentRequirements:
     """Argument requirements for an entire path."""
 
-    __slots__ = ("source_spec", "target_spec", "steps", "all_slots", "can_execute_without_input")
+    __slots__ = ("source_spec", "target_spec", "steps", "can_execute_without_input")
 
     def __init__(
         self,
         source_spec: str,
         target_spec: str,
         steps: List[StepArgumentRequirements],
-        all_slots: List[ArgumentInfo],
         can_execute_without_input: bool,
     ) -> None:
         self.source_spec = source_spec
         self.target_spec = target_spec
         self.steps = steps
-        self.all_slots = all_slots
         self.can_execute_without_input = can_execute_without_input
 
     def to_dict(self) -> Dict[str, Any]:
@@ -140,14 +138,12 @@ class PathArgumentRequirements:
             "source_spec": self.source_spec,
             "target_spec": self.target_spec,
             "steps": [s.to_dict() for s in self.steps],
-            "all_slots": [s.to_dict() for s in self.all_slots],
             "can_execute_without_input": self.can_execute_without_input,
         }
 
     def __repr__(self) -> str:
         return (
             f"PathArgumentRequirements(steps={len(self.steps)}, "
-            f"slots={len(self.all_slots)}, "
             f"can_execute={self.can_execute_without_input})"
         )
 
@@ -406,7 +402,6 @@ class CapPlanBuilder:
             raise RegistryError(f"Failed to get cached caps: {e}")
 
         step_requirements: List[StepArgumentRequirements] = []
-        all_slots: List[ArgumentInfo] = []
         cap_step_index = 0
 
         for i, step in enumerate(path.steps):
@@ -459,7 +454,6 @@ class CapPlanBuilder:
                 )
                 if not is_io_arg:
                     slots.append(arg_info)
-                    all_slots.append(arg_info)
 
                 arguments.append(arg_info)
 
@@ -476,8 +470,7 @@ class CapPlanBuilder:
             source_spec=str(path.source_spec),
             target_spec=str(path.target_spec),
             steps=step_requirements,
-            all_slots=all_slots,
-            can_execute_without_input=len(all_slots) == 0,
+            can_execute_without_input=all(len(s.slots) == 0 for s in step_requirements),
         )
 
     @staticmethod

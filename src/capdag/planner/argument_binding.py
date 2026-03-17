@@ -418,6 +418,7 @@ class ArgumentBindings:
         self,
         context: ArgumentResolutionContext,
         cap_urn: str,
+        node_id: str,
         cap_defaults: Optional[Dict[str, Any]] = None,
         arg_required: Optional[Dict[str, bool]] = None,
     ) -> List[ResolvedArgument]:
@@ -434,7 +435,7 @@ class ArgumentBindings:
                 is_required = arg_required[name]
 
             resolved = resolve_binding(
-                binding, context, cap_urn, default_value, is_required
+                binding, context, cap_urn, node_id, default_value, is_required
             )
             if resolved is not None:
                 resolved.name = name
@@ -530,6 +531,7 @@ def resolve_binding(
     binding: ArgumentBinding,
     context: ArgumentResolutionContext,
     cap_urn: str,
+    node_id: str,
     default_value: Optional[Any] = None,
     is_required: bool = True,
 ) -> Optional[ResolvedArgument]:
@@ -601,7 +603,7 @@ def resolve_binding(
 
     elif binding.kind == ArgumentBinding.SLOT:
         slot_name = binding.slot_name
-        slot_key = f"{cap_urn}:{slot_name}"
+        slot_key = f"{node_id}:{slot_name}"
 
         # Priority 1: slot_values
         if context.slot_values is not None and slot_key in context.slot_values:
