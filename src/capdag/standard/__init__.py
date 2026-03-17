@@ -21,7 +21,7 @@ from capdag.standard.caps import (
     extract_outline_urn,
     frontmatter_summarization_urn,
     structured_query_urn,
-    bit_choice_urn,
+    make_decision_urn,
     make_multiple_decisions_urn,
 )
 
@@ -46,6 +46,6 @@ __all__ = [
     "extract_outline_urn",
     "frontmatter_summarization_urn",
     "structured_query_urn",
-    "bit_choice_urn",
+    "make_decision_urn",
     "make_multiple_decisions_urn",
 ]

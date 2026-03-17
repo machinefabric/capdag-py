@@ -468,8 +468,8 @@ def structured_query_urn(lang_code: str) -> CapUrn:
     )
 
 
-def bit_choice_urn(lang_code: str) -> CapUrn:
-    """Build URN for bit-choice capability"""
+def make_decision_urn(lang_code: str) -> CapUrn:
+    """Build URN for make-decision capability"""
     return (
         CapUrnBuilder()
         .tag("op", "make_decision")
