@@ -90,15 +90,17 @@ def parse_route_notation(input_str: str) -> RouteGraph:
     headers: List[Tuple[str, CapUrn, int]] = []  # (alias, cap_urn, position)
     wirings: List[Tuple[List[str], str, str, bool, int]] = []  # (sources, cap_alias, target, is_loop, position)
 
+    # The parse tree yields a single `program` pair containing `stmt` children.
+    program_pair = _first_child(parse_tree)
     stmt_idx = 0
-    for pair in parse_tree:
-        if pair.rule != "stmt":
+    for pair in program_pair:
+        if pair.rule.name != "stmt":
             continue
 
         inner = _first_child(pair)
         content = _first_child(inner)
 
-        if content.rule == "header":
+        if content.rule.name == "header":
             children = list(content)
             alias = children[0].text
             cap_urn_str = children[1].text
@@ -110,7 +112,7 @@ def parse_route_notation(input_str: str) -> RouteGraph:
 
             headers.append((alias, cap_urn, stmt_idx))
 
-        elif content.rule == "wiring":
+        elif content.rule.name == "wiring":
             children = list(content)
 
             # Parse source (single alias or group)
@@ -209,9 +211,9 @@ def _first_child(pair):
 def _parse_source(pair) -> List[str]:
     """Extract source node names from a source pair (single alias or group)."""
     inner = _first_child(pair)
-    if inner.rule == "group":
-        return [p.text for p in inner if p.rule == "alias"]
-    elif inner.rule == "alias":
+    if inner.rule.name == "group":
+        return [p.text for p in inner if p.rule.name == "alias"]
+    elif inner.rule.name == "alias":
         return [inner.text]
     else:
         raise ParseError(f"unexpected source rule: {inner.rule}")
@@ -222,9 +224,9 @@ def _parse_loop_cap(pair) -> Tuple[bool, str]:
     is_loop = False
     cap_alias = ""
     for inner in pair:
-        if inner.rule == "loop_keyword":
+        if inner.rule.name == "loop_keyword":
             is_loop = True
-        elif inner.rule == "alias":
+        elif inner.rule.name == "alias":
             cap_alias = inner.text
     return is_loop, cap_alias
 
