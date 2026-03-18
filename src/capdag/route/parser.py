@@ -1,7 +1,7 @@
 """Route notation parser — pest-generated PEG parser
 
 Parses the machine notation format into a Machine using the python-pest
-library with the same grammar defined in route.pest (shared with Rust).
+library with the same grammar defined in machine.pest (shared with Rust).
 
 Grammar (PEG / EBNF):
 
@@ -60,7 +60,7 @@ from capdag.machine.error import (
 from capdag.machine.graph import MachineEdge, Machine
 
 # Load the pest grammar once at module level
-_GRAMMAR_PATH = os.path.join(os.path.dirname(__file__), "route.pest")
+_GRAMMAR_PATH = os.path.join(os.path.dirname(__file__), "machine.pest")
 with open(_GRAMMAR_PATH, encoding="utf-8") as _f:
     _GRAMMAR = _f.read()
 
