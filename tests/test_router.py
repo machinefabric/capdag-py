@@ -1,7 +1,7 @@
 """Tests for bifaci router - mirroring capdag Rust tests"""
 
 import pytest
-from capdag.bifaci.router import NoPeerRouter
+from capdag.bifaci.machiner import NoPeerRouter
 from capdag.bifaci.host_runtime import PeerInvokeNotSupported
 
 

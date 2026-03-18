@@ -1,6 +1,6 @@
 """Route notation serializer — deterministic canonical form
 
-Converts a RouteGraph to its route notation string representation.
+Converts a Machine to its machine notation string representation.
 The output is deterministic: the same graph always produces the same string.
 
 Alias Generation:
@@ -23,11 +23,11 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from capdag.route.graph import RouteEdge, RouteGraph
+from capdag.machine.graph import MachineEdge, Machine
 
 
 def _build_serialization_maps(
-    graph: RouteGraph,
+    graph: Machine,
 ) -> Tuple[Dict[str, Tuple[int, str]], Dict[str, str], List[int]]:
     """Build the alias map, node name map, and edge ordering for serialization.
 
@@ -86,8 +86,8 @@ def _build_serialization_maps(
     return aliases, node_names, edge_order
 
 
-def to_route_notation(graph: RouteGraph) -> str:
-    """Serialize this route graph to canonical one-line route notation.
+def to_machine_notation(graph: Machine) -> str:
+    """Serialize this route graph to canonical one-line machine notation.
 
     The output is deterministic: same graph -> same string. This is the
     primary serialization format for accessibility identifiers and
@@ -134,8 +134,8 @@ def to_route_notation(graph: RouteGraph) -> str:
     return "".join(output_parts)
 
 
-def to_route_notation_multiline(graph: RouteGraph) -> str:
-    """Serialize to multi-line route notation (one statement per line)."""
+def to_machine_notation_multiline(graph: Machine) -> str:
+    """Serialize to multi-line machine notation (one statement per line)."""
     if graph.is_empty():
         return ""
 
@@ -172,37 +172,37 @@ def to_route_notation_multiline(graph: RouteGraph) -> str:
     return "\n".join(output_lines)
 
 
-def from_path(path) -> RouteGraph:
-    """Convert a CapChainPathInfo (resolved linear path) into a RouteGraph.
+def from_path(path) -> Machine:
+    """Convert a Strand (resolved linear path) into a Machine.
 
     The conversion:
-    - Each Cap step becomes a RouteEdge with a single source
+    - Each Cap step becomes a MachineEdge with a single source
     - ForEach steps set is_loop=True on the next Cap edge
     - Collect and WrapInList steps are elided (implicit in transitions)
     """
-    from capdag.route.graph import RouteEdge
-    from capdag.planner.live_cap_graph import CapChainStepType
+    from capdag.machine.graph import MachineEdge
+    from capdag.planner.live_cap_graph import StrandStepType
 
-    edges: List[RouteEdge] = []
+    edges: List[MachineEdge] = []
     pending_loop = False
 
     for step in path.steps:
-        if step.step_type == CapChainStepType.CAP:
-            edges.append(RouteEdge(
+        if step.step_type == StrandStepType.CAP:
+            edges.append(MachineEdge(
                 sources=[step.from_spec],
                 cap_urn=step.cap_urn,
                 target=step.to_spec,
                 is_loop=pending_loop,
             ))
             pending_loop = False
-        elif step.step_type == CapChainStepType.FOR_EACH:
+        elif step.step_type == StrandStepType.FOR_EACH:
             pending_loop = True
         # Collect and WrapInList are elided
 
-    return RouteGraph(edges)
+    return Machine(edges)
 
 
-# Attach methods to RouteGraph
-RouteGraph.to_route_notation = to_route_notation  # type: ignore[attr-defined]
-RouteGraph.to_route_notation_multiline = to_route_notation_multiline  # type: ignore[attr-defined]
-RouteGraph.from_path = staticmethod(from_path)  # type: ignore[attr-defined]
+# Attach methods to Machine
+Machine.to_machine_notation = to_machine_notation  # type: ignore[attr-defined]
+Machine.to_machine_notation_multiline = to_machine_notation_multiline  # type: ignore[attr-defined]
+Machine.from_path = staticmethod(from_path)  # type: ignore[attr-defined]

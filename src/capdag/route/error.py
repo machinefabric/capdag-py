@@ -1,19 +1,19 @@
-"""Error types for route notation parsing and serialization"""
+"""Error types for machine notation parsing and serialization"""
 
 
-class RouteNotationError(Exception):
-    """Base error for route notation parsing failures."""
+class MachineSyntaxError(Exception):
+    """Base error for machine notation parsing failures."""
     pass
 
 
-class EmptyRouteError(RouteNotationError):
+class EmptyRouteError(MachineSyntaxError):
     """Input string is empty or contains only whitespace."""
 
     def __init__(self):
-        super().__init__("route notation is empty")
+        super().__init__("machine notation is empty")
 
 
-class UnterminatedStatementError(RouteNotationError):
+class UnterminatedStatementError(MachineSyntaxError):
     """A statement bracket '[' was opened but never closed with ']'."""
 
     def __init__(self, position: int):
@@ -21,7 +21,7 @@ class UnterminatedStatementError(RouteNotationError):
         super().__init__(f"unterminated statement starting at byte {position}")
 
 
-class InvalidCapUrnError(RouteNotationError):
+class InvalidCapUrnError(MachineSyntaxError):
     """A cap URN in a header statement failed to parse."""
 
     def __init__(self, alias: str, details: str):
@@ -30,7 +30,7 @@ class InvalidCapUrnError(RouteNotationError):
         super().__init__(f"invalid cap URN in header '{alias}': {details}")
 
 
-class UndefinedAliasError(RouteNotationError):
+class UndefinedAliasError(MachineSyntaxError):
     """A wiring statement references an alias that was never defined in a header."""
 
     def __init__(self, alias: str):
@@ -38,7 +38,7 @@ class UndefinedAliasError(RouteNotationError):
         super().__init__(f"wiring references undefined alias '{alias}'")
 
 
-class DuplicateAliasError(RouteNotationError):
+class DuplicateAliasError(MachineSyntaxError):
     """Two header statements define the same alias."""
 
     def __init__(self, alias: str, first_position: int):
@@ -49,7 +49,7 @@ class DuplicateAliasError(RouteNotationError):
         )
 
 
-class InvalidWiringError(RouteNotationError):
+class InvalidWiringError(MachineSyntaxError):
     """A wiring statement has invalid structure or conflicting media types."""
 
     def __init__(self, position: int, details: str):
@@ -58,7 +58,7 @@ class InvalidWiringError(RouteNotationError):
         super().__init__(f"invalid wiring at statement {position}: {details}")
 
 
-class InvalidMediaUrnError(RouteNotationError):
+class InvalidMediaUrnError(MachineSyntaxError):
     """A media URN referenced in a header failed to parse."""
 
     def __init__(self, alias: str, details: str):
@@ -67,7 +67,7 @@ class InvalidMediaUrnError(RouteNotationError):
         super().__init__(f"invalid media URN in cap '{alias}': {details}")
 
 
-class InvalidHeaderError(RouteNotationError):
+class InvalidHeaderError(MachineSyntaxError):
     """A header statement has invalid structure."""
 
     def __init__(self, position: int, details: str):
@@ -76,14 +76,14 @@ class InvalidHeaderError(RouteNotationError):
         super().__init__(f"invalid header at statement {position}: {details}")
 
 
-class NoEdgesError(RouteNotationError):
+class NoEdgesError(MachineSyntaxError):
     """The parsed route graph has no edges (headers were defined but no wirings)."""
 
     def __init__(self):
         super().__init__("route has headers but no wirings — define at least one edge")
 
 
-class NodeAliasCollisionError(RouteNotationError):
+class NodeAliasCollisionError(MachineSyntaxError):
     """A wiring references an alias used as a node name that collides with a header alias."""
 
     def __init__(self, name: str, alias: str):
@@ -92,7 +92,7 @@ class NodeAliasCollisionError(RouteNotationError):
         super().__init__(f"node name '{name}' collides with cap alias '{alias}'")
 
 
-class ParseError(RouteNotationError):
+class ParseError(MachineSyntaxError):
     """PEG parse error from the pest grammar."""
 
     def __init__(self, details: str):

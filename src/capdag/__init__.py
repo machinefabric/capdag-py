@@ -201,11 +201,11 @@ from capdag.bifaci.relay import (
 )
 
 # Route module
-from capdag.route import (
-    RouteNotationError,
-    RouteEdge,
-    RouteGraph,
-    parse_route_notation,
+from capdag.machine import (
+    MachineSyntaxError,
+    MachineEdge,
+    Machine,
+    parse_machine,
 )
 
 # Orchestrator module (imported as submodule to avoid name collisions with RegistryError)
@@ -426,8 +426,8 @@ __all__ = [
     "RelayMaster",
     "RelayError",
     # Route notation
-    "RouteNotationError",
-    "RouteEdge",
-    "RouteGraph",
-    "parse_route_notation",
+    "MachineSyntaxError",
+    "MachineEdge",
+    "Machine",
+    "parse_machine",
 ]

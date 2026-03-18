@@ -1,6 +1,6 @@
-"""Convert CapExecutionPlan to ResolvedGraph.
+"""Convert MachinePlan to ResolvedGraph.
 
-Bridges the planner's CapExecutionPlan (node-centric) to the
+Bridges the planner's MachinePlan (node-centric) to the
 orchestrator's ResolvedGraph (edge-centric) format for execution.
 Mirrors Rust's orchestrator/plan_converter.rs exactly.
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from capdag.planner.plan import CapExecutionPlan, ExecutionNodeType
+from capdag.planner.plan import MachinePlan, ExecutionNodeType
 
 from capdag.orchestrator.types import (
     CapRegistryTrait,
@@ -30,10 +30,10 @@ from capdag.orchestrator.types import (
 
 
 async def plan_to_resolved_graph(
-    plan: CapExecutionPlan,
+    plan: MachinePlan,
     registry: CapRegistryTrait,
 ) -> ResolvedGraph:
-    """Convert a CapExecutionPlan to a ResolvedGraph for execution.
+    """Convert a MachinePlan to a ResolvedGraph for execution.
 
     Transforms the node-centric plan (where caps are nodes) into the
     edge-centric graph (where caps are edge labels) that execute_dag expects.

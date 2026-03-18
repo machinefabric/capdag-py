@@ -3,9 +3,9 @@
 Route notation replaces the DOT file format for describing capability
 transformation paths. It provides:
 
-- A typed graph model (RouteGraph, RouteEdge) with semantic equivalence
+- A typed graph model (Machine, MachineEdge) with semantic equivalence
 - A compact textual format for serialization
-- Conversion from resolved paths (CapChainPathInfo)
+- Conversion from resolved paths (Strand)
 
 Format:
 
@@ -23,16 +23,16 @@ Fan-in groups: [(a, b) -> alias -> dst] — multiple sources feed one cap.
 Loop edges: [src -> LOOP alias -> dst] — ForEach iteration semantics.
 """
 
-from capdag.route.error import RouteNotationError
-from capdag.route.graph import RouteEdge, RouteGraph
-from capdag.route.parser import parse_route_notation
+from capdag.machine.error import MachineSyntaxError
+from capdag.machine.graph import MachineEdge, Machine
+from capdag.machine.parser import parse_machine
 
-# Import serializer to attach to_route_notation methods to RouteGraph
-import capdag.route.serializer as _serializer  # noqa: F401
+# Import serializer to attach to_machine_notation methods to Machine
+import capdag.machine.serializer as _serializer  # noqa: F401
 
 __all__ = [
-    "RouteNotationError",
-    "RouteEdge",
-    "RouteGraph",
-    "parse_route_notation",
+    "MachineSyntaxError",
+    "MachineEdge",
+    "Machine",
+    "parse_machine",
 ]

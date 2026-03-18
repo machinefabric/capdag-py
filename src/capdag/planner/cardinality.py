@@ -361,7 +361,7 @@ class CardinalityPattern(Enum):
         return self in (CardinalityPattern.MANY_TO_ONE, CardinalityPattern.MANY_TO_MANY)
 
 
-class ShapeChainAnalysis:
+class StrandShapeAnalysis:
     """Analyze shape chain for a sequence of caps."""
 
     __slots__ = ("cap_infos", "fan_out_points", "fan_in_points", "is_valid", "error")
@@ -381,10 +381,10 @@ class ShapeChainAnalysis:
         self.error = error
 
     @staticmethod
-    def analyze(cap_infos: List[CapShapeInfo]) -> ShapeChainAnalysis:
+    def analyze(cap_infos: List[CapShapeInfo]) -> StrandShapeAnalysis:
         """Analyze a chain of caps for shape transitions."""
         if not cap_infos:
-            return ShapeChainAnalysis(
+            return StrandShapeAnalysis(
                 cap_infos=[],
                 fan_out_points=[],
                 fan_in_points=[],
@@ -417,7 +417,7 @@ class ShapeChainAnalysis:
             current_shape = info.output
 
         if error_msg is not None:
-            return ShapeChainAnalysis(
+            return StrandShapeAnalysis(
                 cap_infos=cap_infos,
                 fan_out_points=fan_out_points,
                 fan_in_points=fan_in_points,
@@ -428,7 +428,7 @@ class ShapeChainAnalysis:
         if fan_out_points:
             fan_in_points.append(len(cap_infos))
 
-        return ShapeChainAnalysis(
+        return StrandShapeAnalysis(
             cap_infos=cap_infos,
             fan_out_points=fan_out_points,
             fan_in_points=fan_in_points,

@@ -5,7 +5,7 @@ This module provides the planning infrastructure for cap chains:
 - Cardinality and structure analysis (MediaShape, InputCardinality, InputStructure)
 - Argument binding and resolution
 - Collection input management
-- Execution plan data structures (CapExecutionPlan, CapNode, CapEdge)
+- Execution plan data structures (MachinePlan, MachineNode, MachinePlanEdge)
 - Plan building from resolved paths
 - Plan execution with topological ordering
 - Live capability graph for path finding
@@ -30,16 +30,16 @@ from capdag.planner.cardinality import (
     ShapeCompatibility,
     CapShapeInfo,
     CardinalityPattern,
-    ShapeChainAnalysis,
+    StrandShapeAnalysis,
 )
 
 from capdag.planner.live_cap_graph import (
-    LiveCapEdgeType,
-    LiveCapEdge,
+    LiveMachinePlanEdgeType,
+    LiveMachinePlanEdge,
     LiveCapGraph,
-    CapChainStepType,
-    CapChainStepInfo,
-    CapChainPathInfo,
+    StrandStepType,
+    StrandStep,
+    Strand,
     ReachableTargetInfo,
 )
 
@@ -52,7 +52,7 @@ from capdag.planner.argument_binding import (
     ResolvedArgument,
     ArgumentResolutionContext,
     ArgumentBindings,
-    CapChainInput,
+    StrandInput,
     resolve_binding,
 )
 
@@ -64,12 +64,12 @@ from capdag.planner.collection_input import (
 from capdag.planner.plan import (
     ExecutionNodeType,
     MergeStrategy,
-    CapNode,
+    MachineNode,
     EdgeType,
-    CapEdge,
-    CapExecutionPlan,
+    MachinePlanEdge,
+    MachinePlan,
     NodeExecutionResult,
-    CapChainExecutionResult,
+    MachineResult,
 )
 
 from capdag.planner.plan_builder import (
@@ -77,13 +77,13 @@ from capdag.planner.plan_builder import (
     ArgumentInfo,
     StepArgumentRequirements,
     PathArgumentRequirements,
-    CapPlanBuilder,
+    MachinePlanBuilder,
 )
 
 from capdag.planner.executor import (
     CapExecutor,
     CapSettingsProvider,
-    PlanExecutor,
+    MachineExecutor,
     apply_edge_type,
     extract_json_path,
 )
@@ -106,14 +106,14 @@ __all__ = [
     "ShapeCompatibility",
     "CapShapeInfo",
     "CardinalityPattern",
-    "ShapeChainAnalysis",
+    "StrandShapeAnalysis",
     # Live Cap Graph
-    "LiveCapEdgeType",
-    "LiveCapEdge",
+    "LiveMachinePlanEdgeType",
+    "LiveMachinePlanEdge",
     "LiveCapGraph",
-    "CapChainStepType",
-    "CapChainStepInfo",
-    "CapChainPathInfo",
+    "StrandStepType",
+    "StrandStep",
+    "Strand",
     "ReachableTargetInfo",
     # Argument Binding
     "SourceEntityType",
@@ -124,7 +124,7 @@ __all__ = [
     "ResolvedArgument",
     "ArgumentResolutionContext",
     "ArgumentBindings",
-    "CapChainInput",
+    "StrandInput",
     "resolve_binding",
     # Collection Input
     "CollectionFile",
@@ -132,22 +132,22 @@ __all__ = [
     # Plan
     "ExecutionNodeType",
     "MergeStrategy",
-    "CapNode",
+    "MachineNode",
     "EdgeType",
-    "CapEdge",
-    "CapExecutionPlan",
+    "MachinePlanEdge",
+    "MachinePlan",
     "NodeExecutionResult",
-    "CapChainExecutionResult",
+    "MachineResult",
     # Plan Builder
     "ArgumentResolution",
     "ArgumentInfo",
     "StepArgumentRequirements",
     "PathArgumentRequirements",
-    "CapPlanBuilder",
+    "MachinePlanBuilder",
     # Executor
     "CapExecutor",
     "CapSettingsProvider",
-    "PlanExecutor",
+    "MachineExecutor",
     "apply_edge_type",
     "extract_json_path",
 ]

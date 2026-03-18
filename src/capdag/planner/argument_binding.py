@@ -9,7 +9,7 @@ Key types:
 - ArgumentBinding: How to resolve one argument value (10 variants)
 - ArgumentBindings: Collection of named bindings for one cap node
 - ArgumentResolutionContext: Borrowed context for resolution
-- CapChainInput: Input specification for a cap chain
+- StrandInput: Input specification for a cap chain
 - resolve_binding(): Core resolution function
 """
 
@@ -456,7 +456,7 @@ class ArgumentBindings:
         return f"ArgumentBindings({list(self.bindings.keys())})"
 
 
-class CapChainInput:
+class StrandInput:
     """Input specification for a cap chain at execution start."""
 
     __slots__ = ("files", "expected_media_urn", "cardinality")
@@ -472,16 +472,16 @@ class CapChainInput:
         self.cardinality = cardinality
 
     @staticmethod
-    def single(file: CapInputFile) -> CapChainInput:
-        return CapChainInput(
+    def single(file: CapInputFile) -> StrandInput:
+        return StrandInput(
             files=[file],
             expected_media_urn=file.media_urn,
             cardinality=InputCardinality.SINGLE,
         )
 
     @staticmethod
-    def sequence(files: List[CapInputFile], media_urn: str) -> CapChainInput:
-        return CapChainInput(
+    def sequence(files: List[CapInputFile], media_urn: str) -> StrandInput:
+        return StrandInput(
             files=files,
             expected_media_urn=media_urn,
             cardinality=InputCardinality.SEQUENCE,
@@ -501,8 +501,8 @@ class CapChainInput:
         }
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> CapChainInput:
-        return CapChainInput(
+    def from_dict(d: Dict[str, Any]) -> StrandInput:
+        return StrandInput(
             files=[CapInputFile.from_dict(f) for f in d["files"]],
             expected_media_urn=d["expected_media_urn"],
             cardinality=InputCardinality(d["cardinality"]),
@@ -510,7 +510,7 @@ class CapChainInput:
 
     def __repr__(self) -> str:
         return (
-            f"CapChainInput(files={len(self.files)}, "
+            f"StrandInput(files={len(self.files)}, "
             f"media_urn={self.expected_media_urn!r}, "
             f"cardinality={self.cardinality.value})"
         )

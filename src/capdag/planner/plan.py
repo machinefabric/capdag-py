@@ -5,11 +5,11 @@ a sequence of cap operations. Mirrors Rust's planner/plan.rs exactly.
 
 Key types:
 - ExecutionNodeType: discriminated union of node kinds (Cap, ForEach, Collect, etc.)
-- CapNode: a node in the execution plan
+- MachineNode: a node in the execution plan
 - EdgeType: how data flows between nodes
-- CapEdge: a directed edge in the plan
-- CapExecutionPlan: the complete execution DAG
-- NodeExecutionResult / CapChainExecutionResult: execution output
+- MachinePlanEdge: a directed edge in the plan
+- MachinePlan: the complete execution DAG
+- NodeExecutionResult / MachineResult: execution output
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ class ExecutionNodeType:
         return f"ExecutionNodeType({self.kind!r})"
 
 
-class CapNode:
+class MachineNode:
     """A node in the execution plan."""
 
     __slots__ = ("id", "node_type", "description")
@@ -226,50 +226,50 @@ class CapNode:
     # --- Static constructors ---
 
     @staticmethod
-    def cap(id: str, cap_urn: str) -> CapNode:
-        return CapNode(id, ExecutionNodeType.cap(cap_urn))
+    def cap(id: str, cap_urn: str) -> MachineNode:
+        return MachineNode(id, ExecutionNodeType.cap(cap_urn))
 
     @staticmethod
-    def cap_with_bindings(id: str, cap_urn: str, bindings: ArgumentBindings) -> CapNode:
-        return CapNode(id, ExecutionNodeType.cap(cap_urn, bindings))
+    def cap_with_bindings(id: str, cap_urn: str, bindings: ArgumentBindings) -> MachineNode:
+        return MachineNode(id, ExecutionNodeType.cap(cap_urn, bindings))
 
     @staticmethod
     def cap_with_preference(id: str, cap_urn: str, bindings: ArgumentBindings,
-                            preferred_cap: Optional[str] = None) -> CapNode:
-        return CapNode(id, ExecutionNodeType.cap(cap_urn, bindings, preferred_cap))
+                            preferred_cap: Optional[str] = None) -> MachineNode:
+        return MachineNode(id, ExecutionNodeType.cap(cap_urn, bindings, preferred_cap))
 
     @staticmethod
-    def for_each(id: str, input_node: str, body_entry: str, body_exit: str) -> CapNode:
-        return CapNode(
+    def for_each(id: str, input_node: str, body_entry: str, body_exit: str) -> MachineNode:
+        return MachineNode(
             id, ExecutionNodeType.for_each(input_node, body_entry, body_exit),
             description="Fan-out: process each item in vector",
         )
 
     @staticmethod
-    def collect(id: str, input_nodes: List[str]) -> CapNode:
-        return CapNode(
+    def collect(id: str, input_nodes: List[str]) -> MachineNode:
+        return MachineNode(
             id, ExecutionNodeType.collect(input_nodes),
             description="Fan-in: collect results into vector",
         )
 
     @staticmethod
-    def wrap_in_list(id: str, item_media_urn: str, list_media_urn: str) -> CapNode:
-        return CapNode(
+    def wrap_in_list(id: str, item_media_urn: str, list_media_urn: str) -> MachineNode:
+        return MachineNode(
             id, ExecutionNodeType.wrap_in_list(item_media_urn, list_media_urn),
             description="WrapInList: wrap scalar in list-of-one",
         )
 
     @staticmethod
     def input_slot(id: str, slot_name: str, media_urn: str,
-                   cardinality: InputCardinality = InputCardinality.SINGLE) -> CapNode:
-        return CapNode(
+                   cardinality: InputCardinality = InputCardinality.SINGLE) -> MachineNode:
+        return MachineNode(
             id, ExecutionNodeType.input_slot(slot_name, media_urn, cardinality),
             description=f"Input: {slot_name}",
         )
 
     @staticmethod
-    def output(id: str, output_name: str, source_node: str) -> CapNode:
-        return CapNode(
+    def output(id: str, output_name: str, source_node: str) -> MachineNode:
+        return MachineNode(
             id, ExecutionNodeType.output(output_name, source_node),
             description=f"Output: {output_name}",
         )
@@ -305,7 +305,7 @@ class CapNode:
         return d
 
     def __repr__(self) -> str:
-        return f"CapNode(id={self.id!r}, type={self.node_type.kind!r})"
+        return f"MachineNode(id={self.id!r}, type={self.node_type.kind!r})"
 
 
 class EdgeType:
@@ -364,7 +364,7 @@ class EdgeType:
         return f"EdgeType({self.kind!r})"
 
 
-class CapEdge:
+class MachinePlanEdge:
     """A directed edge in the execution plan."""
 
     __slots__ = ("from_node", "to_node", "edge_type")
@@ -376,24 +376,24 @@ class CapEdge:
         self.edge_type = edge_type or EdgeType.direct()
 
     @staticmethod
-    def direct(from_node: str, to_node: str) -> CapEdge:
-        return CapEdge(from_node, to_node, EdgeType.direct())
+    def direct(from_node: str, to_node: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.direct())
 
     @staticmethod
-    def iteration(from_node: str, to_node: str) -> CapEdge:
-        return CapEdge(from_node, to_node, EdgeType.iteration())
+    def iteration(from_node: str, to_node: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.iteration())
 
     @staticmethod
-    def collection(from_node: str, to_node: str) -> CapEdge:
-        return CapEdge(from_node, to_node, EdgeType.collection())
+    def collection(from_node: str, to_node: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.collection())
 
     @staticmethod
-    def json_field(from_node: str, to_node: str, field: str) -> CapEdge:
-        return CapEdge(from_node, to_node, EdgeType.json_field(field))
+    def json_field(from_node: str, to_node: str, field: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.json_field(field))
 
     @staticmethod
-    def json_path(from_node: str, to_node: str, path: str) -> CapEdge:
-        return CapEdge(from_node, to_node, EdgeType.json_path(path))
+    def json_path(from_node: str, to_node: str, path: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.json_path(path))
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -403,10 +403,10 @@ class CapEdge:
         }
 
     def __repr__(self) -> str:
-        return f"CapEdge({self.from_node!r} -> {self.to_node!r}, {self.edge_type!r})"
+        return f"MachinePlanEdge({self.from_node!r} -> {self.to_node!r}, {self.edge_type!r})"
 
 
-class CapExecutionPlan:
+class MachinePlan:
     """Complete execution plan DAG.
 
     Manages nodes, edges, entry points, and output nodes.
@@ -417,13 +417,13 @@ class CapExecutionPlan:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.nodes: Dict[str, CapNode] = {}
-        self.edges: List[CapEdge] = []
+        self.nodes: Dict[str, MachineNode] = {}
+        self.edges: List[MachinePlanEdge] = []
         self.entry_nodes: List[str] = []
         self.output_nodes: List[str] = []
         self.metadata: Optional[Dict[str, Any]] = None
 
-    def add_node(self, node: CapNode) -> None:
+    def add_node(self, node: MachineNode) -> None:
         """Add a node. InputSlot nodes are auto-registered as entry nodes,
         Output nodes as output nodes."""
         node_id = node.id
@@ -433,10 +433,10 @@ class CapExecutionPlan:
         elif node.node_type.kind == ExecutionNodeType.OUTPUT:
             self.output_nodes.append(node_id)
 
-    def add_edge(self, edge: CapEdge) -> None:
+    def add_edge(self, edge: MachinePlanEdge) -> None:
         self.edges.append(edge)
 
-    def get_node(self, id: str) -> Optional[CapNode]:
+    def get_node(self, id: str) -> Optional[MachineNode]:
         return self.nodes.get(id)
 
     def validate(self) -> None:
@@ -453,7 +453,7 @@ class CapExecutionPlan:
             if output_id not in self.nodes:
                 raise InternalError(f"Output node '{output_id}' not found in plan")
 
-    def topological_order(self) -> List[CapNode]:
+    def topological_order(self) -> List[MachineNode]:
         """Return nodes in topological order using Kahn's algorithm.
         Raises InternalError if cycle detected."""
         in_degree: Dict[str, int] = {nid: 0 for nid in self.nodes}
@@ -466,7 +466,7 @@ class CapExecutionPlan:
                 adj[edge.from_node].append(edge.to_node)
 
         queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
-        result: List[CapNode] = []
+        result: List[MachineNode] = []
 
         while queue:
             nid = queue.popleft()
@@ -484,29 +484,29 @@ class CapExecutionPlan:
 
     @staticmethod
     def single_cap(cap_urn: str, input_media: str, _output_media: str,
-                   file_path_arg_name: str) -> CapExecutionPlan:
+                   file_path_arg_name: str) -> MachinePlan:
         """Create a simple 3-node plan: input → cap → output."""
-        plan = CapExecutionPlan(f"single_{cap_urn}")
-        plan.add_node(CapNode.input_slot("input_slot", "input", input_media, InputCardinality.SINGLE))
+        plan = MachinePlan(f"single_{cap_urn}")
+        plan.add_node(MachineNode.input_slot("input_slot", "input", input_media, InputCardinality.SINGLE))
 
         bindings = ArgumentBindings()
         bindings.add_file_path(file_path_arg_name)
-        plan.add_node(CapNode.cap_with_bindings("cap_0", cap_urn, bindings))
-        plan.add_node(CapNode.output("output", "result", "cap_0"))
+        plan.add_node(MachineNode.cap_with_bindings("cap_0", cap_urn, bindings))
+        plan.add_node(MachineNode.output("output", "result", "cap_0"))
 
-        plan.add_edge(CapEdge.direct("input_slot", "cap_0"))
-        plan.add_edge(CapEdge.direct("cap_0", "output"))
+        plan.add_edge(MachinePlanEdge.direct("input_slot", "cap_0"))
+        plan.add_edge(MachinePlanEdge.direct("cap_0", "output"))
         return plan
 
     @staticmethod
     def linear_chain(cap_urns: List[str], input_media: str, _output_media: str,
-                     file_path_arg_names: List[str]) -> CapExecutionPlan:
+                     file_path_arg_names: List[str]) -> MachinePlan:
         """Create a linear chain plan: input → cap_0 → cap_1 → ... → output."""
-        plan = CapExecutionPlan("linear_chain")
+        plan = MachinePlan("linear_chain")
         if not cap_urns:
             return plan
 
-        plan.add_node(CapNode.input_slot("input_slot", "input", input_media, InputCardinality.SINGLE))
+        plan.add_node(MachineNode.input_slot("input_slot", "input", input_media, InputCardinality.SINGLE))
 
         prev_id = "input_slot"
         for i, urn in enumerate(cap_urns):
@@ -514,12 +514,12 @@ class CapExecutionPlan:
             bindings = ArgumentBindings()
             if i < len(file_path_arg_names):
                 bindings.add_file_path(file_path_arg_names[i])
-            plan.add_node(CapNode.cap_with_bindings(node_id, urn, bindings))
-            plan.add_edge(CapEdge.direct(prev_id, node_id))
+            plan.add_node(MachineNode.cap_with_bindings(node_id, urn, bindings))
+            plan.add_edge(MachinePlanEdge.direct(prev_id, node_id))
             prev_id = node_id
 
-        plan.add_node(CapNode.output("output", "result", prev_id))
-        plan.add_edge(CapEdge.direct(prev_id, "output"))
+        plan.add_node(MachineNode.output("output", "result", prev_id))
+        plan.add_edge(MachinePlanEdge.direct(prev_id, "output"))
         return plan
 
     def find_first_foreach(self) -> Optional[str]:
@@ -540,7 +540,7 @@ class CapExecutionPlan:
             for n in self.nodes.values()
         )
 
-    def extract_prefix_to(self, target_node_id: str) -> CapExecutionPlan:
+    def extract_prefix_to(self, target_node_id: str) -> MachinePlan:
         """Extract ancestor subgraph up to and including target_node_id."""
         if target_node_id not in self.nodes:
             raise InternalError(f"Target node '{target_node_id}' not found in plan")
@@ -562,7 +562,7 @@ class CapExecutionPlan:
                 if pred not in ancestors:
                     queue.append(pred)
 
-        sub_plan = CapExecutionPlan(f"{self.name}_prefix")
+        sub_plan = MachinePlan(f"{self.name}_prefix")
         for nid in ancestors:
             node = self.nodes[nid]
             # Skip original Output nodes
@@ -580,14 +580,14 @@ class CapExecutionPlan:
 
         # Add synthetic output
         output_id = f"{target_node_id}_prefix_output"
-        sub_plan.add_node(CapNode.output(output_id, "prefix_result", target_node_id))
-        sub_plan.add_edge(CapEdge.direct(target_node_id, output_id))
+        sub_plan.add_node(MachineNode.output(output_id, "prefix_result", target_node_id))
+        sub_plan.add_edge(MachinePlanEdge.direct(target_node_id, output_id))
 
         sub_plan.validate()
         return sub_plan
 
     def extract_foreach_body(self, foreach_node_id: str,
-                             item_media_urn: str) -> CapExecutionPlan:
+                             item_media_urn: str) -> MachinePlan:
         """Extract the body of a ForEach node as a standalone plan."""
         node = self.nodes.get(foreach_node_id)
         if node is None:
@@ -623,11 +623,11 @@ class CapExecutionPlan:
         # Force body_exit into set
         body_nodes.add(body_exit)
 
-        body_plan = CapExecutionPlan(f"{self.name}_foreach_body")
+        body_plan = MachinePlan(f"{self.name}_foreach_body")
 
         # Synthetic input slot
         input_id = f"{foreach_node_id}_body_input"
-        body_plan.add_node(CapNode.input_slot(input_id, "item_input", item_media_urn, InputCardinality.SINGLE))
+        body_plan.add_node(MachineNode.input_slot(input_id, "item_input", item_media_urn, InputCardinality.SINGLE))
 
         # Add body nodes
         for nid in body_nodes:
@@ -636,7 +636,7 @@ class CapExecutionPlan:
                 body_plan.add_node(body_node)
 
         # Edge from synthetic input to body_entry
-        body_plan.add_edge(CapEdge.direct(input_id, body_entry))
+        body_plan.add_edge(MachinePlanEdge.direct(input_id, body_entry))
 
         # Copy edges within body, skipping Iteration and Collection
         for edge in self.edges:
@@ -647,14 +647,14 @@ class CapExecutionPlan:
 
         # Synthetic output
         output_id = f"{foreach_node_id}_body_output"
-        body_plan.add_node(CapNode.output(output_id, "item_result", body_exit))
-        body_plan.add_edge(CapEdge.direct(body_exit, output_id))
+        body_plan.add_node(MachineNode.output(output_id, "item_result", body_exit))
+        body_plan.add_edge(MachinePlanEdge.direct(body_exit, output_id))
 
         body_plan.validate()
         return body_plan
 
     def extract_suffix_from(self, source_node_id: str,
-                            source_media_urn: str) -> CapExecutionPlan:
+                            source_media_urn: str) -> MachinePlan:
         """Extract all descendants of source_node_id as a standalone plan."""
         if source_node_id not in self.nodes:
             raise InternalError(f"Source node '{source_node_id}' not found in plan")
@@ -676,11 +676,11 @@ class CapExecutionPlan:
                 if succ not in descendants:
                     queue.append(succ)
 
-        sub_plan = CapExecutionPlan(f"{self.name}_suffix")
+        sub_plan = MachinePlan(f"{self.name}_suffix")
 
         # Synthetic input slot replacing source_node
         input_id = f"{source_node_id}_suffix_input"
-        sub_plan.add_node(CapNode.input_slot(
+        sub_plan.add_node(MachineNode.input_slot(
             input_id, "collected_input", source_media_urn, InputCardinality.SINGLE))
 
         # Add descendant nodes (excluding source and original InputSlot nodes)
@@ -695,7 +695,7 @@ class CapExecutionPlan:
         for edge in self.edges:
             if edge.from_node == source_node_id and edge.to_node in descendants:
                 # Replace source with synthetic input
-                sub_plan.add_edge(CapEdge.direct(input_id, edge.to_node))
+                sub_plan.add_edge(MachinePlanEdge.direct(input_id, edge.to_node))
             elif (edge.from_node in descendants and edge.to_node in descendants
                   and edge.from_node != source_node_id):
                 sub_plan.add_edge(edge)
@@ -717,7 +717,7 @@ class CapExecutionPlan:
 
     def __repr__(self) -> str:
         return (
-            f"CapExecutionPlan(name={self.name!r}, "
+            f"MachinePlan(name={self.name!r}, "
             f"nodes={len(self.nodes)}, edges={len(self.edges)})"
         )
 
@@ -760,7 +760,7 @@ class NodeExecutionResult:
         return f"NodeExecutionResult(node_id={self.node_id!r}, success={self.success})"
 
 
-class CapChainExecutionResult:
+class MachineResult:
     """Result of executing a complete cap chain."""
 
     __slots__ = ("success", "node_results", "outputs", "error", "total_duration_ms")
@@ -798,6 +798,6 @@ class CapChainExecutionResult:
 
     def __repr__(self) -> str:
         return (
-            f"CapChainExecutionResult(success={self.success}, "
+            f"MachineResult(success={self.success}, "
             f"outputs={len(self.outputs)})"
         )

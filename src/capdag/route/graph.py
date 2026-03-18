@@ -1,11 +1,11 @@
-"""Route graph — typed DAG representation for route notation
+"""Route graph — typed DAG representation for machine notation
 
-A RouteGraph is the semantic model behind route notation. It represents
+A Machine is the semantic model behind machine notation. It represents
 a directed acyclic graph of capability edges, where each edge transforms
 one or more source media types into a target media type via a capability.
 
 Equivalence:
-Two RouteGraphs are equivalent if they have the same set of edges,
+Two Machines are equivalent if they have the same set of edges,
 compared using MediaUrn.is_equivalent() for media types and
 CapUrn.is_equivalent() for capabilities. Alias names and statement
 ordering are serialization concerns only — they do not affect equivalence.
@@ -19,7 +19,7 @@ from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
 
-class RouteEdge:
+class MachineEdge:
     """A single edge in the route graph.
 
     Each edge represents a capability that transforms one or more source
@@ -41,7 +41,7 @@ class RouteEdge:
         self.target = target
         self.is_loop = is_loop
 
-    def is_equivalent(self, other: RouteEdge) -> bool:
+    def is_equivalent(self, other: MachineEdge) -> bool:
         """Check if two edges are semantically equivalent.
 
         Equivalence is defined as:
@@ -84,7 +84,7 @@ class RouteEdge:
         return True
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, RouteEdge):
+        if not isinstance(other, MachineEdge):
             return NotImplemented
         return self.is_equivalent(other)
 
@@ -102,8 +102,8 @@ class RouteEdge:
         return self.__repr__()
 
 
-class RouteGraph:
-    """A route graph — the semantic model behind route notation.
+class Machine:
+    """A route graph — the semantic model behind machine notation.
 
     The graph is a collection of directed edges where each edge is a capability
     that transforms source media types into a target media type. The graph
@@ -117,15 +117,15 @@ class RouteGraph:
 
     __slots__ = ("_edges",)
 
-    def __init__(self, edges: Optional[List[RouteEdge]] = None):
-        self._edges: List[RouteEdge] = edges if edges is not None else []
+    def __init__(self, edges: Optional[List[MachineEdge]] = None):
+        self._edges: List[MachineEdge] = edges if edges is not None else []
 
     @classmethod
-    def empty(cls) -> RouteGraph:
+    def empty(cls) -> Machine:
         """Create an empty route graph."""
         return cls([])
 
-    def edges(self) -> List[RouteEdge]:
+    def edges(self) -> List[MachineEdge]:
         """Get the edges of this graph."""
         return self._edges
 
@@ -137,11 +137,11 @@ class RouteGraph:
         """Check if the graph has no edges."""
         return len(self._edges) == 0
 
-    def is_equivalent(self, other: RouteGraph) -> bool:
+    def is_equivalent(self, other: Machine) -> bool:
         """Check if two route graphs are semantically equivalent.
 
         Two graphs are equivalent if they have the same set of edges
-        (compared using RouteEdge.is_equivalent). Edge ordering
+        (compared using MachineEdge.is_equivalent). Edge ordering
         does not matter.
         """
         if len(self._edges) != len(other._edges):
@@ -201,13 +201,13 @@ class RouteGraph:
         return leaves
 
     @classmethod
-    def from_string(cls, input_str: str) -> RouteGraph:
-        """Parse route notation into a RouteGraph."""
-        from capdag.route.parser import parse_route_notation
-        return parse_route_notation(input_str)
+    def from_string(cls, input_str: str) -> Machine:
+        """Parse machine notation into a Machine."""
+        from capdag.machine.parser import parse_machine
+        return parse_machine(input_str)
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, RouteGraph):
+        if not isinstance(other, Machine):
             return NotImplemented
         return self.is_equivalent(other)
 
@@ -216,8 +216,8 @@ class RouteGraph:
 
     def __repr__(self) -> str:
         if not self._edges:
-            return "RouteGraph(empty)"
-        return f"RouteGraph({len(self._edges)} edges)"
+            return "Machine(empty)"
+        return f"Machine({len(self._edges)} edges)"
 
     def __str__(self) -> str:
         return self.__repr__()

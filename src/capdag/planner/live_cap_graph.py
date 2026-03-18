@@ -21,7 +21,7 @@ from capdag.urn.media_urn import MediaUrn
 from capdag.planner.cardinality import InputCardinality
 
 
-class LiveCapEdgeType(Enum):
+class LiveMachinePlanEdgeType(Enum):
     """Type of edge in the capability graph."""
     CAP = "cap"
     FOR_EACH = "for_each"
@@ -29,7 +29,7 @@ class LiveCapEdgeType(Enum):
     WRAP_IN_LIST = "wrap_in_list"
 
 
-class LiveCapEdge:
+class LiveMachinePlanEdge:
     """An edge in the live capability graph."""
 
     __slots__ = (
@@ -42,7 +42,7 @@ class LiveCapEdge:
         self,
         from_spec: MediaUrn,
         to_spec: MediaUrn,
-        edge_type: LiveCapEdgeType,
+        edge_type: LiveMachinePlanEdgeType,
         cap_urn: Optional[CapUrn] = None,
         cap_title: str = "",
         specificity_val: int = 0,
@@ -59,31 +59,31 @@ class LiveCapEdge:
         self.output_cardinality = output_cardinality
 
     def title(self) -> str:
-        if self.edge_type == LiveCapEdgeType.CAP:
+        if self.edge_type == LiveMachinePlanEdgeType.CAP:
             return self.cap_title
-        elif self.edge_type == LiveCapEdgeType.FOR_EACH:
+        elif self.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
             return "ForEach (iterate over list)"
-        elif self.edge_type == LiveCapEdgeType.COLLECT:
+        elif self.edge_type == LiveMachinePlanEdgeType.COLLECT:
             return "Collect (gather results)"
-        elif self.edge_type == LiveCapEdgeType.WRAP_IN_LIST:
+        elif self.edge_type == LiveMachinePlanEdgeType.WRAP_IN_LIST:
             return "WrapInList (create single-item list)"
         return ""
 
     def specificity(self) -> int:
-        if self.edge_type == LiveCapEdgeType.CAP:
+        if self.edge_type == LiveMachinePlanEdgeType.CAP:
             return self.specificity_val
         return 0
 
     def is_cap(self) -> bool:
-        return self.edge_type == LiveCapEdgeType.CAP
+        return self.edge_type == LiveMachinePlanEdgeType.CAP
 
     def get_cap_urn(self) -> Optional[CapUrn]:
-        if self.edge_type == LiveCapEdgeType.CAP:
+        if self.edge_type == LiveMachinePlanEdgeType.CAP:
             return self.cap_urn
         return None
 
 
-class CapChainStepType(Enum):
+class StrandStepType(Enum):
     """Type of step in a capability chain path."""
     CAP = "cap"
     FOR_EACH = "for_each"
@@ -91,7 +91,7 @@ class CapChainStepType(Enum):
     WRAP_IN_LIST = "wrap_in_list"
 
 
-class CapChainStepInfo:
+class StrandStep:
     """Information about a single step in a capability chain path."""
 
     __slots__ = (
@@ -102,7 +102,7 @@ class CapChainStepInfo:
 
     def __init__(
         self,
-        step_type: CapChainStepType,
+        step_type: StrandStepType,
         from_spec: MediaUrn,
         to_spec: MediaUrn,
         cap_urn: Optional[CapUrn] = None,
@@ -121,31 +121,31 @@ class CapChainStepInfo:
         self.item_spec = item_spec
 
     def title(self) -> str:
-        if self.step_type == CapChainStepType.CAP:
+        if self.step_type == StrandStepType.CAP:
             return self.step_title
-        elif self.step_type == CapChainStepType.FOR_EACH:
+        elif self.step_type == StrandStepType.FOR_EACH:
             return "ForEach"
-        elif self.step_type == CapChainStepType.COLLECT:
+        elif self.step_type == StrandStepType.COLLECT:
             return "Collect"
-        elif self.step_type == CapChainStepType.WRAP_IN_LIST:
+        elif self.step_type == StrandStepType.WRAP_IN_LIST:
             return "WrapInList"
         return ""
 
     def specificity(self) -> int:
-        if self.step_type == CapChainStepType.CAP:
+        if self.step_type == StrandStepType.CAP:
             return self.specificity_val
         return 0
 
     def get_cap_urn(self) -> Optional[CapUrn]:
-        if self.step_type == CapChainStepType.CAP:
+        if self.step_type == StrandStepType.CAP:
             return self.cap_urn
         return None
 
     def is_cap(self) -> bool:
-        return self.step_type == CapChainStepType.CAP
+        return self.step_type == StrandStepType.CAP
 
 
-class CapChainPathInfo:
+class Strand:
     """Information about a complete capability chain path."""
 
     __slots__ = (
@@ -155,7 +155,7 @@ class CapChainPathInfo:
 
     def __init__(
         self,
-        steps: List[CapChainStepInfo],
+        steps: List[StrandStep],
         source_spec: MediaUrn,
         target_spec: MediaUrn,
         total_steps: int,
@@ -169,14 +169,14 @@ class CapChainPathInfo:
         self.cap_step_count = cap_step_count
         self.description = description
 
-    def to_route_graph(self):
+    def knit(self):
         """Convert this resolved path to a route graph."""
-        from capdag.route.graph import RouteGraph
-        return RouteGraph.from_path(self)
+        from capdag.machine.graph import Machine
+        return Machine.from_path(self)
 
-    def to_route_notation(self) -> str:
-        """Serialize to canonical one-line route notation."""
-        return self.to_route_graph().to_route_notation()
+    def to_machine_notation(self) -> str:
+        """Serialize to canonical one-line machine notation."""
+        return self.knit().to_machine_notation()
 
 
 class ReachableTargetInfo:
@@ -201,7 +201,7 @@ class LiveCapGraph:
     """Precomputed graph of capabilities for path finding."""
 
     def __init__(self):
-        self._edges: List[LiveCapEdge] = []
+        self._edges: List[LiveMachinePlanEdge] = []
         self._outgoing: Dict[str, List[int]] = defaultdict(list)
         self._incoming: Dict[str, List[int]] = defaultdict(list)
         self._nodes: Set[str] = set()
@@ -258,10 +258,10 @@ class LiveCapGraph:
         output_card = InputCardinality.from_media_urn(to_canonical)
 
         edge_idx = len(self._edges)
-        edge = LiveCapEdge(
+        edge = LiveMachinePlanEdge(
             from_spec=from_spec,
             to_spec=to_spec,
-            edge_type=LiveCapEdgeType.CAP,
+            edge_type=LiveMachinePlanEdgeType.CAP,
             cap_urn=cap.urn,
             cap_title=cap.title,
             specificity_val=cap.urn.specificity(),
@@ -292,10 +292,10 @@ class LiveCapGraph:
 
             # ForEach: list → item (if item is a valid node or has outgoing edges)
             foreach_idx = len(self._edges)
-            foreach_edge = LiveCapEdge(
+            foreach_edge = LiveMachinePlanEdge(
                 from_spec=list_urn,
                 to_spec=item_urn,
-                edge_type=LiveCapEdgeType.FOR_EACH,
+                edge_type=LiveMachinePlanEdgeType.FOR_EACH,
                 input_cardinality=InputCardinality.SEQUENCE,
                 output_cardinality=InputCardinality.SINGLE,
             )
@@ -306,10 +306,10 @@ class LiveCapGraph:
 
             # Collect: item → list
             collect_idx = len(self._edges)
-            collect_edge = LiveCapEdge(
+            collect_edge = LiveMachinePlanEdge(
                 from_spec=item_urn,
                 to_spec=list_urn,
-                edge_type=LiveCapEdgeType.COLLECT,
+                edge_type=LiveMachinePlanEdgeType.COLLECT,
                 input_cardinality=InputCardinality.SINGLE,
                 output_cardinality=InputCardinality.SEQUENCE,
             )
@@ -326,10 +326,10 @@ class LiveCapGraph:
 
             if list_canonical in self._nodes:
                 wrap_idx = len(self._edges)
-                wrap_edge = LiveCapEdge(
+                wrap_edge = LiveMachinePlanEdge(
                     from_spec=item_urn,
                     to_spec=list_urn,
-                    edge_type=LiveCapEdgeType.WRAP_IN_LIST,
+                    edge_type=LiveMachinePlanEdgeType.WRAP_IN_LIST,
                     input_cardinality=InputCardinality.SINGLE,
                     output_cardinality=InputCardinality.SEQUENCE,
                 )
@@ -337,7 +337,7 @@ class LiveCapGraph:
                 self._outgoing[item_canonical].append(wrap_idx)
                 self._incoming[list_canonical].append(wrap_idx)
 
-    def _get_outgoing_edges(self, source: MediaUrn) -> List[LiveCapEdge]:
+    def _get_outgoing_edges(self, source: MediaUrn) -> List[LiveMachinePlanEdge]:
         """Get all edges reachable from this source (using conforms_to for traversal)."""
         results = []
         source_is_list = source.is_list()
@@ -346,13 +346,13 @@ class LiveCapGraph:
             edge_expects_list = edge.from_spec.is_list()
 
             # Cardinality compatibility check
-            if edge.edge_type == LiveCapEdgeType.CAP:
+            if edge.edge_type == LiveMachinePlanEdgeType.CAP:
                 if edge_expects_list != source_is_list:
                     continue
-            elif edge.edge_type == LiveCapEdgeType.FOR_EACH:
+            elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
                 if not (source_is_list and not edge.to_spec.is_list()):
                     continue
-            elif edge.edge_type in (LiveCapEdgeType.COLLECT, LiveCapEdgeType.WRAP_IN_LIST):
+            elif edge.edge_type in (LiveMachinePlanEdgeType.COLLECT, LiveMachinePlanEdgeType.WRAP_IN_LIST):
                 if not (not source_is_list and edge.to_spec.is_list()):
                     continue
 
@@ -414,13 +414,13 @@ class LiveCapGraph:
         target: MediaUrn,
         max_depth: int = 10,
         max_paths: int = 20,
-    ) -> List[CapChainPathInfo]:
+    ) -> List[Strand]:
         """DFS path finding with exact target matching (is_equivalent)."""
-        results: List[CapChainPathInfo] = []
+        results: List[Strand] = []
 
         def dfs(
             current: MediaUrn,
-            path: List[LiveCapEdge],
+            path: List[LiveMachinePlanEdge],
             visited_edges: Set[int],
             depth: int,
         ):
@@ -431,7 +431,7 @@ class LiveCapGraph:
 
             # Check if we've reached the target (exact match)
             if current.is_equivalent(target):
-                # Build CapChainPathInfo from edge path
+                # Build Strand from edge path
                 steps = []
                 cap_count = 0
                 for edge in path:
@@ -443,7 +443,7 @@ class LiveCapGraph:
                 if cap_count > 0:  # Must have at least one real cap step
                     titles = [s.title() for s in steps if s.is_cap()]
                     desc = " → ".join(titles)
-                    results.append(CapChainPathInfo(
+                    results.append(Strand(
                         steps=steps,
                         source_spec=source,
                         target_spec=target,
@@ -462,13 +462,13 @@ class LiveCapGraph:
                 source_is_list = current.is_list()
                 edge_expects_list = edge.from_spec.is_list()
 
-                if edge.edge_type == LiveCapEdgeType.CAP:
+                if edge.edge_type == LiveMachinePlanEdgeType.CAP:
                     if edge_expects_list != source_is_list:
                         continue
-                elif edge.edge_type == LiveCapEdgeType.FOR_EACH:
+                elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
                     if not (source_is_list and not edge.to_spec.is_list()):
                         continue
-                elif edge.edge_type in (LiveCapEdgeType.COLLECT, LiveCapEdgeType.WRAP_IN_LIST):
+                elif edge.edge_type in (LiveMachinePlanEdgeType.COLLECT, LiveMachinePlanEdgeType.WRAP_IN_LIST):
                     if not (not source_is_list and edge.to_spec.is_list()):
                         continue
 
@@ -491,36 +491,36 @@ class LiveCapGraph:
 
         return results
 
-    def _edge_to_step(self, edge: LiveCapEdge) -> CapChainStepInfo:
-        """Convert a LiveCapEdge to a CapChainStepInfo."""
-        if edge.edge_type == LiveCapEdgeType.CAP:
-            return CapChainStepInfo(
-                step_type=CapChainStepType.CAP,
+    def _edge_to_step(self, edge: LiveMachinePlanEdge) -> StrandStep:
+        """Convert a LiveMachinePlanEdge to a StrandStep."""
+        if edge.edge_type == LiveMachinePlanEdgeType.CAP:
+            return StrandStep(
+                step_type=StrandStepType.CAP,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
                 cap_urn=edge.cap_urn,
                 step_title=edge.cap_title,
                 specificity_val=edge.specificity_val,
             )
-        elif edge.edge_type == LiveCapEdgeType.FOR_EACH:
-            return CapChainStepInfo(
-                step_type=CapChainStepType.FOR_EACH,
+        elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
+            return StrandStep(
+                step_type=StrandStepType.FOR_EACH,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
                 list_spec=edge.from_spec,
                 item_spec=edge.to_spec,
             )
-        elif edge.edge_type == LiveCapEdgeType.COLLECT:
-            return CapChainStepInfo(
-                step_type=CapChainStepType.COLLECT,
+        elif edge.edge_type == LiveMachinePlanEdgeType.COLLECT:
+            return StrandStep(
+                step_type=StrandStepType.COLLECT,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
                 item_spec=edge.from_spec,
                 list_spec=edge.to_spec,
             )
-        elif edge.edge_type == LiveCapEdgeType.WRAP_IN_LIST:
-            return CapChainStepInfo(
-                step_type=CapChainStepType.WRAP_IN_LIST,
+        elif edge.edge_type == LiveMachinePlanEdgeType.WRAP_IN_LIST:
+            return StrandStep(
+                step_type=StrandStepType.WRAP_IN_LIST,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
                 item_spec=edge.from_spec,

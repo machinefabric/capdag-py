@@ -1,6 +1,6 @@
 """Route notation parser — pest-generated PEG parser
 
-Parses the route notation format into a RouteGraph using the python-pest
+Parses the machine notation format into a Machine using the python-pest
 library with the same grammar defined in route.pest (shared with Rust).
 
 Grammar (PEG / EBNF):
@@ -45,8 +45,8 @@ from pest import Parser as PestParser
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
-from capdag.route.error import (
-    RouteNotationError,
+from capdag.machine.error import (
+    MachineSyntaxError,
     EmptyRouteError,
     InvalidCapUrnError,
     UndefinedAliasError,
@@ -57,7 +57,7 @@ from capdag.route.error import (
     NodeAliasCollisionError,
     ParseError,
 )
-from capdag.route.graph import RouteEdge, RouteGraph
+from capdag.machine.graph import MachineEdge, Machine
 
 # Load the pest grammar once at module level
 _GRAMMAR_PATH = os.path.join(os.path.dirname(__file__), "route.pest")
@@ -67,13 +67,13 @@ with open(_GRAMMAR_PATH, encoding="utf-8") as _f:
 _PARSER = PestParser.from_grammar(_GRAMMAR)
 
 
-def parse_route_notation(input_str: str) -> RouteGraph:
-    """Parse route notation into a RouteGraph.
+def parse_machine(input_str: str) -> Machine:
+    """Parse machine notation into a Machine.
 
     Uses the pest-generated PEG parser to parse the input, then resolves
     cap URNs and derives media URNs from cap in/out specs.
 
-    Raises RouteNotationError for any parse failure. Fails hard — no
+    Raises MachineSyntaxError for any parse failure. Fails hard — no
     fallbacks, no guessing, no recovery.
     """
     input_str = input_str.strip()
@@ -140,12 +140,12 @@ def parse_route_notation(input_str: str) -> RouteGraph:
             raise DuplicateAliasError(alias, first_pos)
         alias_map[alias] = (cap_urn, position)
 
-    # Phase 4: Resolve wirings into RouteEdges
+    # Phase 4: Resolve wirings into MachineEdges
     if not wirings and headers:
         raise NoEdgesError()
 
     node_media: Dict[str, MediaUrn] = {}
-    edges: List[RouteEdge] = []
+    edges: List[MachineEdge] = []
 
     for sources, cap_alias, target, is_loop, position in wirings:
         # Look up the cap alias
@@ -191,14 +191,14 @@ def parse_route_notation(input_str: str) -> RouteGraph:
         # Assign target media URN
         _assign_or_check_node(target, cap_out_media, node_media, position)
 
-        edges.append(RouteEdge(
+        edges.append(MachineEdge(
             sources=source_urns,
             cap_urn=cap_urn,
             target=cap_out_media,
             is_loop=is_loop,
         ))
 
-    return RouteGraph(edges)
+    return Machine(edges)
 
 
 def _first_child(pair):

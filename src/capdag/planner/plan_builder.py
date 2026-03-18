@@ -1,7 +1,7 @@
 """Plan builder — constructs execution plans from resolved paths.
 
-This module provides CapPlanBuilder which takes a CapChainPathInfo
-(from the live cap graph) and builds a CapExecutionPlan DAG.
+This module provides MachinePlanBuilder which takes a Strand
+(from the live cap graph) and builds a MachinePlan DAG.
 Mirrors Rust's planner/plan_builder.rs exactly.
 
 Key types:
@@ -9,7 +9,7 @@ Key types:
 - ArgumentInfo: full argument metadata for one cap arg
 - StepArgumentRequirements: all argument info for one step in a path
 - PathArgumentRequirements: all argument info for an entire path
-- CapPlanBuilder: builds execution plans from paths
+- MachinePlanBuilder: builds execution plans from paths
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from capdag.planner.cardinality import InputCardinality
 from capdag.planner.error import (
     InternalError, InvalidPathError, NotFoundError, RegistryError,
 )
-from capdag.planner.live_cap_graph import CapChainPathInfo, CapChainStepInfo, CapChainStepType
-from capdag.planner.plan import CapEdge, CapExecutionPlan, CapNode
+from capdag.planner.live_cap_graph import Strand, StrandStep, StrandStepType
+from capdag.planner.plan import MachinePlanEdge, MachinePlan, MachineNode
 
 
 class ArgumentResolution(Enum):
@@ -148,11 +148,11 @@ class PathArgumentRequirements:
         )
 
 
-class CapPlanBuilder:
+class MachinePlanBuilder:
     """Builds execution plans from resolved paths.
 
-    Takes a CapChainPathInfo (from live cap graph) and constructs
-    a CapExecutionPlan DAG ready for execution.
+    Takes a Strand (from live cap graph) and constructs
+    a MachinePlan DAG ready for execution.
     """
 
     def __init__(self, cap_registry: CapRegistry, media_registry: MediaUrnRegistry) -> None:
@@ -192,11 +192,11 @@ class CapPlanBuilder:
     async def build_plan_from_path(
         self,
         name: str,
-        path: CapChainPathInfo,
+        path: Strand,
         input_cardinality: InputCardinality,
-    ) -> CapExecutionPlan:
+    ) -> MachinePlan:
         """Build an execution plan from a resolved path."""
-        plan = CapExecutionPlan(name)
+        plan = MachinePlan(name)
 
         try:
             caps = await self._cap_registry.get_cached_caps()
@@ -219,7 +219,7 @@ class CapPlanBuilder:
 
         source_spec_str = str(path.source_spec)
         input_slot_id = "input_slot"
-        plan.add_node(CapNode.input_slot(input_slot_id, "input", source_spec_str, input_cardinality))
+        plan.add_node(MachineNode.input_slot(input_slot_id, "input", source_spec_str, input_cardinality))
 
         prev_node_id = input_slot_id
         cap_step_count = 0
@@ -230,7 +230,7 @@ class CapPlanBuilder:
         for i, step in enumerate(path.steps):
             node_id = f"step_{i}"
 
-            if step.step_type.kind == CapChainStepType.CAP:
+            if step.step_type.kind == StrandStepType.CAP:
                 cap_urn_str = str(step.step_type.cap_urn_val)
                 bindings = ArgumentBindings()
 
@@ -272,8 +272,8 @@ class CapPlanBuilder:
                             ArgumentBinding.slot(arg.media_urn),
                         )
 
-                plan.add_node(CapNode.cap_with_bindings(node_id, cap_urn_str, bindings))
-                plan.add_edge(CapEdge.direct(prev_node_id, node_id))
+                plan.add_node(MachineNode.cap_with_bindings(node_id, cap_urn_str, bindings))
+                plan.add_edge(MachinePlanEdge.direct(prev_node_id, node_id))
 
                 if is_inside_body:
                     if body_entry is None:
@@ -282,7 +282,7 @@ class CapPlanBuilder:
                 else:
                     cap_step_count += 1
 
-            elif step.step_type.kind == CapChainStepType.FOR_EACH:
+            elif step.step_type.kind == StrandStepType.FOR_EACH:
                 # If already inside a ForEach body (nested), finalize the outer ForEach
                 if inside_foreach_body is not None:
                     outer_foreach_idx, outer_foreach_node_id = inside_foreach_body
@@ -304,10 +304,10 @@ class CapPlanBuilder:
                             f"('{outer_foreach_node_id}') would create a cycle"
                         )
 
-                    plan.add_node(CapNode.for_each(
+                    plan.add_node(MachineNode.for_each(
                         outer_foreach_node_id, outer_foreach_input, outer_entry, outer_exit))
-                    plan.add_edge(CapEdge.direct(outer_foreach_input, outer_foreach_node_id))
-                    plan.add_edge(CapEdge.iteration(outer_foreach_node_id, outer_entry))
+                    plan.add_edge(MachinePlanEdge.direct(outer_foreach_input, outer_foreach_node_id))
+                    plan.add_edge(MachinePlanEdge.iteration(outer_foreach_node_id, outer_entry))
                     prev_node_id = outer_exit
 
                 inside_foreach_body = (i, node_id)
@@ -315,7 +315,7 @@ class CapPlanBuilder:
                 body_exit = None
                 continue  # skip prev_node_id = node_id
 
-            elif step.step_type.kind == CapChainStepType.COLLECT:
+            elif step.step_type.kind == StrandStepType.COLLECT:
                 if inside_foreach_body is not None:
                     foreach_idx, foreach_node_id = inside_foreach_body
                     entry = body_entry if body_entry is not None else prev_node_id
@@ -325,13 +325,13 @@ class CapPlanBuilder:
                         else f"step_{foreach_idx - 1}"
                     )
 
-                    plan.add_node(CapNode.for_each(
+                    plan.add_node(MachineNode.for_each(
                         foreach_node_id, foreach_input, entry, exit_node))
-                    plan.add_edge(CapEdge.direct(foreach_input, foreach_node_id))
-                    plan.add_edge(CapEdge.iteration(foreach_node_id, entry))
+                    plan.add_edge(MachinePlanEdge.direct(foreach_input, foreach_node_id))
+                    plan.add_edge(MachinePlanEdge.iteration(foreach_node_id, entry))
 
-                    plan.add_node(CapNode.collect(node_id, [exit_node]))
-                    plan.add_edge(CapEdge.collection(exit_node, node_id))
+                    plan.add_node(MachineNode.collect(node_id, [exit_node]))
+                    plan.add_edge(MachinePlanEdge.collection(exit_node, node_id))
 
                     inside_foreach_body = None
                     body_entry = None
@@ -339,13 +339,13 @@ class CapPlanBuilder:
                 else:
                     raise InvalidPathError("Collect step without matching ForEach")
 
-            elif step.step_type.kind == CapChainStepType.WRAP_IN_LIST:
-                plan.add_node(CapNode.wrap_in_list(
+            elif step.step_type.kind == StrandStepType.WRAP_IN_LIST:
+                plan.add_node(MachineNode.wrap_in_list(
                     node_id,
                     str(step.step_type.item_spec),
                     str(step.step_type.list_spec),
                 ))
-                plan.add_edge(CapEdge.direct(prev_node_id, node_id))
+                plan.add_edge(MachinePlanEdge.direct(prev_node_id, node_id))
 
             prev_node_id = node_id
 
@@ -366,15 +366,15 @@ class CapPlanBuilder:
                         f"ForEach at step[{foreach_idx}] ('{foreach_node_id}') "
                         f"would create a cycle"
                     )
-                plan.add_node(CapNode.for_each(
+                plan.add_node(MachineNode.for_each(
                     foreach_node_id, foreach_input, entry, exit_node))
-                plan.add_edge(CapEdge.direct(foreach_input, foreach_node_id))
-                plan.add_edge(CapEdge.iteration(foreach_node_id, entry))
+                plan.add_edge(MachinePlanEdge.direct(foreach_input, foreach_node_id))
+                plan.add_edge(MachinePlanEdge.iteration(foreach_node_id, entry))
                 prev_node_id = exit_node
 
         # Output node
-        plan.add_node(CapNode.output("output", "result", prev_node_id))
-        plan.add_edge(CapEdge.direct(prev_node_id, "output"))
+        plan.add_node(MachineNode.output("output", "result", prev_node_id))
+        plan.add_edge(MachinePlanEdge.direct(prev_node_id, "output"))
 
         # Metadata
         plan.metadata = {
@@ -393,7 +393,7 @@ class CapPlanBuilder:
 
     async def analyze_path_arguments(
         self,
-        path: CapChainPathInfo,
+        path: Strand,
     ) -> PathArgumentRequirements:
         """Analyze all argument requirements for a path."""
         try:

@@ -1,15 +1,15 @@
-"""Orchestrator module — route notation parsing, DAG validation, plan conversion, and CBOR utilities.
+"""Orchestrator module — machine notation parsing, DAG validation, plan conversion, and CBOR utilities.
 
 Mirrors Rust's orchestrator module. Provides:
-- Route notation → validated ResolvedGraph (parse_route_to_cap_dag)
-- CapExecutionPlan → ResolvedGraph (plan_to_resolved_graph)
+- Route notation → validated ResolvedGraph (parse_machine_to_cap_dag)
+- MachinePlan → ResolvedGraph (plan_to_resolved_graph)
 - DAG cycle detection (validate_dag)
 - CBOR array/sequence splitting and assembly
 """
 
 from capdag.orchestrator.types import (
     ParseOrchestrationError,
-    RouteNotationParseFailedError,
+    MachineSyntaxParseFailedError,
     CapNotFoundError,
     NodeMediaConflictError,
     NotADagError,
@@ -25,7 +25,7 @@ from capdag.orchestrator.types import (
 
 from capdag.orchestrator.validation import validate_dag
 
-from capdag.orchestrator.parser import parse_route_to_cap_dag
+from capdag.orchestrator.parser import parse_machine_to_cap_dag
 
 from capdag.orchestrator.plan_converter import plan_to_resolved_graph
 
@@ -44,7 +44,7 @@ from capdag.orchestrator.cbor_util import (
 __all__ = [
     # Error types
     "ParseOrchestrationError",
-    "RouteNotationParseFailedError",
+    "MachineSyntaxParseFailedError",
     "CapNotFoundError",
     "NodeMediaConflictError",
     "NotADagError",
@@ -61,7 +61,7 @@ __all__ = [
     # Validation
     "validate_dag",
     # Parser
-    "parse_route_to_cap_dag",
+    "parse_machine_to_cap_dag",
     # Plan converter
     "plan_to_resolved_graph",
     # CBOR utilities

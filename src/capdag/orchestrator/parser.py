@@ -1,6 +1,6 @@
 """Route notation parsing and Cap URN resolution for orchestration.
 
-Parses route notation and resolves cap URNs via a registry, validates
+Parses machine notation and resolves cap URNs via a registry, validates
 the graph, and produces a validated, executable DAG IR.
 Mirrors Rust's orchestrator/parser.rs exactly.
 """
@@ -11,13 +11,13 @@ from typing import Dict, List
 
 from capdag.urn.media_urn import MediaUrn
 from capdag.planner.cardinality import InputStructure
-from capdag.route.graph import RouteGraph
-from capdag.route.parser import _PARSER
+from capdag.machine.graph import Machine
+from capdag.machine.parser import _PARSER
 
 from capdag.orchestrator.types import (
     CapRegistryTrait,
     ParseOrchestrationError,
-    RouteNotationParseFailedError,
+    MachineSyntaxParseFailedError,
     CapNotFoundError,
     NodeMediaConflictError,
     MediaUrnParseError,
@@ -67,16 +67,16 @@ class _WiringInfo:
 
 
 def _extract_wiring_info(route: str) -> List[_WiringInfo]:
-    """Extract wiring node names from route notation via the pest parser.
+    """Extract wiring node names from machine notation via the pest parser.
 
-    The RouteGraph model intentionally discards alias/node names (they're
+    The Machine model intentionally discards alias/node names (they're
     serialization concerns). But the executor uses node names as data-flow
     keys. This function extracts them from the wiring statements in order.
     """
     try:
         parse_tree = _PARSER.parse("program", route.strip())
     except Exception as e:
-        raise RouteNotationParseFailedError(str(e)) from e
+        raise MachineSyntaxParseFailedError(str(e)) from e
 
     wirings: List[_WiringInfo] = []
 
@@ -111,7 +111,7 @@ def _first_child(pair):
     """Get the first child of a parse tree pair."""
     for child in pair:
         return child
-    raise RouteNotationParseFailedError(f"expected child in {pair.rule}")
+    raise MachineSyntaxParseFailedError(f"expected child in {pair.rule}")
 
 
 def _parse_source_names(pair) -> List[str]:
@@ -122,14 +122,14 @@ def _parse_source_names(pair) -> List[str]:
     elif inner.rule == "alias":
         return [inner.text]
     else:
-        raise RouteNotationParseFailedError(f"unexpected source rule: {inner.rule}")
+        raise MachineSyntaxParseFailedError(f"unexpected source rule: {inner.rule}")
 
 
-async def parse_route_to_cap_dag(
+async def parse_machine_to_cap_dag(
     route: str,
     registry: CapRegistryTrait,
 ) -> ResolvedGraph:
-    """Parse route notation and produce a validated orchestration graph.
+    """Parse machine notation and produce a validated orchestration graph.
 
     Each cap URN is resolved via the registry. Node media URNs are derived
     from the cap's in=/out= specs. Media type consistency and structure
@@ -145,27 +145,27 @@ async def parse_route_to_cap_dag(
     Raises:
         ParseOrchestrationError subclasses for any validation failure.
     """
-    # Step 1: Parse route notation into a RouteGraph.
+    # Step 1: Parse machine notation into a Machine.
     try:
-        route_graph = RouteGraph.from_string(route)
+        machine = Machine.from_string(route)
     except Exception as e:
-        raise RouteNotationParseFailedError(str(e)) from e
+        raise MachineSyntaxParseFailedError(str(e)) from e
 
-    # Step 2: Extract node names from the route notation.
+    # Step 2: Extract node names from the machine notation.
     wiring_info = _extract_wiring_info(route)
 
     # Validate that wiring count matches edge count.
-    if len(wiring_info) != len(route_graph.edges()):
-        raise RouteNotationParseFailedError(
+    if len(wiring_info) != len(machine.edges()):
+        raise MachineSyntaxParseFailedError(
             f"internal error: {len(wiring_info)} wirings but "
-            f"{len(route_graph.edges())} edges — route parser edge ordering invariant violated"
+            f"{len(machine.edges())} edges — route parser edge ordering invariant violated"
         )
 
     # Step 3: For each edge, resolve cap via registry and build ResolvedEdge entries.
     node_media: Dict[str, MediaUrn] = {}
     resolved_edges: List[ResolvedEdge] = []
 
-    for edge_idx, edge in enumerate(route_graph.edges()):
+    for edge_idx, edge in enumerate(machine.edges()):
         cap_urn_str = str(edge.cap_urn)
         cap = await registry.lookup(cap_urn_str)
 
@@ -207,7 +207,7 @@ async def parse_route_to_cap_dag(
                     if arg_media is not None:
                         edge_in_media = arg_media
                     else:
-                        raise RouteNotationParseFailedError(
+                        raise MachineSyntaxParseFailedError(
                             f"fan-in secondary source '{src_name}' (index {i}) has no media type "
                             f"and cap '{cap_urn_str}' has no matching arg at index {arg_idx}"
                         )

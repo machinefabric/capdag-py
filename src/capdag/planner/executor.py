@@ -1,13 +1,13 @@
 """Plan executor — executes cap execution plans.
 
-This module provides PlanExecutor which takes a CapExecutionPlan
+This module provides MachineExecutor which takes a MachinePlan
 and executes it node-by-node in topological order.
 Mirrors Rust's planner/executor.rs exactly.
 
 Key types:
 - CapExecutor: protocol for executing individual caps
 - CapSettingsProvider: protocol for providing cap settings
-- PlanExecutor: executes a complete plan
+- MachineExecutor: executes a complete plan
 - apply_edge_type(): applies edge transformations to data
 - extract_json_path(): navigates JSON by dot-separated paths
 """
@@ -27,7 +27,7 @@ from capdag.planner.argument_binding import (
 )
 from capdag.planner.error import InternalError, ExecutionError
 from capdag.planner.plan import (
-    CapChainExecutionResult, CapEdge, CapExecutionPlan, CapNode,
+    MachineResult, MachinePlanEdge, MachinePlan, MachineNode,
     EdgeType, ExecutionNodeType, NodeExecutionResult,
 )
 from capdag.urn.media_urn import MEDIA_FILE_PATH
@@ -66,13 +66,13 @@ class CapSettingsProvider(ABC):
         ...
 
 
-class PlanExecutor:
-    """Executes a CapExecutionPlan node-by-node in topological order."""
+class MachineExecutor:
+    """Executes a MachinePlan node-by-node in topological order."""
 
     def __init__(
         self,
         executor: CapExecutor,
-        plan: CapExecutionPlan,
+        plan: MachinePlan,
         input_files: List[CapInputFile],
     ) -> None:
         self._executor = executor
@@ -81,15 +81,15 @@ class PlanExecutor:
         self._slot_values: Dict[str, bytes] = {}
         self._settings_provider: Optional[CapSettingsProvider] = None
 
-    def with_slot_values(self, slot_values: Dict[str, bytes]) -> PlanExecutor:
+    def with_slot_values(self, slot_values: Dict[str, bytes]) -> MachineExecutor:
         self._slot_values = slot_values
         return self
 
-    def with_settings_provider(self, provider: CapSettingsProvider) -> PlanExecutor:
+    def with_settings_provider(self, provider: CapSettingsProvider) -> MachineExecutor:
         self._settings_provider = provider
         return self
 
-    async def execute(self) -> CapChainExecutionResult:
+    async def execute(self) -> MachineResult:
         """Execute the plan and return results."""
         start = time.monotonic()
 
@@ -105,7 +105,7 @@ class PlanExecutor:
                     node, node_results, node_outputs)
             except Exception as e:
                 elapsed_ms = int((time.monotonic() - start) * 1000)
-                return CapChainExecutionResult(
+                return MachineResult(
                     success=False,
                     node_results=node_results,
                     error=str(e),
@@ -118,7 +118,7 @@ class PlanExecutor:
 
             if not exec_result.success:
                 elapsed_ms = int((time.monotonic() - start) * 1000)
-                return CapChainExecutionResult(
+                return MachineResult(
                     success=False,
                     node_results=node_results,
                     error=exec_result.error,
@@ -135,7 +135,7 @@ class PlanExecutor:
                     outputs[output_node.node_type.output_name] = node_outputs[source]
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        return CapChainExecutionResult(
+        return MachineResult(
             success=True,
             node_results=node_results,
             outputs=outputs,
@@ -144,7 +144,7 @@ class PlanExecutor:
 
     async def _execute_node(
         self,
-        node: CapNode,
+        node: MachineNode,
         _node_results: Dict[str, NodeExecutionResult],
         node_outputs: Dict[str, Any],
     ) -> tuple:
