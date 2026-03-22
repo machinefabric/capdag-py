@@ -226,6 +226,127 @@ class NoPeerInvoker:
         raise PeerRequestError("Peer invocation not supported in this context")
 
 
+class PeerResponseItem:
+    """A single item from a peer response — either decoded data or a LOG frame.
+
+    PeerResponse.recv() yields these interleaved in arrival order. Handlers
+    match on each variant to decide how to react (e.g., forward progress, accumulate data).
+    """
+
+    def __init__(self, *, data=None, log=None):
+        if data is not None and log is not None:
+            raise ValueError("PeerResponseItem must be either Data or Log, not both")
+        if data is None and log is None:
+            raise ValueError("PeerResponseItem must be either Data or Log")
+        self._data = data
+        self._log = log
+
+    @staticmethod
+    def data_ok(value) -> "PeerResponseItem":
+        """Create a Data item with a decoded CBOR value."""
+        return PeerResponseItem(data=("ok", value))
+
+    @staticmethod
+    def data_err(error: Exception) -> "PeerResponseItem":
+        """Create a Data item with an error."""
+        return PeerResponseItem(data=("err", error))
+
+    @staticmethod
+    def log_frame(frame: Frame) -> "PeerResponseItem":
+        """Create a Log item with a LOG frame."""
+        return PeerResponseItem(log=frame)
+
+    @property
+    def is_data(self) -> bool:
+        return self._data is not None
+
+    @property
+    def is_log(self) -> bool:
+        return self._log is not None
+
+    @property
+    def data_value(self):
+        """Get the decoded data value. Raises if this is an error or LOG item."""
+        if self._data is None:
+            raise ValueError("Not a Data item")
+        kind, val = self._data
+        if kind == "err":
+            raise val
+        return val
+
+    @property
+    def data_error(self) -> Optional[Exception]:
+        """Get the error if this is a Data(Err) item, None otherwise."""
+        if self._data is None:
+            return None
+        kind, val = self._data
+        return val if kind == "err" else None
+
+    @property
+    def log(self) -> Optional[Frame]:
+        """Get the LOG frame if this is a Log item, None otherwise."""
+        return self._log
+
+
+class PeerResponse:
+    """Response from a peer call — yields both data items and LOG frames from a single queue.
+
+    The handler drains this with recv() and reacts to each PeerResponseItem as it arrives.
+    LOG frames are delivered in real-time as they arrive (not buffered until data starts).
+    For callers that don't care about LOG frames, collect_bytes() and collect_value()
+    silently discard them and return only data.
+    """
+
+    def __init__(self, q: queue.Queue):
+        self._queue = q
+
+    def recv(self) -> Optional[PeerResponseItem]:
+        """Receive the next item (data or LOG) from the peer response.
+        Returns None when the stream ends."""
+        item = self._queue.get()
+        if item is None:
+            return None
+        return item
+
+    def collect_bytes(self) -> bytes:
+        """Collect all data chunks into a single byte vector, discarding LOG frames.
+
+        WARNING: Only call this if you know the stream is finite.
+        """
+        result = bytearray()
+        while True:
+            item = self.recv()
+            if item is None:
+                break
+            if item.is_log:
+                continue  # Discard LOG frames
+            err = item.data_error
+            if err is not None:
+                raise err
+            value = item.data_value
+            if isinstance(value, bytes):
+                result.extend(value)
+            elif isinstance(value, str):
+                result.extend(value.encode("utf-8"))
+            else:
+                # CBOR-encode non-bytes/str values
+                result.extend(cbor2.dumps(value))
+        return bytes(result)
+
+    def collect_value(self):
+        """Collect a single CBOR data value (expects exactly one data chunk), discarding LOG frames."""
+        while True:
+            item = self.recv()
+            if item is None:
+                raise PeerResponseError("Peer response ended without data")
+            if item.is_log:
+                continue  # Discard LOG frames
+            err = item.data_error
+            if err is not None:
+                raise err
+            return item.data_value
+
+
 class PendingPeerRequest:
     """Internal struct to track pending peer requests (plugin invoking host caps).
     The reader loop forwards response frames to the queue."""
@@ -624,6 +745,45 @@ class ThreadSafeEmitter:
         frame.routing_id = self.routing_id
         self.writer.write(frame)
 
+    def progress_sender(self) -> "ProgressSender":
+        """Create a detached progress sender that can be moved into background threads.
+
+        The returned ProgressSender is thread-safe and can emit progress and log
+        frames from any thread without holding a reference to this ThreadSafeEmitter.
+        Use this when blocking work (FFI model loads, inference) needs to emit
+        per-token or keepalive progress from a dedicated thread.
+        """
+        return ProgressSender(
+            writer=self.writer,
+            request_id=self.request_id,
+            routing_id=self.routing_id,
+        )
+
+
+class ProgressSender:
+    """Detached progress/log emitter that can be moved into background threads.
+
+    Holds a SyncFrameWriter and the request routing info needed to
+    construct LOG frames. Thread-safe by construction (delegates to SyncFrameWriter).
+    """
+
+    def __init__(self, writer: SyncFrameWriter, request_id: MessageId, routing_id: Optional[MessageId]):
+        self._writer = writer
+        self._request_id = request_id
+        self._routing_id = routing_id
+
+    def progress(self, progress: float, message: str) -> None:
+        """Emit a progress update (0.0–1.0) with a human-readable status message."""
+        frame = Frame.progress(self._request_id, progress, message)
+        frame.routing_id = self._routing_id
+        self._writer.write(frame)
+
+    def log(self, level: str, message: str) -> None:
+        """Emit a log message."""
+        frame = Frame.log(self._request_id, level, message)
+        frame.routing_id = self._routing_id
+        self._writer.write(frame)
+
 
 # =============================================================================
 # OP-BASED HANDLER SYSTEM — handlers implement ops.Op[None]
@@ -872,6 +1032,65 @@ def collect_streams(frames: queue.Queue) -> List[Tuple[str, bytes]]:
             raise RuntimeError(f"Error: [{code}] {message}")
 
     return result
+
+
+def demux_peer_response(raw_frames: queue.Queue) -> PeerResponse:
+    """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems.
+
+    Spawns a background thread that reads frames from the raw queue and
+    converts them into PeerResponseItems (Data or Log). Returns immediately
+    so LOG frames can be consumed before data arrives (critical for keeping
+    the engine's activity timer alive during long peer calls).
+
+    This mirrors Rust's demux_single_stream() function.
+    """
+    item_queue: queue.Queue = queue.Queue(maxsize=256)
+
+    def _demux_worker():
+        for frame in iter(raw_frames.get, None):
+            if frame.frame_type == FrameType.STREAM_START:
+                # Structural frame — no item to deliver
+                pass
+            elif frame.frame_type == FrameType.CHUNK:
+                if frame.payload:
+                    # Verify checksum
+                    expected_checksum = frame.checksum
+                    if expected_checksum is None:
+                        item_queue.put(PeerResponseItem.data_err(
+                            PeerResponseError("CHUNK frame missing required checksum field")
+                        ))
+                        continue
+                    actual = compute_checksum(frame.payload)
+                    if actual != expected_checksum:
+                        item_queue.put(PeerResponseItem.data_err(
+                            PeerResponseError(f"Checksum mismatch: expected={expected_checksum}, actual={actual}")
+                        ))
+                        continue
+                    try:
+                        value = cbor2.loads(frame.payload)
+                        item_queue.put(PeerResponseItem.data_ok(value))
+                    except Exception as e:
+                        item_queue.put(PeerResponseItem.data_err(
+                            PeerResponseError(f"CBOR decode error: {e}")
+                        ))
+            elif frame.frame_type == FrameType.LOG:
+                item_queue.put(PeerResponseItem.log_frame(frame))
+            elif frame.frame_type in (FrameType.STREAM_END, FrameType.END):
+                break
+            elif frame.frame_type == FrameType.ERR:
+                code = frame.error_code() or "UNKNOWN"
+                message = frame.error_message() or "Unknown error"
+                item_queue.put(PeerResponseItem.data_err(
+                    PeerResponseError(f"Remote error: [{code}] {message}")
+                ))
+                break
+        # Signal end of stream
+        item_queue.put(None)
+
+    thread = threading.Thread(target=_demux_worker, daemon=True)
+    thread.start()
+
+    return PeerResponse(item_queue)
 
 
 def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[bytes]:
@@ -1667,8 +1886,15 @@ class PluginRuntime:
                         del pending_peer_requests[frame_id_str]
 
             elif frame.frame_type == FrameType.LOG:
-                # Log frames from host - shouldn't normally receive these, ignore
-                continue
+                # Route LOG frames to peer response channels.
+                # During peer calls, the peer sends LOG frames (progress, status)
+                # that the handler needs to receive in real-time for activity
+                # timeout prevention and progress forwarding.
+                frame_id_str = frame.id.to_string()
+                with pending_lock:
+                    if frame_id_str in pending_peer_requests:
+                        pending_req = pending_peer_requests[frame_id_str]
+                        pending_req.queue.put(frame)
 
             elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
                 # Relay-level frames must never reach a plugin runtime.

@@ -719,8 +719,8 @@ def test_390_stream_end_roundtrip():
     assert decoded.media_urn is None, "StreamEnd should not have media_urn"
 
 
-# TEST399a: RelayNotify encode/decode roundtrip preserves manifest and limits
-def test_399a_relay_notify_roundtrip():
+# TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits
+def test_848_relay_notify_roundtrip():
     manifest = b'{"caps":["cap:op=relay-test"]}'
     max_frame = 2_000_000
     max_chunk = 128_000
@@ -741,8 +741,8 @@ def test_399a_relay_notify_roundtrip():
     assert extracted_limits.max_chunk == max_chunk
 
 
-# TEST400a: RelayState encode/decode roundtrip preserves resource payload
-def test_400a_relay_state_roundtrip():
+# TEST849: RelayState encode/decode roundtrip preserves resource payload
+def test_849_relay_state_roundtrip():
     resources = b'{"gpu_memory":8192,"cpu_cores":16}'
 
     frame = Frame.relay_state(resources)
@@ -807,3 +807,60 @@ def test_497_chunk_corrupted_payload_rejected():
     corrupted_cs = compute_checksum(decoded.payload)
     assert corrupted_cs != cs, "Checksums should differ for corrupted data"
     assert decoded.checksum == cs, "Frame still has original checksum"
+
+
+# TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float
+def test_846_progress_frame_roundtrip():
+    rid = MessageId.new_uuid()
+
+    # Test several progress values including edge cases AND the f64→f32→f64 chain
+    # that modelcartridge uses
+    test_values = [
+        (0.0, "zero"),
+        (0.03333333, "1/30"),
+        (0.06666667, "2/30"),
+        (0.13333334, "4/30"),
+        (0.25, "quarter"),
+        (0.5, "half"),
+        (0.75, "three-quarter"),
+        (1.0, "one"),
+    ]
+
+    for progress, label in test_values:
+        original = Frame.progress(rid, progress, "test phase")
+        encoded = encode_frame(original)
+        decoded = decode_frame(encoded)
+
+        assert decoded.frame_type == FrameType.LOG
+        assert decoded.log_level() == "progress"
+        assert decoded.log_message() == "test phase"
+
+        decoded_progress = decoded.log_progress()
+        assert decoded_progress is not None, \
+            f"log_progress() must return value for progress={progress} ({label})"
+        assert abs(decoded_progress - progress) < 0.001, \
+            f"progress roundtrip for {label}: expected {progress}, got {decoded_progress}"
+
+
+# TEST847: Double roundtrip (modelcartridge → relay → candlecartridge)
+def test_847_progress_double_roundtrip():
+    rid = MessageId.new_uuid()
+
+    for progress in [0.0, 0.03333333, 0.06666667, 0.13333334, 0.5, 1.0]:
+        original = Frame.progress(rid, progress, "test")
+
+        # First roundtrip (modelcartridge → relay_switch)
+        bytes1 = encode_frame(original)
+        decoded1 = decode_frame(bytes1)
+
+        # Relay switch modifies seq (like SeqAssigner does)
+        decoded1.seq = 42
+
+        # Second roundtrip (relay_switch → candlecartridge)
+        bytes2 = encode_frame(decoded1)
+        decoded2 = decode_frame(bytes2)
+
+        lp = decoded2.log_progress()
+        assert lp is not None, f"progress={progress}: log_progress() returned None"
+        assert abs(lp - progress) < 0.001, \
+            f"progress={progress}: expected {progress}, got {lp}"

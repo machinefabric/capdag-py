@@ -117,7 +117,7 @@ MEDIA_MODEL_SPEC_GGUF_LLM = "media:model-spec;gguf;textable;llm"
 MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS = "media:model-spec;gguf;textable;embeddings"
 
 # MLX backend
-# MLX vision model spec (e.g. Qwen2.5-VL)
+# MLX vision model spec (e.g. Qwen3-VL)
 MEDIA_MODEL_SPEC_MLX_VISION = "media:model-spec;mlx;textable;vision"
 # MLX LLM model spec (e.g. Llama-3.2-3B)
 MEDIA_MODEL_SPEC_MLX_LLM = "media:model-spec;mlx;textable;llm"

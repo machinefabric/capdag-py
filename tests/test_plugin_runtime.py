@@ -16,6 +16,15 @@ from capdag.bifaci.plugin_runtime import (
     extract_effective_payload,
     collect_args_by_media_urn,
     collect_peer_response,
+    collect_streams,
+    find_stream,
+    require_stream,
+    demux_peer_response,
+    PeerResponseItem,
+    PeerResponse,
+    ProgressSender,
+    ThreadSafeEmitter,
+    SyncFrameWriter,
     RuntimeError as PluginRuntimeError,
     NoHandlerError,
     MissingArgumentError,
@@ -1847,3 +1856,357 @@ def test_479_custom_identity_overrides_default():
         invoke_op(factory, frames, emitter)
     assert "custom identity" in str(exc_info.value), \
         f"Custom identity Op must be called: {exc_info.value}"
+
+
+# =============================================================================
+# Mock frame writer for OutputStream/emitter tests
+# =============================================================================
+
+class MockFrameWriter:
+    """Mock FrameWriter that captures frames in a list."""
+    def __init__(self):
+        self.frames = []
+        self.limits = None
+
+    def write(self, frame):
+        self.frames.append(frame)
+
+    def set_limits(self, limits):
+        self.limits = limits
+
+
+def make_mock_emitter(media_urn="media:test"):
+    """Create a ThreadSafeEmitter backed by a MockFrameWriter for testing."""
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    request_id = MessageId.new_uuid()
+    emitter = ThreadSafeEmitter(
+        writer=sync_writer,
+        request_id=request_id,
+        stream_id="s1",
+        media_urn=media_urn,
+        routing_id=None,
+        max_chunk=DEFAULT_MAX_CHUNK,
+    )
+    return emitter, mock_writer
+
+
+# =============================================================================
+# PeerCall / PeerResponse Tests
+# =============================================================================
+
+# TEST544: PeerCall finish sends END frame
+# In Python, PeerInvokerImpl.invoke() sends END after all args.
+# This test validates that the response queue receives frames including END.
+def test_544_peer_invoker_sends_end_frame():
+    """PeerInvokerImpl sends END frame after all args."""
+    from capdag.bifaci.frame import compute_checksum
+
+    # Create a mock writer that captures frames
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    pending_requests = {}
+
+    from capdag.bifaci.plugin_runtime import PeerInvokerImpl
+    peer = PeerInvokerImpl(
+        writer=sync_writer,
+        pending_requests=pending_requests,
+        max_chunk=DEFAULT_MAX_CHUNK,
+    )
+
+    args = [CapArgumentValue.from_str("media:test", "hello")]
+    response_queue = peer.invoke('cap:in="media:void";op=test;out="media:void"', args)
+
+    # Check that frames include END
+    end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
+    assert len(end_frames) == 1, f"Expected 1 END frame, got {len(end_frames)}"
+
+
+# TEST545: PeerCall finish returns PeerResponse with data
+def test_545_peer_response_returns_data():
+    """demux_peer_response yields data items from peer response frames."""
+    from capdag.bifaci.frame import compute_checksum
+
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    # STREAM_START
+    raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
+
+    # CHUNK with CBOR-encoded bytes
+    data = b"response data"
+    cbor_payload = cbor2.dumps(data)
+    raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
+
+    # STREAM_END + sentinel
+    raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(None)
+
+    response = demux_peer_response(raw_queue)
+    result = response.collect_bytes()
+    assert result == b"response data"
+
+
+# TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately
+#
+# This tests the critical fix: during a peer call, the peer (e.g., modelcartridge)
+# sends LOG frames for minutes during model download BEFORE sending any data
+# (StreamStart + Chunk). The handler must receive these LOGs in real-time so it
+# can re-emit progress and keep the engine's activity timer alive.
+def test_839_peer_response_delivers_logs_before_stream_start():
+    from capdag.bifaci.frame import compute_checksum
+
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    # Send LOG frames BEFORE any StreamStart — simulates modelcartridge
+    # sending download progress before the actual data response
+    raw_queue.put(Frame.progress(req_id, 0.1, "downloading file 1/10"))
+    raw_queue.put(Frame.progress(req_id, 0.5, "downloading file 5/10"))
+    raw_queue.put(Frame.log(req_id, "status", "large file in progress"))
+
+    # Now send the actual data
+    raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
+
+    data = b"model output"
+    cbor_payload = cbor2.dumps(data)
+    raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
+    raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(None)
+
+    response = demux_peer_response(raw_queue)
+
+    # Handler must be able to recv() LOG frames right away
+    item1 = response.recv()
+    assert item1 is not None
+    assert item1.is_log
+    assert item1.log.log_progress() == pytest.approx(0.1, abs=0.01)
+    assert item1.log.log_message() == "downloading file 1/10"
+
+    item2 = response.recv()
+    assert item2 is not None
+    assert item2.is_log
+    assert item2.log.log_progress() == pytest.approx(0.5, abs=0.01)
+    assert item2.log.log_message() == "downloading file 5/10"
+
+    item3 = response.recv()
+    assert item3 is not None
+    assert item3.is_log
+    assert item3.log.log_message() == "large file in progress"
+
+    # Data must arrive after the LOGs
+    item4 = response.recv()
+    assert item4 is not None
+    assert item4.is_data
+    assert item4.data_value == b"model output"
+
+    assert response.recv() is None, "stream must end after STREAM_END"
+
+
+# TEST840: PeerResponse.collect_bytes discards LOG frames
+def test_840_peer_response_collect_bytes_discards_logs():
+    from capdag.bifaci.frame import compute_checksum
+
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    # STREAM_START
+    raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
+
+    # LOG frames (should be discarded by collect_bytes)
+    raw_queue.put(Frame.progress(req_id, 0.25, "working"))
+    raw_queue.put(Frame.progress(req_id, 0.75, "almost"))
+
+    # CHUNK
+    cbor_payload = cbor2.dumps(b"hello")
+    raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
+
+    # Another LOG
+    raw_queue.put(Frame.log(req_id, "info", "done"))
+
+    # STREAM_END + sentinel
+    raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(None)
+
+    response = demux_peer_response(raw_queue)
+    result = response.collect_bytes()
+    assert result == b"hello", "collect_bytes must return only data, discarding all LOG frames"
+
+
+# TEST841: PeerResponse.collect_value discards LOG frames
+def test_841_peer_response_collect_value_discards_logs():
+    from capdag.bifaci.frame import compute_checksum
+
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    # STREAM_START
+    raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
+
+    # LOG frames before the data value
+    raw_queue.put(Frame.progress(req_id, 0.5, "half"))
+    raw_queue.put(Frame.log(req_id, "debug", "processing"))
+
+    # Single CHUNK with a CBOR integer
+    cbor_payload = cbor2.dumps(42)
+    raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
+
+    # STREAM_END + sentinel
+    raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(None)
+
+    response = demux_peer_response(raw_queue)
+    value = response.collect_value()
+    assert value == 42, "collect_value must skip LOG frames and return first data value"
+
+
+# =============================================================================
+# find_stream / require_stream Tests
+# =============================================================================
+
+# TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds
+def test_678_find_stream_equivalent_urn():
+    streams = [
+        ("media:textable;txt", b"hello world"),
+    ]
+    result = find_stream(streams, "media:txt;textable")
+    assert result == b"hello world"
+
+
+# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict
+def test_679_find_stream_base_vs_full_fails():
+    streams = [
+        ("media:textable;txt", b"hello"),
+    ]
+    result = find_stream(streams, "media:textable")
+    assert result is None, "Base URN must not match more specific URN (is_equivalent is strict)"
+
+
+# TEST680: require_stream with missing URN returns hard error
+def test_680_require_stream_missing_fails():
+    streams = [
+        ("media:textable;txt", b"hello"),
+    ]
+    with pytest.raises(RuntimeError) as exc_info:
+        require_stream(streams, "media:binary")
+    assert "Missing required arg" in str(exc_info.value)
+
+
+# TEST681: find_stream with multiple streams returns the correct one
+def test_681_find_stream_multiple():
+    streams = [
+        ("media:textable;txt", b"text data"),
+        ("media:png", b"image data"),
+        ("media:json;textable", b"json data"),
+    ]
+    assert find_stream(streams, "media:png") == b"image data"
+    assert find_stream(streams, "media:textable;txt") == b"text data"
+    assert find_stream(streams, "media:json;textable") == b"json data"
+
+
+# TEST682: require_stream returns data for matching URN
+def test_682_require_stream_returns_data():
+    streams = [
+        ("media:textable;txt", b"hello text"),
+    ]
+    result = require_stream(streams, "media:txt;textable")
+    assert result == b"hello text"
+
+
+# TEST683: find_stream returns None for invalid media URN string (not a parse error)
+def test_683_find_stream_invalid_urn_returns_none():
+    streams = [
+        ("media:textable;txt", b"data"),
+    ]
+    found = find_stream(streams, "")
+    assert found is None, "Invalid URN must return None, not panic"
+
+
+# =============================================================================
+# ProgressSender Tests
+# =============================================================================
+
+# TEST842: ThreadSafeEmitter.progress_sender() returns a working ProgressSender
+# (Mirrors Rust run_with_keepalive returning closure result — Python doesn't have
+# run_with_keepalive because blocking model loads are not done via tokio.
+# Instead we test ProgressSender directly.)
+def test_842_progress_sender_emits_frames():
+    emitter, mock_writer = make_mock_emitter()
+
+    ps = emitter.progress_sender()
+    ps.progress(0.5, "halfway there")
+    ps.log("info", "loading complete")
+
+    # Filter out non-LOG frames (emitter may send STREAM_START etc)
+    log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
+    assert len(log_frames) == 2, f"ProgressSender should emit 2 LOG frames, got {len(log_frames)}"
+    assert log_frames[0].log_progress() == pytest.approx(0.5, abs=0.01)
+    assert log_frames[0].log_message() == "halfway there"
+    assert log_frames[1].log_level() == "info"
+    assert log_frames[1].log_message() == "loading complete"
+
+
+# TEST843: ProgressSender from background thread emits correctly
+def test_843_progress_sender_from_background_thread():
+    import threading
+
+    emitter, mock_writer = make_mock_emitter()
+    ps = emitter.progress_sender()
+
+    results = []
+
+    def background_work():
+        ps.progress(0.25, "quarter")
+        results.append("done")
+
+    thread = threading.Thread(target=background_work)
+    thread.start()
+    thread.join(timeout=5.0)
+
+    assert results == ["done"]
+    log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
+    assert len(log_frames) == 1
+    assert log_frames[0].log_progress() == pytest.approx(0.25, abs=0.01)
+
+
+# TEST844: ProgressSender cloned (Python: shared reference) emits from multiple threads
+def test_844_progress_sender_multiple_threads():
+    import threading
+
+    emitter, mock_writer = make_mock_emitter()
+    ps = emitter.progress_sender()
+
+    def worker(progress_val, msg):
+        ps.progress(progress_val, msg)
+
+    threads = [
+        threading.Thread(target=worker, args=(0.25, "t1")),
+        threading.Thread(target=worker, args=(0.75, "t2")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5.0)
+
+    log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
+    assert len(log_frames) == 2, "Both threads must emit progress"
+    messages = sorted([f.log_message() for f in log_frames])
+    assert messages == ["t1", "t2"]
+
+
+# TEST845: ProgressSender emits progress and log frames independently of OutputStream
+def test_845_progress_sender_independent_of_emitter():
+    emitter, mock_writer = make_mock_emitter()
+
+    ps = emitter.progress_sender()
+    ps.progress(0.5, "halfway there")
+    ps.log("info", "loading complete")
+
+    log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
+    assert len(log_frames) == 2, "ProgressSender should emit 2 frames"
+    # Verify progress frame has correct progress value
+    assert log_frames[0].log_progress() == pytest.approx(0.5, abs=0.01)
+    assert log_frames[0].log_message() == "halfway there"
+    # Verify log frame
+    assert log_frames[1].log_level() == "info"
+    assert log_frames[1].log_message() == "loading complete"
