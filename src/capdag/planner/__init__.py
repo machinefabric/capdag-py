@@ -1,6 +1,6 @@
 """Planner module — execution plan construction and shape analysis
 
-This module provides the planning infrastructure for cap chains:
+This module provides the planning infrastructure for machines:
 
 - Cardinality and structure analysis (MediaShape, InputCardinality, InputStructure)
 - Argument binding and resolution

@@ -1,4 +1,4 @@
-"""Execution plan data structures for cap chains.
+"""Execution plan data structures for machines.
 
 This module defines the DAG-based execution plan that represents
 a sequence of cap operations. Mirrors Rust's planner/plan.rs exactly.
@@ -761,7 +761,7 @@ class NodeExecutionResult:
 
 
 class MachineResult:
-    """Result of executing a complete cap chain."""
+    """Result of executing a complete machine."""
 
     __slots__ = ("success", "node_results", "outputs", "error", "total_duration_ms")
 

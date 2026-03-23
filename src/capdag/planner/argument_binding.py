@@ -9,7 +9,7 @@ Key types:
 - ArgumentBinding: How to resolve one argument value (10 variants)
 - ArgumentBindings: Collection of named bindings for one cap node
 - ArgumentResolutionContext: Borrowed context for resolution
-- StrandInput: Input specification for a cap chain
+- StrandInput: Input specification for a machine
 - resolve_binding(): Core resolution function
 """
 
@@ -457,7 +457,7 @@ class ArgumentBindings:
 
 
 class StrandInput:
-    """Input specification for a cap chain at execution start."""
+    """Input specification for a machine at execution start."""
 
     __slots__ = ("files", "expected_media_urn", "cardinality")
 
