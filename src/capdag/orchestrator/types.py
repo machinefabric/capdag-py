@@ -22,7 +22,7 @@ class ParseOrchestrationError(Exception):
 class MachineSyntaxParseFailedError(ParseOrchestrationError):
     def __init__(self, message: str) -> None:
         self.message = message
-        super().__init__(f"Route notation parse failed: {message}")
+        super().__init__(f"Machine notation parse failed: {message}")
 
 
 class CapNotFoundError(ParseOrchestrationError):

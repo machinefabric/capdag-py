@@ -1,4 +1,4 @@
-"""Route notation parsing and Cap URN resolution for orchestration.
+"""Machine notation parsing and Cap URN resolution for orchestration.
 
 Parses machine notation and resolves cap URNs via a registry, validates
 the graph, and produces a validated, executable DAG IR.
@@ -66,7 +66,7 @@ class _WiringInfo:
         self.target_name = target_name
 
 
-def _extract_wiring_info(route: str) -> List[_WiringInfo]:
+def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
     """Extract wiring node names from machine notation via the pest parser.
 
     The Machine model intentionally discards alias/node names (they're
@@ -74,7 +74,7 @@ def _extract_wiring_info(route: str) -> List[_WiringInfo]:
     keys. This function extracts them from the wiring statements in order.
     """
     try:
-        parse_tree = _PARSER.parse("program", route.strip())
+        parse_tree = _PARSER.parse("program", notation.strip())
     except Exception as e:
         raise MachineSyntaxParseFailedError(str(e)) from e
 
@@ -126,7 +126,7 @@ def _parse_source_names(pair) -> List[str]:
 
 
 async def parse_machine_to_cap_dag(
-    route: str,
+    notation: str,
     registry: CapRegistryTrait,
 ) -> ResolvedGraph:
     """Parse machine notation and produce a validated orchestration graph.
@@ -136,7 +136,7 @@ async def parse_machine_to_cap_dag(
     compatibility (record vs opaque) are validated at each node.
 
     Args:
-        route: Route notation string.
+        notation: Machine notation string.
         registry: Cap registry for resolving cap URNs.
 
     Returns:
@@ -147,18 +147,18 @@ async def parse_machine_to_cap_dag(
     """
     # Step 1: Parse machine notation into a Machine.
     try:
-        machine = Machine.from_string(route)
+        machine = Machine.from_string(notation)
     except Exception as e:
         raise MachineSyntaxParseFailedError(str(e)) from e
 
     # Step 2: Extract node names from the machine notation.
-    wiring_info = _extract_wiring_info(route)
+    wiring_info = _extract_wiring_info(notation)
 
     # Validate that wiring count matches edge count.
     if len(wiring_info) != len(machine.edges()):
         raise MachineSyntaxParseFailedError(
             f"internal error: {len(wiring_info)} wirings but "
-            f"{len(machine.edges())} edges — route parser edge ordering invariant violated"
+            f"{len(machine.edges())} edges — machine parser edge ordering invariant violated"
         )
 
     # Step 3: For each edge, resolve cap via registry and build ResolvedEdge entries.

@@ -6,7 +6,7 @@ class MachineSyntaxError(Exception):
     pass
 
 
-class EmptyRouteError(MachineSyntaxError):
+class EmptyMachineError(MachineSyntaxError):
     """Input string is empty or contains only whitespace."""
 
     def __init__(self):
@@ -77,10 +77,10 @@ class InvalidHeaderError(MachineSyntaxError):
 
 
 class NoEdgesError(MachineSyntaxError):
-    """The parsed route graph has no edges (headers were defined but no wirings)."""
+    """The parsed machine graph has no edges (headers were defined but no wirings)."""
 
     def __init__(self):
-        super().__init__("route has headers but no wirings — define at least one edge")
+        super().__init__("machine has headers but no wirings — define at least one edge")
 
 
 class NodeAliasCollisionError(MachineSyntaxError):

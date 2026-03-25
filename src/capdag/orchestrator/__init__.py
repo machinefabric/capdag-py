@@ -1,7 +1,7 @@
 """Orchestrator module — machine notation parsing, DAG validation, plan conversion, and CBOR utilities.
 
 Mirrors Rust's orchestrator module. Provides:
-- Route notation → validated ResolvedGraph (parse_machine_to_cap_dag)
+- Machine notation → validated ResolvedGraph (parse_machine_to_cap_dag)
 - MachinePlan → ResolvedGraph (plan_to_resolved_graph)
 - DAG cycle detection (validate_dag)
 - CBOR array/sequence splitting and assembly

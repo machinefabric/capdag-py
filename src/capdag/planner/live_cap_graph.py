@@ -170,7 +170,7 @@ class Strand:
         self.description = description
 
     def knit(self):
-        """Convert this resolved path to a route graph."""
+        """Convert this resolved path to a machine graph."""
         from capdag.machine.graph import Machine
         return Machine.from_path(self)
 

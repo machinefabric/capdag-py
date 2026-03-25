@@ -1,4 +1,4 @@
-"""Route notation parser — pest-generated PEG parser
+"""Machine notation parser — PEG parser
 
 Parses the machine notation format into a Machine using the python-pest
 library with the same grammar defined in machine.pest (shared with Rust).
@@ -47,7 +47,7 @@ from capdag.urn.media_urn import MediaUrn
 
 from capdag.machine.error import (
     MachineSyntaxError,
-    EmptyRouteError,
+    EmptyMachineError,
     InvalidCapUrnError,
     UndefinedAliasError,
     DuplicateAliasError,
@@ -78,7 +78,7 @@ def parse_machine(input_str: str) -> Machine:
     """
     input_str = input_str.strip()
     if not input_str:
-        raise EmptyRouteError()
+        raise EmptyMachineError()
 
     # Phase 1: Parse with pest grammar
     try:

@@ -200,7 +200,7 @@ from capdag.bifaci.relay import (
     RelayError,
 )
 
-# Route module
+# Machine module
 from capdag.machine import (
     MachineSyntaxError,
     MachineEdge,
@@ -425,7 +425,7 @@ __all__ = [
     "RelaySlave",
     "RelayMaster",
     "RelayError",
-    # Route notation
+    # Machine notation
     "MachineSyntaxError",
     "MachineEdge",
     "Machine",

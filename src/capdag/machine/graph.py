@@ -1,4 +1,4 @@
-"""Route graph — typed DAG representation for machine notation
+"""Machine graph — typed DAG representation for machine notation
 
 A Machine is the semantic model behind machine notation. It represents
 a directed acyclic graph of capability edges, where each edge transforms
@@ -20,7 +20,7 @@ from capdag.urn.media_urn import MediaUrn
 
 
 class MachineEdge:
-    """A single edge in the route graph.
+    """A single edge in the machine graph.
 
     Each edge represents a capability that transforms one or more source
     media types into a target media type. The is_loop flag indicates
@@ -103,7 +103,7 @@ class MachineEdge:
 
 
 class Machine:
-    """A route graph — the semantic model behind machine notation.
+    """A machine graph — the semantic model behind machine notation.
 
     The graph is a collection of directed edges where each edge is a capability
     that transforms source media types into a target media type. The graph
@@ -122,7 +122,7 @@ class Machine:
 
     @classmethod
     def empty(cls) -> Machine:
-        """Create an empty route graph."""
+        """Create an empty machine graph."""
         return cls([])
 
     def edges(self) -> List[MachineEdge]:
@@ -138,7 +138,7 @@ class Machine:
         return len(self._edges) == 0
 
     def is_equivalent(self, other: Machine) -> bool:
-        """Check if two route graphs are semantically equivalent.
+        """Check if two machine graphs are semantically equivalent.
 
         Two graphs are equivalent if they have the same set of edges
         (compared using MachineEdge.is_equivalent). Edge ordering
