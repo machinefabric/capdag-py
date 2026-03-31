@@ -388,7 +388,7 @@ async def test_105_metadata_propagation():
     registry = await create_test_registry()
     media_specs = create_media_specs([
         MediaSpecDef(
-            urn="media:custom-setting;setting",
+            urn="media:custom-setting",
             media_type="text/plain",
             title="Custom Setting",
             profile_uri="https://example.com/schema",
@@ -403,7 +403,7 @@ async def test_105_metadata_propagation():
         )
     ])
 
-    resolved = await resolve_media_urn("media:custom-setting;setting", media_specs, registry)
+    resolved = await resolve_media_urn("media:custom-setting", media_specs, registry)
     assert resolved.metadata is not None
     assert resolved.metadata.get("category_key") == "interface"
     assert resolved.metadata.get("ui_type") == "SETTING_UI_TYPE_CHECKBOX"
@@ -415,7 +415,7 @@ async def test_106_metadata_with_validation():
     registry = await create_test_registry()
     media_specs = create_media_specs([
         MediaSpecDef(
-            urn="media:bounded-number;numeric;setting",
+            urn="media:bounded-number;numeric",
             media_type="text/plain",
             title="Bounded Number",
             profile_uri="https://example.com/schema",
@@ -437,7 +437,7 @@ async def test_106_metadata_with_validation():
         )
     ])
 
-    resolved = await resolve_media_urn("media:bounded-number;numeric;setting", media_specs, registry)
+    resolved = await resolve_media_urn("media:bounded-number;numeric", media_specs, registry)
 
     # Verify validation
     assert resolved.validation is not None
