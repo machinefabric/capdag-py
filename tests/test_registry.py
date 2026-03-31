@@ -69,7 +69,7 @@ def test_137_parse_registry_json():
     """Test parsing cap JSON without stdin args"""
     # JSON without stdin args - means cap doesn't accept stdin
     json_str = '''{
-        "urn": "cap:in=\\"media:listing-id\\";op=use_grinder;out=\\"media:task-id\\"",
+        "urn": "cap:in=\\"media:listing-id\\";op=use_grinder;out=\\"media:task;id\\"",
         "command": "grinder_task",
         "title": "Create Grinder Tool Task",
         "cap_description": "Create a task for initial document analysis",
@@ -96,7 +96,7 @@ def test_137_parse_registry_json():
             }
         ],
         "output": {
-            "media_urn": "media:task-id",
+            "media_urn": "media:task;id",
             "output_description": "Created task information"
         }
     }'''
@@ -155,7 +155,7 @@ def test_140_url_encodes_quoted_media_urns():
     from urllib.parse import quote as url_encode
 
     config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task-id"'
+    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task;id"'
     normalized = normalize_cap_urn(urn)
     tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
     encoded_tags = url_encode(tags_part, safe='')
@@ -175,7 +175,7 @@ def test_141_exact_url_format():
     from urllib.parse import quote as url_encode
 
     config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task-id"'
+    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task;id"'
     normalized = normalize_cap_urn(urn)
     tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
     encoded_tags = url_encode(tags_part, safe='')

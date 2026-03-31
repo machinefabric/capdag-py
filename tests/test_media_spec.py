@@ -619,14 +619,14 @@ def test_610_get_cached_spec():
 
     # Add a spec and verify we can retrieve it
     spec = StoredMediaSpec(
-        urn="media:test-spec;textable",
+        urn="media:test;spec;textable",
         media_type="text/plain",
         title="Test Spec",
     )
     normalized = normalize_media_urn(spec.urn)
     registry.cached_specs[normalized] = spec
 
-    retrieved = registry.get_cached_spec("media:test-spec;textable")
+    retrieved = registry.get_cached_spec("media:test;spec;textable")
     assert retrieved is not None, "Should find spec by URN"
     assert retrieved.title == "Test Spec"
 
