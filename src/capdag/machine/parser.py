@@ -6,7 +6,7 @@ library with the same grammar defined in machine.pest (shared with Rust).
 Grammar (PEG / EBNF):
 
     program      = stmt*
-    stmt         = "[" inner "]"
+    stmt         = "[" inner "]" | inner
     inner        = wiring | header
     header       = alias cap_urn
     wiring       = source arrow loop_cap arrow alias
@@ -16,19 +16,24 @@ Grammar (PEG / EBNF):
     loop_cap     = "LOOP" alias | alias
     alias        = (ALPHA | "_") (ALNUM | "_" | "-")*
     cap_urn      = "cap:" cap_urn_body*
-    cap_urn_body = quoted_value | !"]" ANY
+    cap_urn_body = quoted_value | !("]" | NEWLINE) ANY
     quoted_value = '"' ('\\"' | '\\\\' | !'"' ANY)* '"'
 
-Whitespace between tokens is handled implicitly by pest's WHITESPACE
-rule. The alias and cap_urn rules are atomic (@{}), so whitespace
-is not skipped inside them.
+Two equally valid statement forms:
+
+- Bracketed: [alias cap:...] / [src -> alias -> dst]
+- Line-based: alias cap:... / src -> alias -> dst
+
+Both can be freely mixed. Whitespace between tokens is handled
+implicitly by pest's WHITESPACE rule. The alias and cap_urn rules
+are atomic (@{}), so whitespace is not skipped inside them.
 
 Media URN Derivation:
 
 Node media URNs are derived from the cap's in= and out= specs:
 
-- For [src -> cap_alias -> dst]: src gets cap's in=, dst gets cap's out=
-- For fan-in [(primary, secondary) -> cap_alias -> dst]:
+- For src -> cap_alias -> dst: src gets cap's in=, dst gets cap's out=
+- For fan-in (primary, secondary) -> cap_alias -> dst:
   - First group member gets cap's in= spec
   - Additional members must have types already assigned by prior wirings.
     If unassigned, they get wildcard media: — the orchestrator parser will

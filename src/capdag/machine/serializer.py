@@ -3,6 +3,9 @@
 Converts a Machine to its machine notation string representation.
 The output is deterministic: the same graph always produces the same string.
 
+The canonical form is bracketed. Line-based format is available via
+to_machine_notation_formatted(graph, 'line-based').
+
 Alias Generation:
 Aliases are derived from the cap URN's op= tag value. If no op= tag
 exists, aliases are generated as edge_0, edge_1, etc. Duplicate
@@ -172,6 +175,58 @@ def to_machine_notation_multiline(graph: Machine) -> str:
     return "\n".join(output_lines)
 
 
+def to_machine_notation_formatted(graph: Machine, fmt: str) -> str:
+    """Serialize this machine graph to machine notation in the specified format.
+
+    The output is deterministic: same graph + same format -> same string.
+
+    Args:
+        graph: The machine graph to serialize.
+        fmt: 'bracketed' or 'line-based'.
+    """
+    if graph.is_empty():
+        return ""
+
+    aliases, node_names, edge_order = _build_serialization_maps(graph)
+    edges = graph.edges()
+
+    bracketed = fmt == "bracketed"
+    open_delim = "[" if bracketed else ""
+    close_delim = "]" if bracketed else ""
+    output_parts: List[str] = []
+
+    # Emit headers in alias-sorted order
+    sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
+
+    for alias, (edge_idx, _cap_str) in sorted_aliases:
+        edge = edges[edge_idx]
+        output_parts.append(f"{open_delim}{alias} {edge.cap_urn}{close_delim}")
+
+    # Emit wirings in edge order
+    for edge_idx in edge_order:
+        edge = edges[edge_idx]
+        alias = None
+        for a, (idx, _) in aliases.items():
+            if idx == edge_idx:
+                alias = a
+                break
+
+        sources = [node_names[str(s)] for s in edge.sources]
+        target_name = node_names[str(edge.target)]
+        loop_prefix = "LOOP " if edge.is_loop else ""
+
+        if len(sources) == 1:
+            output_parts.append(f"{open_delim}{sources[0]} -> {loop_prefix}{alias} -> {target_name}{close_delim}")
+        else:
+            group = ", ".join(sources)
+            output_parts.append(f"{open_delim}({group}) -> {loop_prefix}{alias} -> {target_name}{close_delim}")
+
+    if bracketed:
+        return "".join(output_parts)
+    else:
+        return "\n".join(output_parts)
+
+
 def from_path(path) -> Machine:
     """Convert a Strand (resolved linear path) into a Machine.
 
@@ -205,4 +260,5 @@ def from_path(path) -> Machine:
 # Attach methods to Machine
 Machine.to_machine_notation = to_machine_notation  # type: ignore[attr-defined]
 Machine.to_machine_notation_multiline = to_machine_notation_multiline  # type: ignore[attr-defined]
+Machine.to_machine_notation_formatted = to_machine_notation_formatted  # type: ignore[attr-defined]
 Machine.from_path = staticmethod(from_path)  # type: ignore[attr-defined]
