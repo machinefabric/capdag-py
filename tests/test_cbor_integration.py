@@ -29,8 +29,8 @@ from capdag.bifaci.io import (
     handshake_accept,
 )
 
-# Test manifest JSON - plugins MUST include manifest in HELLO response
-TEST_MANIFEST = b'{"name":"TestPlugin","version":"1.0.0","description":"Test plugin","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
+# Test manifest JSON - cartridges MUST include manifest in HELLO response
+TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
 
 
 def create_socket_pair():
@@ -38,10 +38,10 @@ def create_socket_pair():
     return socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
 
-def plugin_handshake_worker(plugin_read_sock, plugin_write_sock, manifest):
-    """Helper: do handshake on plugin side in a thread"""
-    reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-    writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+def cartridge_handshake_worker(cartridge_read_sock, cartridge_write_sock, manifest):
+    """Helper: do handshake on cartridge side in a thread"""
+    reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+    writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
     limits = handshake_accept(reader, writer, manifest)
     reader.set_limits(limits)
     writer.set_limits(limits)
@@ -49,24 +49,24 @@ def plugin_handshake_worker(plugin_read_sock, plugin_write_sock, manifest):
 
 
 # TEST284: Handshake exchanges HELLO frames, negotiates limits
-def test_284_handshake_host_plugin():
+def test_284_handshake_host_cartridge():
     """Test HELLO frame exchange and limit negotiation"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
     manifest_holder = []
     limits_holder = []
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         limits_holder.append(limits)
         assert limits.max_frame > 0
         assert limits.max_chunk > 0
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -76,22 +76,22 @@ def test_284_handshake_host_plugin():
 
     assert received_manifest == TEST_MANIFEST
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
-    plugin_limits = limits_holder[0]
-    assert host_limits.max_frame == plugin_limits.max_frame
-    assert host_limits.max_chunk == plugin_limits.max_chunk
+    cartridge_limits = limits_holder[0]
+    assert host_limits.max_frame == cartridge_limits.max_frame
+    assert host_limits.max_chunk == cartridge_limits.max_chunk
 
 
 # TEST285: Simple request-response flow (REQ → END with payload)
 def test_285_request_response_simple():
     """Test simple REQ → END with payload"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -104,8 +104,8 @@ def test_285_request_response_simple():
 
         writer.write(Frame.end(frame.id, b"hello back"))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -120,18 +120,18 @@ def test_285_request_response_simple():
     assert response.frame_type == FrameType.END
     assert response.payload == b"hello back"
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
 
 # TEST286: Streaming response with multiple CHUNK frames
 def test_286_streaming_chunks():
     """Test streaming response with multiple CHUNK frames"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -146,8 +146,8 @@ def test_286_streaming_chunks():
         writer.write(Frame.stream_end(request_id, sid, 3))
         writer.write(Frame.end(request_id, None))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -172,18 +172,18 @@ def test_286_streaming_chunks():
     assert chunks[1] == b"chunk2"
     assert chunks[2] == b"chunk3"
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
 
 # TEST287: Host-initiated heartbeat handling
 def test_287_heartbeat_from_host():
     """Test host-initiated heartbeat"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -194,8 +194,8 @@ def test_287_heartbeat_from_host():
 
         writer.write(Frame.heartbeat(frame.id))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -210,37 +210,37 @@ def test_287_heartbeat_from_host():
     assert response.frame_type == FrameType.HEARTBEAT
     assert response.id == heartbeat_id
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
 
 # TEST290: Limit negotiation picks minimum values
 def test_290_limits_negotiation():
     """Test limit negotiation picks minimum of both sides"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
     limits_holder = []
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         limits_holder.append(limits)
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
     result = handshake(reader, writer)
     host_limits = result.limits
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
-    plugin_limits = limits_holder[0]
+    cartridge_limits = limits_holder[0]
 
-    assert host_limits.max_frame == plugin_limits.max_frame
-    assert host_limits.max_chunk == plugin_limits.max_chunk
+    assert host_limits.max_frame == cartridge_limits.max_frame
+    assert host_limits.max_chunk == cartridge_limits.max_chunk
     assert host_limits.max_frame > 0
     assert host_limits.max_chunk > 0
 
@@ -248,14 +248,14 @@ def test_290_limits_negotiation():
 # TEST291: Binary payload roundtrip (all 256 byte values)
 def test_291_binary_payload_roundtrip():
     """Test binary data integrity through all 256 byte values"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
     binary_data = bytes(range(256))
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -269,8 +269,8 @@ def test_291_binary_payload_roundtrip():
 
         writer.write(Frame.end(frame.id, payload))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -287,20 +287,20 @@ def test_291_binary_payload_roundtrip():
     for i, byte in enumerate(result):
         assert byte == i, f"Response byte mismatch at position {i}"
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
 
 # TEST292: Sequential requests get distinct MessageIds
 def test_292_message_id_uniqueness():
     """Test sequential requests produce unique MessageIds"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
     received_ids = []
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -310,8 +310,8 @@ def test_292_message_id_uniqueness():
             received_ids.append(frame.id)
             writer.write(Frame.end(frame.id, b"ok"))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -323,7 +323,7 @@ def test_292_message_id_uniqueness():
         writer.write(Frame.req(request_id, "cap:op=test", b"", "application/json"))
         reader.read()
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)
 
     assert len(received_ids) == 3
     for i in range(len(received_ids)):
@@ -334,12 +334,12 @@ def test_292_message_id_uniqueness():
 # TEST299: Empty payload request/response roundtrip
 def test_299_empty_payload_roundtrip():
     """Test empty payload roundtrip"""
-    host_write_sock, plugin_read_sock = create_socket_pair()
-    plugin_write_sock, host_read_sock = create_socket_pair()
+    host_write_sock, cartridge_read_sock = create_socket_pair()
+    cartridge_write_sock, host_read_sock = create_socket_pair()
 
-    def plugin_thread():
-        reader = FrameReader(plugin_read_sock.makefile("rb", buffering=0))
-        writer = FrameWriter(plugin_write_sock.makefile("wb", buffering=0))
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
         limits = handshake_accept(reader, writer, TEST_MANIFEST)
         reader.set_limits(limits)
         writer.set_limits(limits)
@@ -349,8 +349,8 @@ def test_299_empty_payload_roundtrip():
 
         writer.write(Frame.end(frame.id, b""))
 
-    plugin = threading.Thread(target=plugin_thread, daemon=True)
-    plugin.start()
+    cartridge = threading.Thread(target=cartridge_thread, daemon=True)
+    cartridge.start()
 
     reader = FrameReader(host_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(host_write_sock.makefile("wb", buffering=0))
@@ -363,4 +363,4 @@ def test_299_empty_payload_roundtrip():
     response = reader.read()
     assert response.payload is None or response.payload == b""
 
-    plugin.join(timeout=5.0)
+    cartridge.join(timeout=5.0)

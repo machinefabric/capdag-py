@@ -1,6 +1,6 @@
 """CapSet registry for unified capability host discovery
 
-Provides unified interface for finding cap sets (both providers and plugins)
+Provides unified interface for finding cap sets (both providers and cartridges)
 that can satisfy capability requests using subset matching.
 
 Also provides CapGraph for representing capabilities as a directed graph
@@ -677,7 +677,7 @@ class CompositeCapSet(CapSet):
 class CapBlock:
     """Composite registry that aggregates multiple CapMatrix instances
 
-    CapBlock allows managing multiple registries (e.g., providers and plugins)
+    CapBlock allows managing multiple registries (e.g., providers and cartridges)
     and selecting capabilities based on specificity across all registries.
 
     On specificity ties, the first registered registry wins (priority order).

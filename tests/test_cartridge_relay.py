@@ -1,4 +1,4 @@
-"""Tests for plugin relay (TEST404-TEST412)"""
+"""Tests for cartridge relay (TEST404-TEST412)"""
 import io
 import os
 import threading

@@ -1,25 +1,25 @@
-"""Multi-Plugin Host — Manages N plugin binaries with cap-based routing.
+"""Multi-Cartridge Host — Manages N cartridge binaries with cap-based routing.
 
-The PluginHost is the host-side runtime that manages all communication with
-plugin processes. It handles:
+The CartridgeHost is the host-side runtime that manages all communication with
+cartridge processes. It handles:
 
-- Plugin registration for on-demand spawning
-- Plugin attachment for pre-connected plugins
+- Cartridge registration for on-demand spawning
+- Cartridge attachment for pre-connected cartridges
 - HELLO handshake and limit negotiation
-- Cap-based request routing (REQ → correct plugin)
+- Cap-based request routing (REQ → correct cartridge)
 - Request continuation routing (STREAM_START/CHUNK/STREAM_END/END → by req_id)
 - Heartbeat handling (local, not forwarded)
-- Plugin death detection with pending request ERR
+- Cartridge death detection with pending request ERR
 - Aggregate capability advertisement
 
-This matches the Rust PluginHostRuntime and Go PluginHost architectures exactly.
+This matches the Rust CartridgeHostRuntime and Go CartridgeHost architectures exactly.
 
 Usage:
 ```python
-from capdag.plugin_host_runtime import PluginHost
+from capdag.cartridge_host_runtime import CartridgeHost
 
-host = PluginHost()
-host.register_plugin("/path/to/plugin", ["cap:op=convert"])
+host = CartridgeHost()
+host.register_cartridge("/path/to/cartridge", ["cap:op=convert"])
 host.run(relay_reader, relay_writer, resource_fn=lambda: b"")
 ```
 """
@@ -46,7 +46,7 @@ from capdag.urn.cap_urn import CapUrn, CapUrnError
 # =========================================================================
 
 class AsyncHostError(Exception):
-    """Base error for plugin host"""
+    """Base error for cartridge host"""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -63,8 +63,8 @@ class IoError(AsyncHostError):
     pass
 
 
-class PluginError(AsyncHostError):
-    """Plugin returned error"""
+class CartridgeError(AsyncHostError):
+    """Cartridge returned error"""
 
     def __init__(self, code: str, message: str):
         super().__init__(f"[{code}] {message}")
@@ -81,10 +81,10 @@ class UnexpectedFrameType(AsyncHostError):
 
 
 class ProcessExited(AsyncHostError):
-    """Plugin process exited unexpectedly"""
+    """Cartridge process exited unexpectedly"""
 
     def __init__(self):
-        super().__init__("Plugin process exited unexpectedly")
+        super().__init__("Cartridge process exited unexpectedly")
 
 
 class Handshake(AsyncHostError):
@@ -132,7 +132,7 @@ class PeerInvokeNotSupported(AsyncHostError):
 
 @dataclass
 class ResponseChunk:
-    """A response chunk from a plugin"""
+    """A response chunk from a cartridge"""
     payload: bytes
     seq: int
     offset: Optional[int]
@@ -140,23 +140,23 @@ class ResponseChunk:
     is_eof: bool
 
 
-class PluginResponse:
-    """A complete response from a plugin, which may be single or streaming"""
+class CartridgeResponse:
+    """A complete response from a cartridge, which may be single or streaming"""
 
     def __init__(self, chunks: List[ResponseChunk]):
         """Create from list of chunks"""
         self.chunks = chunks
 
     @staticmethod
-    def single(data: bytes) -> "PluginResponse":
+    def single(data: bytes) -> "CartridgeResponse":
         """Create single response"""
         chunk = ResponseChunk(payload=data, seq=0, offset=None, len=None, is_eof=True)
-        return PluginResponse([chunk])
+        return CartridgeResponse([chunk])
 
     @staticmethod
-    def streaming(chunks: List[ResponseChunk]) -> "PluginResponse":
+    def streaming(chunks: List[ResponseChunk]) -> "CartridgeResponse":
         """Create streaming response"""
-        return PluginResponse(chunks)
+        return CartridgeResponse(chunks)
 
     def is_single(self) -> bool:
         """Check if this is a single response"""
@@ -183,12 +183,12 @@ class PluginResponse:
         return bytes(result)
 
 
-def cbor_decode_response(response: PluginResponse) -> PluginResponse:
-    """CBOR-decode the raw payload from a PluginResponse.
+def cbor_decode_response(response: CartridgeResponse) -> CartridgeResponse:
+    """CBOR-decode the raw payload from a CartridgeResponse.
 
-    Plugin emitters CBOR-encode each emission as a CBOR byte string.
+    Cartridge emitters CBOR-encode each emission as a CBOR byte string.
     This function decodes the concatenated CBOR values and returns a new
-    PluginResponse with decoded payloads.
+    CartridgeResponse with decoded payloads.
 
     Raises on malformed CBOR — no silent fallbacks.
     """
@@ -197,7 +197,7 @@ def cbor_decode_response(response: PluginResponse) -> PluginResponse:
 
     raw = response.concatenated()
     if not raw:
-        return PluginResponse.single(b"")
+        return CartridgeResponse.single(b"")
 
     decoded_chunks = []
     stream = io.BytesIO(raw)
@@ -227,8 +227,8 @@ def cbor_decode_response(response: PluginResponse) -> PluginResponse:
     decoded_chunks[-1].is_eof = True
 
     if len(decoded_chunks) == 1:
-        return PluginResponse.single(decoded_chunks[0].payload)
-    return PluginResponse.streaming(decoded_chunks)
+        return CartridgeResponse.single(decoded_chunks[0].payload)
+    return CartridgeResponse.streaming(decoded_chunks)
 
 
 # =========================================================================
@@ -236,29 +236,29 @@ def cbor_decode_response(response: PluginResponse) -> PluginResponse:
 # =========================================================================
 
 @dataclass
-class _PluginEvent:
-    """Internal event from a plugin reader thread."""
-    plugin_idx: int
+class _CartridgeEvent:
+    """Internal event from a cartridge reader thread."""
+    cartridge_idx: int
     frame: Optional[Frame]  # None = death
     is_death: bool
 
 
 @dataclass
 class _CapTableEntry:
-    """Maps a cap URN to a plugin index."""
+    """Maps a cap URN to a cartridge index."""
     cap_urn: str
-    plugin_idx: int
+    cartridge_idx: int
 
 
 @dataclass
 class _RoutingEntry:
     """Tracks a routed request with its original MessageId."""
-    plugin_idx: int
+    cartridge_idx: int
     msg_id: object  # MessageId
 
 
-class _ManagedPlugin:
-    """A plugin managed by the PluginHost."""
+class _ManagedCartridge:
+    """A cartridge managed by the CartridgeHost."""
 
     def __init__(self, path: str = "", known_caps: Optional[List[str]] = None):
         self.path = path
@@ -274,62 +274,62 @@ class _ManagedPlugin:
 
 
 # =========================================================================
-# PluginHost — multi-plugin relay-based host
+# CartridgeHost — multi-cartridge relay-based host
 # =========================================================================
 
-class PluginHost:
-    """Manages N plugin binaries with cap-based routing.
+class CartridgeHost:
+    """Manages N cartridge binaries with cap-based routing.
 
-    Plugins are either registered (for on-demand spawning) or attached
+    Cartridges are either registered (for on-demand spawning) or attached
     (pre-connected). REQ frames from the relay are routed to the correct
-    plugin by cap URN. Continuation frames (STREAM_START, CHUNK,
+    cartridge by cap URN. Continuation frames (STREAM_START, CHUNK,
     STREAM_END, END) are routed by request ID.
 
-    Matches the Rust PluginHostRuntime and Go PluginHost architectures.
+    Matches the Rust CartridgeHostRuntime and Go CartridgeHost architectures.
     """
 
     def __init__(self):
-        self._plugins: List[_ManagedPlugin] = []
+        self._cartridges: List[_ManagedCartridge] = []
         self._cap_table: List[_CapTableEntry] = []
         self._request_routing: dict = {}  # req_id_str → _RoutingEntry
-        self._peer_requests: dict = {}  # req_id_str → True (plugin-initiated)
+        self._peer_requests: dict = {}  # req_id_str → True (cartridge-initiated)
         self._capabilities: Optional[bytes] = None
         self._event_queue: queue.Queue = queue.Queue(maxsize=256)
         self._lock = threading.Lock()
 
-    def register_plugin(self, path: str, known_caps: List[str]) -> None:
-        """Register a plugin binary for on-demand spawning.
+    def register_cartridge(self, path: str, known_caps: List[str]) -> None:
+        """Register a cartridge binary for on-demand spawning.
 
-        The plugin is not spawned until a REQ arrives for one of its known caps.
+        The cartridge is not spawned until a REQ arrives for one of its known caps.
 
         Args:
-            path: Path to the plugin binary
-            known_caps: List of cap URNs this plugin is expected to handle
+            path: Path to the cartridge binary
+            known_caps: List of cap URNs this cartridge is expected to handle
         """
         with self._lock:
-            plugin_idx = len(self._plugins)
-            self._plugins.append(_ManagedPlugin(path=path, known_caps=known_caps))
+            cartridge_idx = len(self._cartridges)
+            self._cartridges.append(_ManagedCartridge(path=path, known_caps=known_caps))
 
             for cap in known_caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, plugin_idx=plugin_idx))
+                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=cartridge_idx))
 
-    def attach_plugin(self, plugin_stdout, plugin_stdin) -> int:
-        """Attach a pre-connected plugin (already running).
+    def attach_cartridge(self, cartridge_stdout, cartridge_stdin) -> int:
+        """Attach a pre-connected cartridge (already running).
 
-        Performs HELLO handshake immediately and returns the plugin index.
+        Performs HELLO handshake immediately and returns the cartridge index.
 
         Args:
-            plugin_stdout: Plugin's stdout stream (host reads from this)
-            plugin_stdin: Plugin's stdin stream (host writes to this)
+            cartridge_stdout: Cartridge's stdout stream (host reads from this)
+            cartridge_stdin: Cartridge's stdin stream (host writes to this)
 
         Returns:
-            Plugin index
+            Cartridge index
 
         Raises:
             AsyncHostError: If handshake fails
         """
-        reader = FrameReader(plugin_stdout)
-        writer = FrameWriter(plugin_stdin)
+        reader = FrameReader(cartridge_stdout)
+        writer = FrameWriter(cartridge_stdin)
 
         try:
             result = handshake(reader, writer)
@@ -339,21 +339,21 @@ class PluginHost:
         caps = _parse_caps_from_manifest(result.manifest)
 
         with self._lock:
-            plugin_idx = len(self._plugins)
+            cartridge_idx = len(self._cartridges)
 
             writer_q = queue.Queue(maxsize=64)
-            plugin = _ManagedPlugin()
-            plugin.writer = writer
-            plugin.writer_queue = writer_q
-            plugin.manifest = result.manifest
-            plugin.limits = result.limits
-            plugin.caps = caps
-            plugin.running = True
+            cartridge = _ManagedCartridge()
+            cartridge.writer = writer
+            cartridge.writer_queue = writer_q
+            cartridge.manifest = result.manifest
+            cartridge.limits = result.limits
+            cartridge.caps = caps
+            cartridge.running = True
 
-            self._plugins.append(plugin)
+            self._cartridges.append(cartridge)
 
             for cap in caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, plugin_idx=plugin_idx))
+                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=cartridge_idx))
             self._rebuild_capabilities()
 
         # Start reader and writer threads
@@ -362,31 +362,31 @@ class PluginHost:
             daemon=True
         ).start()
         threading.Thread(
-            target=self._reader_loop, args=(plugin_idx, reader),
+            target=self._reader_loop, args=(cartridge_idx, reader),
             daemon=True
         ).start()
 
-        return plugin_idx
+        return cartridge_idx
 
     def capabilities(self) -> Optional[bytes]:
-        """Return the aggregate capabilities of all running plugins as JSON."""
+        """Return the aggregate capabilities of all running cartridges as JSON."""
         with self._lock:
             return self._capabilities
 
-    def find_plugin_for_cap(self, cap_urn: str) -> Optional[int]:
-        """Find the plugin index that can handle a given cap URN.
+    def find_cartridge_for_cap(self, cap_urn: str) -> Optional[int]:
+        """Find the cartridge index that can handle a given cap URN.
 
-        Returns plugin index if found, None if not.
+        Returns cartridge index if found, None if not.
         """
         with self._lock:
-            return self._find_plugin_for_cap_locked(cap_urn)
+            return self._find_cartridge_for_cap_locked(cap_urn)
 
-    def _find_plugin_for_cap_locked(self, cap_urn: str) -> Optional[int]:
-        """Find plugin for cap (caller must hold lock)."""
+    def _find_cartridge_for_cap_locked(self, cap_urn: str) -> Optional[int]:
+        """Find cartridge for cap (caller must hold lock)."""
         # Exact string match first
         for entry in self._cap_table:
             if entry.cap_urn == cap_urn:
-                return entry.plugin_idx
+                return entry.cartridge_idx
 
         # URN-level matching: use is_dispatchable (provider can handle request)
         try:
@@ -395,7 +395,7 @@ class PluginHost:
             return None
 
         request_specificity = request_urn.specificity()
-        matches = []  # (plugin_idx, signed_distance)
+        matches = []  # (cartridge_idx, signed_distance)
 
         for entry in self._cap_table:
             try:
@@ -405,7 +405,7 @@ class PluginHost:
             if registered_urn.is_dispatchable(request_urn):
                 specificity = registered_urn.specificity()
                 signed_distance = specificity - request_specificity
-                matches.append((entry.plugin_idx, signed_distance))
+                matches.append((entry.cartridge_idx, signed_distance))
 
         if not matches:
             return None
@@ -416,7 +416,7 @@ class PluginHost:
         return matches[0][0]
 
     def run(self, relay_read, relay_write, resource_fn: Optional[Callable] = None) -> None:
-        """Run the main event loop, reading from relay and plugins.
+        """Run the main event loop, reading from relay and cartridges.
 
         Blocks until relay closes or a fatal error occurs.
 
@@ -449,12 +449,12 @@ class PluginHost:
         while True:
             # Check relay done
             if relay_done.is_set() and relay_queue.empty():
-                self._kill_all_plugins()
+                self._kill_all_cartridges()
                 if relay_error[0] is not None:
                     raise IoError(str(relay_error[0]))
                 return
 
-            # Try to get a relay frame or plugin event (non-blocking check both)
+            # Try to get a relay frame or cartridge event (non-blocking check both)
             try:
                 frame = relay_queue.get(timeout=0.01)
                 self._handle_relay_frame(frame, relay_writer)
@@ -465,86 +465,86 @@ class PluginHost:
             try:
                 event = self._event_queue.get_nowait()
                 if event.is_death:
-                    self._handle_plugin_death(event.plugin_idx, relay_writer)
+                    self._handle_cartridge_death(event.cartridge_idx, relay_writer)
                 elif event.frame is not None:
-                    self._handle_plugin_frame(event.plugin_idx, event.frame, relay_writer)
+                    self._handle_cartridge_frame(event.cartridge_idx, event.frame, relay_writer)
             except queue.Empty:
                 pass
 
     def _handle_relay_frame(self, frame: Frame, relay_writer: FrameWriter) -> None:
-        """Route an incoming frame from the relay to the correct plugin."""
+        """Route an incoming frame from the relay to the correct cartridge."""
         with self._lock:
             id_key = frame.id.to_string() if hasattr(frame.id, 'to_string') else str(frame.id)
 
             if frame.frame_type == FrameType.REQ:
                 cap_urn = frame.cap or ""
 
-                plugin_idx = self._find_plugin_for_cap_locked(cap_urn)
-                if plugin_idx is None:
-                    err_frame = Frame.err(frame.id, "NO_HANDLER", f"no plugin handles cap: {cap_urn}")
+                cartridge_idx = self._find_cartridge_for_cap_locked(cap_urn)
+                if cartridge_idx is None:
+                    err_frame = Frame.err(frame.id, "NO_HANDLER", f"no cartridge handles cap: {cap_urn}")
                     relay_writer.write(err_frame)
                     return
 
-                plugin = self._plugins[plugin_idx]
-                if not plugin.running:
-                    if plugin.hello_failed:
-                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", "plugin previously failed to start")
+                cartridge = self._cartridges[cartridge_idx]
+                if not cartridge.running:
+                    if cartridge.hello_failed:
+                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", "cartridge previously failed to start")
                         relay_writer.write(err_frame)
                         return
-                    err = self._spawn_plugin_locked(plugin_idx)
+                    err = self._spawn_cartridge_locked(cartridge_idx)
                     if err is not None:
                         err_frame = Frame.err(frame.id, "SPAWN_FAILED", str(err))
                         relay_writer.write(err_frame)
                         return
 
-                self._request_routing[id_key] = _RoutingEntry(plugin_idx=plugin_idx, msg_id=frame.id)
-                self._send_to_plugin(plugin_idx, frame)
+                self._request_routing[id_key] = _RoutingEntry(cartridge_idx=cartridge_idx, msg_id=frame.id)
+                self._send_to_cartridge(cartridge_idx, frame)
 
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK, FrameType.STREAM_END):
                 entry = self._request_routing.get(id_key)
                 if entry is not None:
-                    self._send_to_plugin(entry.plugin_idx, frame)
+                    self._send_to_cartridge(entry.cartridge_idx, frame)
 
             elif frame.frame_type in (FrameType.END, FrameType.ERR):
                 entry = self._request_routing.get(id_key)
                 if entry is not None:
-                    self._send_to_plugin(entry.plugin_idx, frame)
+                    self._send_to_cartridge(entry.cartridge_idx, frame)
                     is_terminal = True
                     # Only remove routing on terminal frames if this is a PEER response
-                    # (engine responding to a plugin's peer invoke). For engine-initiated
+                    # (engine responding to a cartridge's peer invoke). For engine-initiated
                     # requests, the relay END is just the end of the request body — the
-                    # plugin still needs to respond, so routing must survive.
+                    # cartridge still needs to respond, so routing must survive.
                     if is_terminal and id_key in self._peer_requests:
                         self._request_routing.pop(id_key, None)
                         self._peer_requests.pop(id_key, None)
 
             elif frame.frame_type == FrameType.HEARTBEAT:
-                # Engine-level heartbeat — not forwarded to plugins
+                # Engine-level heartbeat — not forwarded to cartridges
                 return
 
             elif frame.frame_type == FrameType.HELLO:
                 raise Protocol("unexpected HELLO from relay")
 
             elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
-                raise Protocol(f"relay frame {frame.frame_type} reached plugin host")
+                raise Protocol(f"relay frame {frame.frame_type} reached cartridge host")
 
-    def _handle_plugin_frame(self, plugin_idx: int, frame: Frame, relay_writer: FrameWriter) -> None:
-        """Process a frame from a plugin."""
+    def _handle_cartridge_frame(self, cartridge_idx: int, frame: Frame, relay_writer: FrameWriter) -> None:
+        """Process a frame from a cartridge."""
         with self._lock:
             id_key = frame.id.to_string() if hasattr(frame.id, 'to_string') else str(frame.id)
 
             if frame.frame_type == FrameType.HEARTBEAT:
-                # Respond to plugin heartbeat locally — don't forward
+                # Respond to cartridge heartbeat locally — don't forward
                 response = Frame.heartbeat(frame.id)
-                self._send_to_plugin(plugin_idx, response)
+                self._send_to_cartridge(cartridge_idx, response)
 
             elif frame.frame_type == FrameType.HELLO:
                 # HELLO post-handshake — protocol violation, ignore
                 return
 
             elif frame.frame_type == FrameType.REQ:
-                # Plugin is invoking a peer cap (sending request to engine)
-                self._request_routing[id_key] = _RoutingEntry(plugin_idx=plugin_idx, msg_id=frame.id)
+                # Cartridge is invoking a peer cap (sending request to engine)
+                self._request_routing[id_key] = _RoutingEntry(cartridge_idx=cartridge_idx, msg_id=frame.id)
                 self._peer_requests[id_key] = True
                 relay_writer.write(frame)
 
@@ -564,37 +564,37 @@ class PluginHost:
                 self._request_routing.pop(id_key, None)
                 self._peer_requests.pop(id_key, None)
 
-    def _handle_plugin_death(self, plugin_idx: int, relay_writer: FrameWriter) -> None:
-        """Process a plugin death event."""
+    def _handle_cartridge_death(self, cartridge_idx: int, relay_writer: FrameWriter) -> None:
+        """Process a cartridge death event."""
         with self._lock:
-            plugin = self._plugins[plugin_idx]
-            plugin.running = False
+            cartridge = self._cartridges[cartridge_idx]
+            cartridge.running = False
 
-            if plugin.writer_queue is not None:
+            if cartridge.writer_queue is not None:
                 # Signal writer to stop
-                plugin.writer_queue.put(None)
-                plugin.writer_queue = None
+                cartridge.writer_queue.put(None)
+                cartridge.writer_queue = None
 
-            if plugin.process is not None:
+            if cartridge.process is not None:
                 try:
-                    plugin.process.kill()
+                    cartridge.process.kill()
                 except Exception:
                     pass
-                plugin.process = None
+                cartridge.process = None
 
-            # Send ERR for all pending requests routed to this plugin
+            # Send ERR for all pending requests routed to this cartridge
             failed_keys = []
             failed_entries = []
             for req_id, entry in self._request_routing.items():
-                if entry.plugin_idx == plugin_idx:
+                if entry.cartridge_idx == cartridge_idx:
                     failed_keys.append(req_id)
                     failed_entries.append(entry)
 
             for i, key in enumerate(failed_keys):
                 err_frame = Frame.err(
                     failed_entries[i].msg_id,
-                    "PLUGIN_DIED",
-                    f"plugin {plugin_idx} died"
+                    "CARTRIDGE_DIED",
+                    f"cartridge {cartridge_idx} died"
                 )
                 try:
                     relay_writer.write(err_frame)
@@ -606,17 +606,17 @@ class PluginHost:
             self._update_cap_table()
             self._rebuild_capabilities()
 
-    def _send_to_plugin(self, plugin_idx: int, frame: Frame) -> None:
-        """Send a frame to a plugin via its writer queue."""
-        plugin = self._plugins[plugin_idx]
-        if plugin.writer_queue is not None:
+    def _send_to_cartridge(self, cartridge_idx: int, frame: Frame) -> None:
+        """Send a frame to a cartridge via its writer queue."""
+        cartridge = self._cartridges[cartridge_idx]
+        if cartridge.writer_queue is not None:
             try:
-                plugin.writer_queue.put_nowait(frame)
+                cartridge.writer_queue.put_nowait(frame)
             except queue.Full:
-                pass  # Plugin probably dead, frame dropped
+                pass  # Cartridge probably dead, frame dropped
 
     def _writer_loop(self, writer: FrameWriter, q: queue.Queue) -> None:
-        """Writer thread — reads frames from queue and writes to plugin."""
+        """Writer thread — reads frames from queue and writes to cartridge."""
         while True:
             frame = q.get()
             if frame is None:  # Shutdown sentinel
@@ -626,48 +626,48 @@ class PluginHost:
             except Exception:
                 return
 
-    def _reader_loop(self, plugin_idx: int, reader: FrameReader) -> None:
-        """Reader thread — reads frames from plugin and sends events."""
+    def _reader_loop(self, cartridge_idx: int, reader: FrameReader) -> None:
+        """Reader thread — reads frames from cartridge and sends events."""
         while True:
             try:
                 frame = reader.read()
                 if frame is None:
-                    self._event_queue.put(_PluginEvent(
-                        plugin_idx=plugin_idx, frame=None, is_death=True
+                    self._event_queue.put(_CartridgeEvent(
+                        cartridge_idx=cartridge_idx, frame=None, is_death=True
                     ))
                     return
-                self._event_queue.put(_PluginEvent(
-                    plugin_idx=plugin_idx, frame=frame, is_death=False
+                self._event_queue.put(_CartridgeEvent(
+                    cartridge_idx=cartridge_idx, frame=frame, is_death=False
                 ))
             except Exception:
-                self._event_queue.put(_PluginEvent(
-                    plugin_idx=plugin_idx, frame=None, is_death=True
+                self._event_queue.put(_CartridgeEvent(
+                    cartridge_idx=cartridge_idx, frame=None, is_death=True
                 ))
                 return
 
-    def _spawn_plugin_locked(self, plugin_idx: int) -> Optional[str]:
-        """Spawn a registered plugin process (caller must hold lock).
+    def _spawn_cartridge_locked(self, cartridge_idx: int) -> Optional[str]:
+        """Spawn a registered cartridge process (caller must hold lock).
 
         Returns None on success, error message string on failure.
         """
-        plugin = self._plugins[plugin_idx]
+        cartridge = self._cartridges[cartridge_idx]
 
-        if not plugin.path:
-            plugin.hello_failed = True
-            return "plugin has no path"
+        if not cartridge.path:
+            cartridge.hello_failed = True
+            return "cartridge has no path"
 
         try:
             proc = subprocess.Popen(
-                [plugin.path],
+                [cartridge.path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            plugin.hello_failed = True
-            return f"failed to start plugin: {e}"
+            cartridge.hello_failed = True
+            return f"failed to start cartridge: {e}"
 
-        plugin.process = proc
+        cartridge.process = proc
 
         reader = FrameReader(proc.stdout)
         writer = FrameWriter(proc.stdin)
@@ -675,7 +675,7 @@ class PluginHost:
         try:
             result = handshake(reader, writer)
         except Exception as e:
-            plugin.hello_failed = True
+            cartridge.hello_failed = True
             try:
                 proc.kill()
             except Exception:
@@ -685,21 +685,21 @@ class PluginHost:
         try:
             caps = _parse_caps_from_manifest(result.manifest)
         except Exception as e:
-            plugin.hello_failed = True
+            cartridge.hello_failed = True
             try:
                 proc.kill()
             except Exception:
                 pass
             return f"failed to parse manifest: {e}"
 
-        plugin.manifest = result.manifest
-        plugin.limits = result.limits
-        plugin.caps = caps
-        plugin.running = True
-        plugin.writer = writer
+        cartridge.manifest = result.manifest
+        cartridge.limits = result.limits
+        cartridge.caps = caps
+        cartridge.running = True
+        cartridge.writer = writer
 
         writer_q = queue.Queue(maxsize=64)
-        plugin.writer_queue = writer_q
+        cartridge.writer_queue = writer_q
 
         self._update_cap_table()
         self._rebuild_capabilities()
@@ -709,30 +709,30 @@ class PluginHost:
             daemon=True
         ).start()
         threading.Thread(
-            target=self._reader_loop, args=(plugin_idx, reader),
+            target=self._reader_loop, args=(cartridge_idx, reader),
             daemon=True
         ).start()
 
         return None
 
     def _update_cap_table(self) -> None:
-        """Rebuild the cap table from all plugins."""
+        """Rebuild the cap table from all cartridges."""
         self._cap_table = []
-        for idx, plugin in enumerate(self._plugins):
-            if plugin.hello_failed:
+        for idx, cartridge in enumerate(self._cartridges):
+            if cartridge.hello_failed:
                 continue
-            caps = plugin.known_caps
-            if plugin.running and len(plugin.caps) > 0:
-                caps = plugin.caps
+            caps = cartridge.known_caps
+            if cartridge.running and len(cartridge.caps) > 0:
+                caps = cartridge.caps
             for cap in caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, plugin_idx=idx))
+                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=idx))
 
     def _rebuild_capabilities(self) -> None:
         """Rebuild the aggregate capabilities JSON."""
         all_caps = []
-        for plugin in self._plugins:
-            if plugin.running:
-                all_caps.extend(plugin.caps)
+        for cartridge in self._cartridges:
+            if cartridge.running:
+                all_caps.extend(cartridge.caps)
 
         if not all_caps:
             self._capabilities = None
@@ -740,19 +740,19 @@ class PluginHost:
 
         self._capabilities = json.dumps({"caps": all_caps}).encode("utf-8")
 
-    def _kill_all_plugins(self) -> None:
-        """Stop all managed plugins."""
+    def _kill_all_cartridges(self) -> None:
+        """Stop all managed cartridges."""
         with self._lock:
-            for plugin in self._plugins:
-                if plugin.writer_queue is not None:
-                    plugin.writer_queue.put(None)
-                    plugin.writer_queue = None
-                if plugin.process is not None:
+            for cartridge in self._cartridges:
+                if cartridge.writer_queue is not None:
+                    cartridge.writer_queue.put(None)
+                    cartridge.writer_queue = None
+                if cartridge.process is not None:
                     try:
-                        plugin.process.kill()
+                        cartridge.process.kill()
                     except Exception:
                         pass
-                plugin.running = False
+                cartridge.running = False
 
 
 # =========================================================================

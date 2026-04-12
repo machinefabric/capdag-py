@@ -416,7 +416,7 @@ class CapUrn:
             else:
                 # Provider missing a tag that request specifies.
                 # Even wildcard (*) means "any value is fine" — the tag
-                # must still be present. Without this, a GGUF plugin
+                # must still be present. Without this, a GGUF cartridge
                 # (no candle tag) would match a registry cap that
                 # requires candle=*, causing cross-backend mismatches.
                 return False

@@ -1,11 +1,11 @@
-"""Plugin Runtime - Unified I/O handling for plugin binaries
+"""Cartridge Runtime - Unified I/O handling for cartridge binaries
 
-The PluginRuntime provides a unified interface for plugin binaries to handle
-cap invocations. Plugins register handlers for caps they provide, and the
+The CartridgeRuntime provides a unified interface for cartridge binaries to handle
+cap invocations. Cartridges register handlers for caps they provide, and the
 runtime handles all I/O mechanics:
 
-- **Automatic mode detection**: CLI mode vs Plugin CBOR mode
-- CBOR frame encoding/decoding (Plugin mode)
+- **Automatic mode detection**: CLI mode vs Cartridge CBOR mode
+- CBOR frame encoding/decoding (Cartridge mode)
 - CLI argument parsing from cap definitions (CLI mode)
 - Handler routing by cap URN
 - Real-time streaming response support
@@ -14,17 +14,17 @@ runtime handles all I/O mechanics:
 
 # Invocation Modes
 
-- **No CLI arguments**: Plugin CBOR mode - HELLO handshake, REQ/RES frames via stdin/stdout
+- **No CLI arguments**: Cartridge CBOR mode - HELLO handshake, REQ/RES frames via stdin/stdout
 - **Any CLI arguments**: CLI mode - parse args based on cap definitions
 
 # Example
 
 ```python
-from capdag import PluginRuntime, CapManifest
+from capdag import CartridgeRuntime, CapManifest
 
 def main():
     manifest = build_manifest()  # Your manifest with caps
-    runtime = PluginRuntime.with_manifest(manifest)
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     def my_handler(request, emitter, peer):
         emitter.emit_status("processing", "Starting work...")
@@ -35,7 +35,7 @@ def main():
 
     runtime.register_raw("cap:in=*;op=my_op;out=*", my_handler)
 
-    # runtime.run() automatically detects CLI vs Plugin CBOR mode
+    # runtime.run() automatically detects CLI vs Cartridge CBOR mode
     runtime.run()
 ```
 """
@@ -66,7 +66,7 @@ from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA
 
 
 class RuntimeError(Exception):
-    """Errors that can occur in the plugin runtime"""
+    """Errors that can occur in the cartridge runtime"""
     pass
 
 
@@ -140,7 +140,7 @@ class SyncFrameWriter:
 
     All frames pass through the SeqAssigner before writing, ensuring
     monotonically increasing seq per flow (RID + optional XID).
-    This matches the Rust plugin_runtime writer thread with SeqAssigner
+    This matches the Rust cartridge_runtime writer thread with SeqAssigner
     and Go's syncFrameWriter.
     """
 
@@ -348,7 +348,7 @@ class PeerResponse:
 
 
 class PendingPeerRequest:
-    """Internal struct to track pending peer requests (plugin invoking host caps).
+    """Internal struct to track pending peer requests (cartridge invoking host caps).
     The reader loop forwards response frames to the queue."""
     def __init__(self):
         # Bounded queue for response frames (buffer up to 64 frames)
@@ -379,7 +379,7 @@ class PendingIncomingRequest:
 class PeerInvokerImpl:
     """Implementation of PeerInvoker that sends REQ frames to the host.
 
-    Enables bidirectional communication where a plugin handler can invoke caps
+    Enables bidirectional communication where a cartridge handler can invoke caps
     on the host while processing a request.
     """
 
@@ -453,7 +453,7 @@ class PeerInvokerImpl:
 
 class CliStreamEmitter:
     """CLI-mode emitter that writes directly to stdout.
-    Used when the plugin is invoked via CLI (with arguments).
+    Used when the cartridge is invoked via CLI (with arguments).
     """
 
     def __init__(self, ndjson: bool = True):
@@ -523,7 +523,7 @@ class ThreadSafeEmitter:
     STREAM_END + END.
 
     Seq is assigned centrally by the SyncFrameWriter's SeqAssigner — this emitter
-    does NOT track seq itself. This matches the Rust plugin_runtime writer thread
+    does NOT track seq itself. This matches the Rust cartridge_runtime writer thread
     with SeqAssigner and Go's threadSafeEmitter with syncFrameWriter.
     """
 
@@ -1097,7 +1097,7 @@ def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[by
     """Find a stream's bytes by exact URN equivalence.
 
     Uses MediaUrn.is_equivalent() — matches only if both URNs have the
-    exact same tag set (order-independent). Both the caller and the plugin
+    exact same tag set (order-independent). Both the caller and the cartridge
     know the arg media URNs from the cap definition, so this is always an
     exact match — never a subsumption/pattern match.
 
@@ -1170,7 +1170,7 @@ def extract_effective_payload(
     media_urn and chunks. The function finds the stream whose media_urn matches
     the cap's expected input type using semantic URN matching.
 
-    This matches the Rust plugin runtime's behavior exactly.
+    This matches the Rust cartridge runtime's behavior exactly.
     """
     # Parse the cap URN to get the expected input media URN
     try:
@@ -1212,18 +1212,18 @@ def extract_effective_payload(
     )
 
 
-class PluginRuntime:
-    """The plugin runtime that handles all I/O for plugin binaries.
+class CartridgeRuntime:
+    """The cartridge runtime that handles all I/O for cartridge binaries.
 
-    Plugins create a runtime with their manifest, register handlers for their caps,
+    Cartridges create a runtime with their manifest, register handlers for their caps,
     then call `run()` to process requests.
 
-    The manifest is REQUIRED - plugins MUST provide their manifest which is sent
-    in the HELLO response during handshake. This is the ONLY way for plugins to
+    The manifest is REQUIRED - cartridges MUST provide their manifest which is sent
+    in the HELLO response during handshake. This is the ONLY way for cartridges to
     communicate their capabilities to the host.
 
     **Invocation Modes**:
-    - No CLI args: Plugin CBOR mode (stdin/stdout binary frames)
+    - No CLI args: Cartridge CBOR mode (stdin/stdout binary frames)
     - Any CLI args: CLI mode (parse args from cap definitions)
 
     **Multiplexed execution** (CBOR mode): Multiple requests can be processed concurrently.
@@ -1234,16 +1234,16 @@ class PluginRuntime:
     """
 
     def __init__(self, manifest_data: bytes):
-        """Create a new plugin runtime with the required manifest.
+        """Create a new cartridge runtime with the required manifest.
 
-        The manifest is JSON-encoded plugin metadata including:
-        - name: Plugin name
-        - version: Plugin version
+        The manifest is JSON-encoded cartridge metadata including:
+        - name: Cartridge name
+        - version: Cartridge version
         - caps: Array of capability definitions with args and sources
 
         This manifest is sent in the HELLO response to the host (CBOR mode)
         and used for CLI argument parsing (CLI mode).
-        **Plugins MUST provide a manifest - there is no fallback.**
+        **Cartridges MUST provide a manifest - there is no fallback.**
         """
         self.handlers: Dict[str, OpFactory] = {}
         self.manifest_data = manifest_data
@@ -1261,7 +1261,7 @@ class PluginRuntime:
 
     @classmethod
     def with_manifest(cls, manifest: CapManifest):
-        """Create a new plugin runtime with a pre-built CapManifest.
+        """Create a new cartridge runtime with a pre-built CapManifest.
         This is the preferred method as it ensures the manifest is valid.
 
         IMPORTANT: Manifest MUST declare CAP_IDENTITY - fails hard if missing.
@@ -1277,8 +1277,8 @@ class PluginRuntime:
 
         if not has_identity:
             raise ValueError(
-                "Manifest validation failed - plugin MUST declare CAP_IDENTITY (cap:). "
-                "All plugins must explicitly declare capabilities, no implicit fallbacks allowed."
+                "Manifest validation failed - cartridge MUST declare CAP_IDENTITY (cap:). "
+                "All cartridges must explicitly declare capabilities, no implicit fallbacks allowed."
             )
 
         manifest_data = json.dumps(manifest.to_dict()).encode('utf-8')
@@ -1288,13 +1288,13 @@ class PluginRuntime:
 
     @classmethod
     def with_manifest_json(cls, manifest_json: str):
-        """Create a new plugin runtime with manifest JSON string."""
+        """Create a new cartridge runtime with manifest JSON string."""
         return cls(manifest_json.encode('utf-8'))
 
     def _register_standard_caps(self) -> None:
         """Register the standard identity and discard handlers.
 
-        Plugin authors can override either by calling register_op() after construction.
+        Cartridge authors can override either by calling register_op() after construction.
         """
         from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
 
@@ -1360,10 +1360,10 @@ class PluginRuntime:
         return matches[0][0]
 
     def run(self) -> None:
-        """Run the plugin runtime.
+        """Run the cartridge runtime.
 
         **Mode Detection**:
-        - No CLI arguments: Plugin CBOR mode (stdin/stdout binary frames)
+        - No CLI arguments: Cartridge CBOR mode (stdin/stdout binary frames)
         - Any CLI arguments: CLI mode (parse args from cap definitions)
 
         **CLI Mode**:
@@ -1371,7 +1371,7 @@ class PluginRuntime:
         - `<op>` subcommand: find cap by op tag, parse args, invoke handler
         - `--help`: show available subcommands
 
-        **Plugin CBOR Mode** (no CLI args):
+        **Cartridge CBOR Mode** (no CLI args):
         1. Receive HELLO from host
         2. Send HELLO back with manifest (handshake)
         3. Main loop reads frames:
@@ -1391,7 +1391,7 @@ class PluginRuntime:
         """
         args = sys.argv
 
-        # No CLI arguments at all → Plugin CBOR mode
+        # No CLI arguments at all → Cartridge CBOR mode
         if len(args) == 1:
             return self.run_cbor_mode()
 
@@ -1476,12 +1476,12 @@ class PluginRuntime:
             raise
 
     def run_cbor_mode(self) -> None:
-        """Run in Plugin CBOR mode - binary frame protocol via stdin/stdout."""
+        """Run in Cartridge CBOR mode - binary frame protocol via stdin/stdout."""
         # Lock stdin for reading (single reader)
         reader = FrameReader(sys.stdin.buffer)
         # SyncFrameWriter: thread-safe writer with centralized SeqAssigner.
         # All frames written through this get monotonically increasing seq per flow.
-        # Matches Rust plugin_runtime writer thread + SeqAssigner.
+        # Matches Rust cartridge_runtime writer thread + SeqAssigner.
         raw_writer = FrameWriter(sys.stdout.buffer)
         sync_writer = SyncFrameWriter(raw_writer)
 
@@ -1493,10 +1493,10 @@ class PluginRuntime:
             sync_writer.set_limits(limits)
             self.limits = limits
         except Exception as e:
-            print(f"[PluginRuntime] Handshake failed: {e}", file=sys.stderr)
+            print(f"[CartridgeRuntime] Handshake failed: {e}", file=sys.stderr)
             raise
 
-        # Track pending peer requests (plugin invoking host caps)
+        # Track pending peer requests (cartridge invoking host caps)
         pending_peer_requests: Dict[str, PendingPeerRequest] = {}
         pending_lock = threading.Lock()
 
@@ -1515,7 +1515,7 @@ class PluginRuntime:
             try:
                 frame = reader.read()
             except Exception as e:
-                print(f"[PluginRuntime] Read error: {e}", file=sys.stderr)
+                print(f"[CartridgeRuntime] Read error: {e}", file=sys.stderr)
                 break
 
             if frame is None:
@@ -1574,7 +1574,7 @@ class PluginRuntime:
                 try:
                     sync_writer.write(response)
                 except Exception as e:
-                    print(f"[PluginRuntime] Failed to write heartbeat response: {e}", file=sys.stderr)
+                    print(f"[CartridgeRuntime] Failed to write heartbeat response: {e}", file=sys.stderr)
                     break
 
             elif frame.frame_type == FrameType.HELLO:
@@ -1734,7 +1734,7 @@ class PluginRuntime:
                             try:
                                 sync_writer.write(err_frame)
                             except Exception as write_err:
-                                print(f"[PluginRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
                             return
 
                         # Execute Op handler
@@ -1750,7 +1750,7 @@ class PluginRuntime:
                             try:
                                 sync_writer.write(err_frame)
                             except Exception as write_err:
-                                print(f"[PluginRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
 
                     thread = threading.Thread(target=handle_streamed_request, daemon=True)
                     thread.start()
@@ -1789,7 +1789,7 @@ class PluginRuntime:
                 stream_id = frame.stream_id
                 media_urn = frame.media_urn
 
-                # Check if this is for an incoming request (plugin receiving from host)
+                # Check if this is for an incoming request (cartridge receiving from host)
                 with pending_incoming_lock:
                     frame_id_str = frame.id.to_string()
                     if frame_id_str in pending_incoming:
@@ -1843,7 +1843,7 @@ class PluginRuntime:
 
                 stream_id = frame.stream_id
 
-                # Check if this is for an incoming request (plugin receiving from host)
+                # Check if this is for an incoming request (cartridge receiving from host)
                 with pending_incoming_lock:
                     frame_id_str = frame.id.to_string()
                     if frame_id_str in pending_incoming:
@@ -1897,10 +1897,10 @@ class PluginRuntime:
                         pending_req.queue.put(frame)
 
             elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
-                # Relay-level frames must never reach a plugin runtime.
+                # Relay-level frames must never reach a cartridge runtime.
                 # If they do, it's a bug in the relay layer — fail hard.
                 raise ProtocolError(
-                    f"Relay frame {frame.frame_type} must not reach plugin runtime"
+                    f"Relay frame {frame.frame_type} must not reach cartridge runtime"
                 )
 
         # Wait for all active handlers to complete before exiting
@@ -2293,7 +2293,7 @@ class PluginRuntime:
         print(f"    {manifest.name.lower()} <COMMAND> [OPTIONS]", file=sys.stderr)
         print(file=sys.stderr)
         print("COMMANDS:", file=sys.stderr)
-        print("    manifest    Output the plugin manifest as JSON", file=sys.stderr)
+        print("    manifest    Output the cartridge manifest as JSON", file=sys.stderr)
 
         for cap in manifest.caps:
             desc = cap.cap_description or cap.title
@@ -2309,7 +2309,7 @@ class PluginRuntime:
             print(cap.cap_description, file=sys.stderr)
         print(file=sys.stderr)
         print("USAGE:", file=sys.stderr)
-        print(f"    plugin {cap.command} [OPTIONS]", file=sys.stderr)
+        print(f"    cartridge {cap.command} [OPTIONS]", file=sys.stderr)
         print(file=sys.stderr)
 
         args = cap.get_args()

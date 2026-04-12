@@ -1,4 +1,4 @@
-"""Tests for plugin_runtime module"""
+"""Tests for cartridge_runtime module"""
 
 import pytest
 import json
@@ -6,8 +6,8 @@ import cbor2
 import sys
 import queue
 import io
-from capdag.bifaci.plugin_runtime import (
-    PluginRuntime,
+from capdag.bifaci.cartridge_runtime import (
+    CartridgeRuntime,
     NoPeerInvoker,
     CliStreamEmitter,
     PeerRequestError,
@@ -25,7 +25,7 @@ from capdag.bifaci.plugin_runtime import (
     ProgressSender,
     ThreadSafeEmitter,
     SyncFrameWriter,
-    RuntimeError as PluginRuntimeError,
+    RuntimeError as CartridgeRuntimeError,
     NoHandlerError,
     MissingArgumentError,
     UnknownSubcommandError,
@@ -47,10 +47,10 @@ from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, Fra
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestPlugin","version":"1.0.0","description":"Test plugin","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
 
 # Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestPlugin","version":"1.0.0","description":"Test plugin","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}'
 
 
 # =============================================================================
@@ -87,7 +87,7 @@ def test_248_register_and_find_handler():
             req.emitter().emit_cbor(b"result")
         def metadata(self): return OpMetadata.builder("EmitBytesOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:in=*;op=test;out=*", EmitBytesOp)
     assert runtime.find_handler("cap:in=*;op=test;out=*") is not None
 
@@ -111,7 +111,7 @@ def test_249_raw_handler():
             req.emitter().emit_cbor(data)
         def metadata(self): return OpMetadata.builder("EchoOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:op=raw", EchoOp)
 
     factory = runtime.find_handler("cap:op=raw")
@@ -144,7 +144,7 @@ def test_250_typed_handler_deserialization():
             req.emitter().emit_cbor(value)
         def metadata(self): return OpMetadata.builder("JsonKeyOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:op=test", JsonKeyOp)
 
     factory = runtime.find_handler("cap:op=test")
@@ -173,7 +173,7 @@ def test_251_typed_handler_rejects_invalid_json():
             _ = data
         def metadata(self): return OpMetadata.builder("JsonParseOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:op=test", JsonParseOp)
 
     factory = runtime.find_handler("cap:op=test")
@@ -188,7 +188,7 @@ def test_251_typed_handler_rejects_invalid_json():
 
 # TEST252: Test find_handler returns None for unregistered cap URNs
 def test_252_find_handler_unknown_cap():
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     assert runtime.find_handler("cap:op=nonexistent") is None
 
 
@@ -206,7 +206,7 @@ def test_253_handler_is_send_sync():
             received.append(b"done")
         def metadata(self): return OpMetadata.builder("EmitAndRecordOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:op=threaded", EmitAndRecordOp)
 
     factory = runtime.find_handler("cap:op=threaded")
@@ -242,29 +242,29 @@ def test_255_no_peer_invoker_with_arguments():
         no_peer.invoke("cap:op=test", args)
 
 
-# TEST256: Test PluginRuntime::with_manifest_json stores manifest data and parses when valid
+# TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid
 def test_256_with_manifest_json():
-    runtime_basic = PluginRuntime.with_manifest_json(TEST_MANIFEST)
+    runtime_basic = CartridgeRuntime.with_manifest_json(TEST_MANIFEST)
     assert len(runtime_basic.manifest_data) > 0
 
     # VALID_MANIFEST has proper in/out specs
-    runtime_valid = PluginRuntime.with_manifest_json(VALID_MANIFEST)
+    runtime_valid = CartridgeRuntime.with_manifest_json(VALID_MANIFEST)
     assert len(runtime_valid.manifest_data) > 0
     assert runtime_valid.manifest is not None, "VALID_MANIFEST must parse into CapManifest"
 
 
-# TEST257: Test PluginRuntime::new with invalid JSON still creates runtime (manifest is None)
+# TEST257: Test CartridgeRuntime::new with invalid JSON still creates runtime (manifest is None)
 def test_257_new_with_invalid_json():
-    runtime = PluginRuntime(b"not json")
+    runtime = CartridgeRuntime(b"not json")
     assert len(runtime.manifest_data) > 0
     assert runtime.manifest is None, "invalid JSON should leave manifest as None"
 
 
-# TEST258: Test PluginRuntime::with_manifest creates runtime with valid manifest data
+# TEST258: Test CartridgeRuntime::with_manifest creates runtime with valid manifest data
 def test_258_with_manifest_struct():
     manifest_dict = json.loads(VALID_MANIFEST)
     manifest = CapManifest.from_dict(manifest_dict)
-    runtime = PluginRuntime.with_manifest(manifest)
+    runtime = CartridgeRuntime.with_manifest(manifest)
     assert len(runtime.manifest_data) > 0
     assert runtime.manifest is not None
 
@@ -410,7 +410,7 @@ def test_270_multiple_handlers():
             req.emitter().emit_cbor(self.tag)
         def metadata(self): return OpMetadata.builder("EchoTagOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op("cap:op=alpha", lambda: EchoTagOp(b"a"))
     runtime.register_op("cap:op=beta", lambda: EchoTagOp(b"b"))
     runtime.register_op("cap:op=gamma", lambda: EchoTagOp(b"g"))
@@ -445,7 +445,7 @@ def test_271_handler_replacement():
             result2.append(b"second")
         def metadata(self): return OpMetadata.builder("SecondOp").build()
 
-    runtime = PluginRuntime(TEST_MANIFEST.encode('utf-8'))
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
     runtime.register_op_type("cap:op=test", FirstOp)
     runtime.register_op_type("cap:op=test", SecondOp)
 
@@ -544,8 +544,8 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     received_payload = []
 
@@ -564,7 +564,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
 
     runtime.register_op('cap:in="media:pdf";op=process;out="media:void"', CollectBytesOp)
 
-    # Simulate CLI invocation: plugin process /path/to/file.pdf
+    # Simulate CLI invocation: cartridge process /path/to/file.pdf
     cli_args = [str(test_file)]
     cap = runtime.find_cap_by_command(runtime.manifest, 'process')
     assert cap is not None, "Process cap not found in manifest"
@@ -608,8 +608,8 @@ def test_337_file_path_without_stdin_passes_string(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -641,8 +641,8 @@ def test_338_file_path_via_cli_flag(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["--file", str(test_file)]
     # cap is already defined above with correct URN and args
@@ -677,8 +677,8 @@ def test_339_file_path_array_glob_expansion(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Pass glob pattern as JSON array
     pattern = f"{test_dir}/*.txt"
@@ -701,7 +701,7 @@ def test_339_file_path_array_glob_expansion(tmp_path):
 # TEST340: File not found error provides clear message
 def test_340_file_not_found_clear_error():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.plugin_runtime import IoRuntimeError
+    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:pdf";op=test;out="media:void"',
@@ -717,8 +717,8 @@ def test_340_file_not_found_clear_error():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["/nonexistent/file.pdf"]
     # cap is already defined above with correct URN and args
@@ -753,8 +753,8 @@ def test_341_stdin_precedence_over_file_path(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     stdin_data = b"stdin content 341"
@@ -787,10 +787,10 @@ def test_342_file_path_position_zero_reads_first_arg(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # CLI: plugin test /path/to/file (position 0 after subcommand)
+    # CLI: cartridge test /path/to/file (position 0 after subcommand)
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
     result = runtime._extract_arg_value(cap.args[0], cli_args, None)
@@ -817,8 +817,8 @@ def test_343_non_file_path_args_unaffected():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["mlx-community/Llama-3.2-3B-Instruct-4bit"]
     # cap is already defined above with correct URN and args
@@ -832,7 +832,7 @@ def test_343_non_file_path_args_unaffected():
 # TEST344: file-path-array with invalid JSON fails clearly
 def test_344_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.plugin_runtime import CliError
+    from capdag.bifaci.cartridge_runtime import CliError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -848,8 +848,8 @@ def test_344_file_path_array_invalid_json_fails():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Pass invalid JSON (not an array)
     cli_args = ["not a json array"]
@@ -866,7 +866,7 @@ def test_344_file_path_array_invalid_json_fails():
 # TEST345: file-path-array with one file failing stops and reports error
 def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.plugin_runtime import IoRuntimeError
+    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     file1 = tmp_path / "test345_exists.txt"
     file1.write_bytes(b"exists")
@@ -886,8 +886,8 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Explicitly list both files (one exists, one doesn't)
     paths_json = json.dumps([
@@ -930,8 +930,8 @@ def test_346_large_file_reads_successfully(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -962,8 +962,8 @@ def test_347_empty_file_reads_as_empty_bytes(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -994,8 +994,8 @@ def test_348_file_path_conversion_respects_source_order(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     stdin_data = b"stdin content 348"
@@ -1029,8 +1029,8 @@ def test_349_file_path_multiple_sources_fallback(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Only provide position arg, no --file flag
     cli_args = [str(test_file)]
@@ -1063,8 +1063,8 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     received_payload = []
 
@@ -1130,8 +1130,8 @@ def test_351_file_path_array_empty_array():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["[]"]
     # cap is already defined above with correct URN and args
@@ -1147,7 +1147,7 @@ def test_351_file_path_array_empty_array():
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix permissions only")
 def test_352_file_permission_denied_clear_error(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.plugin_runtime import IoRuntimeError
+    from capdag.bifaci.cartridge_runtime import IoRuntimeError
     import os
 
     test_file = tmp_path / "test352_noperm.txt"
@@ -1170,8 +1170,8 @@ def test_352_file_permission_denied_clear_error(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -1205,8 +1205,8 @@ def test_353_cbor_payload_format_consistency():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["test value"]
     # cap is already defined above with correct URN and args
@@ -1239,8 +1239,8 @@ def test_354_glob_pattern_no_matches_empty_array(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Glob pattern that matches nothing
     pattern = f"{tmp_path}/nonexistent_*.xyz"
@@ -1283,8 +1283,8 @@ def test_355_glob_pattern_skips_directories(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Glob that matches both file and directory
     pattern = f"{test_dir}/*"
@@ -1328,8 +1328,8 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Multiple patterns
     pattern1 = f"{test_dir}/*.txt"
@@ -1378,8 +1378,8 @@ def test_357_symlinks_followed(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(link_file)]
     # cap is already defined above with correct URN and args
@@ -1412,8 +1412,8 @@ def test_358_binary_file_non_utf8(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -1425,7 +1425,7 @@ def test_358_binary_file_non_utf8(tmp_path):
 # TEST359: Invalid glob pattern fails with clear error
 def test_359_invalid_glob_pattern_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.plugin_runtime import CliError
+    from capdag.bifaci.cartridge_runtime import CliError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -1441,8 +1441,8 @@ def test_359_invalid_glob_pattern_fails():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Invalid glob pattern (unclosed bracket)
     pattern = "[invalid"
@@ -1480,8 +1480,8 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
     # cap is already defined above with correct URN and args
@@ -1522,8 +1522,8 @@ def test_361_cli_mode_file_path(tmp_path):
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # CLI mode: pass file path as positional argument
     cli_args = [str(test_file)]
@@ -1566,8 +1566,8 @@ def test_362_cli_mode_piped_binary():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Mock stdin with BytesIO (simulates piped binary)
     mock_stdin = io.BytesIO(pdf_content)
@@ -1628,8 +1628,8 @@ def test_363_cbor_mode_chunked_content():
         )]
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
     runtime.register_op(cap.urn_string(), StreamingOp)
 
     # Build CBOR payload
@@ -1721,8 +1721,8 @@ def test_395_build_payload_small():
         [],
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     data = b"small payload"
     reader = io.BytesIO(data)
@@ -1753,8 +1753,8 @@ def test_396_build_payload_large():
         [],
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Use small max_chunk to force multi-chunk
     data = bytes(i % 256 for i in range(1000))
@@ -1780,8 +1780,8 @@ def test_397_build_payload_empty():
         [],
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     reader = io.BytesIO(b"")
 
@@ -1811,8 +1811,8 @@ def test_398_build_payload_io_error():
         [],
     )
 
-    manifest = create_test_manifest("TestPlugin", "1.0.0", "Test", [cap])
-    runtime = PluginRuntime.with_manifest(manifest)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
+    runtime = CartridgeRuntime.with_manifest(manifest)
 
     reader = ErrorReader()
 
@@ -1832,7 +1832,7 @@ def test_479_custom_identity_overrides_default():
             raise ExecutionFailedError("custom identity")
         def metadata(self): return OpMetadata.builder("FailOp").build()
 
-    runtime = PluginRuntime.with_manifest_json(VALID_MANIFEST)
+    runtime = CartridgeRuntime.with_manifest_json(VALID_MANIFEST)
 
     # Auto-registered identity handler must exist
     assert runtime.find_handler(CAP_IDENTITY) is not None, "Auto-registered identity must exist"
@@ -1907,7 +1907,7 @@ def test_544_peer_invoker_sends_end_frame():
     sync_writer = SyncFrameWriter(mock_writer)
     pending_requests = {}
 
-    from capdag.bifaci.plugin_runtime import PeerInvokerImpl
+    from capdag.bifaci.cartridge_runtime import PeerInvokerImpl
     peer = PeerInvokerImpl(
         writer=sync_writer,
         pending_requests=pending_requests,

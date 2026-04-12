@@ -1,8 +1,8 @@
 # capdag-py
 
-Python implementation of the capdag (Cap SDK) - Core cap URN and definition system for MACINA plugins.
+Python implementation of the capdag (Cap SDK) - Core cap URN and definition system for MACINA cartridges.
 
-This library provides the fundamental cap URN system used across all MACINA plugins and providers. It defines the formal structure for cap identifiers with flat tag-based naming, wildcard support, and specificity comparison.
+This library provides the fundamental cap URN system used across all MACINA cartridges and providers. It defines the formal structure for cap identifiers with flat tag-based naming, wildcard support, and specificity comparison.
 
 ## Features
 

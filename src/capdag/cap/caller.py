@@ -18,7 +18,7 @@ class StdinSourceData:
 
 @dataclass
 class StdinSourceFileReference:
-    """File reference for stdin - used for plugins to read files locally on Mac side
+    """File reference for stdin - used for cartridges to read files locally on Mac side
 
     Avoids the 4MB gRPC limit by letting the Swift/XPC side read the file locally
     instead of sending bytes over the wire.

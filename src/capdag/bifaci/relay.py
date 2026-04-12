@@ -1,9 +1,9 @@
 """CborRelay — Transparent CBOR frame relay with two relay-specific frame types.
 
-The relay is a byte-stream bridge between an engine (master) and a plugin host runtime
+The relay is a byte-stream bridge between an engine (master) and a cartridge host runtime
 (slave). Two relay-specific frame types are intercepted and never leaked through:
 
-- **RelayNotify** (slave -> master): Capability advertisement from the slave's plugin host runtime.
+- **RelayNotify** (slave -> master): Capability advertisement from the slave's cartridge host runtime.
 - **RelayState** (master -> slave): Host system resources from the engine.
 
 All other frames pass through transparently in both directions.
@@ -28,10 +28,10 @@ class RelayError(CborError):
 
 
 class RelaySlave:
-    """Slave endpoint of the relay. Sits inside the plugin host process.
+    """Slave endpoint of the relay. Sits inside the cartridge host process.
 
     Bridges between a socket connection (to the RelayMaster in the engine)
-    and local I/O (to/from the plugin host runtime).
+    and local I/O (to/from the cartridge host runtime).
 
     Two relay-specific frame types are intercepted and never leaked through:
     - RelayNotify (slave -> master): Capability advertisement
@@ -129,11 +129,11 @@ class RelaySlave:
     def send_notify(socket_writer: FrameWriter, manifest: bytes, limits: Limits) -> None:
         """Send a RelayNotify frame to the socket writer.
 
-        Used when capabilities change (plugin discovered, plugin died).
+        Used when capabilities change (cartridge discovered, cartridge died).
 
         Args:
             socket_writer: Writer connected to the master relay socket
-            manifest: Aggregate manifest JSON of all available plugin capabilities
+            manifest: Aggregate manifest JSON of all available cartridge capabilities
             limits: Negotiated protocol limits
         """
         frame = Frame.relay_notify(manifest, limits.max_frame, limits.max_chunk, limits.max_reorder_buffer)

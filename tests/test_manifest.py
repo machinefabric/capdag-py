@@ -205,7 +205,7 @@ def test_475_validate_passes_with_identity():
 
     identity_urn = CapUrn.from_string(CAP_IDENTITY)
     identity_cap = Cap(identity_urn, "Identity", "identity")
-    manifest = CapManifest("TestPlugin", "1.0.0", "Test", [identity_cap])
+    manifest = CapManifest("TestCartridge", "1.0.0", "Test", [identity_cap])
     # Should succeed without raising
     manifest.validate()
 
@@ -214,7 +214,7 @@ def test_475_validate_passes_with_identity():
 def test_476_validate_fails_without_identity():
     specific_urn = CapUrn.from_string(_test_urn("op=convert"))
     specific_cap = Cap(specific_urn, "Convert", "convert")
-    manifest = CapManifest("TestPlugin", "1.0.0", "Test", [specific_cap])
+    manifest = CapManifest("TestCartridge", "1.0.0", "Test", [specific_cap])
 
     with pytest.raises(ValueError) as exc_info:
         manifest.validate()

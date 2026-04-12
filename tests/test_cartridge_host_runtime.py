@@ -1,17 +1,17 @@
-"""Tests for plugin_host_runtime module
+"""Tests for cartridge_host_runtime module
 
-Tests for PluginHostRuntime, ResponseChunk, PluginResponse, and error types.
+Tests for CartridgeHostRuntime, ResponseChunk, CartridgeResponse, and error types.
 """
 
 import pytest
 
 from capdag.bifaci.host_runtime import (
     ResponseChunk,
-    PluginResponse,
+    CartridgeResponse,
     AsyncHostError,
     CborErrorWrapper,
     IoError,
-    PluginError,
+    CartridgeError,
     UnexpectedFrameType,
     ProcessExited,
     Handshake,
@@ -56,22 +56,22 @@ def test_236_response_chunk_with_all_fields():
     assert chunk.is_eof
 
 
-# TEST237: Test PluginResponse::Single final_payload returns the single payload slice
-def test_237_plugin_response_single():
-    response = PluginResponse.single(b"result")
+# TEST237: Test CartridgeResponse::Single final_payload returns the single payload slice
+def test_237_cartridge_response_single():
+    response = CartridgeResponse.single(b"result")
     assert response.final_payload() == b"result"
     assert response.concatenated() == b"result"
 
 
-# TEST238: Test PluginResponse::Single with empty payload returns empty slice and empty vec
-def test_238_plugin_response_single_empty():
-    response = PluginResponse.single(b"")
+# TEST238: Test CartridgeResponse::Single with empty payload returns empty slice and empty vec
+def test_238_cartridge_response_single_empty():
+    response = CartridgeResponse.single(b"")
     assert response.final_payload() == b""
     assert response.concatenated() == b""
 
 
-# TEST239: Test PluginResponse::Streaming concatenated joins all chunk payloads in order
-def test_239_plugin_response_streaming():
+# TEST239: Test CartridgeResponse::Streaming concatenated joins all chunk payloads in order
+def test_239_cartridge_response_streaming():
     chunks = [
         ResponseChunk(
             payload=b"hello",
@@ -96,7 +96,7 @@ def test_239_plugin_response_streaming():
         ),
     ]
 
-    response = PluginResponse.streaming(chunks)
+    response = CartridgeResponse.streaming(chunks)
 
     # Verify concatenated joins all payloads in order
     assert response.concatenated() == b"hello world"
@@ -105,8 +105,8 @@ def test_239_plugin_response_streaming():
     assert response.final_payload() == b"world"
 
 
-# TEST240: Test PluginResponse::Streaming final_payload returns the last chunk's payload
-def test_240_plugin_response_streaming_final_payload():
+# TEST240: Test CartridgeResponse::Streaming final_payload returns the last chunk's payload
+def test_240_cartridge_response_streaming_final_payload():
     chunks = [
         ResponseChunk(
             payload=b"first",
@@ -131,21 +131,21 @@ def test_240_plugin_response_streaming_final_payload():
         ),
     ]
 
-    response = PluginResponse.streaming(chunks)
+    response = CartridgeResponse.streaming(chunks)
 
     # final_payload should return the last chunk's payload
     assert response.final_payload() == b"last"
 
 
-# TEST241: Test PluginResponse::Streaming with empty chunks vec returns empty concatenation
-def test_241_plugin_response_streaming_empty():
-    response = PluginResponse.streaming([])
+# TEST241: Test CartridgeResponse::Streaming with empty chunks vec returns empty concatenation
+def test_241_cartridge_response_streaming_empty():
+    response = CartridgeResponse.streaming([])
     assert response.final_payload() is None
     assert response.concatenated() == b""
 
 
-# TEST242: Test PluginResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads
-def test_242_plugin_response_streaming_large():
+# TEST242: Test CartridgeResponse::Streaming concatenated capacity is pre-allocated correctly for large payloads
+def test_242_cartridge_response_streaming_large():
     # Create chunks with substantial data
     chunks = [
         ResponseChunk(
@@ -171,7 +171,7 @@ def test_242_plugin_response_streaming_large():
         ),
     ]
 
-    response = PluginResponse.streaming(chunks)
+    response = CartridgeResponse.streaming(chunks)
 
     concatenated = response.concatenated()
     assert len(concatenated) == 3000
@@ -182,8 +182,8 @@ def test_242_plugin_response_streaming_large():
 
 # TEST243: Test AsyncHostError variants display correct error messages
 def test_243_async_host_error_variants():
-    # Test PluginError
-    err = PluginError("CODE", "message")
+    # Test CartridgeError
+    err = CartridgeError("CODE", "message")
     assert err.code == "CODE"
     assert err.error_message == "message"
     assert "[CODE]" in str(err)
@@ -228,8 +228,8 @@ def test_245_async_host_error_from_io():
 # TEST246: Test AsyncHostError Clone implementation produces equal values
 def test_246_async_host_error_equality():
     # Python doesn't have explicit Clone trait, but we can test equality
-    err1 = PluginError("ERR", "msg")
-    err2 = PluginError("ERR", "msg")
+    err1 = CartridgeError("ERR", "msg")
+    err2 = CartridgeError("ERR", "msg")
     # Python exceptions don't have built-in equality, but we can test string representation
     assert str(err1) == str(err2)
     assert err1.code == err2.code
@@ -269,7 +269,7 @@ def test_316_concatenated_vs_final_payload_divergence():
         ResponseChunk(payload=b"CCCC", seq=2, offset=None, len=None, is_eof=True),
     ]
 
-    response = PluginResponse(chunks)
+    response = CartridgeResponse(chunks)
 
     # concatenated() returns ALL chunk data joined
     assert response.concatenated() == b"AAAABBBBCCCC"

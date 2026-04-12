@@ -2,7 +2,7 @@
 
 RelaySwitch sits above multiple RelayMasters and provides deterministic
 request routing based on cap URN matching. It plays the same role for RelayMasters
-that PluginHost plays for plugins.
+that CartridgeHost plays for cartridges.
 
 ## Architecture
 
@@ -216,7 +216,7 @@ class RelaySwitch:
             return self._negotiated_limits
 
     def send_to_master(self, frame: Frame, preferred_cap: Optional[str] = None) -> None:
-        """Send a frame to the appropriate master (engine → plugin direction)
+        """Send a frame to the appropriate master (engine → cartridge direction)
 
         Routes REQ by cap URN. Routes continuation frames by request ID.
 
@@ -268,10 +268,10 @@ class RelaySwitch:
                     self._masters[0].socket_writer.write(frame)
 
     def read_from_masters(self) -> Optional[Frame]:
-        """Read the next frame from any master (plugin → engine direction).
+        """Read the next frame from any master (cartridge → engine direction).
 
         Blocks until a frame is available. Returns None when all masters have closed.
-        Peer requests (plugin → plugin) are handled internally and not returned.
+        Peer requests (cartridge → cartridge) are handled internally and not returned.
         """
         while True:
             # Block on queue - reader threads send frames here
@@ -366,12 +366,12 @@ class RelaySwitch:
         """Handle a frame from a master. Returns frame to return to engine, or None if handled internally."""
         with self._lock:
             if frame.frame_type == FrameType.REQ:
-                # Peer request: plugin → plugin via switch (no preference)
+                # Peer request: cartridge → cartridge via switch (no preference)
                 dest_idx = self._find_master_for_cap(frame.cap, None)
                 if dest_idx is None:
                     raise NoHandlerError(frame.cap)
 
-                # Register routing (source = plugin's master)
+                # Register routing (source = cartridge's master)
                 self._request_routing[frame.id.to_string()] = RoutingEntry(
                     source_master_idx=source_idx,
                     destination_master_idx=dest_idx

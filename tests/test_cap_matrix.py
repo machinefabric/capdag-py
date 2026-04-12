@@ -378,11 +378,11 @@ def test_570_cap_matrix_clear():
 
 # TEST121: Test CapBlock selects more specific cap over less specific regardless of registry order
 def test_121_cap_block_more_specific_wins():
-    # This is the key test: provider has less specific cap, plugin has more specific
+    # This is the key test: provider has less specific cap, cartridge has more specific
     # The more specific one should win regardless of registry order
 
     provider_registry = CapMatrix()
-    plugin_registry = CapMatrix()
+    cartridge_registry = CapMatrix()
 
     # Provider: less specific cap
     provider_host = MockCapSet("provider")
@@ -392,29 +392,29 @@ def test_121_cap_block_more_specific_wins():
     )
     provider_registry.register_cap_set("provider", provider_host, [provider_cap])
 
-    # Plugin: more specific cap (has ext=pdf)
-    plugin_host = MockCapSet("plugin")
-    plugin_cap = make_cap(
+    # Cartridge: more specific cap (has ext=pdf)
+    cartridge_host = MockCapSet("cartridge")
+    cartridge_cap = make_cap(
         'cap:ext=pdf;in="media:";op=generate_thumbnail;out="media:"',
-        "Plugin PDF Thumbnail Generator (specific)"
+        "Cartridge PDF Thumbnail Generator (specific)"
     )
-    plugin_registry.register_cap_set("plugin", plugin_host, [plugin_cap])
+    cartridge_registry.register_cap_set("cartridge", cartridge_host, [cartridge_cap])
 
     # Create composite with provider first (normally would have priority on ties)
     composite = CapBlock()
     composite.add_registry("providers", provider_registry)
-    composite.add_registry("plugins", plugin_registry)
+    composite.add_registry("cartridges", cartridge_registry)
 
-    # Request for PDF thumbnails - plugin's more specific cap should win
+    # Request for PDF thumbnails - cartridge's more specific cap should win
     request = 'cap:ext=pdf;in="media:";op=generate_thumbnail;out="media:"'
     best = composite.find_best_cap_set(request)
 
-    # Plugin registry has specificity 2 (ext=pdf, op=generate_thumbnail; in/out="media:" are wildcards, contribute 0)
+    # Cartridge registry has specificity 2 (ext=pdf, op=generate_thumbnail; in/out="media:" are wildcards, contribute 0)
     # Provider registry has specificity 1 (op=generate_thumbnail only)
-    # Plugin should win even though providers were added first
-    assert best.registry_name == "plugins", "More specific plugin should win over less specific provider"
-    assert best.specificity == 2, "Plugin cap has 2 specific tags (ext=pdf, op=generate_thumbnail)"
-    assert best.cap.title == "Plugin PDF Thumbnail Generator (specific)"
+    # Cartridge should win even though providers were added first
+    assert best.registry_name == "cartridges", "More specific cartridge should win over less specific provider"
+    assert best.specificity == 2, "Cartridge cap has 2 specific tags (ext=pdf, op=generate_thumbnail)"
+    assert best.cap.title == "Cartridge PDF Thumbnail Generator (specific)"
 
 
 # TEST122: Test CapBlock breaks specificity ties by first registered registry
@@ -492,16 +492,16 @@ def test_124_cap_block_no_match():
         pass  # Expected
 
 
-# TEST125: Test CapBlock prefers specific plugin over generic provider fallback
+# TEST125: Test CapBlock prefers specific cartridge over generic provider fallback
 def test_125_cap_block_fallback_scenario():
     # Test the exact scenario from the user's issue:
     # Provider: generic fallback (can handle any file type)
-    # Plugin:   PDF-specific handler
+    # Cartridge:   PDF-specific handler
     # Request:  PDF thumbnail
-    # Expected: Plugin wins (more specific)
+    # Expected: Cartridge wins (more specific)
 
     provider_registry = CapMatrix()
-    plugin_registry = CapMatrix()
+    cartridge_registry = CapMatrix()
 
     # Provider with generic fallback (can handle any file type)
     provider_host = MockCapSet("provider_fallback")
@@ -511,25 +511,25 @@ def test_125_cap_block_fallback_scenario():
     )
     provider_registry.register_cap_set("provider_fallback", provider_host, [provider_cap])
 
-    # Plugin with PDF-specific handler
-    plugin_host = MockCapSet("pdf_plugin")
-    plugin_cap = make_cap(
+    # Cartridge with PDF-specific handler
+    cartridge_host = MockCapSet("pdf_cartridge")
+    cartridge_cap = make_cap(
         'cap:ext=pdf;in="media:";op=generate_thumbnail;out="media:"',
-        "PDF Thumbnail Plugin"
+        "PDF Thumbnail Cartridge"
     )
-    plugin_registry.register_cap_set("pdf_plugin", plugin_host, [plugin_cap])
+    cartridge_registry.register_cap_set("pdf_cartridge", cartridge_host, [cartridge_cap])
 
     # Providers first (would win on tie)
     composite = CapBlock()
     composite.add_registry("providers", provider_registry)
-    composite.add_registry("plugins", plugin_registry)
+    composite.add_registry("cartridges", cartridge_registry)
 
     # Request for PDF thumbnail
     request = 'cap:ext=pdf;in="media:";op=generate_thumbnail;out="media:"'
     best = composite.find_best_cap_set(request)
 
-    # Plugin (specificity 4) should beat provider (specificity 3)
-    assert best.registry_name == "plugins"
+    # Cartridge (specificity 4) should beat provider (specificity 3)
+    assert best.registry_name == "cartridges"
 
 
 # TEST126: Test CapBlock accepts_request method checks if any registry can accept the capability
@@ -558,7 +558,7 @@ def test_133_cap_block_graph_integration():
     # Test that CapBlock.graph() works correctly
 
     provider_registry = CapMatrix()
-    plugin_registry = CapMatrix()
+    cartridge_registry = CapMatrix()
 
     # Provider: binary -> str
     provider_host = MockCapSet("provider")
@@ -570,19 +570,19 @@ def test_133_cap_block_graph_integration():
     provider_cap.output = CapOutput("media:textable", "output")
     provider_registry.register_cap_set("provider", provider_host, [provider_cap])
 
-    # Plugin: str -> obj
-    plugin_host = MockCapSet("plugin")
-    plugin_cap = Cap(
+    # Cartridge: str -> obj
+    cartridge_host = MockCapSet("cartridge")
+    cartridge_cap = Cap(
         urn=CapUrn.from_string('cap:in="media:textable";op=parse;out="media:record;textable"'),
-        title="Plugin JSON Parser",
+        title="Cartridge JSON Parser",
         command="parse"
     )
-    plugin_cap.output = CapOutput("media:record;textable", "output")
-    plugin_registry.register_cap_set("plugin", plugin_host, [plugin_cap])
+    cartridge_cap.output = CapOutput("media:record;textable", "output")
+    cartridge_registry.register_cap_set("cartridge", cartridge_host, [cartridge_cap])
 
     cube = CapBlock()
     cube.add_registry("providers", provider_registry)
-    cube.add_registry("plugins", plugin_registry)
+    cube.add_registry("cartridges", cartridge_registry)
 
     # Build graph
     graph = cube.graph()

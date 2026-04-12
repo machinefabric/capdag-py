@@ -69,7 +69,7 @@ CAP_IDENTITY = "cap:"
 
 # Discard capability — the terminal morphism. Standard, NOT mandatory.
 # Accepts any media type as input and produces void output.
-# The capdag lib provides a default implementation; plugins may override.
+# The capdag lib provides a default implementation; cartridges may override.
 CAP_DISCARD = "cap:in=media:;out=media:void"
 
 

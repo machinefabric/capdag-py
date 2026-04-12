@@ -262,34 +262,34 @@ def test_222_frame_writer_set_limits():
 # TEST223: Test handshake host sends HELLO first
 def test_223_handshake_host_sends_hello_first():
     # Create connected streams (simulate pipe)
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
     # Host side
-    host_writer = FrameWriter.new(host_to_plugin)
-    host_reader = FrameReader.new(plugin_to_host)
+    host_writer = FrameWriter.new(host_to_cartridge)
+    host_reader = FrameReader.new(cartridge_to_host)
 
-    # Plugin side - prepare response
+    # Cartridge side - prepare response
     manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
-    plugin_reader = FrameReader.new(host_to_plugin)
-    plugin_writer = FrameWriter.new(plugin_to_host)
+    cartridge_reader = FrameReader.new(host_to_cartridge)
+    cartridge_writer = FrameWriter.new(cartridge_to_host)
 
     # Host initiates
     host_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
     host_writer.write(host_hello)
 
-    # Plugin receives and responds
-    host_to_plugin.seek(0)
-    received_hello = plugin_reader.read()
+    # Cartridge receives and responds
+    host_to_cartridge.seek(0)
+    received_hello = cartridge_reader.read()
     assert received_hello is not None
     assert received_hello.frame_type == FrameType.HELLO
 
-    # Plugin responds with manifest
-    plugin_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
-    plugin_writer.write(plugin_hello)
+    # Cartridge responds with manifest
+    cartridge_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
+    cartridge_writer.write(cartridge_hello)
 
     # Host reads response
-    plugin_to_host.seek(0)
+    cartridge_to_host.seek(0)
     result = host_reader.read()
     assert result is not None
     assert result.hello_manifest() == manifest
@@ -297,36 +297,36 @@ def test_223_handshake_host_sends_hello_first():
 
 # TEST224: Test handshake negotiates to minimum limits
 def test_224_handshake_negotiates_to_minimum_limits():
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
     # Host with larger limits
-    host_writer = FrameWriter.new(host_to_plugin)
-    host_reader = FrameReader.new(plugin_to_host)
+    host_writer = FrameWriter.new(host_to_cartridge)
+    host_reader = FrameReader.new(cartridge_to_host)
 
-    # Plugin with smaller limits
+    # Cartridge with smaller limits
     manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
 
     # Host sends HELLO
     host_hello = Frame.hello(10000, 5000)
     host_writer.write(host_hello)
 
-    # Plugin receives, negotiates, and responds with smaller limits
-    host_to_plugin.seek(0)
-    plugin_reader = FrameReader.new(host_to_plugin)
-    received = plugin_reader.read()
+    # Cartridge receives, negotiates, and responds with smaller limits
+    host_to_cartridge.seek(0)
+    cartridge_reader = FrameReader.new(host_to_cartridge)
+    received = cartridge_reader.read()
 
-    # Plugin should negotiate to min(10000, 8000) = 8000
+    # Cartridge should negotiate to min(10000, 8000) = 8000
     their_max_frame = received.hello_max_frame() or DEFAULT_MAX_FRAME
     negotiated_frame = min(8000, their_max_frame)
 
-    plugin_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest)
+    cartridge_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest)
 
-    plugin_writer = FrameWriter.new(plugin_to_host)
-    plugin_writer.write(plugin_hello)
+    cartridge_writer = FrameWriter.new(cartridge_to_host)
+    cartridge_writer.write(cartridge_hello)
 
     # Host receives and verifies negotiation
-    plugin_to_host.seek(0)
+    cartridge_to_host.seek(0)
     result = host_reader.read()
     assert result.hello_max_frame() == negotiated_frame
 
@@ -334,27 +334,27 @@ def test_224_handshake_negotiates_to_minimum_limits():
 # TEST225: Test handshake function performs full handshake
 def test_225_handshake_function_full_handshake():
     # Create bidirectional streams
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
     # Prepare manifest
-    manifest = b'{"identifier": "test-plugin", "version": "1.0.0", "caps": []}'
+    manifest = b'{"identifier": "test-cartridge", "version": "1.0.0", "caps": []}'
 
-    # Plugin side accepts handshake in background (simulate)
-    plugin_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
-    plugin_writer_temp = FrameWriter.new(plugin_to_host)
-    plugin_writer_temp.write(plugin_hello)
+    # Cartridge side accepts handshake in background (simulate)
+    cartridge_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
+    cartridge_writer_temp = FrameWriter.new(cartridge_to_host)
+    cartridge_writer_temp.write(cartridge_hello)
 
     # Host side initiates
-    host_reader = FrameReader.new(plugin_to_host)
-    host_writer = FrameWriter.new(host_to_plugin)
+    host_reader = FrameReader.new(cartridge_to_host)
+    host_writer = FrameWriter.new(host_to_cartridge)
 
     # First write host HELLO
     host_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
     host_writer.write(host_hello)
 
-    # Then read plugin response
-    plugin_to_host.seek(0)
+    # Then read cartridge response
+    cartridge_to_host.seek(0)
     result = host_reader.read()
 
     assert result is not None
@@ -363,58 +363,58 @@ def test_225_handshake_function_full_handshake():
 
 # TEST226: Test handshake_accept receives first then sends
 def test_226_handshake_accept_receives_first():
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
     # Host sends HELLO first
     host_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
-    host_writer_temp = FrameWriter.new(host_to_plugin)
+    host_writer_temp = FrameWriter.new(host_to_cartridge)
     host_writer_temp.write(host_hello)
 
-    # Plugin accepts
-    host_to_plugin.seek(0)
-    plugin_reader = FrameReader.new(host_to_plugin)
-    plugin_writer = FrameWriter.new(plugin_to_host)
+    # Cartridge accepts
+    host_to_cartridge.seek(0)
+    cartridge_reader = FrameReader.new(host_to_cartridge)
+    cartridge_writer = FrameWriter.new(cartridge_to_host)
 
     manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
 
-    limits = handshake_accept(plugin_reader, plugin_writer, manifest)
+    limits = handshake_accept(cartridge_reader, cartridge_writer, manifest)
 
     # Verify negotiated limits
     assert limits.max_frame == DEFAULT_MAX_FRAME
     assert limits.max_chunk == DEFAULT_MAX_CHUNK
 
-    # Verify plugin sent HELLO with manifest
-    plugin_to_host.seek(0)
-    plugin_reader_temp = FrameReader.new(plugin_to_host)
-    response = plugin_reader_temp.read()
+    # Verify cartridge sent HELLO with manifest
+    cartridge_to_host.seek(0)
+    cartridge_reader_temp = FrameReader.new(cartridge_to_host)
+    response = cartridge_reader_temp.read()
     assert response.frame_type == FrameType.HELLO
     assert response.hello_manifest() == manifest
 
 
-# TEST227: Test handshake fails if plugin missing manifest
-def test_227_handshake_fails_if_plugin_missing_manifest():
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+# TEST227: Test handshake fails if cartridge missing manifest
+def test_227_handshake_fails_if_cartridge_missing_manifest():
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
-    # Plugin sends HELLO WITHOUT manifest (invalid)
-    plugin_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)  # No manifest!
-    plugin_writer_temp = FrameWriter.new(plugin_to_host)
-    plugin_writer_temp.write(plugin_hello)
+    # Cartridge sends HELLO WITHOUT manifest (invalid)
+    cartridge_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)  # No manifest!
+    cartridge_writer_temp = FrameWriter.new(cartridge_to_host)
+    cartridge_writer_temp.write(cartridge_hello)
 
     # Host tries to handshake
-    plugin_to_host.seek(0)
-    host_reader = FrameReader.new(plugin_to_host)
-    host_writer = FrameWriter.new(host_to_plugin)
+    cartridge_to_host.seek(0)
+    host_reader = FrameReader.new(cartridge_to_host)
+    host_writer = FrameWriter.new(host_to_cartridge)
 
     # First send host HELLO
     host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK))
 
-    # Then try to read plugin response - should fail because no manifest
+    # Then try to read cartridge response - should fail because no manifest
     with pytest.raises(HandshakeError, match="missing required manifest"):
         their_frame = host_reader.read()
         if their_frame.hello_manifest() is None:
-            raise HandshakeError("Plugin HELLO missing required manifest")
+            raise HandshakeError("Cartridge HELLO missing required manifest")
 
 
 # TEST228: Test read_frame enforces limit
@@ -525,20 +525,20 @@ def test_233_frame_encoding_preserves_binary_data():
 
 # TEST234: Test handshake with very small limits
 def test_234_handshake_with_very_small_limits():
-    host_to_plugin = io.BytesIO()
-    plugin_to_host = io.BytesIO()
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
 
     tiny_limits = Limits(256, 128)  # Use larger limits to fit HELLO frame with length prefix
 
     # Host with tiny limits
     host_hello = Frame.hello(tiny_limits.max_frame, tiny_limits.max_chunk)
-    host_writer_temp = FrameWriter(host_to_plugin, tiny_limits)
+    host_writer_temp = FrameWriter(host_to_cartridge, tiny_limits)
     host_writer_temp.write(host_hello)
 
-    # Plugin reads
-    host_to_plugin.seek(0)
-    plugin_reader = FrameReader(host_to_plugin, tiny_limits)
-    received = plugin_reader.read()
+    # Cartridge reads
+    host_to_cartridge.seek(0)
+    cartridge_reader = FrameReader(host_to_cartridge, tiny_limits)
+    received = cartridge_reader.read()
 
     assert received is not None
     assert received.hello_max_frame() == 256

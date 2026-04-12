@@ -25,10 +25,10 @@ git mv src/capdag/media_registry.py src/capdag/media/registry.py
 git mv src/capdag/cbor_frame.py src/capdag/bifaci/frame.py
 git mv src/capdag/cbor_io.py src/capdag/bifaci/io.py
 git mv src/capdag/manifest.py src/capdag/bifaci/manifest.py
-git mv src/capdag/plugin_runtime.py src/capdag/bifaci/plugin_runtime.py
-git mv src/capdag/plugin_host_runtime.py src/capdag/bifaci/host_runtime.py
-git mv src/capdag/async_plugin_host.py src/capdag/bifaci/async_plugin_host.py
-git mv src/capdag/plugin_relay.py src/capdag/bifaci/relay.py
+git mv src/capdag/cartridge_runtime.py src/capdag/bifaci/cartridge_runtime.py
+git mv src/capdag/cartridge_host_runtime.py src/capdag/bifaci/host_runtime.py
+git mv src/capdag/async_cartridge_host.py src/capdag/bifaci/async_cartridge_host.py
+git mv src/capdag/cartridge_relay.py src/capdag/bifaci/relay.py
 git mv src/capdag/relay_switch.py src/capdag/bifaci/relay_switch.py
 
 # Create __init__.py files for new modules

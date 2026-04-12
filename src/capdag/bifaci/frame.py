@@ -1,6 +1,6 @@
-"""CBOR Frame Types for Plugin Communication
+"""CBOR Frame Types for Cartridge Communication
 
-This module defines the binary CBOR frame format for plugin communication.
+This module defines the binary CBOR frame format for cartridge communication.
 Frames use integer keys for compact encoding and support native binary payloads.
 
 ## Frame Format
@@ -328,10 +328,10 @@ class Frame:
 
     @classmethod
     def hello_with_manifest(cls, max_frame: int, max_chunk: int, manifest: bytes, max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER) -> "Frame":
-        """Create a HELLO frame for handshake with manifest (plugin side)
+        """Create a HELLO frame for handshake with manifest (cartridge side)
 
-        The manifest is JSON-encoded plugin metadata including name, version, and caps.
-        This is the ONLY way for plugins to communicate their capabilities.
+        The manifest is JSON-encoded cartridge metadata including name, version, and caps.
+        This is the ONLY way for cartridges to communicate their capabilities.
         """
         meta = {
             "max_frame": max_frame,
@@ -481,7 +481,7 @@ class Frame:
         """Create a RELAY_NOTIFY frame for capability advertisement (slave → master).
 
         Args:
-            manifest: Aggregate manifest bytes (JSON-encoded list of all plugin caps)
+            manifest: Aggregate manifest bytes (JSON-encoded list of all cartridge caps)
             max_frame: Maximum frame size for the relay connection
             max_chunk: Maximum chunk size for the relay connection
             max_reorder_buffer: Maximum reorder buffer slots
@@ -636,10 +636,10 @@ class Frame:
         return None
 
     def hello_manifest(self) -> Optional[bytes]:
-        """Extract manifest from HELLO metadata (plugin side sends this)
+        """Extract manifest from HELLO metadata (cartridge side sends this)
 
         Returns None if no manifest present (host HELLO) or not a HELLO frame.
-        The manifest is JSON-encoded plugin metadata.
+        The manifest is JSON-encoded cartridge metadata.
         """
         if self.frame_type != FrameType.HELLO:
             return None

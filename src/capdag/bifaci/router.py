@@ -1,6 +1,6 @@
 """Cap Router - Pluggable routing for peer invoke requests
 
-When a plugin sends a peer invoke REQ (calling another cap), the host needs to route
+When a cartridge sends a peer invoke REQ (calling another cap), the host needs to route
 that request to an appropriate handler. This module provides a protocol-based abstraction
 for different routing strategies.
 """
@@ -14,25 +14,25 @@ from capdag.bifaci.host_runtime import AsyncHostError, PeerInvokeNotSupported
 class PeerRequestHandle(ABC):
     """Handle for an active peer invoke request.
 
-    The PluginHostRuntime creates this by calling router.begin_request(), then forwards
+    The CartridgeHostRuntime creates this by calling router.begin_request(), then forwards
     incoming frames (STREAM_START, CHUNK, STREAM_END, END) to the handle.
     """
 
     @abstractmethod
     def forward_frame(self, frame: Any) -> None:
-        """Forward an incoming frame to the target plugin."""
+        """Forward an incoming frame to the target cartridge."""
         ...
 
     @abstractmethod
     def response_receiver(self) -> Any:
-        """Get a receiver/iterator for response chunks from the target plugin."""
+        """Get a receiver/iterator for response chunks from the target cartridge."""
         ...
 
 
 class CapRouter(ABC):
     """Trait for routing cap invocation requests to appropriate handlers.
 
-    When a plugin issues a peer invoke, the host receives a REQ frame and calls
+    When a cartridge issues a peer invoke, the host receives a REQ frame and calls
     begin_request(). The router returns a handle that the host uses to forward
     incoming argument streams and receive responses.
     """

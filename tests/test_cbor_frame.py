@@ -137,16 +137,16 @@ def test_180_hello_frame():
     assert frame.id == MessageId(0)
 
 
-# TEST181: Test Frame::hello_with_manifest produces HELLO with manifest bytes for plugin side
+# TEST181: Test Frame::hello_with_manifest produces HELLO with manifest bytes for cartridge side
 def test_181_hello_frame_with_manifest():
-    """Test HELLO frame with manifest (plugin side)"""
-    manifest_json = b'{"name":"TestPlugin","version":"1.0.0","description":"Test","caps":[]}'
+    """Test HELLO frame with manifest (cartridge side)"""
+    manifest_json = b'{"name":"TestCartridge","version":"1.0.0","description":"Test","caps":[]}'
     frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json)
     assert frame.frame_type == FrameType.HELLO
     assert frame.hello_max_frame() == 1_000_000
     assert frame.hello_max_chunk() == 100_000
     manifest = frame.hello_manifest()
-    assert manifest is not None, "Plugin HELLO must include manifest"
+    assert manifest is not None, "Cartridge HELLO must include manifest"
     assert manifest == manifest_json
 
 

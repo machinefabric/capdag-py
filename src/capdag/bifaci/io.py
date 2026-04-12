@@ -497,7 +497,7 @@ def handshake(
     reader: FrameReader,
     writer: FrameWriter,
 ) -> HandshakeResult:
-    """Perform HELLO handshake and extract plugin manifest (host side - sends first)
+    """Perform HELLO handshake and extract cartridge manifest (host side - sends first)
 
     Args:
         reader: Frame reader
@@ -521,10 +521,10 @@ def handshake(
     if their_frame.frame_type != FrameType.HELLO:
         raise HandshakeError(f"expected HELLO, got {their_frame.frame_type}")
 
-    # Extract manifest - REQUIRED for plugins
+    # Extract manifest - REQUIRED for cartridges
     manifest = their_frame.hello_manifest()
     if manifest is None:
-        raise HandshakeError("Plugin HELLO missing required manifest")
+        raise HandshakeError("Cartridge HELLO missing required manifest")
 
     # Negotiate minimum of both
     their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
@@ -549,15 +549,15 @@ def handshake_accept(
     writer: FrameWriter,
     manifest: bytes,
 ) -> Limits:
-    """Accept HELLO handshake with manifest (plugin side - receives first, sends manifest in response)
+    """Accept HELLO handshake with manifest (cartridge side - receives first, sends manifest in response)
 
     Reads host's HELLO, sends our HELLO with manifest, returns negotiated limits.
-    The manifest is REQUIRED - plugins MUST provide their manifest.
+    The manifest is REQUIRED - cartridges MUST provide their manifest.
 
     Args:
         reader: Frame reader
         writer: Frame writer
-        manifest: Plugin manifest bytes (REQUIRED)
+        manifest: Cartridge manifest bytes (REQUIRED)
 
     Returns:
         Negotiated limits
@@ -596,7 +596,7 @@ def handshake_accept(
 
 
 # =============================================================================
-# Async I/O - for PluginHostRuntime
+# Async I/O - for CartridgeHostRuntime
 # =============================================================================
 
 
@@ -703,7 +703,7 @@ async def handshake_async(
 ) -> HandshakeResult:
     """Perform HELLO handshake (host side - sends first, expects manifest in response)
 
-    Sends host's HELLO, reads plugin's HELLO with manifest, returns negotiated limits and manifest.
+    Sends host's HELLO, reads cartridge's HELLO with manifest, returns negotiated limits and manifest.
 
     Args:
         reader: Async frame reader
@@ -727,10 +727,10 @@ async def handshake_async(
     if their_frame.frame_type != FrameType.HELLO:
         raise HandshakeError(f"expected HELLO, got {their_frame.frame_type}")
 
-    # Extract manifest - REQUIRED for plugins
+    # Extract manifest - REQUIRED for cartridges
     manifest = their_frame.hello_manifest()
     if manifest is None:
-        raise HandshakeError("Plugin HELLO missing required manifest")
+        raise HandshakeError("Cartridge HELLO missing required manifest")
 
     # Negotiate minimum of both
     their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME

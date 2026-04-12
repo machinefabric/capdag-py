@@ -1,4 +1,4 @@
-"""Response wrapper for unified plugin output handling"""
+"""Response wrapper for unified cartridge output handling"""
 
 import json
 from typing import Any, TypeVar, Type
@@ -16,9 +16,9 @@ class ResponseContentType(Enum):
 
 
 class ResponseWrapper:
-    """Unified response wrapper for all plugin operations
+    """Unified response wrapper for all cartridge operations
 
-    Provides type-safe deserialization of plugin output.
+    Provides type-safe deserialization of cartridge output.
     """
 
     def __init__(self, raw_bytes: bytes, content_type: ResponseContentType):
