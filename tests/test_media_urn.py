@@ -19,18 +19,16 @@ from capdag import (
     MEDIA_PDF,
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_PATH_OUTPUT,
-    MEDIA_STRING_ARRAY,
-    MEDIA_INTEGER_ARRAY,
-    MEDIA_NUMBER_ARRAY,
-    MEDIA_BOOLEAN_ARRAY,
+    MEDIA_STRING_LIST,
+    MEDIA_INTEGER_LIST,
+    MEDIA_NUMBER_LIST,
+    MEDIA_BOOLEAN_LIST,
     MEDIA_AUDIO,
     MEDIA_VIDEO,
     MEDIA_AUDIO_SPEECH,
-    MEDIA_IMAGE_THUMBNAIL,
     MEDIA_FILE_PATH,
     MEDIA_FILE_PATH_ARRAY,
     MEDIA_DECISION,
-    MEDIA_DECISION_ARRAY,
     binary_media_urn_for_ext,
     text_media_urn_for_ext,
     image_media_urn_for_ext,
@@ -80,18 +78,18 @@ def test_063_is_scalar():
     int_urn = MediaUrn.from_string(MEDIA_INTEGER)
     assert int_urn.is_scalar()
 
-    # Arrays are not scalar
-    array_urn = MediaUrn.from_string(MEDIA_STRING_ARRAY)
-    assert not array_urn.is_scalar()
+    # Lists are not scalar
+    list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
+    assert not list_urn.is_scalar()
 
 
 # TEST064: Test is_list returns true when list marker tag is present indicating ordered collection
 def test_064_is_list():
-    list_urn = MediaUrn.from_string(MEDIA_STRING_ARRAY)
+    list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
     assert list_urn.is_list()
 
-    int_array_urn = MediaUrn.from_string(MEDIA_INTEGER_ARRAY)
-    assert int_array_urn.is_list()
+    int_list_urn = MediaUrn.from_string(MEDIA_INTEGER_LIST)
+    assert int_list_urn.is_list()
 
     # Scalar is not a list
     scalar_urn = MediaUrn.from_string(MEDIA_STRING)
@@ -106,7 +104,7 @@ def test_065_record_and_list():
     assert not obj_urn.is_opaque()
 
     # List is a collection
-    list_urn = MediaUrn.from_string(MEDIA_STRING_ARRAY)
+    list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
     assert list_urn.is_list()
     assert not list_urn.is_scalar()
 
@@ -283,7 +281,6 @@ def test_306_availability_and_path_output_distinct():
 # TEST546: is_image returns true only when image marker tag is present
 def test_546_is_image():
     assert MediaUrn.from_string(MEDIA_PNG).is_image()
-    assert MediaUrn.from_string(MEDIA_IMAGE_THUMBNAIL).is_image()
     assert MediaUrn.from_string("media:image;jpg").is_image()
     # Non-image types
     assert not MediaUrn.from_string(MEDIA_PDF).is_image()
@@ -317,8 +314,8 @@ def test_548_is_video():
 def test_549_is_numeric():
     assert MediaUrn.from_string(MEDIA_INTEGER).is_numeric()
     assert MediaUrn.from_string(MEDIA_NUMBER).is_numeric()
-    assert MediaUrn.from_string(MEDIA_INTEGER_ARRAY).is_numeric()
-    assert MediaUrn.from_string(MEDIA_NUMBER_ARRAY).is_numeric()
+    assert MediaUrn.from_string(MEDIA_INTEGER_LIST).is_numeric()
+    assert MediaUrn.from_string(MEDIA_NUMBER_LIST).is_numeric()
     # Non-numeric types
     assert not MediaUrn.from_string(MEDIA_STRING).is_numeric()
     assert not MediaUrn.from_string(MEDIA_BOOLEAN).is_numeric()
@@ -328,9 +325,9 @@ def test_549_is_numeric():
 # TEST550: is_bool returns true only when bool marker tag is present
 def test_550_is_bool():
     assert MediaUrn.from_string(MEDIA_BOOLEAN).is_bool()
-    assert MediaUrn.from_string(MEDIA_BOOLEAN_ARRAY).is_bool()
-    assert MediaUrn.from_string(MEDIA_DECISION).is_bool()
-    assert MediaUrn.from_string(MEDIA_DECISION_ARRAY).is_bool()
+    assert MediaUrn.from_string(MEDIA_BOOLEAN_LIST).is_bool()
+    # MEDIA_DECISION is now a JSON record, not bool
+    assert not MediaUrn.from_string(MEDIA_DECISION).is_bool()
     # Non-bool types
     assert not MediaUrn.from_string(MEDIA_STRING).is_bool()
     assert not MediaUrn.from_string(MEDIA_INTEGER).is_bool()
@@ -353,7 +350,7 @@ def test_552_is_file_path_array():
     # Scalar file-path is NOT is_file_path_array
     assert not MediaUrn.from_string(MEDIA_FILE_PATH).is_file_path_array()
     # Non-file-path types
-    assert not MediaUrn.from_string(MEDIA_STRING_ARRAY).is_file_path_array()
+    assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_file_path_array()
 
 
 # TEST553: is_any_file_path returns true for both scalar and array file-path
@@ -362,7 +359,7 @@ def test_553_is_any_file_path():
     assert MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY).is_any_file_path()
     # Non-file-path types
     assert not MediaUrn.from_string(MEDIA_STRING).is_any_file_path()
-    assert not MediaUrn.from_string(MEDIA_STRING_ARRAY).is_any_file_path()
+    assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_any_file_path()
 
 
 # TEST555: with_tag adds a tag and without_tag removes it
@@ -433,33 +430,6 @@ def test_558_predicate_constant_consistency():
     assert not void_urn.is_text()
     assert void_urn.is_binary()  # void has no textable tag
     assert not void_urn.is_numeric()
-
-
-# TEST850: with_list adds list marker, without_list removes it
-def test_850_with_list_without_list():
-    pdf = MediaUrn.from_string("media:pdf")
-    assert pdf.is_scalar()
-    assert not pdf.is_list()
-
-    pdf_list = pdf.with_list()
-    assert pdf_list.is_list()
-    assert not pdf_list.is_scalar()
-    # The list URN should contain all original tags plus list
-    assert pdf_list.conforms_to(pdf), "list version should still conform to scalar pattern"
-
-    back_to_scalar = pdf_list.without_list()
-    assert back_to_scalar.is_scalar()
-    assert back_to_scalar.is_equivalent(pdf), "removing list should restore original"
-
-
-# TEST851: with_list is idempotent
-def test_851_with_list_idempotent():
-    list_urn = MediaUrn.from_string("media:json;list;textable")
-    assert list_urn.is_list()
-
-    double_list = list_urn.with_list()
-    assert double_list.is_list()
-    assert double_list.is_equivalent(list_urn), "adding list to already-list should be no-op"
 
 
 # TEST852: LUB of identical URNs returns the same URN

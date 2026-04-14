@@ -233,7 +233,7 @@ def from_path(path) -> Machine:
     The conversion:
     - Each Cap step becomes a MachineEdge with a single source
     - ForEach steps set is_loop=True on the next Cap edge
-    - Collect and WrapInList steps are elided (implicit in transitions)
+    - Collect steps are elided (implicit in transitions)
     """
     from capdag.machine.graph import MachineEdge
     from capdag.planner.live_cap_graph import StrandStepType
@@ -252,7 +252,7 @@ def from_path(path) -> Machine:
             pending_loop = False
         elif step.step_type == StrandStepType.FOR_EACH:
             pending_loop = True
-        # Collect and WrapInList are elided
+        # Collect steps are elided
 
     return Machine(edges)
 

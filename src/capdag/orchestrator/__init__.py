@@ -20,7 +20,6 @@ from capdag.orchestrator.types import (
     StructureMismatchError,
     ResolvedEdge,
     ResolvedGraph,
-    CapRegistryTrait,
 )
 
 from capdag.orchestrator.validation import validate_dag
@@ -56,8 +55,6 @@ __all__ = [
     # Data types
     "ResolvedEdge",
     "ResolvedGraph",
-    # Trait
-    "CapRegistryTrait",
     # Validation
     "validate_dag",
     # Parser

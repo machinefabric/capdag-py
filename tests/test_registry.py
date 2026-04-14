@@ -113,9 +113,9 @@ def test_137_parse_registry_json():
 def test_138_parse_registry_json_with_stdin():
     """Test parsing cap JSON with stdin args"""
     json_str = '''{
-        "urn": "cap:in=\\"media:pdf\\";op=extract_metadata;out=\\"media:file-metadata;textable;record\\"",
-        "command": "extract-metadata",
-        "title": "Extract Metadata",
+        "urn": "cap:in=\\"media:pdf\\";op=disbind;out=\\"media:textable;page\\"",
+        "command": "disbind",
+        "title": "Disbind PDF",
         "args": [
             {
                 "media_urn": "media:pdf",
@@ -127,7 +127,7 @@ def test_138_parse_registry_json_with_stdin():
 
     cap = Cap.from_dict(json.loads(json_str))
 
-    assert cap.title == "Extract Metadata"
+    assert cap.title == "Disbind PDF"
     assert cap.accepts_stdin()
     assert cap.get_stdin_media_urn() == "media:pdf"  # As specified in JSON
 

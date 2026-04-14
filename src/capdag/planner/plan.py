@@ -48,7 +48,6 @@ class ExecutionNodeType:
     COLLECT = "collect"
     MERGE = "merge"
     SPLIT = "split"
-    WRAP_IN_LIST = "wrap_in_list"
     INPUT_SLOT = "input_slot"
     OUTPUT = "output"
 
@@ -96,13 +95,6 @@ class ExecutionNodeType:
         return ExecutionNodeType(ExecutionNodeType.SPLIT, {
             "input_node": input_node,
             "output_count": output_count,
-        })
-
-    @staticmethod
-    def wrap_in_list(item_media_urn: str, list_media_urn: str) -> ExecutionNodeType:
-        return ExecutionNodeType(ExecutionNodeType.WRAP_IN_LIST, {
-            "item_media_urn": item_media_urn,
-            "list_media_urn": list_media_urn,
         })
 
     @staticmethod
@@ -162,14 +154,6 @@ class ExecutionNodeType:
     @property
     def output_count(self) -> int:
         return self._data["output_count"]
-
-    @property
-    def item_media_urn(self) -> str:
-        return self._data["item_media_urn"]
-
-    @property
-    def list_media_urn(self) -> str:
-        return self._data["list_media_urn"]
 
     @property
     def slot_name(self) -> str:
@@ -250,13 +234,6 @@ class MachineNode:
         return MachineNode(
             id, ExecutionNodeType.collect(input_nodes),
             description="Fan-in: collect results into vector",
-        )
-
-    @staticmethod
-    def wrap_in_list(id: str, item_media_urn: str, list_media_urn: str) -> MachineNode:
-        return MachineNode(
-            id, ExecutionNodeType.wrap_in_list(item_media_urn, list_media_urn),
-            description="WrapInList: wrap scalar in list-of-one",
         )
 
     @staticmethod
@@ -533,12 +510,34 @@ class MachinePlan:
                 return node.id
         return None
 
-    def has_foreach_or_collect(self) -> bool:
-        """Check if any node is ForEach or Collect."""
+    def has_foreach(self) -> bool:
+        """Check if any node is ForEach (requiring decomposition).
+
+        ForEach nodes require special handling: the plan is decomposed into
+        prefix/body/suffix, and the body is executed per-item. Standalone Collect
+        nodes (scalar→list without ForEach) are pass-throughs and do NOT require
+        decomposition.
+        """
         return any(
-            n.node_type.kind in (ExecutionNodeType.FOR_EACH, ExecutionNodeType.COLLECT)
+            n.node_type.kind == ExecutionNodeType.FOR_EACH
             for n in self.nodes.values()
         )
+
+    def has_foreach_collect_pair(self) -> bool:
+        """Check if the plan has both a ForEach and a Collect node.
+
+        A Collect node following a ForEach marks the re-assembly point.
+        Standalone Collect nodes (no ForEach) are pass-throughs.
+        """
+        has_foreach = any(
+            n.node_type.kind == ExecutionNodeType.FOR_EACH
+            for n in self.nodes.values()
+        )
+        has_collect = any(
+            n.node_type.kind == ExecutionNodeType.COLLECT
+            for n in self.nodes.values()
+        )
+        return has_foreach and has_collect
 
     def extract_prefix_to(self, target_node_id: str) -> MachinePlan:
         """Extract ancestor subgraph up to and including target_node_id."""
@@ -725,21 +724,39 @@ class MachinePlan:
 class NodeExecutionResult:
     """Result of executing a single node."""
 
-    __slots__ = ("node_id", "success", "binary_output", "text_output", "error", "duration_ms")
+    __slots__ = (
+        "node_id", "success", "binary_output", "binary_items",
+        "saved_paths", "is_sequence_output", "total_bytes",
+        "media_urn_output", "error", "duration_ms",
+    )
 
     def __init__(
         self,
         node_id: str,
         success: bool,
         binary_output: Optional[bytes] = None,
-        text_output: Optional[str] = None,
+        binary_items: Optional[List[bytes]] = None,
+        saved_paths: Optional[List[str]] = None,
+        is_sequence_output: bool = False,
+        total_bytes: int = 0,
+        media_urn_output: str = "",
         error: Optional[str] = None,
         duration_ms: int = 0,
     ) -> None:
         self.node_id = node_id
         self.success = success
+        # binary_output: single raw output bytes (standalone executor)
         self.binary_output = binary_output
-        self.text_output = text_output
+        # binary_items: individual output items for is_sequence=True outputs (standalone executor)
+        self.binary_items = binary_items
+        # saved_paths: file paths written by IncrementalWriter (pipeline executor)
+        self.saved_paths = saved_paths or []
+        # is_sequence_output: True if the cap emitted a sequence (from STREAM_START is_sequence)
+        self.is_sequence_output = is_sequence_output
+        # total_bytes: bytes written to disk; 0 when binary_output is used
+        self.total_bytes = total_bytes
+        # media_urn_output: output media URN from STREAM_START or plan derivation
+        self.media_urn_output = media_urn_output
         self.error = error
         self.duration_ms = duration_ms
 
@@ -749,21 +766,86 @@ class NodeExecutionResult:
             "success": self.success,
             "duration_ms": self.duration_ms,
         }
-        if self.text_output is not None:
-            d["text_output"] = self.text_output
+        if self.saved_paths:
+            d["saved_paths"] = self.saved_paths
+        if self.is_sequence_output:
+            d["is_sequence_output"] = self.is_sequence_output
+        if self.total_bytes:
+            d["total_bytes"] = self.total_bytes
+        if self.media_urn_output:
+            d["media_urn_output"] = self.media_urn_output
         if self.error is not None:
             d["error"] = self.error
-        # binary_output is not included in dict (too large / not JSON-safe)
+        # binary_output and binary_items are not included in dict (too large / not JSON-safe)
         return d
 
     def __repr__(self) -> str:
         return f"NodeExecutionResult(node_id={self.node_id!r}, success={self.success})"
 
 
+class BodyOutcome:
+    """Outcome of a single ForEach body execution.
+
+    For linear (non-ForEach) pipelines, a single BodyOutcome with body_index=0
+    represents the entire execution.
+    """
+
+    __slots__ = (
+        "body_index", "success", "cap_urns", "failed_cap",
+        "error", "title", "saved_paths", "total_bytes", "duration_ms",
+    )
+
+    def __init__(
+        self,
+        body_index: int,
+        success: bool,
+        cap_urns: Optional[List[str]] = None,
+        failed_cap: Optional[str] = None,
+        error: Optional[str] = None,
+        title: Optional[str] = None,
+        saved_paths: Optional[List[str]] = None,
+        total_bytes: int = 0,
+        duration_ms: int = 0,
+    ) -> None:
+        # body_index: index of this body within the ForEach (0-based)
+        self.body_index = body_index
+        self.success = success
+        # cap_urns: cap URNs in the body's execution pathway (in execution order)
+        self.cap_urns = cap_urns or []
+        # failed_cap: the cap URN that was executing when the body failed (None if succeeded)
+        self.failed_cap = failed_cap
+        self.error = error
+        # title: human-readable title from stream metadata (per-item for ForEach, stream-level for linear)
+        self.title = title
+        self.saved_paths = saved_paths or []
+        self.total_bytes = total_bytes
+        self.duration_ms = duration_ms
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "body_index": self.body_index,
+            "success": self.success,
+            "cap_urns": self.cap_urns,
+            "saved_paths": self.saved_paths,
+            "total_bytes": self.total_bytes,
+            "duration_ms": self.duration_ms,
+        }
+        if self.failed_cap is not None:
+            d["failed_cap"] = self.failed_cap
+        if self.error is not None:
+            d["error"] = self.error
+        if self.title is not None:
+            d["title"] = self.title
+        return d
+
+    def __repr__(self) -> str:
+        return f"BodyOutcome(body_index={self.body_index}, success={self.success})"
+
+
 class MachineResult:
     """Result of executing a complete machine."""
 
-    __slots__ = ("success", "node_results", "outputs", "error", "total_duration_ms")
+    __slots__ = ("success", "node_results", "outputs", "error", "total_duration_ms", "body_outcomes")
 
     def __init__(
         self,
@@ -772,12 +854,16 @@ class MachineResult:
         outputs: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
         total_duration_ms: int = 0,
+        body_outcomes: Optional[List[BodyOutcome]] = None,
     ) -> None:
         self.success = success
         self.node_results = node_results or {}
         self.outputs = outputs or {}
         self.error = error
         self.total_duration_ms = total_duration_ms
+        # body_outcomes: per-body outcomes for ForEach pipelines, or single entry for linear plans
+        # Populated by the pipeline executor; empty for the standalone executor.
+        self.body_outcomes = body_outcomes or []
 
     def primary_output(self) -> Optional[Any]:
         """Get the first output value (non-deterministic ordering)."""
@@ -794,6 +880,8 @@ class MachineResult:
         }
         if self.error is not None:
             d["error"] = self.error
+        if self.body_outcomes:
+            d["body_outcomes"] = [b.to_dict() for b in self.body_outcomes]
         return d
 
     def __repr__(self) -> str:

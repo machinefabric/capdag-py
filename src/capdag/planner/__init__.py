@@ -41,6 +41,9 @@ from capdag.planner.live_cap_graph import (
     StrandStep,
     Strand,
     ReachableTargetInfo,
+    PathFindingEventDepthComplete,
+    PathFindingEventPathFound,
+    PathFindingEventComplete,
 )
 
 from capdag.planner.argument_binding import (
@@ -115,6 +118,9 @@ __all__ = [
     "StrandStep",
     "Strand",
     "ReachableTargetInfo",
+    "PathFindingEventDepthComplete",
+    "PathFindingEventPathFound",
+    "PathFindingEventComplete",
     # Argument Binding
     "SourceEntityType",
     "CapFileMetadata",

@@ -37,6 +37,9 @@ def test_171_frame_type_roundtrip():
         FrameType.HEARTBEAT,
         FrameType.STREAM_START,
         FrameType.STREAM_END,
+        FrameType.RELAY_NOTIFY,
+        FrameType.RELAY_STATE,
+        FrameType.CANCEL,
     ]:
         v = int(t)
         recovered = FrameType.from_u8(v)
@@ -49,7 +52,8 @@ def test_172_invalid_frame_type():
     """Test invalid frame type values return None"""
     assert FrameType.from_u8(10) == FrameType.RELAY_NOTIFY
     assert FrameType.from_u8(11) == FrameType.RELAY_STATE
-    assert FrameType.from_u8(12) is None, "value 12 is one past RelayState"
+    assert FrameType.from_u8(12) == FrameType.CANCEL
+    assert FrameType.from_u8(13) is None, "value 13 is one past Cancel"
     assert FrameType.from_u8(100) is None
     assert FrameType.from_u8(255) is None
 
@@ -67,6 +71,9 @@ def test_173_frame_type_discriminant_values():
     assert FrameType.HEARTBEAT == 7
     assert FrameType.STREAM_START == 8
     assert FrameType.STREAM_END == 9
+    assert FrameType.RELAY_NOTIFY == 10
+    assert FrameType.RELAY_STATE == 11
+    assert FrameType.CANCEL == 12
 
 
 # TEST174: Test MessageId::new_uuid generates valid UUID that roundtrips through string conversion

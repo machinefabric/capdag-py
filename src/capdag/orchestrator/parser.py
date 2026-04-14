@@ -14,8 +14,8 @@ from capdag.planner.cardinality import InputStructure
 from capdag.machine.graph import Machine
 from capdag.machine.parser import _PARSER
 
+from capdag.cap.registry import CapRegistry
 from capdag.orchestrator.types import (
-    CapRegistryTrait,
     ParseOrchestrationError,
     MachineSyntaxParseFailedError,
     CapNotFoundError,
@@ -127,17 +127,18 @@ def _parse_source_names(pair) -> List[str]:
 
 async def parse_machine_to_cap_dag(
     notation: str,
-    registry: CapRegistryTrait,
+    registry: CapRegistry,
 ) -> ResolvedGraph:
     """Parse machine notation and produce a validated orchestration graph.
 
-    Each cap URN is resolved via the registry. Node media URNs are derived
-    from the cap's in=/out= specs. Media type consistency and structure
+    Each cap URN is resolved via the registry's get_cached_cap. Node media URNs are
+    derived from the cap's in=/out= specs. Media type consistency and structure
     compatibility (record vs opaque) are validated at each node.
+    Caps must be pre-loaded into the registry cache before calling this function.
 
     Args:
         notation: Machine notation string.
-        registry: Cap registry for resolving cap URNs.
+        registry: Cap registry — caps must be pre-loaded in cache.
 
     Returns:
         A validated ResolvedGraph.
@@ -167,7 +168,9 @@ async def parse_machine_to_cap_dag(
 
     for edge_idx, edge in enumerate(machine.edges()):
         cap_urn_str = str(edge.cap_urn)
-        cap = await registry.lookup(cap_urn_str)
+        cap = registry.get_cached_cap(cap_urn_str)
+        if cap is None:
+            raise CapNotFoundError(f"Cap not found in registry cache: {cap_urn_str!r}")
 
         try:
             cap_in_media = edge.cap_urn.in_media_urn()

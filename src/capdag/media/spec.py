@@ -274,6 +274,7 @@ class MediaSpecDef:
         profile_uri: Optional[str] = None,
         schema: Optional[Any] = None,
         description: Optional[str] = None,
+        documentation: Optional[str] = None,
         validation: Optional[MediaValidation] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
@@ -286,7 +287,10 @@ class MediaSpecDef:
             title: Human-readable title for the media type (required)
             profile_uri: Optional profile URI for schema reference
             schema: Optional local JSON Schema for validation
-            description: Optional description of the media type
+            description: Optional short plain-text description of the media type
+            documentation: Optional long-form markdown documentation. Rendered in
+                media info panels, the cap navigator, capdag-dot-com, and anywhere
+                else a rich-text explanation of the media spec is useful.
             validation: Optional validation rules for this media type
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
@@ -297,9 +301,22 @@ class MediaSpecDef:
         self.profile_uri = profile_uri
         self.schema = schema
         self.description = description
+        self.documentation = documentation
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
+
+    def get_documentation(self) -> Optional[str]:
+        """Get the long-form markdown documentation, if any."""
+        return self.documentation
+
+    def set_documentation(self, documentation: str) -> None:
+        """Set the long-form markdown documentation."""
+        self.documentation = documentation
+
+    def clear_documentation(self) -> None:
+        """Clear the long-form markdown documentation."""
+        self.documentation = None
 
     def to_dict(self) -> Dict:
         """Convert to dict for JSON serialization"""
@@ -314,6 +331,8 @@ class MediaSpecDef:
             result["schema"] = self.schema
         if self.description is not None:
             result["description"] = self.description
+        if self.documentation is not None:
+            result["documentation"] = self.documentation
         if self.validation is not None:
             result["validation"] = self.validation.to_dict()
         if self.metadata is not None:
@@ -336,6 +355,7 @@ class MediaSpecDef:
             profile_uri=data.get("profile_uri"),
             schema=data.get("schema"),
             description=data.get("description"),
+            documentation=data.get("documentation"),
             validation=validation,
             metadata=data.get("metadata"),
             extensions=data.get("extensions", []),
@@ -351,6 +371,7 @@ class MediaSpecDef:
             and self.profile_uri == other.profile_uri
             and self.schema == other.schema
             and self.description == other.description
+            and self.documentation == other.documentation
             and self.validation == other.validation
             and self.metadata == other.metadata
             and self.extensions == other.extensions
@@ -377,6 +398,7 @@ class ResolvedMediaSpec:
         schema: Optional[Any] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        documentation: Optional[str] = None,
         validation: Optional[MediaValidation] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
@@ -389,7 +411,8 @@ class ResolvedMediaSpec:
             profile_uri: Optional profile URI
             schema: Optional local JSON Schema for validation
             title: Display-friendly title for the media type
-            description: Optional description of the media type
+            description: Optional short plain-text description of the media type
+            documentation: Optional long-form markdown documentation
             validation: Optional validation rules from the media spec definition
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
@@ -400,6 +423,7 @@ class ResolvedMediaSpec:
         self.schema = schema
         self.title = title
         self.description = description
+        self.documentation = documentation
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
@@ -562,6 +586,7 @@ async def resolve_media_urn(
                     schema=spec_def.schema,
                     title=spec_def.title,
                     description=spec_def.description,
+                    documentation=spec_def.documentation,
                     validation=spec_def.validation,
                     metadata=spec_def.metadata,
                     extensions=spec_def.extensions,
@@ -577,6 +602,7 @@ async def resolve_media_urn(
             schema=stored_spec.schema,
             title=stored_spec.title,
             description=stored_spec.description,
+            documentation=stored_spec.documentation,
             validation=(
                 MediaValidation.from_dict(stored_spec.validation)
                 if stored_spec.validation

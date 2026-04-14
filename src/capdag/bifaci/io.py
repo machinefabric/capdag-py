@@ -158,6 +158,12 @@ def encode_frame(frame: Frame) -> bytes:
     if frame.checksum is not None:
         frame_map[Keys.CHECKSUM] = frame.checksum
 
+    if frame.is_sequence is not None:
+        frame_map[Keys.IS_SEQUENCE] = frame.is_sequence
+
+    if frame.force_kill is not None:
+        frame_map[Keys.FORCE_KILL] = frame.force_kill
+
     try:
         return cbor2.dumps(frame_map)
     except Exception as e:
@@ -243,6 +249,12 @@ def decode_frame(data: bytes) -> Frame:
     chunk_count = lookup.get(Keys.CHUNK_COUNT)
     checksum = lookup.get(Keys.CHECKSUM)
 
+    is_sequence_raw = lookup.get(Keys.IS_SEQUENCE)
+    is_sequence = bool(is_sequence_raw) if is_sequence_raw is not None else None
+
+    force_kill_raw = lookup.get(Keys.FORCE_KILL)
+    force_kill = bool(force_kill_raw) if force_kill_raw is not None else None
+
     # Validate required fields based on frame type
     if frame_type == FrameType.CHUNK:
         if chunk_index is None:
@@ -271,6 +283,8 @@ def decode_frame(data: bytes) -> Frame:
         chunk_index=chunk_index,
         chunk_count=chunk_count,
         checksum=checksum,
+        is_sequence=is_sequence,
+        force_kill=force_kill,
     )
 
 

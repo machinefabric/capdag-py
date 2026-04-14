@@ -176,7 +176,6 @@ class MachineExecutor:
             return (
                 NodeExecutionResult(
                     node_id=node.id, success=True,
-                    text_output=json.dumps(output),
                     duration_ms=duration_ms,
                 ),
                 output,
@@ -271,22 +270,6 @@ class MachineExecutor:
                     duration_ms=duration_ms,
                 ),
                 output,
-            )
-
-        elif kind == ExecutionNodeType.WRAP_IN_LIST:
-            # Find predecessor via incoming edge
-            predecessor_output = None
-            for edge in self._plan.edges:
-                if edge.to_node == node.id:
-                    predecessor_output = node_outputs.get(edge.from_node)
-                    break
-            duration_ms = int((time.monotonic() - start) * 1000)
-            return (
-                NodeExecutionResult(
-                    node_id=node.id, success=True,
-                    duration_ms=duration_ms,
-                ),
-                predecessor_output,
             )
 
         else:
@@ -407,6 +390,8 @@ class MachineExecutor:
 
         # Process result
         duration_ms = int((time.monotonic() - start) * 1000)
+
+        # Try to decode as UTF-8 for JSON parsing
         text_output: Optional[str] = None
         try:
             text_output = response_bytes.decode("utf-8")
@@ -427,7 +412,7 @@ class MachineExecutor:
             NodeExecutionResult(
                 node_id=node_id, success=True,
                 binary_output=response_bytes,
-                text_output=text_output,
+                media_urn_output="",  # populated by pipeline executor from STREAM_START metadata
                 duration_ms=duration_ms,
             ),
             output_json,

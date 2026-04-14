@@ -61,6 +61,7 @@ class StoredMediaSpec:
         profile_uri: Optional[str] = None,
         schema: Optional[Any] = None,
         description: Optional[str] = None,
+        documentation: Optional[str] = None,
         validation: Optional[Dict] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
@@ -71,6 +72,7 @@ class StoredMediaSpec:
         self.profile_uri = profile_uri
         self.schema = schema
         self.description = description
+        self.documentation = documentation
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
@@ -88,6 +90,8 @@ class StoredMediaSpec:
             result["schema"] = self.schema
         if self.description is not None:
             result["description"] = self.description
+        if self.documentation is not None:
+            result["documentation"] = self.documentation
         if self.validation is not None:
             result["validation"] = self.validation
         if self.metadata is not None:
@@ -106,6 +110,7 @@ class StoredMediaSpec:
             profile_uri=data.get("profile_uri"),
             schema=data.get("schema"),
             description=data.get("description"),
+            documentation=data.get("documentation"),
             validation=data.get("validation"),
             metadata=data.get("metadata"),
             extensions=data.get("extensions", []),

@@ -33,6 +33,7 @@ Each frame is a CBOR map with integer keys:
 - STREAM_END (9): End a specific stream
 - RELAY_NOTIFY (10): Relay capability advertisement (slave → master)
 - RELAY_STATE (11): Relay host system resources + cap demands (master → slave)
+- CANCEL (12): Cancel a specific in-flight request by RID
 """
 
 import uuid as uuid_module
@@ -66,6 +67,7 @@ class FrameType(IntEnum):
     STREAM_END = 9  # End a specific stream (multiplexed streaming)
     RELAY_NOTIFY = 10  # Relay capability advertisement (slave → master)
     RELAY_STATE = 11   # Relay host system resources + cap demands (master → slave)
+    CANCEL = 12        # Cancel a specific in-flight request by RID
 
     @classmethod
     def from_u8(cls, v: int) -> Optional["FrameType"]:
@@ -268,6 +270,8 @@ class Frame:
         chunk_index: Optional[int] = None,
         chunk_count: Optional[int] = None,
         checksum: Optional[int] = None,
+        is_sequence: Optional[bool] = None,
+        force_kill: Optional[bool] = None,
     ):
         """Create a new frame
 
@@ -289,6 +293,10 @@ class Frame:
             chunk_index: Chunk sequence index within stream (CHUNK frames only, starts at 0)
             chunk_count: Total chunk count (STREAM_END frames only, by source's reckoning)
             checksum: FNV-1a checksum of payload (CHUNK frames only)
+            is_sequence: Whether producer used emit_list_item (True) or write (False).
+                         Present on STREAM_START frames only. None means unknown (empty stream).
+            force_kill: Whether Cancel should force-kill the cartridge process (True) or
+                        cooperatively cancel (False). Present on CANCEL frames only.
         """
         self.version = version
         self.frame_type = frame_type
@@ -307,6 +315,8 @@ class Frame:
         self.chunk_index = chunk_index
         self.chunk_count = chunk_count
         self.checksum = checksum
+        self.is_sequence = is_sequence
+        self.force_kill = force_kill
 
     @classmethod
     def new(cls, frame_type: FrameType, id: MessageId) -> "Frame":
@@ -395,10 +405,45 @@ class Frame:
 
     @classmethod
     def end(cls, id: MessageId, final_payload: Optional[bytes] = None) -> "Frame":
-        """Create an END frame to mark stream completion"""
+        """Create an END frame to mark stream completion.
+        Does NOT set exit_code — absence of exit_code in meta means failure.
+        Use end_ok for successful completion (exit_code=0).
+        """
         frame = cls.new(FrameType.END, id)
         frame.payload = final_payload
         frame.eof = True
+        return frame
+
+    @classmethod
+    def end_ok(cls, id: MessageId, final_payload: Optional[bytes] = None) -> "Frame":
+        """Create an END frame with exit_code=0 (success).
+        Only exit_code=0 means success. Absence of exit_code or any non-zero value means failure.
+        """
+        frame = cls.new(FrameType.END, id)
+        frame.payload = final_payload
+        frame.eof = True
+        frame.meta = {"exit_code": 0}
+        return frame
+
+    def exit_code(self) -> Optional[int]:
+        """Read exit_code from an END frame's meta. Returns None if absent."""
+        if self.meta is None:
+            return None
+        val = self.meta.get("exit_code")
+        if isinstance(val, int):
+            return val
+        return None
+
+    @classmethod
+    def cancel(cls, target_rid: MessageId, force_kill: bool) -> "Frame":
+        """Create a CANCEL frame targeting a specific request by RID.
+
+        Args:
+            target_rid: The request ID to cancel
+            force_kill: If True, force-kill the cartridge process. If False, cooperative cancel.
+        """
+        frame = cls.new(FrameType.CANCEL, target_rid)
+        frame.force_kill = force_kill
         return frame
 
     @classmethod
@@ -447,7 +492,7 @@ class Frame:
         return cls.new(FrameType.HEARTBEAT, id)
 
     @classmethod
-    def stream_start(cls, req_id: MessageId, stream_id: str, media_urn: str) -> "Frame":
+    def stream_start(cls, req_id: MessageId, stream_id: str, media_urn: str, is_sequence: Optional[bool] = None) -> "Frame":
         """Create a STREAM_START frame to announce a new stream within a request.
         Used for multiplexed streaming - multiple streams can exist per request.
 
@@ -455,10 +500,13 @@ class Frame:
             req_id: Request message ID this stream belongs to
             stream_id: Unique identifier for this stream within the request
             media_urn: Media URN describing the stream's content type
+            is_sequence: Whether the producer uses emit_list_item (True) or write (False);
+                         None if unknown (e.g. empty stream).
         """
         frame = cls.new(FrameType.STREAM_START, req_id)
         frame.stream_id = stream_id
         frame.media_urn = media_urn
+        frame.is_sequence = is_sequence
         return frame
 
     @classmethod
@@ -542,7 +590,7 @@ class Frame:
 
     def is_flow_frame(self) -> bool:
         """Return True if this frame type participates in flow ordering (seq tracking).
-        Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState) bypass seq assignment.
+        Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState, Cancel) bypass seq assignment.
         (matches Rust Frame::is_flow_frame and Go Frame.IsFlowFrame)
         """
         return self.frame_type not in (
@@ -550,6 +598,7 @@ class Frame:
             FrameType.HEARTBEAT,
             FrameType.RELAY_NOTIFY,
             FrameType.RELAY_STATE,
+            FrameType.CANCEL,
         )
 
     def error_code(self) -> Optional[str]:
@@ -676,6 +725,8 @@ class Keys:
     INDEX = 14
     CHUNK_COUNT = 15
     CHECKSUM = 16
+    IS_SEQUENCE = 17    # Whether producer used emit_list_item (True) or write (False)
+    FORCE_KILL = 18     # Whether Cancel should force-kill the cartridge process
 
 
 # =============================================================================

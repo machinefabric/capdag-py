@@ -11,7 +11,7 @@ from capdag.standard.caps import (
     all_coercion_paths,
     model_availability_urn,
     model_path_urn,
-    llm_conversation_urn,
+    llm_generate_text_urn,
 )
 from capdag.urn.media_urn import (
     MEDIA_VOID,
@@ -20,7 +20,6 @@ from capdag.urn.media_urn import (
     MEDIA_PATH_OUTPUT,
     MEDIA_STRING,
     MEDIA_INTEGER,
-    MEDIA_LLM_INFERENCE_OUTPUT,
 )
 
 
@@ -47,17 +46,17 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-# TEST310: Test llm_conversation_urn uses unconstrained tag (not constrained)
-def test_310_llm_conversation_urn_unconstrained():
-    urn = llm_conversation_urn("en")
-    assert urn.get_tag("unconstrained") is not None, "LLM conversation URN must have 'unconstrained' tag"
-    assert urn.has_tag("op", "conversation"), "must have op=conversation"
-    assert urn.has_tag("language", "en"), "must have language=en"
+# TEST310: Test llm_generate_text_urn uses llm and ml-model tags
+def test_310_llm_generate_text_urn_tags():
+    urn = CapUrn.from_string(llm_generate_text_urn())
+    assert urn.get_tag("llm") is not None, "LLM generate text URN must have 'llm' tag"
+    assert urn.get_tag("ml-model") is not None, "LLM generate text URN must have 'ml-model' tag"
+    assert urn.has_tag("op", "generate_text"), "must have op=generate_text"
 
 
-# TEST311: Test llm_conversation_urn in/out specs match the expected media URNs semantically
-def test_311_llm_conversation_urn_specs():
-    urn = llm_conversation_urn("fr")
+# TEST311: Test llm_generate_text_urn in/out specs match the expected media URNs semantically
+def test_311_llm_generate_text_urn_specs():
+    urn = CapUrn.from_string(llm_generate_text_urn())
 
     # Compare semantically via MediaUrn matching (tag order may differ)
     in_spec = MediaUrn.from_string(urn.in_spec())
@@ -65,8 +64,8 @@ def test_311_llm_conversation_urn_specs():
     assert in_spec.conforms_to(expected_in), f"in_spec '{urn.in_spec()}' must conform to MEDIA_STRING '{MEDIA_STRING}'"
 
     out_spec = MediaUrn.from_string(urn.out_spec())
-    expected_out = MediaUrn.from_string(MEDIA_LLM_INFERENCE_OUTPUT)
-    assert out_spec.conforms_to(expected_out), f"out_spec '{urn.out_spec()}' must conform to '{MEDIA_LLM_INFERENCE_OUTPUT}'"
+    expected_out = MediaUrn.from_string(MEDIA_STRING)
+    assert out_spec.conforms_to(expected_out), f"out_spec '{urn.out_spec()}' must conform to MEDIA_STRING '{MEDIA_STRING}'"
 
 
 # TEST312: Test all URN builders produce parseable cap URNs
@@ -74,7 +73,7 @@ def test_312_all_urn_builders_produce_valid_urns():
     # Each of these must not raise
     avail = model_availability_urn()
     path = model_path_urn()
-    conv = llm_conversation_urn("en")
+    gen_text = llm_generate_text_urn()
 
     # Verify they roundtrip through CapUrn parsing
     avail_str = model_availability_urn().to_string()
@@ -84,6 +83,9 @@ def test_312_all_urn_builders_produce_valid_urns():
     path_str = model_path_urn().to_string()
     parsed = CapUrn.from_string(path_str)
     assert parsed is not None, "model_path_urn must be parseable"
+
+    gen_parsed = CapUrn.from_string(gen_text)
+    assert gen_parsed is not None, "llm_generate_text_urn must be parseable"
 
 
 # TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void
@@ -109,7 +111,7 @@ def test_474_cap_discard_accepts_specific_void_cap():
         "CAP_DISCARD must NOT accept a cap with non-void output"
 
 
-# TEST605: all_coercion_paths builds valid URNs with op=coerce and target tag
+# TEST605: all_coercion_paths builds valid URNs with op=coerce
 def test_605_all_coercion_paths_build_valid_urns():
     paths = all_coercion_paths()
     assert len(paths) > 0, "Coercion paths must not be empty"
@@ -118,8 +120,6 @@ def test_605_all_coercion_paths_build_valid_urns():
         urn = coercion_urn(source, target)
         assert urn.has_tag("op", "coerce"), \
             f"Coercion URN for {source}→{target} must have op=coerce"
-        assert urn.has_tag("target", target), \
-            f"Coercion URN for {source}→{target} must have target={target}"
 
         # Verify roundtrip through string parsing
         urn_str = urn.to_string()

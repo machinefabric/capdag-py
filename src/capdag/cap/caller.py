@@ -3,7 +3,8 @@
 This module provides data structures and execution infrastructure for calling capabilities.
 """
 
-from typing import Optional, List, Dict, Tuple
+from enum import Enum
+from typing import Optional, List, Dict, Tuple, Union
 from dataclasses import dataclass
 
 
@@ -90,6 +91,33 @@ class CapArgumentValue:
         return CapArgumentValue(self.media_urn, bytes(self.value))
 
 
+class CapResultKind(Enum):
+    SCALAR = "scalar"
+    LIST = "list"
+    EMPTY = "empty"
+
+
+class CapResult:
+    """Result from a cap execution."""
+
+    def __init__(self, kind: CapResultKind, data: bytes = None, items: list = None):
+        self.kind = kind
+        self.data = data  # for SCALAR kind
+        self.items = items  # for LIST kind (list of CBOR values)
+
+    @classmethod
+    def scalar(cls, data: bytes) -> "CapResult":
+        return cls(CapResultKind.SCALAR, data=data)
+
+    @classmethod
+    def list_items(cls, items: list) -> "CapResult":
+        return cls(CapResultKind.LIST, items=items)
+
+    @classmethod
+    def empty(cls) -> "CapResult":
+        return cls(CapResultKind.EMPTY)
+
+
 class CapSet:
     """Trait for Cap Host communication
 
@@ -100,7 +128,7 @@ class CapSet:
         self,
         cap_urn: str,
         arguments: List[CapArgumentValue],
-    ) -> Tuple[Optional[bytes], Optional[str]]:
+    ) -> "CapResult":
         """Execute a cap with arguments identified by media_urn
 
         The cap definition's sources specify how to extract values (stdin, position, cli_flag).
@@ -110,7 +138,7 @@ class CapSet:
             arguments: List of arguments identified by media_urn
 
         Returns:
-            Tuple of (binary_output, text_output) where one should be None
+            CapResult with scalar data, list of items, or empty result
         """
         raise NotImplementedError("CapSet.execute_cap must be implemented by subclasses")
 
@@ -206,20 +234,23 @@ class CapCaller:
         self.validate_arguments(arguments)
 
         # Execute via cap host method
-        binary_output, text_output = await self.cap_set.execute_cap(
+        result = await self.cap_set.execute_cap(
             self.cap,
             arguments,
         )
 
-        # Determine response type based on what was returned
-        if binary_output is not None:
-            return ResponseWrapper.from_binary(binary_output)
-        elif text_output is not None:
-            # Try to parse as JSON for structured data
+        # Determine response type based on CapResult kind
+        if result.kind == CapResultKind.SCALAR:
+            return ResponseWrapper.from_binary(result.data)
+        elif result.kind == CapResultKind.LIST:
+            # Encode list items as JSON for structured data
+            import json
+            encoded = json.dumps(result.items).encode('utf-8')
             try:
-                return ResponseWrapper.from_json(text_output.encode('utf-8'))
-            except:
-                # Fall back to plain text
-                return ResponseWrapper.from_text(text_output.encode('utf-8'))
-        else:
+                return ResponseWrapper.from_json(encoded)
+            except Exception:
+                return ResponseWrapper.from_text(encoded)
+        elif result.kind == CapResultKind.EMPTY:
             raise RuntimeError("Cap returned no output")
+        else:
+            raise RuntimeError(f"Unknown CapResult kind: {result.kind}")

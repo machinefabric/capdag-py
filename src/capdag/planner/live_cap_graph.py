@@ -8,17 +8,21 @@ Design Principles:
 2. Exact matching: For target matching, use is_equivalent() not conforms_to().
 3. Conformance for traversal: Use conforms_to() for graph traversal.
 4. Deterministic ordering: Results sorted by (path_length, specificity, urn).
+5. ForEach is synthesized dynamically in get_outgoing_edges() when is_sequence=True
+   and there are scalar consumers; it is never pre-inserted as a real graph edge.
+6. Collect is not synthesized — it pairs implicitly with ForEach at execution time.
 """
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
-from capdag.planner.cardinality import InputCardinality
 
 
 class LiveMachinePlanEdgeType(Enum):
@@ -26,7 +30,6 @@ class LiveMachinePlanEdgeType(Enum):
     CAP = "cap"
     FOR_EACH = "for_each"
     COLLECT = "collect"
-    WRAP_IN_LIST = "wrap_in_list"
 
 
 class LiveMachinePlanEdge:
@@ -35,7 +38,7 @@ class LiveMachinePlanEdge:
     __slots__ = (
         "from_spec", "to_spec", "edge_type",
         "cap_urn", "cap_title", "specificity_val",
-        "input_cardinality", "output_cardinality",
+        "input_is_sequence", "output_is_sequence",
     )
 
     def __init__(
@@ -46,8 +49,8 @@ class LiveMachinePlanEdge:
         cap_urn: Optional[CapUrn] = None,
         cap_title: str = "",
         specificity_val: int = 0,
-        input_cardinality: InputCardinality = InputCardinality.SINGLE,
-        output_cardinality: InputCardinality = InputCardinality.SINGLE,
+        input_is_sequence: bool = False,
+        output_is_sequence: bool = False,
     ):
         self.from_spec = from_spec
         self.to_spec = to_spec
@@ -55,8 +58,8 @@ class LiveMachinePlanEdge:
         self.cap_urn = cap_urn
         self.cap_title = cap_title
         self.specificity_val = specificity_val
-        self.input_cardinality = input_cardinality
-        self.output_cardinality = output_cardinality
+        self.input_is_sequence = input_is_sequence
+        self.output_is_sequence = output_is_sequence
 
     def title(self) -> str:
         if self.edge_type == LiveMachinePlanEdgeType.CAP:
@@ -65,8 +68,6 @@ class LiveMachinePlanEdge:
             return "ForEach (iterate over list)"
         elif self.edge_type == LiveMachinePlanEdgeType.COLLECT:
             return "Collect (gather results)"
-        elif self.edge_type == LiveMachinePlanEdgeType.WRAP_IN_LIST:
-            return "WrapInList (create single-item list)"
         return ""
 
     def specificity(self) -> int:
@@ -88,7 +89,6 @@ class StrandStepType(Enum):
     CAP = "cap"
     FOR_EACH = "for_each"
     COLLECT = "collect"
-    WRAP_IN_LIST = "wrap_in_list"
 
 
 class StrandStep:
@@ -97,7 +97,8 @@ class StrandStep:
     __slots__ = (
         "step_type", "from_spec", "to_spec",
         "cap_urn", "step_title", "specificity_val",
-        "list_spec", "item_spec",
+        "media_spec",
+        "input_is_sequence", "output_is_sequence",
     )
 
     def __init__(
@@ -108,8 +109,9 @@ class StrandStep:
         cap_urn: Optional[CapUrn] = None,
         step_title: str = "",
         specificity_val: int = 0,
-        list_spec: Optional[MediaUrn] = None,
-        item_spec: Optional[MediaUrn] = None,
+        media_spec: Optional[MediaUrn] = None,
+        input_is_sequence: bool = False,
+        output_is_sequence: bool = False,
     ):
         self.step_type = step_type
         self.from_spec = from_spec
@@ -117,8 +119,9 @@ class StrandStep:
         self.cap_urn = cap_urn
         self.step_title = step_title
         self.specificity_val = specificity_val
-        self.list_spec = list_spec
-        self.item_spec = item_spec
+        self.media_spec = media_spec
+        self.input_is_sequence = input_is_sequence
+        self.output_is_sequence = output_is_sequence
 
     def title(self) -> str:
         if self.step_type == StrandStepType.CAP:
@@ -127,8 +130,6 @@ class StrandStep:
             return "ForEach"
         elif self.step_type == StrandStepType.COLLECT:
             return "Collect"
-        elif self.step_type == StrandStepType.WRAP_IN_LIST:
-            return "WrapInList"
         return ""
 
     def specificity(self) -> int:
@@ -197,8 +198,46 @@ class ReachableTargetInfo:
         self.path_count = path_count
 
 
+# ---------------------------------------------------------------------------
+# PathFindingEvent hierarchy
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PathFindingEventDepthComplete:
+    """Emitted when one IDDFS depth pass is complete."""
+    depth: int
+    max_depth: int
+    nodes_explored: int
+    paths_found: int
+
+
+@dataclass
+class PathFindingEventPathFound:
+    """Emitted when a path is found."""
+    path: Strand
+
+
+@dataclass
+class PathFindingEventComplete:
+    """Emitted when path finding is fully done."""
+    total_paths: int
+    total_nodes_explored: int
+
+
+PathFindingEvent = (
+    PathFindingEventDepthComplete
+    | PathFindingEventPathFound
+    | PathFindingEventComplete
+)
+
+
 class LiveCapGraph:
-    """Precomputed graph of capabilities for path finding."""
+    """Precomputed graph of capabilities for path finding.
+
+    Only Cap edges are stored in the graph.  ForEach edges are synthesized
+    dynamically in _get_outgoing_edges() when is_sequence=True and there are
+    scalar consumers reachable from the source node.
+    """
 
     def __init__(self):
         self._edges: List[LiveMachinePlanEdge] = []
@@ -216,15 +255,10 @@ class LiveCapGraph:
         self._cap_to_edges.clear()
 
     def sync_from_caps(self, caps) -> None:
-        """Rebuild the graph from a list of Cap definitions.
-
-        After adding all cap edges, inserts cardinality transition
-        edges (ForEach/Collect) to enable paths through list→singular boundaries.
-        """
+        """Rebuild the graph from a list of Cap definitions."""
         self.clear()
         for cap in caps:
             self.add_cap(cap)
-        self._insert_cardinality_transitions()
 
     def add_cap(self, cap) -> None:
         """Add a capability as an edge in the graph."""
@@ -254,8 +288,21 @@ class LiveCapGraph:
         to_canonical = str(to_spec)
         cap_canonical = str(cap.urn)
 
-        input_card = InputCardinality.from_media_urn(from_canonical)
-        output_card = InputCardinality.from_media_urn(to_canonical)
+        # Determine input_is_sequence from the stdin arg's is_sequence field.
+        input_is_sequence = False
+        for arg in cap.args:
+            is_stdin = any(
+                getattr(src, "stdin", None) is not None
+                for src in getattr(arg, "sources", [])
+            )
+            if is_stdin:
+                input_is_sequence = bool(getattr(arg, "is_sequence", False))
+                break
+
+        # Determine output_is_sequence from the cap's output field.
+        output_is_sequence = False
+        if cap.output is not None:
+            output_is_sequence = bool(getattr(cap.output, "is_sequence", False))
 
         edge_idx = len(self._edges)
         edge = LiveMachinePlanEdge(
@@ -265,8 +312,8 @@ class LiveCapGraph:
             cap_urn=cap.urn,
             cap_title=cap.title,
             specificity_val=cap.urn.specificity(),
-            input_cardinality=input_card,
-            output_cardinality=output_card,
+            input_is_sequence=input_is_sequence,
+            output_is_sequence=output_is_sequence,
         )
         self._edges.append(edge)
 
@@ -280,126 +327,96 @@ class LiveCapGraph:
         """Return (node_count, edge_count)."""
         return len(self._nodes), len(self._edges)
 
-    def _insert_cardinality_transitions(self) -> None:
-        """Insert ForEach/Collect/WrapInList edges for cardinality transitions."""
-        # Collect all existing list-type nodes
-        list_nodes: List[str] = [n for n in self._nodes if "list" in n]
+    def _get_outgoing_edges(
+        self,
+        source: MediaUrn,
+        is_sequence: bool,
+    ) -> List[Tuple[LiveMachinePlanEdge, bool]]:
+        """Get all edges reachable from source given is_sequence context.
 
-        for list_canonical in list_nodes:
-            list_urn = MediaUrn.from_string(list_canonical)
-            item_urn = list_urn.without_list()
-            item_canonical = str(item_urn)
+        Returns a list of (edge, out_is_sequence) pairs.
 
-            # ForEach: list → item (if item is a valid node or has outgoing edges)
-            foreach_idx = len(self._edges)
-            foreach_edge = LiveMachinePlanEdge(
-                from_spec=list_urn,
-                to_spec=item_urn,
-                edge_type=LiveMachinePlanEdgeType.FOR_EACH,
-                input_cardinality=InputCardinality.SEQUENCE,
-                output_cardinality=InputCardinality.SINGLE,
-            )
-            self._edges.append(foreach_edge)
-            self._outgoing[list_canonical].append(foreach_idx)
-            self._incoming[item_canonical].append(foreach_idx)
-            self._nodes.add(item_canonical)
+        For Cap edges:
+          - If is_sequence and not edge.input_is_sequence: skip (needs ForEach first).
+          - Otherwise: include with out_is_sequence = edge.output_is_sequence.
 
-            # Collect: item → list
-            collect_idx = len(self._edges)
-            collect_edge = LiveMachinePlanEdge(
-                from_spec=item_urn,
-                to_spec=list_urn,
-                edge_type=LiveMachinePlanEdgeType.COLLECT,
-                input_cardinality=InputCardinality.SINGLE,
-                output_cardinality=InputCardinality.SEQUENCE,
-            )
-            self._edges.append(collect_edge)
-            self._outgoing[item_canonical].append(collect_idx)
-            self._incoming[list_canonical].append(collect_idx)
-
-        # WrapInList: for each non-list node that has a list counterpart in targets
-        non_list_nodes = [n for n in self._nodes if "list" not in n]
-        for item_canonical in non_list_nodes:
-            item_urn = MediaUrn.from_string(item_canonical)
-            list_urn = item_urn.with_list()
-            list_canonical = str(list_urn)
-
-            if list_canonical in self._nodes:
-                wrap_idx = len(self._edges)
-                wrap_edge = LiveMachinePlanEdge(
-                    from_spec=item_urn,
-                    to_spec=list_urn,
-                    edge_type=LiveMachinePlanEdgeType.WRAP_IN_LIST,
-                    input_cardinality=InputCardinality.SINGLE,
-                    output_cardinality=InputCardinality.SEQUENCE,
-                )
-                self._edges.append(wrap_edge)
-                self._outgoing[item_canonical].append(wrap_idx)
-                self._incoming[list_canonical].append(wrap_idx)
-
-    def _get_outgoing_edges(self, source: MediaUrn) -> List[LiveMachinePlanEdge]:
-        """Get all edges reachable from this source (using conforms_to for traversal)."""
-        results = []
-        source_is_list = source.is_list()
+        Synthesizes a ForEach edge when is_sequence=True and there is at least
+        one Cap edge with not input_is_sequence whose from_spec source conforms to.
+        """
+        results: List[Tuple[LiveMachinePlanEdge, bool]] = []
+        needs_foreach = False
 
         for edge in self._edges:
-            edge_expects_list = edge.from_spec.is_list()
+            if edge.edge_type != LiveMachinePlanEdgeType.CAP:
+                continue
+            if not source.conforms_to(edge.from_spec):
+                continue
+            if is_sequence and not edge.input_is_sequence:
+                # Sequence data reaching a scalar cap — ForEach must be synthesized.
+                needs_foreach = True
+                continue
+            results.append((edge, edge.output_is_sequence))
 
-            # Cardinality compatibility check
-            if edge.edge_type == LiveMachinePlanEdgeType.CAP:
-                if edge_expects_list != source_is_list:
-                    continue
-            elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
-                if not (source_is_list and not edge.to_spec.is_list()):
-                    continue
-            elif edge.edge_type in (LiveMachinePlanEdgeType.COLLECT, LiveMachinePlanEdgeType.WRAP_IN_LIST):
-                if not (not source_is_list and edge.to_spec.is_list()):
-                    continue
-
-            # Media type compatibility
-            if source.conforms_to(edge.from_spec):
-                results.append(edge)
+        # Synthesize a ForEach edge so path finding can iterate into scalar caps.
+        if is_sequence and needs_foreach:
+            synthetic = LiveMachinePlanEdge(
+                from_spec=source,
+                to_spec=source,
+                edge_type=LiveMachinePlanEdgeType.FOR_EACH,
+            )
+            results.append((synthetic, False))
 
         return results
 
     def get_reachable_targets(
         self,
         source: MediaUrn,
+        is_sequence: bool,
         max_depth: int = 10,
     ) -> List[ReachableTargetInfo]:
         """BFS reachability from source. Returns unique reachable targets."""
+        # visited_nodes tracks (canonical, is_sequence) pairs to avoid re-expansion.
+        visited_nodes: Set[Tuple[str, bool]] = set()
+        # visited maps canonical string → ReachableTargetInfo for deduplication.
         visited: Dict[str, ReachableTargetInfo] = {}
         queue: deque = deque()
 
         # Seed with outgoing edges from source
-        for edge in self._get_outgoing_edges(source):
-            target_key = str(edge.to_spec)
-            queue.append((edge.to_spec, 1))
+        for edge, out_seq in self._get_outgoing_edges(source, is_sequence):
+            queue.append((edge.to_spec, out_seq, 1))
 
         while queue:
-            current_urn, depth = queue.popleft()
+            current_urn, cur_is_seq, depth = queue.popleft()
             if depth > max_depth:
                 continue
 
-            current_key = str(current_urn)
+            node_key = (str(current_urn), cur_is_seq)
+            if node_key in visited_nodes:
+                current_key = str(current_urn)
+                if current_key in visited:
+                    info = visited[current_key]
+                    info.path_count += 1
+                    if depth < info.min_path_length:
+                        info.min_path_length = depth
+                continue
+            visited_nodes.add(node_key)
 
+            current_key = str(current_urn)
             if current_key in visited:
                 info = visited[current_key]
                 info.path_count += 1
                 if depth < info.min_path_length:
                     info.min_path_length = depth
-                continue
+            else:
+                visited[current_key] = ReachableTargetInfo(
+                    media_spec=current_urn,
+                    display_name=current_key,
+                    min_path_length=depth,
+                    path_count=1,
+                )
 
-            visited[current_key] = ReachableTargetInfo(
-                media_spec=current_urn,
-                display_name=current_key,
-                min_path_length=depth,
-                path_count=1,
-            )
-
-            # Explore next edges
-            for edge in self._get_outgoing_edges(current_urn):
-                queue.append((edge.to_spec, depth + 1))
+            for edge, out_seq in self._get_outgoing_edges(current_urn, cur_is_seq):
+                queue.append((edge.to_spec, out_seq, depth + 1))
 
         # Sort: min_path_length ascending, then display_name
         results = sorted(
@@ -412,75 +429,28 @@ class LiveCapGraph:
         self,
         source: MediaUrn,
         target: MediaUrn,
+        is_sequence: bool,
         max_depth: int = 10,
         max_paths: int = 20,
     ) -> List[Strand]:
-        """DFS path finding with exact target matching (is_equivalent)."""
+        """Iterative deepening DFS path finding with exact target matching (is_equivalent)."""
         results: List[Strand] = []
 
-        def dfs(
-            current: MediaUrn,
-            path: List[LiveMachinePlanEdge],
-            visited_edges: Set[int],
-            depth: int,
-        ):
+        for depth_limit in range(1, max_depth + 1):
             if len(results) >= max_paths:
-                return
-            if depth > max_depth:
-                return
-
-            # Check if we've reached the target (exact match)
-            if current.is_equivalent(target):
-                # Build Strand from edge path
-                steps = []
-                cap_count = 0
-                for edge in path:
-                    step = self._edge_to_step(edge)
-                    steps.append(step)
-                    if step.is_cap():
-                        cap_count += 1
-
-                if cap_count > 0:  # Must have at least one real cap step
-                    titles = [s.title() for s in steps if s.is_cap()]
-                    desc = " → ".join(titles)
-                    results.append(Strand(
-                        steps=steps,
-                        source_spec=source,
-                        target_spec=target,
-                        total_steps=len(steps),
-                        cap_step_count=cap_count,
-                        description=desc,
-                    ))
-                return
-
-            # Explore outgoing edges
-            for i, edge in enumerate(self._edges):
-                if i in visited_edges:
-                    continue
-
-                # Check if this edge is reachable from current
-                source_is_list = current.is_list()
-                edge_expects_list = edge.from_spec.is_list()
-
-                if edge.edge_type == LiveMachinePlanEdgeType.CAP:
-                    if edge_expects_list != source_is_list:
-                        continue
-                elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
-                    if not (source_is_list and not edge.to_spec.is_list()):
-                        continue
-                elif edge.edge_type in (LiveMachinePlanEdgeType.COLLECT, LiveMachinePlanEdgeType.WRAP_IN_LIST):
-                    if not (not source_is_list and edge.to_spec.is_list()):
-                        continue
-
-                if not current.conforms_to(edge.from_spec):
-                    continue
-
-                new_visited = visited_edges | {i}
-                path.append(edge)
-                dfs(edge.to_spec, path, new_visited, depth + 1)
-                path.pop()
-
-        dfs(source, [], set(), 0)
+                break
+            visited: Set[Tuple[str, bool]] = set()
+            self._iddfs_find(
+                original_source=source,
+                current=source,
+                target=target,
+                is_sequence=is_sequence,
+                path=[],
+                visited=visited,
+                depth_limit=depth_limit,
+                max_paths=max_paths,
+                results=results,
+            )
 
         # Sort paths: cap_step_count ascending, total_specificity descending, cap URNs lexicographic
         results.sort(key=lambda p: (
@@ -490,6 +460,141 @@ class LiveCapGraph:
         ))
 
         return results
+
+    def find_paths_streaming(
+        self,
+        source: MediaUrn,
+        target: MediaUrn,
+        is_sequence: bool,
+        max_depth: int,
+        max_paths: int,
+        cancelled: Optional[threading.Event],
+        on_event: Callable[[PathFindingEvent], None],
+    ) -> List[Strand]:
+        """Iterative deepening DFS that streams events to on_event.
+
+        cancelled: a threading.Event that, if set, will stop the search.
+        on_event: called with PathFindingEventDepthComplete after each depth,
+                  PathFindingEventPathFound for each found path (after sort),
+                  and PathFindingEventComplete at the end.
+        """
+        results: List[Strand] = []
+        total_nodes_explored = 0
+
+        for depth_limit in range(1, max_depth + 1):
+            if len(results) >= max_paths:
+                break
+            if cancelled is not None and cancelled.is_set():
+                break
+
+            visited: Set[Tuple[str, bool]] = set()
+            paths_before = len(results)
+
+            self._iddfs_find(
+                original_source=source,
+                current=source,
+                target=target,
+                is_sequence=is_sequence,
+                path=[],
+                visited=visited,
+                depth_limit=depth_limit,
+                max_paths=max_paths,
+                results=results,
+            )
+
+            nodes_this_depth = len(visited)
+            total_nodes_explored += nodes_this_depth
+            paths_this_depth = len(results) - paths_before
+
+            on_event(PathFindingEventDepthComplete(
+                depth=depth_limit,
+                max_depth=max_depth,
+                nodes_explored=nodes_this_depth,
+                paths_found=paths_this_depth,
+            ))
+
+        # Sort
+        results.sort(key=lambda p: (
+            p.cap_step_count,
+            -sum(s.specificity() for s in p.steps),
+            [str(s.get_cap_urn()) for s in p.steps if s.is_cap()],
+        ))
+
+        on_event(PathFindingEventComplete(
+            total_paths=len(results),
+            total_nodes_explored=total_nodes_explored,
+        ))
+
+        for p in results:
+            on_event(PathFindingEventPathFound(path=p))
+
+        return results
+
+    def _iddfs_find(
+        self,
+        original_source: MediaUrn,
+        current: MediaUrn,
+        target: MediaUrn,
+        is_sequence: bool,
+        path: List[LiveMachinePlanEdge],
+        visited: Set[Tuple[str, bool]],
+        depth_limit: int,
+        max_paths: int,
+        results: List[Strand],
+    ) -> None:
+        """Depth-limited DFS from current toward target."""
+        if len(results) >= max_paths:
+            return
+
+        vk = (str(current), is_sequence)
+        if vk in visited:
+            return
+        visited.add(vk)
+
+        try:
+            if current.is_equivalent(target):
+                steps = []
+                cap_count = 0
+                for edge in path:
+                    step = self._edge_to_step(edge)
+                    steps.append(step)
+                    if step.is_cap():
+                        cap_count += 1
+
+                if cap_count > 0:
+                    titles = [s.title() for s in steps if s.is_cap()]
+                    desc = " → ".join(titles)
+                    results.append(Strand(
+                        steps=steps,
+                        source_spec=original_source,
+                        target_spec=target,
+                        total_steps=len(steps),
+                        cap_step_count=cap_count,
+                        description=desc,
+                    ))
+                return
+
+            if depth_limit == 0:
+                return
+
+            for edge, out_seq in self._get_outgoing_edges(current, is_sequence):
+                if len(results) >= max_paths:
+                    return
+                path.append(edge)
+                self._iddfs_find(
+                    original_source=original_source,
+                    current=edge.to_spec,
+                    target=target,
+                    is_sequence=out_seq,
+                    path=path,
+                    visited=visited,
+                    depth_limit=depth_limit - 1,
+                    max_paths=max_paths,
+                    results=results,
+                )
+                path.pop()
+        finally:
+            visited.discard(vk)
 
     def _edge_to_step(self, edge: LiveMachinePlanEdge) -> StrandStep:
         """Convert a LiveMachinePlanEdge to a StrandStep."""
@@ -501,29 +606,21 @@ class LiveCapGraph:
                 cap_urn=edge.cap_urn,
                 step_title=edge.cap_title,
                 specificity_val=edge.specificity_val,
+                input_is_sequence=edge.input_is_sequence,
+                output_is_sequence=edge.output_is_sequence,
             )
         elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
             return StrandStep(
                 step_type=StrandStepType.FOR_EACH,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
-                list_spec=edge.from_spec,
-                item_spec=edge.to_spec,
+                media_spec=edge.from_spec,
             )
         elif edge.edge_type == LiveMachinePlanEdgeType.COLLECT:
             return StrandStep(
                 step_type=StrandStepType.COLLECT,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
-                item_spec=edge.from_spec,
-                list_spec=edge.to_spec,
-            )
-        elif edge.edge_type == LiveMachinePlanEdgeType.WRAP_IN_LIST:
-            return StrandStep(
-                step_type=StrandStepType.WRAP_IN_LIST,
-                from_spec=edge.from_spec,
-                to_spec=edge.to_spec,
-                item_spec=edge.from_spec,
-                list_spec=edge.to_spec,
+                media_spec=edge.from_spec,
             )
         raise ValueError(f"Unknown edge type: {edge.edge_type}")

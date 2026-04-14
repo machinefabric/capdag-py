@@ -39,17 +39,21 @@ MEDIA_OBJECT = "media:record"
 # Media URN for binary data (wildcard - matches everything)
 MEDIA_IDENTITY = "media:"
 
-# Array types - URNs must match base.toml definitions
-# Media URN for string array type - list marker, textable (no primary type prefix)
-MEDIA_STRING_ARRAY = "media:list;textable"
-# Media URN for integer array type - list marker, integer, numeric, textable (per base.toml:46)
-MEDIA_INTEGER_ARRAY = "media:integer;list;textable;numeric"
-# Media URN for number array type - list marker, numeric, textable (no primary type prefix)
-MEDIA_NUMBER_ARRAY = "media:list;textable;numeric"
-# Media URN for boolean array type - list marker, bool, textable (uses "bool" not "boolean" per base.toml)
-MEDIA_BOOLEAN_ARRAY = "media:bool;list;textable"
-# Media URN for object array type - list marker, record (each item has structure)
-MEDIA_OBJECT_ARRAY = "media:list;record"
+# List types - URNs must match base.toml definitions
+# Media URN for untyped list - ordered sequence of opaque byte sequences
+MEDIA_LIST = "media:list"
+# Media URN for textable list - ordered sequence of textable values
+MEDIA_TEXTABLE_LIST = "media:list;textable"
+# Media URN for string list type - list marker, textable (no primary type prefix)
+MEDIA_STRING_LIST = "media:list;textable"
+# Media URN for integer list type - list marker, integer, numeric, textable (per base.toml:46)
+MEDIA_INTEGER_LIST = "media:integer;list;textable;numeric"
+# Media URN for number list type - list marker, numeric, textable (no primary type prefix)
+MEDIA_NUMBER_LIST = "media:list;numeric;textable"
+# Media URN for boolean list type - list marker, bool, textable (uses "bool" not "boolean" per base.toml)
+MEDIA_BOOLEAN_LIST = "media:bool;list;textable"
+# Media URN for object list type - list marker, record (each item has structure)
+MEDIA_OBJECT_LIST = "media:list;record"
 
 # Semantic media types for specialized content
 # Media URN for PNG image data
@@ -62,8 +66,6 @@ MEDIA_VIDEO = "media:video"
 # Semantic AI input types - distinguished by their purpose/context
 # Media URN for audio input containing speech for transcription (Whisper)
 MEDIA_AUDIO_SPEECH = "media:audio;wav;speech"
-# Media URN for thumbnail image output
-MEDIA_IMAGE_THUMBNAIL = "media:image;png;thumbnail"
 
 # Document types (PRIMARY naming - type IS the format)
 # Media URN for PDF documents
@@ -91,15 +93,28 @@ MEDIA_JSON_SCHEMA = "media:json;json-schema;record;textable"
 # Media URN for YAML data
 MEDIA_YAML = "media:record;textable;yaml"
 
+# Format-specific variants for JSON, YAML, CSV
+MEDIA_JSON_VALUE = "media:json;textable"
+MEDIA_JSON_RECORD = "media:json;record;textable"
+MEDIA_JSON_LIST = "media:json;list;textable"
+MEDIA_JSON_LIST_RECORD = "media:json;list;record;textable"
+MEDIA_YAML_VALUE = "media:textable;yaml"
+MEDIA_YAML_RECORD = "media:record;textable;yaml"
+MEDIA_YAML_LIST = "media:list;textable;yaml"
+MEDIA_YAML_LIST_RECORD = "media:list;record;textable;yaml"
+MEDIA_CSV = "media:csv;list;record;textable"
+MEDIA_CSV_LIST = "media:csv;list;textable"
+
 # File path types - for arguments that represent filesystem paths
 # Media URN for a single file path - textable, scalar, and marked as a file-path for special handling
 MEDIA_FILE_PATH = "media:file-path;textable"
 # Media URN for an array of file paths - textable, list (per file-path.toml)
 MEDIA_FILE_PATH_ARRAY = "media:file-path;list;textable"
 
+# Media URN for extracted page text
+MEDIA_TEXTABLE_PAGE = "media:textable;page"
+
 # Semantic text input types - distinguished by their purpose/context
-# Media URN for frontmatter text (book metadata)
-MEDIA_FRONTMATTER_TEXT = "media:frontmatter;textable"
 # Media URN for model spec (provider:model format, HuggingFace name, etc.)
 # Generic, backend-agnostic — used by modelcartridge for download/status/path operations.
 MEDIA_MODEL_SPEC = "media:model-spec;textable"
@@ -157,20 +172,12 @@ MEDIA_PATH_OUTPUT = "media:model-path;record;textable"
 MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;record;textable"
 # Media URN for LLM inference output - record structure
 MEDIA_LLM_INFERENCE_OUTPUT = "media:generated-text;record;textable"
-# Media URN for extracted metadata - record structure
-MEDIA_FILE_METADATA = "media:file-metadata;record;textable"
-# Media URN for extracted outline - record structure
-MEDIA_DOCUMENT_OUTLINE = "media:document-outline;record;textable"
-# Media URN for disbound page - list (array of page objects)
-MEDIA_DISBOUND_PAGE = "media:disbound-page;list;textable"
 # Media URN for image description output - textable (renamed from MEDIA_CAPTION_OUTPUT)
 MEDIA_IMAGE_DESCRIPTION = "media:image-description;textable"
 # Media URN for transcription output - record structure
 MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG
-MEDIA_DECISION = "media:bool;decision;textable"
-# Media URN for decision array output (Make Multiple Decisions) - matches CATALOG
-MEDIA_DECISION_ARRAY = "media:bool;decision;list;textable"
+MEDIA_DECISION = "media:decision;json;record;textable"
 
 
 # Helper functions to build media URNs
@@ -257,20 +264,6 @@ class MediaUrn:
         """Create a new MediaUrn without a specific tag"""
         new_urn = self._urn.without_tag(key)
         return MediaUrn(new_urn)
-
-    def with_list(self) -> "MediaUrn":
-        """Create a new MediaUrn with the list marker tag added.
-        Returns a new URN representing a list of this media type.
-        Idempotent — adding list to an already-list URN is a no-op.
-        """
-        return self.with_tag("list", "*")
-
-    def without_list(self) -> "MediaUrn":
-        """Create a new MediaUrn with the list marker tag removed.
-        Returns a new URN representing a scalar of this media type.
-        No-op if list tag is absent.
-        """
-        return self.without_tag("list")
 
     @staticmethod
     def least_upper_bound(urns: "List[MediaUrn]") -> "MediaUrn":
@@ -380,7 +373,8 @@ class MediaUrn:
         return not self.has_marker_tag("list")
 
     def is_list(self) -> bool:
-        """Check if this media URN represents a list/array.
+        """Check if this media URN has list as a semantic data format tag.
+        This is a semantic type check about data format, NOT cardinality.
         Returns True if the "list" marker tag is present."""
         return self.has_marker_tag("list")
 
@@ -398,6 +392,14 @@ class MediaUrn:
         """Check if this media URN represents JSON data (json marker tag)"""
         tag_val = self._urn.get_tag("json")
         return tag_val is not None
+
+    def is_yaml(self) -> bool:
+        """Check if this media URN represents YAML data (yaml marker tag)"""
+        return self.has_marker_tag("yaml")
+
+    def is_csv(self) -> bool:
+        """Check if this media URN represents CSV data (csv marker tag)"""
+        return self.has_marker_tag("csv")
 
     def is_text(self) -> bool:
         """Check if this media URN represents textable data (textable marker tag)"""

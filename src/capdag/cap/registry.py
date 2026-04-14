@@ -392,6 +392,37 @@ class CapRegistry:
         with self.cache_lock:
             return list(self.cached_caps.values())
 
+    def get_cached_cap(self, urn: str) -> Optional[Cap]:
+        """Look up a single cap in the in-memory cache (synchronous, no network).
+
+        Returns the cap if currently cached, None otherwise. The URN is normalized
+        so the lookup matches the same canonical-form keying that get_cap uses on
+        insertion. There is no fallback to the network or the on-disk cache loader —
+        this is a pure in-memory probe suitable for hot paths where blocking on I/O
+        is not acceptable.
+
+        Mirrors MediaUrnRegistry.get_cached_spec in shape so both registries expose
+        the same sync cache-only access pattern.
+        """
+        normalized_urn = normalize_cap_urn(urn)
+        with self.cache_lock:
+            return self.cached_caps.get(normalized_urn)
+
+    def ensure_identity_cap(self) -> None:
+        """Install the mandatory identity cap into the in-memory cache if not already present.
+
+        This is idempotent — calling it multiple times is safe. The identity cap is
+        mandatory in every capability set so the resolver's source-to-cap-arg matching
+        can route through identity in any notation, matching the production invariant.
+        """
+        from capdag.standard.caps import identity_cap
+        identity = identity_cap()
+        urn = identity.urn_string()
+        normalized_urn = normalize_cap_urn(urn)
+        with self.cache_lock:
+            if normalized_urn not in self.cached_caps:
+                self.cached_caps[normalized_urn] = identity
+
     async def validate_cap(self, cap: Cap) -> None:
         """Validate a local cap against its canonical definition
 
@@ -457,9 +488,11 @@ class CapRegistry:
 
     @classmethod
     def new_for_test(cls) -> "CapRegistry":
-        """Create an empty registry for testing purposes
+        """Create an empty registry for testing purposes.
 
-        This is a synchronous constructor that doesn't perform any initialization.
+        The mandatory identity cap is auto-installed so the resolver's
+        source-to-cap-arg matching can route through identity in any notation,
+        matching the production CapRegistry invariant.
         Intended for use in tests only.
         """
         cache_dir = Path("/tmp/capdag-test-cache")
@@ -467,12 +500,15 @@ class CapRegistry:
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
 
-        return cls(cache_dir, RegistryConfig(), client)
+        registry = cls(cache_dir, RegistryConfig(), client)
+        registry.ensure_identity_cap()
+        return registry
 
     @classmethod
     def new_for_test_with_config(cls, config: RegistryConfig) -> "CapRegistry":
-        """Create a registry for testing with a custom configuration
+        """Create a registry for testing with a custom configuration.
 
+        The mandatory identity cap is auto-installed (see new_for_test).
         Intended for use in tests only.
         """
         cache_dir = Path("/tmp/capdag-test-cache")
@@ -480,7 +516,9 @@ class CapRegistry:
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
 
-        return cls(cache_dir, config, client)
+        registry = cls(cache_dir, config, client)
+        registry.ensure_identity_cap()
+        return registry
 
     def add_caps_to_cache(self, caps: List[Cap]) -> None:
         """Add caps to the in-memory cache for testing purposes

@@ -162,6 +162,7 @@ class CapArg:
     arg_description: Optional[str] = None
     default_value: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
+    is_sequence: bool = False
 
     @classmethod
     def with_full_definition(
@@ -172,6 +173,7 @@ class CapArg:
         arg_description: Optional[str] = None,
         default_value: Optional[Any] = None,
         metadata: Optional[Any] = None,
+        is_sequence: bool = False,
     ) -> "CapArg":
         """Create a CapArg with all fields set"""
         return cls(
@@ -181,6 +183,7 @@ class CapArg:
             arg_description=arg_description,
             default_value=default_value,
             metadata=metadata,
+            is_sequence=is_sequence,
         )
 
     def get_media_urn(self) -> str:
@@ -212,6 +215,8 @@ class CapArg:
             result["default_value"] = self.default_value
         if self.metadata is not None:
             result["metadata"] = self.metadata
+        if self.is_sequence:
+            result["is_sequence"] = self.is_sequence
         return result
 
     @classmethod
@@ -224,6 +229,7 @@ class CapArg:
             arg_description=data.get("arg_description"),
             default_value=data.get("default_value"),
             metadata=data.get("metadata"),
+            is_sequence=data.get("is_sequence", False),
         )
 
 
@@ -234,6 +240,7 @@ class CapOutput:
     media_urn: str
     output_description: str
     metadata: Optional[Dict[str, Any]] = None
+    is_sequence: bool = False
 
     @classmethod
     def with_full_definition(
@@ -241,12 +248,14 @@ class CapOutput:
         media_urn: str,
         output_description: str,
         metadata: Optional[Any] = None,
+        is_sequence: bool = False,
     ) -> "CapOutput":
         """Create a CapOutput with all fields set"""
         return cls(
             media_urn=media_urn,
             output_description=output_description,
             metadata=metadata,
+            is_sequence=is_sequence,
         )
 
     def get_media_urn(self) -> str:
@@ -273,6 +282,8 @@ class CapOutput:
         }
         if self.metadata is not None:
             result["metadata"] = self.metadata
+        if self.is_sequence:
+            result["is_sequence"] = self.is_sequence
         return result
 
     @classmethod
@@ -282,6 +293,7 @@ class CapOutput:
             media_urn=data["media_urn"],
             output_description=data["output_description"],
             metadata=data.get("metadata"),
+            is_sequence=data.get("is_sequence", False),
         )
 
 
@@ -307,6 +319,7 @@ class Cap:
         self.title = title
         self.command = command
         self.cap_description: Optional[str] = None
+        self.documentation: Optional[str] = None
         self.args: List[CapArg] = []
         self.output: Optional[CapOutput] = None
         self.metadata: Dict[str, str] = {}
@@ -349,10 +362,12 @@ class Cap:
         args: List[CapArg],
         output: Optional[CapOutput] = None,
         metadata_json: Optional[Any] = None,
+        documentation: Optional[str] = None,
     ) -> "Cap":
         """Create a Cap with all fields set"""
         cap = cls(urn, title, command)
         cap.cap_description = cap_description
+        cap.documentation = documentation
         cap.metadata = metadata
         cap.args = args
         cap.output = output
@@ -388,6 +403,18 @@ class Cap:
     def set_description(self, description: str):
         """Set the capability description"""
         self.cap_description = description
+
+    def get_documentation(self) -> Optional[str]:
+        """Get the documentation string"""
+        return self.documentation
+
+    def set_documentation(self, documentation: str) -> None:
+        """Set the documentation string"""
+        self.documentation = documentation
+
+    def clear_documentation(self) -> None:
+        """Clear the documentation string"""
+        self.documentation = None
 
     def has_metadata(self, key: str) -> bool:
         """Check if metadata key exists"""
@@ -486,6 +513,9 @@ class Cap:
         if self.cap_description is not None:
             result["cap_description"] = self.cap_description
 
+        if self.documentation is not None:
+            result["documentation"] = self.documentation
+
         if self.args:
             result["args"] = [arg.to_dict() for arg in self.args]
 
@@ -517,6 +547,9 @@ class Cap:
 
         if "cap_description" in data:
             cap.cap_description = data["cap_description"]
+
+        if "documentation" in data:
+            cap.documentation = data["documentation"]
 
         if "args" in data:
             cap.args = [CapArg.from_dict(a) for a in data["args"]]

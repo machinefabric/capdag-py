@@ -206,7 +206,7 @@ class MachinePlanBuilder:
         # Build file-path info: cap_urn -> (file_path_arg_name, stdin_chainable)
         file_path_info: Dict[str, Tuple[Optional[str], bool]] = {}
         for step in path.steps:
-            cap_urn = step.cap_urn()
+            cap_urn = step.get_cap_urn()
             if cap_urn is None:
                 continue
             cap_urn_str = str(cap_urn)
@@ -230,8 +230,8 @@ class MachinePlanBuilder:
         for i, step in enumerate(path.steps):
             node_id = f"step_{i}"
 
-            if step.step_type.kind == StrandStepType.CAP:
-                cap_urn_str = str(step.step_type.cap_urn_val)
+            if step.step_type == StrandStepType.CAP:
+                cap_urn_str = str(step.cap_urn)
                 bindings = ArgumentBindings()
 
                 cap = next((c for c in caps if str(c.urn) == cap_urn_str), None)
@@ -282,7 +282,7 @@ class MachinePlanBuilder:
                 else:
                     cap_step_count += 1
 
-            elif step.step_type.kind == StrandStepType.FOR_EACH:
+            elif step.step_type == StrandStepType.FOR_EACH:
                 # If already inside a ForEach body (nested), finalize the outer ForEach
                 if inside_foreach_body is not None:
                     outer_foreach_idx, outer_foreach_node_id = inside_foreach_body
@@ -315,7 +315,7 @@ class MachinePlanBuilder:
                 body_exit = None
                 continue  # skip prev_node_id = node_id
 
-            elif step.step_type.kind == StrandStepType.COLLECT:
+            elif step.step_type == StrandStepType.COLLECT:
                 if inside_foreach_body is not None:
                     foreach_idx, foreach_node_id = inside_foreach_body
                     entry = body_entry if body_entry is not None else prev_node_id
@@ -338,14 +338,6 @@ class MachinePlanBuilder:
                     body_exit = None
                 else:
                     raise InvalidPathError("Collect step without matching ForEach")
-
-            elif step.step_type.kind == StrandStepType.WRAP_IN_LIST:
-                plan.add_node(MachineNode.wrap_in_list(
-                    node_id,
-                    str(step.step_type.item_spec),
-                    str(step.step_type.list_spec),
-                ))
-                plan.add_edge(MachinePlanEdge.direct(prev_node_id, node_id))
 
             prev_node_id = node_id
 
@@ -405,7 +397,7 @@ class MachinePlanBuilder:
         cap_step_index = 0
 
         for i, step in enumerate(path.steps):
-            cap_urn = step.cap_urn()
+            cap_urn = step.get_cap_urn()
             if cap_urn is None:
                 continue
 

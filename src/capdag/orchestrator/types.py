@@ -5,7 +5,6 @@ Mirrors Rust's orchestrator/types.rs exactly.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from capdag.cap.definition import Cap
@@ -182,15 +181,6 @@ class ResolvedGraph:
         return f"ResolvedGraph(nodes={len(self.nodes)}, edges={len(self.edges)})"
 
 
-# --- Registry trait ---
-
-class CapRegistryTrait(ABC):
-    """Abstract interface for cap registry lookup.
-
-    Implementations must provide async lookup of caps by URN string.
-    """
-
-    @abstractmethod
-    async def lookup(self, urn: str) -> Cap:
-        """Look up a cap by URN string. Raises ParseOrchestrationError on failure."""
-        ...
+# CapRegistryTrait is gone. The orchestrator parser and plan converter take
+# CapRegistry directly. Tests use CapRegistry.new_for_test() +
+# ensure_identity_cap() / add_caps_to_cache() instead of a hand-built mock.

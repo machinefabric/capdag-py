@@ -83,10 +83,19 @@ class SocketPair:
 
 
 @dataclass
+class InstalledCartridgeIdentity:
+    """Identity of an installed cartridge"""
+    id: str
+    version: str
+    sha256: str
+
+
+@dataclass
 class RoutingEntry:
     """Routing entry for request tracking"""
     source_master_idx: int  # Index of source master (ENGINE_SOURCE for engine-initiated)
     destination_master_idx: int  # Index of destination master
+    request_id: MessageId  # original MessageId for cancel frames
 
 
 @dataclass
@@ -127,7 +136,9 @@ class RelaySwitch:
         self._cap_table: List[Tuple[str, int]] = []  # (cap_urn, master_idx)
         self._request_routing: Dict[str, RoutingEntry] = {}
         self._peer_requests: set = set()  # Request IDs for peer-initiated requests
+        self._peer_call_parents: Dict[str, List[str]] = {}  # parent key → list of child peer-call keys
         self._aggregate_capabilities: bytes = b""
+        self._aggregate_installed_cartridges: List[InstalledCartridgeIdentity] = []
         self._negotiated_limits: Limits = Limits.default()
         self._lock = threading.Lock()
 
@@ -150,7 +161,7 @@ class RelaySwitch:
             if manifest is None or limits is None:
                 raise ProtocolError("RelayNotify missing manifest or limits")
 
-            caps = _parse_capabilities_from_manifest(manifest)
+            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
 
             # Spawn reader thread for this master
             reader_thread = threading.Thread(
@@ -165,6 +176,7 @@ class RelaySwitch:
                 manifest=manifest,
                 limits=limits,
                 caps=caps,
+                installed_cartridges=installed_cartridges,
                 healthy=True,
                 reader_handle=reader_thread
             )
@@ -173,6 +185,7 @@ class RelaySwitch:
         # Build initial routing tables
         self._rebuild_cap_table()
         self._rebuild_capabilities()
+        self._rebuild_installed_cartridges()
         self._rebuild_limits()
 
     def _reader_loop(self, master_idx: int, reader: FrameReader):
@@ -191,12 +204,14 @@ class RelaySwitch:
                         manifest = frame.relay_notify_manifest()
                         limits = frame.relay_notify_limits()
                         if manifest is not None and limits is not None:
-                            caps = _parse_capabilities_from_manifest(manifest)
+                            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
                             self._masters[master_idx].manifest = manifest
                             self._masters[master_idx].limits = limits
                             self._masters[master_idx].caps = caps
+                            self._masters[master_idx].installed_cartridges = installed_cartridges
                             self._rebuild_cap_table()
                             self._rebuild_capabilities()
+                            self._rebuild_installed_cartridges()
                             self._rebuild_limits()
                     continue
 
@@ -214,6 +229,65 @@ class RelaySwitch:
         """Get negotiated limits (minimum across all masters)"""
         with self._lock:
             return self._negotiated_limits
+
+    def installed_cartridges(self) -> List[InstalledCartridgeIdentity]:
+        """Get aggregate installed cartridge identities of all healthy masters"""
+        with self._lock:
+            return list(self._aggregate_installed_cartridges)
+
+    def cancel_request(self, rid: MessageId, force_kill: bool) -> None:
+        """Cancel a specific in-flight request by request ID.
+
+        Sends Cancel frame to the destination master, cascades to child peer calls,
+        and cleans up all routing maps.
+        """
+        with self._lock:
+            self._cancel_request_locked(rid.to_string(), force_kill)
+
+    def _cancel_request_locked(self, rid_key: str, force_kill: bool) -> None:
+        """Cancel a request. Must be called with self._lock held."""
+        entry = self._request_routing.get(rid_key)
+        if entry is None:
+            return
+
+        dest_idx = entry.destination_master_idx
+        rid = entry.request_id
+
+        # Build and send cancel frame to destination
+        cancel_frame = Frame.cancel(rid, force_kill)
+        try:
+            self._masters[dest_idx].socket_writer.write(cancel_frame)
+        except Exception:
+            pass
+
+        # Collect child peer calls for recursive cancel
+        children = self._peer_call_parents.pop(rid_key, [])
+
+        # Recursively cancel children
+        for child_key in children:
+            self._cancel_request_locked(child_key, force_kill)
+
+        # Cleanup routing maps
+        self._request_routing.pop(rid_key, None)
+        self._peer_requests.discard(rid_key)
+
+    def cancel_all_requests(self, force_kill: bool) -> List[MessageId]:
+        """Cancel all external-origin (engine-initiated) in-flight requests.
+
+        Returns the list of cancelled request IDs.
+        """
+        with self._lock:
+            # Snapshot all engine-origin entries before mutating
+            engine_entries = [
+                (key, entry)
+                for key, entry in self._request_routing.items()
+                if entry.source_master_idx == ENGINE_SOURCE
+            ]
+
+            for key, entry in engine_entries:
+                self._cancel_request_locked(key, force_kill)
+
+            return [entry.request_id for _, entry in engine_entries]
 
     def send_to_master(self, frame: Frame, preferred_cap: Optional[str] = None) -> None:
         """Send a frame to the appropriate master (engine → cartridge direction)
@@ -241,7 +315,8 @@ class RelaySwitch:
                 # Register routing (source = engine)
                 self._request_routing[frame.id.to_string()] = RoutingEntry(
                     source_master_idx=ENGINE_SOURCE,
-                    destination_master_idx=dest_idx
+                    destination_master_idx=dest_idx,
+                    request_id=frame.id,
                 )
 
                 self._masters[dest_idx].socket_writer.write(frame)
@@ -374,7 +449,8 @@ class RelaySwitch:
                 # Register routing (source = cartridge's master)
                 self._request_routing[frame.id.to_string()] = RoutingEntry(
                     source_master_idx=source_idx,
-                    destination_master_idx=dest_idx
+                    destination_master_idx=dest_idx,
+                    request_id=frame.id,
                 )
                 self._peer_requests.add(frame.id.to_string())
 
@@ -418,20 +494,21 @@ class RelaySwitch:
 
             self._masters[master_idx].healthy = False
 
-            # ERR all pending requests to this master
+            # Cleanup routing for all requests destined to this master
             to_remove = []
             for req_id, entry in self._request_routing.items():
                 if entry.destination_master_idx == master_idx:
-                    # TODO: Send ERR to source
                     to_remove.append(req_id)
 
             for req_id in to_remove:
                 del self._request_routing[req_id]
                 self._peer_requests.discard(req_id)
+                self._peer_call_parents.pop(req_id, None)
 
             # Rebuild cap table without dead master
             self._rebuild_cap_table()
             self._rebuild_capabilities()
+            self._rebuild_installed_cartridges()
             self._rebuild_limits()
 
     def _rebuild_cap_table(self):
@@ -441,6 +518,20 @@ class RelaySwitch:
             if master.healthy:
                 for cap in master.caps:
                     self._cap_table.append((cap, idx))
+
+    def _rebuild_installed_cartridges(self):
+        """Rebuild aggregate installed cartridges (union with deduplication, sorted)"""
+        seen: Dict[str, bool] = {}
+        result: List[InstalledCartridgeIdentity] = []
+        for master in self._masters:
+            if master.healthy:
+                for ic in master.installed_cartridges:
+                    key = ic.id + "@" + ic.version
+                    if key not in seen:
+                        seen[key] = True
+                        result.append(ic)
+        result.sort(key=lambda ic: (ic.id, ic.version))
+        self._aggregate_installed_cartridges = result
 
     def _rebuild_capabilities(self):
         """Rebuild aggregate capabilities manifest (union with deduplication)"""
@@ -490,6 +581,7 @@ class _MasterConnection:
     manifest: bytes
     limits: Limits
     caps: List[str]
+    installed_cartridges: List[InstalledCartridgeIdentity]
     healthy: bool
     reader_handle: threading.Thread
 
@@ -498,13 +590,39 @@ class _MasterConnection:
 # HELPER FUNCTIONS
 # =============================================================================
 
-def _parse_capabilities_from_manifest(manifest: bytes) -> List[str]:
-    """Parse capability URNs from manifest JSON"""
+def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeIdentity]]:
+    """Parse capability URNs and installed cartridges from RelayNotify manifest JSON.
+
+    Tries "caps" first (new format), falls back to "capabilities" (old format).
+    Returns (caps, installed_cartridges).
+    """
     try:
         parsed = json.loads(manifest.decode("utf-8"))
-        caps_value = parsed.get("capabilities", [])
-        if not isinstance(caps_value, list):
-            raise ProtocolError(f"Manifest capabilities must be array, got {type(caps_value)}")
-        return [str(cap) for cap in caps_value]
     except json.JSONDecodeError as e:
         raise ProtocolError(f"Failed to parse manifest JSON: {e}")
+
+    # Try "caps" first (new format), fall back to "capabilities" (old format)
+    if "caps" in parsed:
+        caps_value = parsed["caps"]
+    elif "capabilities" in parsed:
+        caps_value = parsed["capabilities"]
+    else:
+        raise ProtocolError("manifest missing caps/capabilities array")
+
+    if not isinstance(caps_value, list):
+        raise ProtocolError(f"Manifest capabilities must be array, got {type(caps_value)}")
+    caps = [str(cap) for cap in caps_value]
+
+    installed_cartridges = []
+    if "installed_cartridges" in parsed:
+        ic_raw = parsed["installed_cartridges"]
+        if not isinstance(ic_raw, list):
+            raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
+        for item in ic_raw:
+            installed_cartridges.append(InstalledCartridgeIdentity(
+                id=str(item.get("id", "")),
+                version=str(item.get("version", "")),
+                sha256=str(item.get("sha256", "")),
+            ))
+
+    return caps, installed_cartridges

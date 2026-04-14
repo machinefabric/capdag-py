@@ -78,18 +78,16 @@ class InputCardinality(Enum):
         return CardinalityCompatibility.DIRECT
 
     def apply_to_urn(self, base_urn: str) -> str:
-        """Create a media URN with this cardinality from a base URN."""
-        media_urn = MediaUrn.from_string(base_urn)
-        has_list = media_urn.is_list()
+        """Validate the URN is parseable and return it unchanged.
 
-        if self in (InputCardinality.SINGLE, InputCardinality.AT_LEAST_ONE):
-            if has_list:
-                return str(media_urn.without_list())
-            return base_urn
-        else:  # SEQUENCE
-            if has_list:
-                return base_urn
-            return str(media_urn.with_list())
+        DEPRECATED: Cardinality is tracked by is_sequence on the wire protocol,
+        not by URN tags. This method is a no-op that returns the URN unchanged.
+        Fails hard on malformed input to expose issues rather than silently swallowing them.
+        """
+        # Validate — fail hard on broken input
+        MediaUrn.from_string(base_urn)
+        # Cardinality does not change the URN — shape is tracked by is_sequence
+        return base_urn
 
 
 class CardinalityCompatibility(Enum):
@@ -198,9 +196,13 @@ class MediaShape:
 
     @staticmethod
     def from_media_urn(urn_str: str) -> MediaShape:
-        """Parse complete shape from a media URN string."""
+        """Parse shape from a media URN string.
+
+        Cardinality defaults to Single — it comes from context (is_sequence on the wire),
+        not from the URN. Only structure (Opaque vs Record) is derived from the URN.
+        """
         return MediaShape(
-            cardinality=InputCardinality.from_media_urn(urn_str),
+            cardinality=InputCardinality.SINGLE,
             structure=InputStructure.from_media_urn(urn_str),
         )
 
