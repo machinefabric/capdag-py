@@ -575,6 +575,46 @@ class CapUrn:
     def __hash__(self) -> int:
         return hash((self.in_urn, self.out_urn, tuple(sorted(self.tags.items()))))
 
+    def _cmp_key(self) -> tuple:
+        """Return a comparison key for structural total ordering.
+
+        Ordering routes through the canonical string forms of the parsed
+        MediaUrn values for `in` / `out` (which are already canonicalized
+        at construction time), then the sorted tag items — exactly mirroring
+        the Rust `Ord` impl and Go `Less()`.
+
+        Using canonical strings rather than re-parsing through MediaUrn is
+        safe because `CapUrn.__init__` always canonicalizes `in_urn` /
+        `out_urn` on construction.  The sorted-tags tuple produces the same
+        lexicographic order as Rust's `BTreeMap<String,String>::cmp`.
+
+        This MUST NOT use the full `to_string()` form — that would collapse
+        the three comparison axes (in, out, tags) into one opaque string and
+        give wrong results for URNs whose canonical representations differ
+        only in tag ordering.
+        """
+        return (self.in_urn, self.out_urn, tuple(sorted(self.tags.items())))
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, CapUrn):
+            return NotImplemented
+        return self._cmp_key() < other._cmp_key()
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, CapUrn):
+            return NotImplemented
+        return self._cmp_key() <= other._cmp_key()
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, CapUrn):
+            return NotImplemented
+        return self._cmp_key() > other._cmp_key()
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, CapUrn):
+            return NotImplemented
+        return self._cmp_key() >= other._cmp_key()
+
 
 class CapMatcher:
     """Cap matching and selection utilities"""

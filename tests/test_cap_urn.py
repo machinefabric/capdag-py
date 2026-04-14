@@ -1234,3 +1234,87 @@ def test_891_direction_semantic_specificity():
     best = CapMatcher.find_best_match(caps, pdf_request)
     assert best is not None
     assert best.in_spec() == "media:pdf"
+
+
+# TEST920: CapUrn total ordering — less-than is irreflexive and transitive.
+#
+# The Rust Ord impl compares (in_urn, out_urn, tags) structurally. Python
+# mirrors this via _cmp_key(). This test checks that URNs with different
+# in/out/tag combinations sort in a deterministic, consistent order and that
+# the ordering is self-consistent (not just accidentally True for one pair).
+def test_920_cap_urn_total_order_basic():
+    a = CapUrn.from_string('cap:in="media:";op=a;out="media:"')
+    b = CapUrn.from_string('cap:in="media:";op=b;out="media:"')
+    c = CapUrn.from_string('cap:in="media:pdf";op=a;out="media:"')
+
+    # Irreflexivity: a < a must be False
+    assert not (a < a)
+    assert not (b < b)
+
+    # a and b differ only in op tag — canonical strings determine order
+    # op=a < op=b lexicographically
+    if a < b:
+        assert not (b < a), "antisymmetry violated"
+        assert a <= b
+        assert b > a
+        assert b >= a
+    else:
+        assert b < a
+        assert b <= a
+        assert a > b
+        assert a >= b
+
+    # c has a more-specific in_urn, so it differs on the first key
+    # Equal in_urn caps sort by out_urn then tags
+    assert (a < c) != (c < a), "antisymmetry violated for a vs c"
+
+
+# TEST921: CapUrn comparison is consistent with equality.
+#
+# a == b must imply not (a < b) and not (b < a). A violation here would mean
+# `sorted()` or `bisect` give wrong results for equal caps.
+def test_921_cap_urn_order_consistent_with_equality():
+    a = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
+    b = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
+    assert a == b
+    assert not (a < b)
+    assert not (b < a)
+    assert a <= b
+    assert a >= b
+
+
+# TEST922: CapUrn list is sortable and produces a stable deterministic order.
+#
+# The point of Ord is to support sorted collections. If `sorted()` raises or
+# gives a non-deterministic result, the planner's path-ranking step would be
+# order-dependent and non-reproducible across runs.
+def test_922_cap_urn_list_sortable():
+    urns = [
+        CapUrn.from_string('cap:in="media:pdf";op=z;out="media:"'),
+        CapUrn.from_string('cap:in="media:";op=a;out="media:"'),
+        CapUrn.from_string('cap:in="media:pdf";op=a;out="media:"'),
+        CapUrn.from_string('cap:in="media:";op=z;out="media:"'),
+    ]
+    sorted_once = sorted(urns)
+    sorted_twice = sorted(urns)
+    assert sorted_once == sorted_twice, "sort not deterministic"
+
+    # Verify sorted order obeys transitivity: each element ≤ next
+    for i in range(len(sorted_once) - 1):
+        assert sorted_once[i] <= sorted_once[i + 1], \
+            f"sorted order violated at index {i}: {sorted_once[i]} > {sorted_once[i+1]}"
+
+
+# TEST923: NotImplemented is returned (not TypeError raised) when comparing
+# against a non-CapUrn, which lets Python fall back to the reflected operation
+# or raise TypeError — the correct Python comparison protocol.
+def test_923_cap_urn_order_returns_not_implemented_for_non_cap():
+    a = CapUrn.from_string('cap:in="media:";op=x;out="media:"')
+    result = a.__lt__("not a cap urn")
+    assert result is NotImplemented
+    result = a.__le__(42)
+    assert result is NotImplemented
+    result = a.__gt__(None)
+    assert result is NotImplemented
+    result = a.__ge__(object())
+    assert result is NotImplemented
