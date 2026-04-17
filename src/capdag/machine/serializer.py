@@ -1,131 +1,99 @@
-"""Machine notation serializer — deterministic canonical form
+"""Machine notation serializer — deterministic canonical form.
 
-Converts a Machine to its machine notation string representation.
-The output is deterministic: the same graph always produces the same string.
+Converts a strand-based Machine to its machine notation string representation.
+The output is deterministic: the same machine always produces the same string.
 
-The canonical form is bracketed. Line-based format is available via
-to_machine_notation_formatted(graph, 'line-based').
+Serialization walks strands in order. Within each strand, edges are already in
+canonical topological order (as produced by the resolver). Node names are
+assigned per strand (scoped — two strands have disjoint NodeId spaces).
+Global node names across strands are deduplicated with a strand prefix.
 
 Alias Generation:
-Aliases are derived from the cap URN's op= tag value. If no op= tag
-exists, aliases are generated as edge_0, edge_1, etc. Duplicate
-aliases from identical op tags are disambiguated with numeric suffixes.
+    Aliases are derived from the cap URN's op= tag value. If no op= tag
+    exists, aliases are generated as edge_N. Duplicate aliases from identical
+    op tags are disambiguated with numeric suffixes (machine-global).
 
 Node Name Generation:
-Node names are generated deterministically from topological position.
-The first root source is n0, etc. Intermediate nodes get names based
-on their topological order.
+    Node names are generated deterministically from first-appearance order
+    within each strand, prefixed by strand index: s0n0, s0n1, ..., s1n0, ...
 
 Canonical Ordering:
-Edges are sorted by (cap_urn canonical string, sources canonical, target canonical)
-for stable output. Headers are emitted first (sorted by alias), then wirings
-in the same edge order.
+    Headers are emitted sorted by alias. Wirings follow in strand order,
+    then canonical edge order within each strand.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from capdag.machine.graph import MachineEdge, Machine
+from capdag.machine.graph import Machine, MachineStrand
 
 
 def _build_serialization_maps(
     graph: Machine,
-) -> Tuple[Dict[str, Tuple[int, str]], Dict[str, str], List[int]]:
-    """Build the alias map, node name map, and edge ordering for serialization.
+) -> Tuple[Dict[str, Tuple[int, int, str]], Dict[Tuple[int, int], str], List[Tuple[int, int]]]:
+    """Build alias map, node name map, and emission order for serialization.
 
     Returns:
-    - aliases: alias -> (edge_index, cap_urn_string)
-    - node_names: media_urn_canonical_string -> node_name
-    - edge_order: edge indices in canonical order
+    - aliases: alias -> (strand_idx, edge_idx_in_strand, cap_urn_string)
+    - node_names: (strand_idx, node_id) -> node_name
+    - emit_order: list of (strand_idx, edge_idx_in_strand) in emission order
     """
-    edges = graph.edges()
-
-    # Step 1: Generate canonical edge ordering
-    edge_order = list(range(len(edges)))
-    edge_order.sort(key=lambda idx: (
-        str(edges[idx].cap_urn),
-        [str(s) for s in edges[idx].sources],
-        str(edges[idx].target),
-    ))
-
-    # Step 2: Generate aliases from op= tag
-    aliases: Dict[str, Tuple[int, str]] = {}
+    aliases: Dict[str, Tuple[int, int, str]] = {}
     alias_counts: Dict[str, int] = {}
+    node_names: Dict[Tuple[int, int], str] = {}
+    emit_order: List[Tuple[int, int]] = []
 
-    for idx in edge_order:
-        edge = edges[idx]
-        base_alias = edge.cap_urn.get_tag("op")
-        if base_alias is None:
-            base_alias = f"edge_{idx}"
+    for s_idx, strand in enumerate(graph.strands()):
+        # Assign node names for this strand: sXnY
+        for node_id in range(len(strand.nodes())):
+            node_names[(s_idx, node_id)] = f"s{s_idx}n{node_id}"
 
-        count = alias_counts.get(base_alias, 0)
-        if count == 0:
-            alias = base_alias
-        else:
-            alias = f"{base_alias}_{count}"
-        alias_counts[base_alias] = count + 1
+        for e_idx, edge in enumerate(strand.edges()):
+            # Derive alias from op= tag or fallback.
+            base_alias = edge.cap_urn.get_tag("op")
+            if base_alias is None:
+                base_alias = f"edge_{s_idx}_{e_idx}"
 
-        cap_str = str(edge.cap_urn)
-        aliases[alias] = (idx, cap_str)
+            count = alias_counts.get(base_alias, 0)
+            alias = base_alias if count == 0 else f"{base_alias}_{count}"
+            alias_counts[base_alias] = count + 1
 
-    # Step 3: Generate node names
-    # Collect all unique media URNs, assign names in order of first appearance
-    node_names: Dict[str, str] = {}
-    node_counter = 0
+            cap_str = str(edge.cap_urn)
+            aliases[alias] = (s_idx, e_idx, cap_str)
+            emit_order.append((s_idx, e_idx))
 
-    for idx in edge_order:
-        edge = edges[idx]
-        for src in edge.sources:
-            key = str(src)
-            if key not in node_names:
-                node_names[key] = f"n{node_counter}"
-                node_counter += 1
-        target_key = str(edge.target)
-        if target_key not in node_names:
-            node_names[target_key] = f"n{node_counter}"
-            node_counter += 1
-
-    return aliases, node_names, edge_order
+    return aliases, node_names, emit_order
 
 
 def to_machine_notation(graph: Machine) -> str:
-    """Serialize this machine graph to canonical one-line machine notation.
+    """Serialize to canonical one-line machine notation.
 
-    The output is deterministic: same graph -> same string. This is the
-    primary serialization format for accessibility identifiers and
-    comparison.
+    The output is deterministic: same machine -> same string.
     """
     if graph.is_empty():
         return ""
 
-    aliases, node_names, edge_order = _build_serialization_maps(graph)
-    edges = graph.edges()
+    aliases, node_names, emit_order = _build_serialization_maps(graph)
     output_parts: List[str] = []
 
-    # Emit headers in alias-sorted order
+    # Emit headers in alias-sorted order.
     sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-
-    for alias, (edge_idx, _cap_str) in sorted_aliases:
-        edge = edges[edge_idx]
+    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
+        edge = graph.strands()[s_idx].edges()[e_idx]
         output_parts.append(f"[{alias} {edge.cap_urn}]")
 
-    # Emit wirings in edge order
-    for edge_idx in edge_order:
-        edge = edges[edge_idx]
-        # Find alias for this edge
-        alias = None
-        for a, (idx, _) in aliases.items():
-            if idx == edge_idx:
-                alias = a
-                break
+    # Emit wirings in emission order (strand order, then edge order within strand).
+    for s_idx, e_idx in emit_order:
+        edge = graph.strands()[s_idx].edges()[e_idx]
+        # Find alias for this edge.
+        alias = _alias_for(aliases, s_idx, e_idx)
 
-        # Source node name(s)
-        sources = [node_names[str(s)] for s in edge.sources]
+        # Source node names from assignment bindings, sorted by source NodeId.
+        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
+        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
 
-        # Target node name
-        target_name = node_names[str(edge.target)]
-
+        target_name = node_names[(s_idx, edge.target)]
         loop_prefix = "LOOP " if edge.is_loop else ""
 
         if len(sources) == 1:
@@ -142,28 +110,21 @@ def to_machine_notation_multiline(graph: Machine) -> str:
     if graph.is_empty():
         return ""
 
-    aliases, node_names, edge_order = _build_serialization_maps(graph)
-    edges = graph.edges()
+    aliases, node_names, emit_order = _build_serialization_maps(graph)
     output_lines: List[str] = []
 
-    # Emit headers
     sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-
-    for alias, (edge_idx, _cap_str) in sorted_aliases:
-        edge = edges[edge_idx]
+    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
+        edge = graph.strands()[s_idx].edges()[e_idx]
         output_lines.append(f"[{alias} {edge.cap_urn}]")
 
-    # Emit wirings
-    for edge_idx in edge_order:
-        edge = edges[edge_idx]
-        alias = None
-        for a, (idx, _) in aliases.items():
-            if idx == edge_idx:
-                alias = a
-                break
+    for s_idx, e_idx in emit_order:
+        edge = graph.strands()[s_idx].edges()[e_idx]
+        alias = _alias_for(aliases, s_idx, e_idx)
 
-        sources = [node_names[str(s)] for s in edge.sources]
-        target_name = node_names[str(edge.target)]
+        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
+        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
+        target_name = node_names[(s_idx, edge.target)]
         loop_prefix = "LOOP " if edge.is_loop else ""
 
         if len(sources) == 1:
@@ -176,50 +137,45 @@ def to_machine_notation_multiline(graph: Machine) -> str:
 
 
 def to_machine_notation_formatted(graph: Machine, fmt: str) -> str:
-    """Serialize this machine graph to machine notation in the specified format.
-
-    The output is deterministic: same graph + same format -> same string.
+    """Serialize to machine notation in the specified format.
 
     Args:
-        graph: The machine graph to serialize.
-        fmt: 'bracketed' or 'line-based'.
+        graph: The machine to serialize.
+        fmt: 'bracketed' (default) or 'line-based'.
     """
     if graph.is_empty():
         return ""
 
-    aliases, node_names, edge_order = _build_serialization_maps(graph)
-    edges = graph.edges()
+    aliases, node_names, emit_order = _build_serialization_maps(graph)
 
     bracketed = fmt == "bracketed"
     open_delim = "[" if bracketed else ""
     close_delim = "]" if bracketed else ""
     output_parts: List[str] = []
 
-    # Emit headers in alias-sorted order
     sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-
-    for alias, (edge_idx, _cap_str) in sorted_aliases:
-        edge = edges[edge_idx]
+    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
+        edge = graph.strands()[s_idx].edges()[e_idx]
         output_parts.append(f"{open_delim}{alias} {edge.cap_urn}{close_delim}")
 
-    # Emit wirings in edge order
-    for edge_idx in edge_order:
-        edge = edges[edge_idx]
-        alias = None
-        for a, (idx, _) in aliases.items():
-            if idx == edge_idx:
-                alias = a
-                break
+    for s_idx, e_idx in emit_order:
+        edge = graph.strands()[s_idx].edges()[e_idx]
+        alias = _alias_for(aliases, s_idx, e_idx)
 
-        sources = [node_names[str(s)] for s in edge.sources]
-        target_name = node_names[str(edge.target)]
+        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
+        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
+        target_name = node_names[(s_idx, edge.target)]
         loop_prefix = "LOOP " if edge.is_loop else ""
 
         if len(sources) == 1:
-            output_parts.append(f"{open_delim}{sources[0]} -> {loop_prefix}{alias} -> {target_name}{close_delim}")
+            output_parts.append(
+                f"{open_delim}{sources[0]} -> {loop_prefix}{alias} -> {target_name}{close_delim}"
+            )
         else:
             group = ", ".join(sources)
-            output_parts.append(f"{open_delim}({group}) -> {loop_prefix}{alias} -> {target_name}{close_delim}")
+            output_parts.append(
+                f"{open_delim}({group}) -> {loop_prefix}{alias} -> {target_name}{close_delim}"
+            )
 
     if bracketed:
         return "".join(output_parts)
@@ -227,38 +183,29 @@ def to_machine_notation_formatted(graph: Machine, fmt: str) -> str:
         return "\n".join(output_parts)
 
 
-def from_path(path) -> Machine:
-    """Convert a Strand (resolved linear path) into a Machine.
+def _alias_for(
+    aliases: Dict[str, Tuple[int, int, str]],
+    s_idx: int,
+    e_idx: int,
+) -> str:
+    """Find the alias assigned to a specific (strand_idx, edge_idx) pair."""
+    for alias, (si, ei, _) in aliases.items():
+        if si == s_idx and ei == e_idx:
+            return alias
+    raise AssertionError(f"no alias found for strand {s_idx} edge {e_idx}")
 
-    The conversion:
-    - Each Cap step becomes a MachineEdge with a single source
-    - ForEach steps set is_loop=True on the next Cap edge
-    - Collect steps are elided (implicit in transitions)
+
+def from_strand(path, registry) -> Machine:
+    """Convert a planner Strand into a Machine via the resolver.
+
+    Delegates to Machine.from_strand which uses resolve_strand internally.
+    The cap registry is required for source-to-arg matching.
     """
-    from capdag.machine.graph import MachineEdge
-    from capdag.planner.live_cap_graph import StrandStepType
-
-    edges: List[MachineEdge] = []
-    pending_loop = False
-
-    for step in path.steps:
-        if step.step_type == StrandStepType.CAP:
-            edges.append(MachineEdge(
-                sources=[step.from_spec],
-                cap_urn=step.cap_urn,
-                target=step.to_spec,
-                is_loop=pending_loop,
-            ))
-            pending_loop = False
-        elif step.step_type == StrandStepType.FOR_EACH:
-            pending_loop = True
-        # Collect steps are elided
-
-    return Machine(edges)
+    return Machine.from_strand(path, registry)
 
 
-# Attach methods to Machine
+# Attach methods to Machine at import time.
 Machine.to_machine_notation = to_machine_notation  # type: ignore[attr-defined]
 Machine.to_machine_notation_multiline = to_machine_notation_multiline  # type: ignore[attr-defined]
 Machine.to_machine_notation_formatted = to_machine_notation_formatted  # type: ignore[attr-defined]
-Machine.from_path = staticmethod(from_path)  # type: ignore[attr-defined]
+Machine.from_strand_path = staticmethod(from_strand)  # type: ignore[attr-defined]

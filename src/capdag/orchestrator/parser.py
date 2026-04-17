@@ -11,8 +11,7 @@ from typing import Dict, List
 
 from capdag.urn.media_urn import MediaUrn
 from capdag.planner.cardinality import InputStructure
-from capdag.machine.graph import Machine
-from capdag.machine.parser import _PARSER
+from capdag.machine.parser import _PARSER, parse_machine
 
 from capdag.cap.registry import CapRegistry
 from capdag.orchestrator.types import (
@@ -146,27 +145,34 @@ async def parse_machine_to_cap_dag(
     Raises:
         ParseOrchestrationError subclasses for any validation failure.
     """
-    # Step 1: Parse machine notation into a Machine.
+    # Step 1: Parse machine notation into a strand-based Machine.
+    # This performs full resolution (registry lookup + source-to-arg matching).
     try:
-        machine = Machine.from_string(notation)
+        machine = parse_machine(notation, registry)
     except Exception as e:
         raise MachineSyntaxParseFailedError(str(e)) from e
 
     # Step 2: Extract node names from the machine notation.
     wiring_info = _extract_wiring_info(notation)
 
+    # Flatten strands into an ordered list of edges for pairing with wiring_info.
+    all_strand_edges = []
+    for strand in machine.strands():
+        for edge in strand.edges():
+            all_strand_edges.append(edge)
+
     # Validate that wiring count matches edge count.
-    if len(wiring_info) != len(machine.edges()):
+    if len(wiring_info) != len(all_strand_edges):
         raise MachineSyntaxParseFailedError(
             f"internal error: {len(wiring_info)} wirings but "
-            f"{len(machine.edges())} edges — machine parser edge ordering invariant violated"
+            f"{len(all_strand_edges)} edges — machine parser edge ordering invariant violated"
         )
 
     # Step 3: For each edge, resolve cap via registry and build ResolvedEdge entries.
     node_media: Dict[str, MediaUrn] = {}
     resolved_edges: List[ResolvedEdge] = []
 
-    for edge_idx, edge in enumerate(machine.edges()):
+    for edge_idx, edge in enumerate(all_strand_edges):
         cap_urn_str = str(edge.cap_urn)
         cap = registry.get_cached_cap(cap_urn_str)
         if cap is None:

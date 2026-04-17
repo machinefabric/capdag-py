@@ -263,10 +263,11 @@ async def test_registry_add_caps_to_cache():
 
     registry.add_caps_to_cache([cap])
 
-    # Should be retrievable from cache
+    # Should be retrievable from cache. new_for_test() auto-installs the identity cap,
+    # so the cache contains the identity cap plus our added cap.
     cached_caps = await registry.get_cached_caps()
-    assert len(cached_caps) == 1
-    assert cached_caps[0].title == "Test Cap"
+    titles = [c.title for c in cached_caps]
+    assert "Test Cap" in titles
 
 
 @pytest.mark.asyncio

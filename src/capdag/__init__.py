@@ -212,7 +212,17 @@ from capdag.bifaci.relay import (
 # Machine module
 from capdag.machine import (
     MachineSyntaxError,
+    MachineAbstractionError,
+    MachineParseError,
+    NoCapabilityStepsError,
+    UnknownCapError,
+    UnmatchedSourceInCapArgsError,
+    AmbiguousMachineNotationError,
+    CyclicMachineStrandError,
+    NodeId,
+    EdgeAssignmentBinding,
     MachineEdge,
+    MachineStrand,
     Machine,
     parse_machine,
 )
@@ -449,7 +459,17 @@ __all__ = [
     "RelayError",
     # Machine notation
     "MachineSyntaxError",
+    "MachineAbstractionError",
+    "MachineParseError",
+    "NoCapabilityStepsError",
+    "UnknownCapError",
+    "UnmatchedSourceInCapArgsError",
+    "AmbiguousMachineNotationError",
+    "CyclicMachineStrandError",
+    "NodeId",
+    "EdgeAssignmentBinding",
     "MachineEdge",
+    "MachineStrand",
     "Machine",
     "parse_machine",
 ]

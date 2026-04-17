@@ -1,210 +1,334 @@
-"""Machine graph — typed DAG representation for machine notation
+"""Machine graph — strand-based, anchor-realized representation.
 
-A Machine is the semantic model behind machine notation. It represents
-a directed acyclic graph of capability edges, where each edge transforms
-one or more source media types into a target media type via a capability.
+A Machine is the canonical, anchor-realized form of a set of capability
+strands. It sits between a planner Strand (linear cap-step sequence, no
+anchor commitment) and a MachineRun (concrete execution against actual
+input data).
+
+Structure:
+    Machine
+     └── strands: List[MachineStrand]        # ordered, declaration order matters
+          ├── nodes: List[MediaUrn]           # data positions in this strand
+          ├── edges: List[MachineEdge]        # canonical-order resolved cap steps
+          │    └── assignment: List[EdgeAssignmentBinding]
+          │         └── (cap_arg_media_urn, source: NodeId)
+          ├── input_anchor_ids: List[NodeId]  # root nodes (no producer)
+          └── output_anchor_ids: List[NodeId] # leaf nodes (no consumer)
 
 Equivalence:
-Two Machines are equivalent if they have the same set of edges,
-compared using MediaUrn.is_equivalent() for media types and
-CapUrn.is_equivalent() for capabilities. Alias names and statement
-ordering are serialization concerns only — they do not affect equivalence.
+    Machine.is_equivalent is strict and positional: same number of strands,
+    and self.strands[i].is_equivalent(other.strands[i]) for every i.
+    Strand declaration order matters.
+
+    MachineStrand.is_equivalent walks both strands in canonical edge order,
+    building a NodeId bijection on the fly. Anchor URNs are sorted multisets.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
+if TYPE_CHECKING:
+    from capdag.cap.registry import CapRegistry
+    from capdag.planner.live_cap_graph import Strand
 
-class MachineEdge:
-    """A single edge in the machine graph.
+# NodeId is a dense integer index into a MachineStrand's nodes list.
+# Scoped to a single strand — two strands in the same Machine use disjoint spaces.
+NodeId = int
 
-    Each edge represents a capability that transforms one or more source
-    media types into a target media type. The is_loop flag indicates
-    ForEach semantics (the capability is applied to each item in a list).
+
+class EdgeAssignmentBinding:
+    """One slot in a resolved MachineEdge's source-to-cap-arg assignment.
+
+    Records which cap argument (cap_arg_media_urn) is fed by which
+    data-position in the strand (source NodeId). The cap_arg_media_urn
+    is the cap argument's slot identity (the outer media_urn from the
+    cap definition), not the stdin inner type.
     """
 
-    __slots__ = ("sources", "cap_urn", "target", "is_loop")
+    __slots__ = ("cap_arg_media_urn", "source")
+
+    def __init__(self, cap_arg_media_urn: MediaUrn, source: NodeId):
+        self.cap_arg_media_urn = cap_arg_media_urn
+        self.source = source
+
+    def __repr__(self) -> str:
+        return f"EdgeAssignmentBinding({self.cap_arg_media_urn}<-#{self.source})"
+
+
+class MachineEdge:
+    """One resolved cap-step inside a MachineStrand.
+
+    Each edge represents one application of a capability. The assignment
+    field carries the explicit source-to-cap-arg mapping: pairs of
+    (cap arg slot media URN, the strand NodeId that feeds it). Sorted
+    by cap_arg_media_urn for canonical comparison.
+    """
+
+    __slots__ = ("cap_urn", "assignment", "target", "is_loop")
 
     def __init__(
         self,
-        sources: List[MediaUrn],
         cap_urn: CapUrn,
-        target: MediaUrn,
+        assignment: List[EdgeAssignmentBinding],
+        target: NodeId,
         is_loop: bool = False,
     ):
-        self.sources = sources
         self.cap_urn = cap_urn
+        self.assignment = assignment
         self.target = target
         self.is_loop = is_loop
 
-    def is_equivalent(self, other: MachineEdge) -> bool:
-        """Check if two edges are semantically equivalent.
+    def __repr__(self) -> str:
+        assignments_str = ", ".join(
+            f"{b.cap_arg_media_urn}<-#{b.source}" for b in self.assignment
+        )
+        loop_prefix = "LOOP " if self.is_loop else ""
+        return f"{loop_prefix}{self.cap_urn} ({assignments_str}) -> #{self.target}"
 
-        Equivalence is defined as:
-        - Same number of sources, and each source in self has an equivalent source in other
-        - Equivalent cap URNs (via CapUrn.is_equivalent)
-        - Equivalent target media URNs (via MediaUrn.is_equivalent)
-        - Same is_loop flag
 
-        Source order does not matter — fan-in sources are compared as sets.
+class _NodeBijection:
+    """Maps NodeIds in self-strand to NodeIds in other-strand during equivalence walk.
+
+    Each bind() call either records a new self→other mapping or confirms
+    an existing one. If the same self NodeId maps to two different other
+    NodeIds (or vice versa), bind() returns False and the strands are
+    not equivalent. The URNs at both ends must also be is_equivalent.
+    """
+
+    def __init__(self, self_len: int, other_len: int):
+        self._self_to_other: List[Optional[NodeId]] = [None] * self_len
+        self._other_to_self: List[Optional[NodeId]] = [None] * other_len
+
+    def bind(
+        self,
+        self_id: NodeId,
+        other_id: NodeId,
+        self_strand: "MachineStrand",
+        other_strand: "MachineStrand",
+    ) -> bool:
+        # URNs at both ends must be structurally equivalent.
+        if not self_strand._nodes[self_id].is_equivalent(other_strand._nodes[other_id]):
+            return False
+
+        existing_other = self._self_to_other[self_id]
+        if existing_other is None:
+            self._self_to_other[self_id] = other_id
+        elif existing_other != other_id:
+            return False
+
+        existing_self = self._other_to_self[other_id]
+        if existing_self is None:
+            self._other_to_self[other_id] = self_id
+        elif existing_self != self_id:
+            return False
+
+        return True
+
+
+class MachineStrand:
+    """One connected component of resolved cap edges with explicit anchor commitments.
+
+    A MachineStrand is a maximal connected sub-graph: every edge shares
+    at least one NodeId (transitively) with every other edge. Built once
+    via resolve.resolve_strand or resolve.resolve_pre_interned; after
+    construction the strand is immutable.
+    """
+
+    __slots__ = ("_nodes", "_edges", "_input_anchor_ids", "_output_anchor_ids")
+
+    def __init__(
+        self,
+        nodes: List[MediaUrn],
+        edges: List[MachineEdge],
+        input_anchor_ids: List[NodeId],
+        output_anchor_ids: List[NodeId],
+    ):
+        self._nodes = nodes
+        self._edges = edges
+        self._input_anchor_ids = input_anchor_ids
+        self._output_anchor_ids = output_anchor_ids
+
+    def nodes(self) -> List[MediaUrn]:
+        """All distinct data positions in this strand, indexed by NodeId."""
+        return self._nodes
+
+    def edges(self) -> List[MachineEdge]:
+        """The cap-step edges in canonical topological order."""
+        return self._edges
+
+    def input_anchor_ids(self) -> List[NodeId]:
+        """NodeIds of the strand's input anchor nodes (roots: not produced by any edge)."""
+        return self._input_anchor_ids
+
+    def output_anchor_ids(self) -> List[NodeId]:
+        """NodeIds of the strand's output anchor nodes (leaves: not consumed by any edge)."""
+        return self._output_anchor_ids
+
+    def node_urn(self, id: NodeId) -> MediaUrn:
+        """Look up a node's MediaUrn by NodeId. Fails hard if id is out of range."""
+        return self._nodes[id]
+
+    def input_anchors(self) -> List[MediaUrn]:
+        """Sorted multiset of input anchor URNs."""
+        return [self._nodes[i] for i in self._input_anchor_ids]
+
+    def output_anchors(self) -> List[MediaUrn]:
+        """Sorted multiset of output anchor URNs."""
+        return [self._nodes[i] for i in self._output_anchor_ids]
+
+    def is_equivalent(self, other: "MachineStrand") -> bool:
+        """Strict equivalence with another MachineStrand.
+
+        Walks both strands in canonical edge order, building a NodeId
+        bijection on the fly. Any mismatch (cap URN, assignment, target
+        node, is_loop, anchor count, or inconsistent node bijection)
+        returns False.
         """
-        if self.is_loop != other.is_loop:
+        if len(self._nodes) != len(other._nodes):
+            return False
+        if len(self._edges) != len(other._edges):
+            return False
+        if len(self._input_anchor_ids) != len(other._input_anchor_ids):
+            return False
+        if len(self._output_anchor_ids) != len(other._output_anchor_ids):
             return False
 
-        if not self.cap_urn.is_equivalent(other.cap_urn):
-            return False
+        node_map = _NodeBijection(len(self._nodes), len(other._nodes))
 
-        # Target equivalence
-        if not self.target.is_equivalent(other.target):
-            return False
+        # Anchors are sorted multisets — pair-wise equivalence on sorted form.
+        for self_id, other_id in zip(self._input_anchor_ids, other._input_anchor_ids):
+            if not node_map.bind(self_id, other_id, self, other):
+                return False
+        for self_id, other_id in zip(self._output_anchor_ids, other._output_anchor_ids):
+            if not node_map.bind(self_id, other_id, self, other):
+                return False
 
-        # Source set equivalence — order-independent comparison
-        if len(self.sources) != len(other.sources):
-            return False
-
-        # For each source in self, find a matching source in other.
-        # Track which indices in other have been matched to avoid double-counting.
-        matched = [False] * len(other.sources)
-        for self_src in self.sources:
-            found = False
-            for j, other_src in enumerate(other.sources):
-                if matched[j]:
-                    continue
-                if self_src.is_equivalent(other_src):
-                    matched[j] = True
-                    found = True
-                    break
-            if not found:
+        for self_edge, other_edge in zip(self._edges, other._edges):
+            if self_edge.is_loop != other_edge.is_loop:
+                return False
+            if not self_edge.cap_urn.is_equivalent(other_edge.cap_urn):
+                return False
+            if len(self_edge.assignment) != len(other_edge.assignment):
+                return False
+            # assignment vecs are pre-sorted by cap_arg_media_urn → positional comparison is canonical.
+            for self_b, other_b in zip(self_edge.assignment, other_edge.assignment):
+                if not self_b.cap_arg_media_urn.is_equivalent(other_b.cap_arg_media_urn):
+                    return False
+                if not node_map.bind(self_b.source, other_b.source, self, other):
+                    return False
+            if not node_map.bind(self_edge.target, other_edge.target, self, other):
                 return False
 
         return True
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, MachineEdge):
+        if not isinstance(other, MachineStrand):
             return NotImplemented
         return self.is_equivalent(other)
 
-    def __hash__(self) -> int:
-        # Edges are compared by equivalence, not identity.
-        # Use a rough hash based on cap_urn and source/target count.
-        return hash((str(self.cap_urn), len(self.sources), self.is_loop))
-
     def __repr__(self) -> str:
-        sources_str = ", ".join(str(s) for s in self.sources)
-        loop_prefix = "LOOP " if self.is_loop else ""
-        return f"({sources_str}) -{loop_prefix}{self.cap_urn}-> {self.target}"
-
-    def __str__(self) -> str:
-        return self.__repr__()
+        return (
+            f"MachineStrand({len(self._nodes)} nodes, {len(self._edges)} edges, "
+            f"inputs={self._input_anchor_ids}, outputs={self._output_anchor_ids})"
+        )
 
 
 class Machine:
-    """A machine graph — the semantic model behind machine notation.
+    """An ordered collection of resolved MachineStrands.
 
-    The graph is a collection of directed edges where each edge is a capability
-    that transforms source media types into a target media type. The graph
-    structure captures the full transformation pipeline.
-
-    Equivalence:
-    Two graphs are equivalent if they have the same set of edges, regardless
-    of ordering. Alias names used in the textual notation are not part of
-    the graph model.
+    Strand declaration order matters: the executor walks the strands in
+    this order at runtime, and is_equivalent compares strand-by-strand
+    positionally.
     """
 
-    __slots__ = ("_edges",)
+    __slots__ = ("_strands",)
 
-    def __init__(self, edges: Optional[List[MachineEdge]] = None):
-        self._edges: List[MachineEdge] = edges if edges is not None else []
+    def __init__(self, strands: List[MachineStrand]):
+        self._strands = strands
 
     @classmethod
-    def empty(cls) -> Machine:
-        """Create an empty machine graph."""
-        return cls([])
+    def from_resolved_strands(cls, strands: List[MachineStrand]) -> "Machine":
+        """Construct a Machine from already-resolved strands."""
+        return cls(strands)
 
-    def edges(self) -> List[MachineEdge]:
-        """Get the edges of this graph."""
-        return self._edges
+    @classmethod
+    def from_strand(cls, strand: "Strand", registry: "CapRegistry") -> "Machine":
+        """Build a Machine containing exactly one MachineStrand from a planner Strand.
 
-    def edge_count(self) -> int:
-        """Number of edges in the graph."""
-        return len(self._edges)
+        The cap registry is consulted to look up each cap's args list for
+        source-to-arg assignment via minimum-cost bipartite matching.
+
+        Raises MachineAbstractionError on resolution failure.
+        """
+        from capdag.machine.resolve import resolve_strand
+        resolved = resolve_strand(strand, registry, 0)
+        return cls([resolved])
+
+    @classmethod
+    def from_strands(
+        cls, strands: List["Strand"], registry: "CapRegistry"
+    ) -> "Machine":
+        """Build a Machine from N planner Strands, one MachineStrand per input.
+
+        Each strand is resolved independently. No cross-strand joining.
+
+        Raises NoCapabilityStepsError if strands is empty.
+        Raises MachineAbstractionError on any resolution failure.
+        """
+        from capdag.machine.error import NoCapabilityStepsError
+        from capdag.machine.resolve import resolve_strand
+        if not strands:
+            raise NoCapabilityStepsError()
+        resolved = [resolve_strand(s, registry, idx) for idx, s in enumerate(strands)]
+        return cls(resolved)
+
+    def strands(self) -> List[MachineStrand]:
+        """All resolved strands in declaration order."""
+        return self._strands
+
+    def strand_count(self) -> int:
+        """Number of strands."""
+        return len(self._strands)
 
     def is_empty(self) -> bool:
-        """Check if the graph has no edges."""
-        return len(self._edges) == 0
+        """Whether this machine has no strands."""
+        return len(self._strands) == 0
 
-    def is_equivalent(self, other: Machine) -> bool:
-        """Check if two machine graphs are semantically equivalent.
+    def is_equivalent(self, other: "Machine") -> bool:
+        """Strict, positional equivalence.
 
-        Two graphs are equivalent if they have the same set of edges
-        (compared using MachineEdge.is_equivalent). Edge ordering
-        does not matter.
+        Two Machines are equivalent iff they have the same number of
+        strands and self.strands[i].is_equivalent(other.strands[i]) for
+        every i. Strand order matters.
         """
-        if len(self._edges) != len(other._edges):
+        if len(self._strands) != len(other._strands):
             return False
-
-        # For each edge in self, find a matching edge in other.
-        matched = [False] * len(other._edges)
-        for self_edge in self._edges:
-            found = False
-            for j, other_edge in enumerate(other._edges):
-                if matched[j]:
-                    continue
-                if self_edge.is_equivalent(other_edge):
-                    matched[j] = True
-                    found = True
-                    break
-            if not found:
+        for self_strand, other_strand in zip(self._strands, other._strands):
+            if not self_strand.is_equivalent(other_strand):
                 return False
-
         return True
 
-    def root_sources(self) -> List[MediaUrn]:
-        """Collect all unique source media URNs across all edges that are not
-        also produced as targets by any other edge. These are the "root"
-        inputs to the graph.
-        """
-        roots: List[MediaUrn] = []
-        for edge in self._edges:
-            for src in edge.sources:
-                # Check if any edge produces this source as a target
-                is_produced = any(
-                    e.target.is_equivalent(src) for e in self._edges
-                )
-                if not is_produced:
-                    # Avoid duplicates (by equivalence)
-                    already_added = any(r.is_equivalent(src) for r in roots)
-                    if not already_added:
-                        roots.append(src)
-        return roots
-
-    def leaf_targets(self) -> List[MediaUrn]:
-        """Collect all unique target media URNs that are not consumed as sources
-        by any other edge. These are the "leaf" outputs of the graph.
-        """
-        leaves: List[MediaUrn] = []
-        for edge in self._edges:
-            is_consumed = any(
-                any(s.is_equivalent(edge.target) for s in e.sources)
-                for e in self._edges
-            )
-            if not is_consumed:
-                already_added = any(
-                    l.is_equivalent(edge.target) for l in leaves
-                )
-                if not already_added:
-                    leaves.append(edge.target)
-        return leaves
-
     @classmethod
-    def from_string(cls, input_str: str) -> Machine:
-        """Parse machine notation into a Machine."""
+    def from_string(cls, input_str: str, registry: "CapRegistry") -> "Machine":
+        """Parse machine notation into a Machine.
+
+        Delegates to parse_machine. Raises MachineParseError on any failure.
+        """
         from capdag.machine.parser import parse_machine
-        return parse_machine(input_str)
+        return parse_machine(input_str, registry)
+
+    def to_machine_notation(self) -> str:
+        """Serialize to canonical one-line machine notation.
+
+        Delegates to the serializer. Attached by serializer.py at import time.
+        """
+        raise NotImplementedError(
+            "to_machine_notation is attached by capdag.machine.serializer at import time"
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Machine):
@@ -212,12 +336,13 @@ class Machine:
         return self.is_equivalent(other)
 
     def __hash__(self) -> int:
-        return hash(len(self._edges))
+        return hash(len(self._strands))
 
     def __repr__(self) -> str:
-        if not self._edges:
+        if not self._strands:
             return "Machine(empty)"
-        return f"Machine({len(self._edges)} edges)"
+        edge_count = sum(len(s.edges()) for s in self._strands)
+        return f"Machine({len(self._strands)} strands, {edge_count} edges)"
 
     def __str__(self) -> str:
         return self.__repr__()

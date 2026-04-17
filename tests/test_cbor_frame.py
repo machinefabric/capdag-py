@@ -528,10 +528,10 @@ def test_402_relay_state_factory_and_payload():
     assert frame.payload == resources
 
 
-# TEST403: FrameType::from_u8(12) returns None (one past RelayState)
-def test_403_frame_type_one_past_relay_state():
-    """Test that value 12 is invalid (one past RelayState)"""
-    assert FrameType.from_u8(12) is None, "value 12 is one past RelayState"
+# TEST403: FrameType::from_u8(13) returns None (one past Cancel)
+def test_403_frame_type_one_past_cancel():
+    """Test that value 13 is invalid (one past Cancel)"""
+    assert FrameType.from_u8(13) is None, "value 13 is one past Cancel"
 
 
 # TEST667: verify_chunk_checksum detects corrupted payload

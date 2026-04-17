@@ -170,14 +170,21 @@ class Strand:
         self.cap_step_count = cap_step_count
         self.description = description
 
-    def knit(self):
-        """Convert this resolved path to a machine graph."""
-        from capdag.machine.graph import Machine
-        return Machine.from_path(self)
+    def knit(self, registry) -> "Machine":
+        """Convert this resolved path to a Machine via the cap registry.
 
-    def to_machine_notation(self) -> str:
-        """Serialize to canonical one-line machine notation."""
-        return self.knit().to_machine_notation()
+        The registry is required for source-to-cap-arg assignment matching.
+        Raises MachineAbstractionError on resolution failure.
+        """
+        from capdag.machine.graph import Machine
+        return Machine.from_strand(self, registry)
+
+    def to_machine_notation(self, registry) -> str:
+        """Serialize to canonical one-line machine notation.
+
+        The registry is required for source-to-cap-arg assignment matching.
+        """
+        return self.knit(registry).to_machine_notation()
 
 
 class ReachableTargetInfo:

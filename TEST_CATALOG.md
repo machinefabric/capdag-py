@@ -1,11 +1,15 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 581
+**Total Tests:** 622
+
+**Numbered Tests:** 610
+
+**Unnumbered Tests:** 12
 
 **⚠ Duplicate test numbers detected: 2 number(s) used more than once.**
-Unique tests are listed first. Duplicate entries are grouped at the bottom of the table, marked with ⚠, followed by a resolution summary.
+Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
 
-This catalog lists all numbered tests in the CapDag-Py codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -327,7 +331,7 @@ This catalog lists all numbered tests in the CapDag-Py codebase.
 | test400 | `test_400_relay_state_discriminant_roundtrip` | TEST400: RelayState discriminant roundtrips through u8 conversion (value 11) | tests/test_cbor_frame.py:484 |
 | test401 | `test_401_relay_notify_factory_and_accessors` | TEST401: relay_notify factory stores manifest and limits, accessors extract them correctly | tests/test_cbor_frame.py:493 |
 | test402 | `test_402_relay_state_factory_and_payload` | TEST402: relay_state factory stores resource payload in payload field | tests/test_cbor_frame.py:521 |
-| test403 | `test_403_frame_type_one_past_relay_state` | TEST403: FrameType::from_u8(12) returns None (one past RelayState) | tests/test_cbor_frame.py:532 |
+| test403 | `test_403_frame_type_one_past_cancel` | TEST403: FrameType::from_u8(13) returns None (one past Cancel) | tests/test_cbor_frame.py:532 |
 | test404 | `test_404_slave_sends_relay_notify_on_connect` | TEST404: Slave sends RelayNotify on connect (initial_notify parameter) | tests/test_cartridge_relay.py:22 |
 | test405 | `test_405_master_reads_relay_notify` | TEST405: Master reads RelayNotify and extracts manifest + limits | tests/test_cartridge_relay.py:56 |
 | test406 | `test_406_slave_stores_relay_state` | TEST406: Slave stores RelayState from master (resource_state() returns payload) | tests/test_cartridge_relay.py:84 |
@@ -586,11 +590,53 @@ This catalog lists all numbered tests in the CapDag-Py codebase.
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:139 |
 | test1108 | `test_1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | tests/test_planner_argument_binding.py:166 |
 | test1109 | `test_1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | tests/test_planner_argument_binding.py:193 |
+| test1110 | `test_1110_no_capability_steps_error_on_empty_wirings` | ============================================================================= TEST1110: NoCapabilityStepsError on empty wiring list ============================================================================= | tests/test_machine.py:106 |
+| test1111 | `test_1111_unknown_cap_error_when_not_in_registry` | ============================================================================= TEST1111: UnknownCapError when cap not in registry ============================================================================= | tests/test_machine.py:117 |
+| test1112 | `test_1112_single_edge_strand_resolves_correctly` | ============================================================================= TEST1112: Single-edge strand resolves correctly with correct node structure ============================================================================= | tests/test_machine.py:137 |
+| test1113 | `test_1113_two_step_chain_shares_intermediate_node` | ============================================================================= TEST1113: Two-step chain shares intermediate node ============================================================================= | tests/test_machine.py:163 |
+| test1114 | `test_1114_from_strand_produces_single_strand_machine` | ============================================================================= TEST1114: Machine.from_strand produces single-strand machine ============================================================================= | tests/test_machine.py:199 |
+| test1115 | `test_1115_from_strands_keeps_strands_disjoint` | ============================================================================= TEST1115: Machine.from_strands keeps strands disjoint ============================================================================= | tests/test_machine.py:217 |
+| test1116 | `test_1116_from_strands_empty_raises_no_capability_steps` | ============================================================================= TEST1116: Machine.from_strands with empty list raises NoCapabilityStepsError ============================================================================= | tests/test_machine.py:242 |
+| test1117 | `test_1117_machine_is_equivalent_strict_positional_order_matters` | ============================================================================= TEST1117: Machine.is_equivalent is strict and positional — order matters ============================================================================= | tests/test_machine.py:253 |
+| test1118 | `test_1118_strand_is_equivalent_consistent_node_bijection` | ============================================================================= TEST1118: MachineStrand.is_equivalent walks NodeId bijection correctly ============================================================================= | tests/test_machine.py:278 |
+| test1119 | `test_1119_match_sources_to_args_single_trivial` | ============================================================================= TEST1119: match_sources_to_args single source trivial assignment ============================================================================= | tests/test_machine.py:299 |
+| test1120 | `test_1120_match_sources_more_specific_source_matches_general_arg` | ============================================================================= TEST1120: match_sources_to_args more-specific source matches general arg ============================================================================= | tests/test_machine.py:316 |
+| test1121 | `test_1121_match_sources_unmatched_source_fails_hard` | ============================================================================= TEST1121: match_sources_to_args unmatched source raises UnmatchedSourceInCapArgsError ============================================================================= | tests/test_machine.py:330 |
+| test1122 | `test_1122_match_sources_ambiguous_raises_ambiguous_error` | ============================================================================= TEST1122: match_sources_to_args ambiguous assignment raises AmbiguousMachineNotationError ============================================================================= | tests/test_machine.py:348 |
+| test1123 | `test_1123_cyclic_strand_fails_hard` | ============================================================================= TEST1123: CyclicMachineStrandError on a hand-crafted cyclic wiring ============================================================================= | tests/test_machine.py:366 |
+| test1124 | `test_1124_machine_parse_error_wraps_syntax_error` | ============================================================================= TEST1124: MachineParseError wraps MachineSyntaxError correctly ============================================================================= | tests/test_machine.py:395 |
+| test1125 | `test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause` | ============================================================================= TEST1125: parse_machine raises MachineParseError wrapping UnknownCapError ============================================================================= | tests/test_machine.py:411 |
+| test1126 | `test_1126_parse_machine_single_wiring_one_strand` | ============================================================================= TEST1126: parse_machine single-wiring notation produces one strand ============================================================================= | tests/test_machine.py:433 |
+| test1127 | `test_1127_parse_machine_disconnected_wirings_become_separate_strands` | ============================================================================= TEST1127: parse_machine union-find partitions disconnected wirings into separate strands ============================================================================= | tests/test_machine.py:455 |
+| test1128 | `test_1128_parse_machine_shared_node_name_yields_one_strand` | ============================================================================= TEST1128: parse_machine shared node name connects wirings into same strand ============================================================================= | tests/test_machine.py:480 |
+| test1129 | `test_1129_binding_slot_identity_is_outer_media_urn` | ============================================================================= TEST1129: EdgeAssignmentBinding stores correct slot identity (not stdin inner type) ============================================================================= | tests/test_machine.py:506 |
+| test1130 | `test_1130_strand_equivalence_rejects_mismatched_node_urns` | ============================================================================= TEST1130: MachineStrand.is_equivalent rejects strands with wrong URN at bijected node ============================================================================= | tests/test_machine.py:548 |
+| test1131 | `test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap` | ============================================================================= TEST1131: resolve_strand with ForEach sets is_loop on next cap edge ============================================================================= | tests/test_machine.py:574 |
+| test1132 | `test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps` | ============================================================================= TEST1132: resolve_strand with only ForEach/Collect steps (no cap) raises error ============================================================================= | tests/test_machine.py:610 |
+| test1133 | `test_1133_machine_from_string_delegates_to_parse_machine` | ============================================================================= TEST1133: Machine.from_string is an alias for parse_machine with registry ============================================================================= | tests/test_machine.py:637 |
+| test1134 | `test_1134_abstraction_error_subclass_hierarchy` | ============================================================================= TEST1134: MachineAbstractionError subclass hierarchy is correct ============================================================================= | tests/test_machine.py:659 |
+| test1135 | `test_1135_strand_node_urn_accessor` | ============================================================================= TEST1135: MachineStrand nodes() returns correct MediaUrns by NodeId ============================================================================= | tests/test_machine.py:676 |
+| test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | ============================================================================= TEST1136: parse_machine undefined alias raises MachineParseError with syntax cause ============================================================================= | tests/test_machine.py:695 |
+| test1137 | `test_1137_two_strand_machine_serializes_to_notation` | ============================================================================= TEST1137: Two-strand machine to_machine_notation produces valid string ============================================================================= | tests/test_machine.py:711 |
+| test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | ============================================================================= TEST1138: Assignment bindings are sorted by cap_arg_media_urn for canonical form ============================================================================= | tests/test_machine.py:736 |
 | | | | |
 | test108 ⚠ | `test_108_cap_creation` | TEST108: Test Cap creation with URN, title, and command | tests/test_cap.py:19 |
 | test108 ⚠ | `test_108_extensions_serialization` | TEST108: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:480 |
 | test497 ⚠ | `test_497_chunk_corrupted_payload_rejected` | TEST497: Corrupted payload detectable via checksum mismatch | tests/test_cbor_io.py:792 |
 | test497 ⚠ | `test_497_chunk_corrupted_payload_rejected` | TEST497: chunk corrupted payload is detected by checksum mismatch | tests/test_cbor_frame.py:1035 |
+| | | | |
+| unnumbered | `test_445a_seq_assigner_same_rid_different_xids_independent` | TEST445a: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
+| unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
+| unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:329 |
+| unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:294 |
+| unnumbered | `test_cap_caller_validate_arguments_success` |  | tests/test_caller.py:277 |
+| unnumbered | `test_cap_caller_validate_arguments_unknown` |  | tests/test_caller.py:311 |
+| unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
+| unnumbered | `test_normalize_urn_with_trailing_semicolon` |  | tests/test_registry.py:300 |
+| unnumbered | `test_output_validation_with_details` | TEST: Output validation with error details | tests/test_schema_validation.py:335 |
+| unnumbered | `test_registry_config_builder_pattern` |  | tests/test_registry.py:290 |
+| unnumbered | `test_type_constraint_validation` | TEST: Schema validation with type constraints | tests/test_schema_validation.py:251 |
+| unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
 
 ---
 
@@ -612,8 +658,28 @@ The following test numbers are assigned to more than one function. Keep the firs
 
 **Suggested free number(s):** test490
 
+---
+
+## Unnumbered Tests
+
+The following tests are cataloged but do not currently participate in numeric test indexing.
+
+- `test_445a_seq_assigner_same_rid_different_xids_independent` — tests/test_cbor_frame.py:687
+- `test_array_schema_validation` — tests/test_schema_validation.py:207
+- `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:329
+- `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:294
+- `test_cap_caller_validate_arguments_success` — tests/test_caller.py:277
+- `test_cap_caller_validate_arguments_unknown` — tests/test_caller.py:311
+- `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
+- `test_normalize_urn_with_trailing_semicolon` — tests/test_registry.py:300
+- `test_output_validation_with_details` — tests/test_schema_validation.py:335
+- `test_registry_config_builder_pattern` — tests/test_registry.py:290
+- `test_type_constraint_validation` — tests/test_schema_validation.py:251
+- `test_validate_multiple_arguments` — tests/test_schema_validation.py:286
 
 ---
 
 *Generated from CapDag-Py source tree*
-*Total numbered tests: 581*
+*Total tests: 622*
+*Total numbered tests: 610*
+*Total unnumbered tests: 12*

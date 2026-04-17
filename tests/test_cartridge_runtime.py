@@ -2087,7 +2087,7 @@ def test_680_require_stream_missing_fails():
     streams = [
         ("media:textable;txt", b"hello"),
     ]
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(CartridgeRuntimeError) as exc_info:
         require_stream(streams, "media:binary")
     assert "Missing required arg" in str(exc_info.value)
 
