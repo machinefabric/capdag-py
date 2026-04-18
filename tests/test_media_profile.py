@@ -20,7 +20,7 @@ def create_test_registry():
     return ProfileSchemaRegistry()
 
 
-# TEST611: is_embedded_profile recognizes all 9 standard URLs and rejects custom URLs
+# TEST611: is_embedded_profile recognizes all 9 embedded profiles and rejects non-embedded
 def test_611_is_embedded_profile_comprehensive():
     all_embedded = [
         PROFILE_STR, PROFILE_INT, PROFILE_NUM, PROFILE_BOOL, PROFILE_OBJ,
@@ -35,7 +35,7 @@ def test_611_is_embedded_profile_comprehensive():
     assert not is_embedded_profile("https://capdag.com/schema/nonexistent")
 
 
-# TEST612: clear_cache empties the registry
+# TEST612: clear_cache empties all in-memory schemas
 def test_612_clear_cache():
     registry = create_test_registry()
     # Embedded schemas should be loaded
@@ -44,7 +44,7 @@ def test_612_clear_cache():
     assert len(registry.get_cached_profiles()) == 0
 
 
-# TEST613: validate_cached validates against cached schemas
+# TEST613: validate_cached validates against cached standard schemas
 def test_613_validate_cached():
     registry = create_test_registry()
 
@@ -65,14 +65,14 @@ def test_613_validate_cached():
     assert registry.validate_cached("https://example.com/unknown", "anything") is None
 
 
-# TEST618: registry creation succeeds with embedded schemas loaded
+# TEST618: Verify profile schema registry creation succeeds with temp cache
 def test_618_registry_creation():
     registry = create_test_registry()
     profiles = registry.get_cached_profiles()
     assert len(profiles) > 0
 
 
-# TEST619: all 9 standard schema URLs present after construction
+# TEST619: Verify all 9 embedded standard schemas are loaded on creation
 def test_619_embedded_schemas_loaded():
     registry = create_test_registry()
     all_embedded = [
@@ -83,7 +83,7 @@ def test_619_embedded_schemas_loaded():
         assert registry.schema_exists(url), f"Schema {url} should be loaded"
 
 
-# TEST620: string validation — "hello" passes, 42 fails
+# TEST620: Verify string schema validates strings and rejects non-strings
 def test_620_string_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_STR, "hello") is None
@@ -91,7 +91,7 @@ def test_620_string_validation():
     assert errors is not None
 
 
-# TEST621: integer validation — 42 passes, 3.14 fails, "hello" fails
+# TEST621: Verify integer schema validates integers and rejects floats and strings
 def test_621_integer_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_INT, 42) is None
@@ -101,7 +101,7 @@ def test_621_integer_validation():
     assert errors is not None
 
 
-# TEST622: number validation — 42 passes, 3.14 passes, "hello" fails
+# TEST622: Verify number schema validates integers and floats, rejects strings
 def test_622_number_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_NUM, 42) is None
@@ -110,7 +110,7 @@ def test_622_number_validation():
     assert errors is not None
 
 
-# TEST623: boolean validation — true/false pass, "true" fails
+# TEST623: Verify boolean schema validates true/false and rejects string "true"
 def test_623_boolean_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_BOOL, True) is None
@@ -119,7 +119,7 @@ def test_623_boolean_validation():
     assert errors is not None
 
 
-# TEST624: object validation — {"key":"value"} passes, [1,2,3] fails
+# TEST624: Verify object schema validates objects and rejects arrays
 def test_624_object_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_OBJ, {"key": "value"}) is None
@@ -127,7 +127,7 @@ def test_624_object_validation():
     assert errors is not None
 
 
-# TEST625: string array validation — ["a","b","c"] passes, ["a",1,"c"] fails, "hello" fails
+# TEST625: Verify string array schema validates string arrays and rejects mixed arrays
 def test_625_string_array_validation():
     registry = create_test_registry()
     assert registry.validate(PROFILE_STR_ARRAY, ["a", "b", "c"]) is None
@@ -137,14 +137,14 @@ def test_625_string_array_validation():
     assert errors is not None
 
 
-# TEST626: unknown profile URL returns Ok (skip validation)
+# TEST626: Verify unknown profile URL skips validation and returns Ok
 def test_626_unknown_profile_skips_validation():
     registry = create_test_registry()
     result = registry.validate("https://example.com/unknown", "anything")
     assert result is None
 
 
-# TEST627: is_embedded_profile recognizes standard profiles but not custom
+# TEST627: Verify is_embedded_profile recognizes standard and rejects custom URLs
 def test_627_is_embedded_profile():
     assert is_embedded_profile(PROFILE_STR)
     assert is_embedded_profile(PROFILE_INT)

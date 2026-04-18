@@ -85,7 +85,7 @@ def test_671_resolve_optional_slot_no_value_returns_none():
 # New step-index keying tests (test1105–test1109)
 # ---------------------------------------------------------------------------
 
-# TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids.
+# TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve.
 # This is the core disambiguation scenario that step-index keying was designed to solve.
 def test_1105_two_steps_same_cap_urn_different_slot_values():
     cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'
@@ -113,7 +113,7 @@ def test_1105_two_steps_same_cap_urn_different_slot_values():
     assert r0.value != r2.value
 
 
-# TEST1106: Slot resolution falls through to cap_settings when no slot_value exists.
+# TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 # cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 def test_1106_slot_falls_through_to_cap_settings_shared():
     cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'
@@ -134,7 +134,7 @@ def test_1106_slot_falls_through_to_cap_settings_shared():
     assert r1.source == ArgumentSource.CAP_SETTING
 
 
-# TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings.
+# TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback.
 # Proves per-step override works while shared settings remain as fallback.
 def test_1107_slot_value_overrides_cap_settings_per_step():
     cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'

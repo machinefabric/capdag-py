@@ -173,7 +173,7 @@ def test_182_req_frame():
 # TEST183: RES frame removed in Protocol v2 — replaced by STREAM_START/CHUNK/STREAM_END/END
 
 
-# TEST184: Test Frame::chunk stores stream_id, seq and payload for streaming
+# TEST184: Test Frame::chunk stores seq and payload for streaming (with stream_id)
 def test_184_chunk_frame():
     """Test CHUNK frame creation with stream_id (Protocol v2)"""
     id = MessageId.new_uuid()
@@ -230,7 +230,7 @@ def test_188_end_frame_without_payload():
     assert frame.payload is None
 
 
-# TEST189: Test chunk_with_offset sets offset on all chunks but len only on chunk_index=0
+# TEST189: Test chunk_with_offset sets offset on all chunks but len only on seq=0 (with stream_id)
 def test_189_chunk_with_offset():
     """Test CHUNK frame with offset information"""
     id = MessageId.new_uuid()
@@ -418,7 +418,7 @@ def test_204_req_frame_empty_payload():
     assert frame.payload == b"", "empty payload is still bytes, not None"
 
 
-# TEST365: Frame::stream_start stores req_id, stream_id, media_urn
+# TEST365: Frame::stream_start stores request_id, stream_id, and media_urn
 def test_365_stream_start_frame():
     """Test STREAM_START frame stores all fields"""
     req_id = MessageId.new_uuid()
@@ -433,7 +433,7 @@ def test_365_stream_start_frame():
     assert frame.id == req_id
 
 
-# TEST366: Frame::stream_end stores req_id, stream_id, chunk_count
+# TEST366: Frame::stream_end stores request_id and stream_id
 def test_366_stream_end_frame():
     """Test STREAM_END frame stores req_id and stream_id"""
     req_id = MessageId.new_uuid()
@@ -449,7 +449,7 @@ def test_366_stream_end_frame():
     assert frame.id == req_id
 
 
-# TEST367: Frame::stream_start with empty stream_id still constructs
+# TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere)
 def test_367_stream_start_with_empty_stream_id():
     """Test STREAM_START with empty stream_id"""
     req_id = MessageId.new_uuid()
@@ -460,7 +460,7 @@ def test_367_stream_start_with_empty_stream_id():
     assert frame.media_urn == "media:json"
 
 
-# TEST368: Frame::stream_start with empty media_urn still constructs
+# TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere)
 def test_368_stream_start_with_empty_media_urn():
     """Test STREAM_START with empty media_urn"""
     req_id = MessageId.new_uuid()
@@ -471,7 +471,7 @@ def test_368_stream_start_with_empty_media_urn():
     assert frame.media_urn == ""
 
 
-# TEST399: RelayNotify discriminant roundtrips through u8 conversion (value 10)
+# TEST399: Verify RelayNotify frame type discriminant roundtrips through u8 (value 10)
 def test_399_relay_notify_discriminant_roundtrip():
     """Test RelayNotify discriminant value is 10 and roundtrips"""
     ft = FrameType.RELAY_NOTIFY
@@ -480,7 +480,7 @@ def test_399_relay_notify_discriminant_roundtrip():
     assert recovered == FrameType.RELAY_NOTIFY
 
 
-# TEST400: RelayState discriminant roundtrips through u8 conversion (value 11)
+# TEST400: Verify RelayState frame type discriminant roundtrips through u8 (value 11)
 def test_400_relay_state_discriminant_roundtrip():
     """Test RelayState discriminant value is 11 and roundtrips"""
     ft = FrameType.RELAY_STATE
@@ -489,7 +489,7 @@ def test_400_relay_state_discriminant_roundtrip():
     assert recovered == FrameType.RELAY_STATE
 
 
-# TEST401: relay_notify factory stores manifest and limits, accessors extract them correctly
+# TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them
 def test_401_relay_notify_factory_and_accessors():
     """Test relay_notify factory and accessor methods"""
     manifest = b'{"caps":["cap:op=test"]}'
@@ -517,7 +517,7 @@ def test_401_relay_notify_factory_and_accessors():
     assert req.relay_notify_limits() is None
 
 
-# TEST402: relay_state factory stores resource payload in payload field
+# TEST402: Verify relay_state factory stores resource payload in frame payload field
 def test_402_relay_state_factory_and_payload():
     """Test relay_state factory stores resources in payload"""
     resources = b'{"gpu_memory":8192}'
@@ -528,7 +528,7 @@ def test_402_relay_state_factory_and_payload():
     assert frame.payload == resources
 
 
-# TEST403: FrameType::from_u8(13) returns None (one past Cancel)
+# TEST403: Verify from_u8 returns None for values past the last valid frame type
 def test_403_frame_type_one_past_cancel():
     """Test that value 13 is invalid (one past Cancel)"""
     assert FrameType.from_u8(13) is None, "value 13 is one past Cancel"
@@ -563,7 +563,7 @@ def test_667_verify_chunk_checksum_detects_corruption():
     assert "missing" in str(exc_info.value)
 
 
-# TEST436: compute_checksum determinism and sensitivity
+# TEST436: Verify FNV-1a checksum function produces consistent results
 def test_436_compute_checksum():
     data_a = b"hello world"
     data_b = b"hello world"
@@ -583,7 +583,7 @@ def test_436_compute_checksum():
     assert checksum_a != 0, "Non-empty data should have non-zero checksum"
 
 
-# TEST442: SeqAssigner assigns monotonically increasing seq for same RID
+# TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID
 def test_442_seq_assigner_monotonic_same_rid():
     assigner = SeqAssigner()
     rid = MessageId.random()
@@ -604,7 +604,7 @@ def test_442_seq_assigner_monotonic_same_rid():
     assert f3.seq == 3
 
 
-# TEST443: SeqAssigner maintains independent per-RID counters
+# TEST443: SeqAssigner maintains independent counters for different RIDs
 def test_443_seq_assigner_independent_rids():
     assigner = SeqAssigner()
     rid_a = MessageId.random()
@@ -629,7 +629,7 @@ def test_443_seq_assigner_independent_rids():
     assert b1.seq == 1
 
 
-# TEST444: SeqAssigner skips non-flow frames
+# TEST444: SeqAssigner skips non-flow frames (Heartbeat, RelayNotify, RelayState, Hello)
 def test_444_seq_assigner_skips_non_flow():
     assigner = SeqAssigner()
 
@@ -643,7 +643,7 @@ def test_444_seq_assigner_skips_non_flow():
     assert heartbeat.seq == 0, "Heartbeat seq should remain 0"
 
 
-# TEST445: SeqAssigner remove resets only the matching flow counter
+# TEST445: SeqAssigner.remove with FlowKey(rid, None) resets that flow; FlowKey(rid, Some(xid)) is unaffected
 def test_445_seq_assigner_remove_by_flow_key():
     assigner = SeqAssigner()
     rid = MessageId.random()
@@ -712,7 +712,7 @@ def test_seq_assigner_same_rid_different_xids_independent():
     assert fn0.seq == 0
 
 
-# TEST446: SeqAssigner counts across mixed flow frame types
+# TEST446: SeqAssigner handles mixed frame types (REQ, CHUNK, LOG, END) for same RID
 def test_446_seq_assigner_mixed_types():
     assigner = SeqAssigner()
     rid = MessageId.random()
@@ -733,7 +733,7 @@ def test_446_seq_assigner_mixed_types():
     assert f_end.seq == 3
 
 
-# TEST447: FlowKey from frame with routing_id extracts (rid, xid)
+# TEST447: FlowKey::from_frame extracts (rid, Some(xid)) when routing_id present
 def test_447_flow_key_with_xid():
     rid = MessageId.random()
     xid = MessageId.random()
@@ -746,7 +746,7 @@ def test_447_flow_key_with_xid():
     assert key._xid == xid.to_string()
 
 
-# TEST448: FlowKey from frame without routing_id extracts (rid, "")
+# TEST448: FlowKey::from_frame extracts (rid, None) when routing_id absent
 def test_448_flow_key_without_xid():
     rid = MessageId.random()
 
@@ -756,7 +756,7 @@ def test_448_flow_key_without_xid():
     assert key._xid == ""
 
 
-# TEST449: FlowKey equality semantics
+# TEST449: FlowKey equality: same rid+xid equal, different xid different key
 def test_449_flow_key_equality():
     rid = MessageId.random()
     xid = MessageId.random()
@@ -769,7 +769,7 @@ def test_449_flow_key_equality():
     assert key1 != key3, "Different xid should not be equal"
 
 
-# TEST450: FlowKey hash allows HashMap lookup
+# TEST450: FlowKey hash: same keys hash equal (HashMap lookup)
 def test_450_flow_key_hash_lookup():
     rid = MessageId.random()
     xid = MessageId.random()
@@ -793,7 +793,7 @@ def _flow_frame(frame_type, rid, seq):
     return f
 
 
-# TEST451: ReorderBuffer delivers frames immediately when in order
+# TEST451: ReorderBuffer in-order delivery: seq 0,1,2 delivered immediately
 def test_451_reorder_buffer_in_order():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -808,7 +808,7 @@ def test_451_reorder_buffer_in_order():
     assert len(r2) == 1
 
 
-# TEST452: ReorderBuffer holds out-of-order, releases when gap filled
+# TEST452: ReorderBuffer out-of-order: seq 1 then 0 delivers both in order
 def test_452_reorder_buffer_out_of_order():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -824,7 +824,7 @@ def test_452_reorder_buffer_out_of_order():
     assert r0[1].seq == 1
 
 
-# TEST453: ReorderBuffer gap fill with arrival order 0, 2, 1
+# TEST453: ReorderBuffer gap fill: seq 0,2,1 delivers 0, buffers 2, then delivers 1+2
 def test_453_reorder_buffer_gap_fill():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -841,7 +841,7 @@ def test_453_reorder_buffer_gap_fill():
     assert r1[1].seq == 2
 
 
-# TEST454: ReorderBuffer rejects stale/duplicate seq
+# TEST454: ReorderBuffer stale seq is hard error
 def test_454_reorder_buffer_stale_seq():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -854,7 +854,7 @@ def test_454_reorder_buffer_stale_seq():
         rb.accept(_flow_frame(FrameType.CHUNK, rid, 0))
 
 
-# TEST455: ReorderBuffer overflow
+# TEST455: ReorderBuffer overflow triggers protocol error
 def test_455_reorder_buffer_overflow():
     rb = ReorderBuffer(max_buffer_per_flow=3)
     rid = MessageId.random()
@@ -867,7 +867,7 @@ def test_455_reorder_buffer_overflow():
         rb.accept(_flow_frame(FrameType.CHUNK, rid, 4))
 
 
-# TEST456: ReorderBuffer independent flows
+# TEST456: Multiple concurrent flows reorder independently
 def test_456_reorder_buffer_independent_flows():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid_a = MessageId.random()
@@ -886,7 +886,7 @@ def test_456_reorder_buffer_independent_flows():
     assert len(ra0) == 2, "A seq=0 releases seq=0 and seq=1"
 
 
-# TEST457: ReorderBuffer cleanup_flow resets state
+# TEST457: cleanup_flow removes state; new frames start at seq 0
 def test_457_reorder_buffer_cleanup():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -904,7 +904,7 @@ def test_457_reorder_buffer_cleanup():
     assert len(r) == 1
 
 
-# TEST458: ReorderBuffer non-flow frames bypass reordering
+# TEST458: Non-flow frames bypass reorder entirely
 def test_458_reorder_buffer_non_flow_bypass():
     rb = ReorderBuffer(max_buffer_per_flow=10)
 
@@ -918,7 +918,7 @@ def test_458_reorder_buffer_non_flow_bypass():
         assert len(r) == 1, f"Non-flow frame {frame.frame_type} should bypass reorder buffer"
 
 
-# TEST459: ReorderBuffer handles END frame correctly
+# TEST459: Terminal END frame flows through correctly
 def test_459_reorder_buffer_end_frame():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -932,7 +932,7 @@ def test_459_reorder_buffer_end_frame():
     assert r[0].seq == 1
 
 
-# TEST460: ReorderBuffer handles ERR frame correctly
+# TEST460: Terminal ERR frame flows through correctly
 def test_460_reorder_buffer_err_frame():
     rb = ReorderBuffer(max_buffer_per_flow=10)
     rid = MessageId.random()
@@ -954,7 +954,7 @@ def test_460_reorder_buffer_err_frame():
 from capdag.bifaci.io import encode_frame, decode_frame, InvalidFrameError
 
 
-# TEST491: CHUNK frame requires chunk_index and checksum
+# TEST491: Frame::chunk constructor requires and sets chunk_index and checksum
 def test_491_chunk_requires_chunk_index_and_checksum():
     req_id = MessageId.random()
     payload = b"test data"
@@ -968,7 +968,7 @@ def test_491_chunk_requires_chunk_index_and_checksum():
     assert frame.payload == payload
 
 
-# TEST492: STREAM_END frame requires and sets chunk_count
+# TEST492: Frame::stream_end constructor requires and sets chunk_count
 def test_492_stream_end_requires_chunk_count():
     req_id = MessageId.random()
     frame = Frame.stream_end(req_id, "stream-1", 42)
@@ -1092,7 +1092,7 @@ def test_500_chunk_count_cbor_roundtrip():
     assert decoded.stream_id == "s1"
 
 
-# TEST501: Frame.new initializes new fields to None
+# TEST501: Frame::new initializes new fields to None
 def test_501_frame_new_initializes_optional_fields_none():
     frame = Frame.new(FrameType.REQ, MessageId.random())
 
@@ -1160,7 +1160,7 @@ def test_506_compute_checksum_different_data_different_hash():
     assert hash1 != hash2, "different data must produce different hashes"
 
 
-# TEST507: ReorderBuffer isolates flows by XID (routing_id)
+# TEST507: ReorderBuffer isolates flows by XID (routing_id) - same RID different XIDs
 def test_507_reorder_buffer_xid_isolation():
     buf = ReorderBuffer(max_buffer_per_flow=64)
     rid = MessageId.random()
@@ -1501,7 +1501,7 @@ def test_527_relay_notify_large_manifest():
     assert decoded.relay_notify_manifest() == large_manifest
 
 
-# TEST528: RelayNotify and RelayState use MessageId(0)
+# TEST528: RelayNotify and RelayState use MessageId::Uint(0)
 def test_528_relay_frames_use_uint_zero_id():
     notify = Frame.relay_notify(b"test", DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
     state = Frame.relay_state(b"test")
@@ -1543,7 +1543,7 @@ def test_904_stream_end_with_chunk_count():
     assert frame.chunk_count == 42, "chunk_count should be set"
 
 
-# TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field
+# TEST907: Offline flag blocks fetch_from_registry without making HTTP request
 def test_907_cbor_rejects_stream_end_without_chunk_count():
     req_id = MessageId.random()
 

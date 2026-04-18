@@ -58,7 +58,7 @@ def test_117_register_and_find_cap_set():
         registry.find_cap_sets(make_test_urn("op=different"))
 
 
-# TEST118: Test selecting best cap set based on specificity ranking
+# TEST118: Test selecting best cap set based on specificity ranking  With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints)
 def test_118_best_cap_set_selection():
     registry = CapMatrix()
 
@@ -93,7 +93,7 @@ def test_119_invalid_urn_handling():
         registry.find_cap_sets("invalid-urn")
 
 
-# TEST120: Test accepts_request checks if registry can accept a capability request
+# TEST120: Test accepts_request checks if registry can handle a capability request
 def test_120_accepts_request():
     registry = CapMatrix()
 
@@ -532,7 +532,7 @@ def test_125_cap_block_fallback_scenario():
     assert best.registry_name == "cartridges"
 
 
-# TEST126: Test CapBlock accepts_request method checks if any registry can accept the capability
+# TEST126: Test composite can method returns CapCaller for capability execution
 def test_126_cap_block_accepts_request():
     # Test the accepts_request() method
 
@@ -605,7 +605,7 @@ def test_133_cap_block_graph_integration():
     assert any('textable' in from_spec and 'record' in to_spec for from_spec, to_spec in edge_pairs)
 
 
-# TEST574: CapBlock::remove_registry removes by name, returns the registry object; None for missing
+# TEST574: CapBlock::remove_registry removes by name, returns Arc
 def test_574_cap_block_remove_registry():
     registry1 = CapMatrix()
     registry2 = CapMatrix()
@@ -630,7 +630,7 @@ def test_574_cap_block_remove_registry():
     assert composite.remove_registry("nonexistent") is None
 
 
-# TEST575: CapBlock::get_registry returns registry by name, None for unknown
+# TEST575: CapBlock::get_registry returns Arc clone by name
 def test_575_cap_block_get_registry():
     registry = CapMatrix()
 

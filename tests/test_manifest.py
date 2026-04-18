@@ -124,7 +124,7 @@ def test_152_cap_manifest_with_multiple_caps():
     assert manifest.caps[1].has_metadata("supports_outline")
 
 
-# TEST153: Test cap manifest with page_url field sets page URL correctly
+# TEST153: Test cap manifest with empty caps list serializes and deserializes correctly
 def test_153_cap_manifest_with_page_url():
     urn = CapUrn.from_string(_test_urn("op=test"))
     cap = Cap(urn, "Test", "test")
@@ -139,7 +139,7 @@ def test_153_cap_manifest_with_page_url():
     assert manifest.page_url == "https://github.com/example/test"
 
 
-# TEST154: Test cap manifest JSON includes optional fields only when set
+# TEST154: Test cap manifest optional author field skipped in serialization when None
 def test_154_cap_manifest_optional_fields():
     urn = CapUrn.from_string(_test_urn("op=test"))
     cap = Cap(urn, "Test", "test")
@@ -163,7 +163,7 @@ def test_154_cap_manifest_optional_fields():
     assert '"page_url"' in json2
 
 
-# TEST155: Test cap manifest roundtrip preserves all data including nested cap structures
+# TEST155: Test ComponentMetadata trait provides manifest and caps accessor methods
 def test_155_cap_manifest_complex_roundtrip():
     urn = CapUrn.from_string(_test_urn("op=process"))
     cap = Cap(urn, "Process", "process")
@@ -199,7 +199,7 @@ def test_155_cap_manifest_complex_roundtrip():
     assert len(restored.caps[0].get_args()) == len(manifest.caps[0].get_args())
 
 
-# TEST475: CapManifest.validate() passes when CAP_IDENTITY is present
+# TEST475: CapManifest::validate() passes when CAP_IDENTITY is present
 def test_475_validate_passes_with_identity():
     from capdag.standard.caps import CAP_IDENTITY
 
@@ -210,7 +210,7 @@ def test_475_validate_passes_with_identity():
     manifest.validate()
 
 
-# TEST476: CapManifest.validate() fails when CAP_IDENTITY is missing
+# TEST476: CapManifest::validate() fails when CAP_IDENTITY is missing
 def test_476_validate_fails_without_identity():
     specific_urn = CapUrn.from_string(_test_urn("op=convert"))
     specific_cap = Cap(specific_urn, "Convert", "convert")

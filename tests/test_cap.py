@@ -15,7 +15,7 @@ def _test_urn(tags: str) -> str:
     return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
 
 
-# TEST108: Test Cap creation with URN, title, and command
+# TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 def test_108_cap_creation():
     urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
@@ -26,7 +26,7 @@ def test_108_cap_creation():
     assert cap.urn_string() == urn.to_string()
 
 
-# TEST109: Test Cap with args stores and retrieves arguments correctly
+# TEST109: Test creating cap with metadata initializes and retrieves metadata correctly
 def test_109_cap_with_args():
     urn = CapUrn.from_string(_test_urn("op=process"))
     cap = Cap(urn, "Process Data", "process-data")
@@ -45,7 +45,7 @@ def test_109_cap_with_args():
     assert args[0].required is True
 
 
-# TEST110: Test Cap with stdin source stores stdin media URN correctly
+# TEST110: Test cap matching with subset semantics for request fulfillment
 def test_110_cap_with_stdin():
     urn = CapUrn.from_string(_test_urn("op=convert"))
     cap = Cap(urn, "Convert", "convert")
@@ -61,7 +61,7 @@ def test_110_cap_with_stdin():
     assert cap.get_stdin_media_urn() == "media:pdf"
 
 
-# TEST111: Test Cap with no stdin returns None for get_stdin_media_urn
+# TEST111: Test getting and setting cap title updates correctly
 def test_111_cap_without_stdin():
     urn = CapUrn.from_string(_test_urn("op=process"))
     cap = Cap(urn, "Process", "process")
@@ -77,7 +77,7 @@ def test_111_cap_without_stdin():
     assert cap.get_stdin_media_urn() is None
 
 
-# TEST112: Test Cap with output stores output definition correctly
+# TEST112: Test cap equality based on URN and title matching
 def test_112_cap_with_output():
     urn = CapUrn.from_string(_test_urn("op=generate"))
     cap = Cap(urn, "Generate", "generate")
@@ -93,7 +93,7 @@ def test_112_cap_with_output():
     assert cap.output.output_description == "Generated output"
 
 
-# TEST113: Test Cap with metadata stores and retrieves metadata correctly
+# TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
 def test_113_cap_with_metadata():
     urn = CapUrn.from_string(_test_urn("op=test"))
     metadata = {"supports_streaming": "true", "version": "2.0"}
@@ -106,7 +106,7 @@ def test_113_cap_with_metadata():
     assert not cap.has_metadata("nonexistent")
 
 
-# TEST114: Test Cap JSON serialization includes all fields
+# TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors
 def test_114_cap_json_serialization():
     urn = CapUrn.from_string(_test_urn("op=process"))
     cap = Cap(urn, "Process", "process-cmd")
@@ -139,7 +139,7 @@ def test_114_cap_json_serialization():
     assert "output" in cap_dict
 
 
-# TEST115: Test Cap JSON deserialization roundtrip preserves all data
+# TEST115: Test CapArg serialization and deserialization with multiple sources
 def test_115_cap_json_roundtrip():
     urn = CapUrn.from_string(_test_urn("op=convert"))
     cap = Cap(urn, "Convert", "convert-cmd")
@@ -164,7 +164,7 @@ def test_115_cap_json_roundtrip():
     assert restored_cap.get_stdin_media_urn() == cap.get_stdin_media_urn()
 
 
-# TEST116: Test CapArg with multiple sources stores all source types
+# TEST116: Test CapArg constructor methods basic and with_description create args correctly
 def test_116_cap_arg_multiple_sources():
     sources = [
         StdinSource("media:"),
@@ -334,7 +334,7 @@ def test_596_with_full_definition_constructor():
     assert cap.get_registered_by() is None
 
 
-# TEST597: CapArg.with_full_definition stores all fields including optional ones
+# TEST597: CapArg::with_full_definition stores all fields including optional ones
 def test_597_cap_arg_with_full_definition():
     default_val = "default_text"
     meta = {"hint": "enter name"}

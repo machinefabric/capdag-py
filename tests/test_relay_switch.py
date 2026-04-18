@@ -369,7 +369,7 @@ def test_431_continuation_frame_routing():
     assert response.payload == bytes([42])
 
 
-# TEST432: Empty masters list returns error
+# TEST432: Empty masters list creates empty switch, add_master works
 def test_432_empty_masters_list_error():
     """Verify error when creating RelaySwitch with empty masters list"""
     with pytest.raises(ProtocolError) as exc_info:

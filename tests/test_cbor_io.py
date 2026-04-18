@@ -31,7 +31,7 @@ from capdag.bifaci.frame import (
 )
 
 
-# TEST205: Test encode_frame produces CBOR with integer keys
+# TEST205: Test REQ frame encode/decode roundtrip preserves all fields
 def test_205_encode_frame_produces_cbor_with_integer_keys():
     frame = Frame.hello(1024, 512)
     data = encode_frame(frame)
@@ -49,7 +49,7 @@ def test_205_encode_frame_produces_cbor_with_integer_keys():
         assert isinstance(key, int)
 
 
-# TEST206: Test decode_frame parses CBOR frame correctly
+# TEST206: Test HELLO frame encode/decode roundtrip preserves max_frame, max_chunk, max_reorder_buffer
 def test_206_decode_frame_parses_cbor_correctly():
     original = Frame.hello(2048, 1024)
     data = encode_frame(original)
@@ -61,13 +61,13 @@ def test_206_decode_frame_parses_cbor_correctly():
     assert decoded.hello_max_chunk() == 1024
 
 
-# TEST207: Test decode_frame fails on invalid CBOR
+# TEST207: Test ERR frame encode/decode roundtrip preserves error code and message
 def test_207_decode_frame_fails_on_invalid_cbor():
     with pytest.raises(CborError):
         decode_frame(b"invalid cbor data")
 
 
-# TEST208: Test decode_frame fails on non-map CBOR
+# TEST208: Test LOG frame encode/decode roundtrip preserves level and message
 def test_208_decode_frame_fails_on_non_map():
     import cbor2
     data = cbor2.dumps([1, 2, 3])  # Array, not map
@@ -92,7 +92,7 @@ def test_write_frame_writes_length_prefixed():
     assert length == len(data) - 4
 
 
-# TEST210: Test read_frame reads length-prefixed frame
+# TEST210: Test END frame encode/decode roundtrip preserves eof marker and optional payload
 def test_210_read_frame_reads_length_prefixed():
     output = io.BytesIO()
     original = Frame.hello(2048, 1024)
@@ -109,7 +109,7 @@ def test_210_read_frame_reads_length_prefixed():
     assert decoded.hello_max_frame() == 2048
 
 
-# TEST211: Test read_frame returns None on EOF
+# TEST211: Test HELLO with manifest encode/decode roundtrip preserves manifest bytes and limits
 def test_211_read_frame_returns_none_on_eof():
     input_stream = io.BytesIO(b"")  # Empty stream
     limits = Limits.default()
@@ -118,7 +118,7 @@ def test_211_read_frame_returns_none_on_eof():
     assert result is None
 
 
-# TEST212: Test read_frame fails on incomplete length prefix
+# TEST212: Test chunk_with_offset encode/decode roundtrip preserves offset, len, eof (with stream_id)
 def test_212_read_frame_fails_on_incomplete_length_prefix():
     input_stream = io.BytesIO(b"\x00\x00")  # Only 2 bytes
     limits = Limits.default()
@@ -127,7 +127,7 @@ def test_212_read_frame_fails_on_incomplete_length_prefix():
         read_frame(input_stream, limits)
 
 
-# TEST213: Test read_frame fails on incomplete frame data
+# TEST213: Test heartbeat frame encode/decode roundtrip preserves ID with no extra fields
 def test_213_read_frame_fails_on_incomplete_frame_data():
     # Write a frame claiming 100 bytes but only provide 10
     input_stream = io.BytesIO(b"\x00\x00\x00\x64" + b"x" * 10)
@@ -137,7 +137,7 @@ def test_213_read_frame_fails_on_incomplete_frame_data():
         read_frame(input_stream, limits)
 
 
-# TEST214: Test write_frame enforces max frame size
+# TEST214: Test write_frame/read_frame IO roundtrip through length-prefixed wire format
 def test_214_write_frame_enforces_max_frame_size():
     output = io.BytesIO()
 
@@ -150,7 +150,7 @@ def test_214_write_frame_enforces_max_frame_size():
         write_frame(output, frame, limits)
 
 
-# TEST215: Test FrameReader reads multiple frames
+# TEST215: Test reading multiple sequential frames from a single buffer
 def test_215_frame_reader_reads_multiple_frames():
     output = io.BytesIO()
     limits = Limits(10000, 5000)
@@ -174,7 +174,7 @@ def test_215_frame_reader_reads_multiple_frames():
     assert read2.hello_max_frame() == 2048
 
 
-# TEST216: Test FrameWriter writes multiple frames
+# TEST216: Test write_frame rejects frames exceeding max_frame limit
 def test_216_frame_writer_writes_multiple_frames():
     output = io.BytesIO()
     limits = Limits(10000, 5000)
@@ -197,7 +197,7 @@ def test_216_frame_writer_writes_multiple_frames():
     assert read2.hello_max_frame() == 2048
 
 
-# TEST217: Test FrameReader.new creates with default limits
+# TEST217: Test read_frame rejects incoming frames exceeding the negotiated max_frame limit
 def test_217_frame_reader_new_creates_with_default_limits():
     input_stream = io.BytesIO()
     reader = FrameReader.new(input_stream)
@@ -206,7 +206,7 @@ def test_217_frame_reader_new_creates_with_default_limits():
     assert reader.get_limits().max_chunk == DEFAULT_MAX_CHUNK
 
 
-# TEST218: Test FrameWriter.new creates with default limits
+# TEST218: Test write_chunked splits data into chunks respecting max_chunk and reconstructs correctly Chunks from write_chunked have seq=0. SeqAssigner at the output stage assigns final seq. Chunk ordering within a stream is tracked by chunk_index (chunk_index field).
 def test_218_frame_writer_new_creates_with_default_limits():
     output = io.BytesIO()
     writer = FrameWriter.new(output)
@@ -215,7 +215,7 @@ def test_218_frame_writer_new_creates_with_default_limits():
     assert writer.get_limits().max_chunk == DEFAULT_MAX_CHUNK
 
 
-# TEST219: Test FrameReader.with_limits creates with specified limits
+# TEST219: Test write_chunked with empty data produces a single EOF chunk
 def test_219_frame_reader_with_limits():
     input_stream = io.BytesIO()
     limits = Limits(2048, 1024)
@@ -225,7 +225,7 @@ def test_219_frame_reader_with_limits():
     assert reader.get_limits().max_chunk == 1024
 
 
-# TEST220: Test FrameWriter.with_limits creates with specified limits
+# TEST220: Test write_chunked with data exactly equal to max_chunk produces exactly one chunk
 def test_220_frame_writer_with_limits():
     output = io.BytesIO()
     limits = Limits(2048, 1024)
@@ -235,7 +235,7 @@ def test_220_frame_writer_with_limits():
     assert writer.get_limits().max_chunk == 1024
 
 
-# TEST221: Test FrameReader.set_limits updates limits
+# TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream)
 def test_221_frame_reader_set_limits():
     input_stream = io.BytesIO()
     reader = FrameReader.new(input_stream)
@@ -247,7 +247,7 @@ def test_221_frame_reader_set_limits():
     assert reader.get_limits().max_chunk == 2048
 
 
-# TEST222: Test FrameWriter.set_limits updates limits
+# TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available)
 def test_222_frame_writer_set_limits():
     output = io.BytesIO()
     writer = FrameWriter.new(output)
@@ -259,7 +259,7 @@ def test_222_frame_writer_set_limits():
     assert writer.get_limits().max_chunk == 2048
 
 
-# TEST223: Test handshake host sends HELLO first
+# TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available)
 def test_223_handshake_host_sends_hello_first():
     # Create connected streams (simulate pipe)
     host_to_cartridge = io.BytesIO()
@@ -295,7 +295,7 @@ def test_223_handshake_host_sends_hello_first():
     assert result.hello_manifest() == manifest
 
 
-# TEST224: Test handshake negotiates to minimum limits
+# TEST224: Test MessageId::Uint roundtrips through encode/decode
 def test_224_handshake_negotiates_to_minimum_limits():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
@@ -331,7 +331,7 @@ def test_224_handshake_negotiates_to_minimum_limits():
     assert result.hello_max_frame() == negotiated_frame
 
 
-# TEST225: Test handshake function performs full handshake
+# TEST225: Test decode_frame rejects non-map CBOR values (e.g., array, integer, string)
 def test_225_handshake_function_full_handshake():
     # Create bidirectional streams
     host_to_cartridge = io.BytesIO()
@@ -361,7 +361,7 @@ def test_225_handshake_function_full_handshake():
     assert result.hello_manifest() == manifest
 
 
-# TEST226: Test handshake_accept receives first then sends
+# TEST226: Test decode_frame rejects CBOR map missing required version field
 def test_226_handshake_accept_receives_first():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
@@ -392,7 +392,7 @@ def test_226_handshake_accept_receives_first():
     assert response.hello_manifest() == manifest
 
 
-# TEST227: Test handshake fails if cartridge missing manifest
+# TEST227: Test decode_frame rejects CBOR map with invalid frame_type value
 def test_227_handshake_fails_if_cartridge_missing_manifest():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
@@ -417,7 +417,7 @@ def test_227_handshake_fails_if_cartridge_missing_manifest():
             raise HandshakeError("Cartridge HELLO missing required manifest")
 
 
-# TEST228: Test read_frame enforces limit
+# TEST228: Test decode_frame rejects CBOR map missing required id field
 def test_228_read_frame_enforces_limit():
     output = io.BytesIO()
 
@@ -435,7 +435,7 @@ def test_228_read_frame_enforces_limit():
         read_frame(output, small_limits)
 
 
-# TEST229: Test frame with zero-length payload
+# TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits
 def test_229_frame_with_zero_length_payload():
     output = io.BytesIO()
     frame = Frame.chunk(MessageId.new_uuid(), "test-stream", 0, b"", 0, 0)
@@ -450,7 +450,7 @@ def test_229_frame_with_zero_length_payload():
     assert decoded.payload == b""
 
 
-# TEST230: Test frame round-trip preserves all fields
+# TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits
 def test_230_frame_roundtrip_preserves_fields():
     original = Frame(
         frame_type=FrameType.REQ,
@@ -472,7 +472,7 @@ def test_230_frame_roundtrip_preserves_fields():
     assert decoded.cap == original.cap
 
 
-# TEST231: Test multiple readers on same stream
+# TEST231: Test handshake fails when peer sends non-HELLO frame
 def test_231_multiple_readers_on_same_stream():
     output = io.BytesIO()
     limits = Limits.default()
@@ -497,7 +497,7 @@ def test_231_multiple_readers_on_same_stream():
     assert read3.hello_max_frame() == 4096
 
 
-# TEST232: Test writer flushes after each frame
+# TEST232: Test handshake fails when cartridge HELLO is missing required manifest
 def test_232_writer_flushes_after_each_frame():
     output = io.BytesIO()
     writer = FrameWriter.new(output)
@@ -510,7 +510,7 @@ def test_232_writer_flushes_after_each_frame():
     assert len(data) > 0
 
 
-# TEST233: Test frame encoding preserves binary data
+# TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode
 def test_233_frame_encoding_preserves_binary_data():
     # Binary data with all byte values
     binary_data = bytes(range(256))
@@ -523,7 +523,7 @@ def test_233_frame_encoding_preserves_binary_data():
     assert decoded.payload == binary_data
 
 
-# TEST234: Test handshake with very small limits
+# TEST234: Test decode_frame handles garbage CBOR bytes gracefully with an error
 def test_234_handshake_with_very_small_limits():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
@@ -788,7 +788,7 @@ def test_441_stream_end_chunk_count_roundtrip():
     assert decoded.chunk_count == 42, "chunk_count must roundtrip"
 
 
-# TEST497: Corrupted payload detectable via checksum mismatch
+# TEST497: Verify CHUNK frame with corrupted payload is rejected by checksum
 def test_497_chunk_corrupted_payload_rejected():
     rid = MessageId.random()
     payload = b"original data"

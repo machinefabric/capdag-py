@@ -395,7 +395,7 @@ def test_557_audio_media_urn_for_ext():
     assert parsed.extension() == "mp3"
 
 
-# TEST558: predicates are consistent with constants
+# TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates
 def test_558_predicate_constant_consistency():
     # MEDIA_INTEGER must be numeric, text, scalar, NOT binary/bool/image/audio/video
     int_urn = MediaUrn.from_string(MEDIA_INTEGER)

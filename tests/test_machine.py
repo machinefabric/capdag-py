@@ -111,7 +111,7 @@ def test_1110_no_capability_steps_error_on_empty_wirings():
 
 
 # =============================================================================
-# TEST1111: UnknownCapError when cap not in registry
+# TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:list;textable;txt is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.
 # =============================================================================
 
 def test_1111_unknown_cap_error_when_not_in_registry():
@@ -131,7 +131,7 @@ def test_1111_unknown_cap_error_when_not_in_registry():
 
 
 # =============================================================================
-# TEST1112: Single-edge strand resolves correctly with correct node structure
+# TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type.
 # =============================================================================
 
 def test_1112_single_edge_strand_resolves_correctly():
@@ -157,7 +157,7 @@ def test_1112_single_edge_strand_resolves_correctly():
 
 
 # =============================================================================
-# TEST1113: Two-step chain shares intermediate node
+# TEST1113: Multi-cap path without Collect — Collect is not synthesized
 # =============================================================================
 
 def test_1113_two_step_chain_shares_intermediate_node():
@@ -193,7 +193,7 @@ def test_1113_two_step_chain_shares_intermediate_node():
 
 
 # =============================================================================
-# TEST1114: Machine.from_strand produces single-strand machine
+# TEST1114: Graph stores only Cap edges after sync
 # =============================================================================
 
 def test_1114_from_strand_produces_single_strand_machine():
@@ -211,7 +211,7 @@ def test_1114_from_strand_produces_single_strand_machine():
 
 
 # =============================================================================
-# TEST1115: Machine.from_strands keeps strands disjoint
+# TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items
 # =============================================================================
 
 def test_1115_from_strands_keeps_strands_disjoint():
@@ -236,7 +236,7 @@ def test_1115_from_strands_keeps_strands_disjoint():
 
 
 # =============================================================================
-# TEST1116: Machine.from_strands with empty list raises NoCapabilityStepsError
+# TEST1116: Collect is never synthesized during path finding
 # =============================================================================
 
 def test_1116_from_strands_empty_raises_no_capability_steps():
@@ -247,7 +247,7 @@ def test_1116_from_strands_empty_raises_no_capability_steps():
 
 
 # =============================================================================
-# TEST1117: Machine.is_equivalent is strict and positional — order matters
+# TEST1117: ForEach is NOT synthesized when is_sequence=false
 # =============================================================================
 
 def test_1117_machine_is_equivalent_strict_positional_order_matters():
@@ -272,7 +272,7 @@ def test_1117_machine_is_equivalent_strict_positional_order_matters():
 
 
 # =============================================================================
-# TEST1118: MachineStrand.is_equivalent walks NodeId bijection correctly
+# TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true
 # =============================================================================
 
 def test_1118_strand_is_equivalent_consistent_node_bijection():
@@ -293,7 +293,7 @@ def test_1118_strand_is_equivalent_consistent_node_bijection():
 
 
 # =============================================================================
-# TEST1119: match_sources_to_args single source trivial assignment
+# TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end.
 # =============================================================================
 
 def test_1119_match_sources_to_args_single_trivial():
@@ -310,7 +310,7 @@ def test_1119_match_sources_to_args_single_trivial():
 
 
 # =============================================================================
-# TEST1120: match_sources_to_args more-specific source matches general arg
+# TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed.
 # =============================================================================
 
 def test_1120_match_sources_more_specific_source_matches_general_arg():
@@ -324,7 +324,7 @@ def test_1120_match_sources_more_specific_source_matches_general_arg():
 
 
 # =============================================================================
-# TEST1121: match_sources_to_args unmatched source raises UnmatchedSourceInCapArgsError
+# TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support)
 # =============================================================================
 
 def test_1121_match_sources_unmatched_source_fails_hard():
@@ -342,7 +342,7 @@ def test_1121_match_sources_unmatched_source_fails_hard():
 
 
 # =============================================================================
-# TEST1122: match_sources_to_args ambiguous assignment raises AmbiguousMachineNotationError
+# TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay
 # =============================================================================
 
 def test_1122_match_sources_ambiguous_raises_ambiguous_error():
@@ -360,7 +360,7 @@ def test_1122_match_sources_ambiguous_raises_ambiguous_error():
 
 
 # =============================================================================
-# TEST1123: CyclicMachineStrandError on a hand-crafted cyclic wiring
+# TEST1123: Cartridge ERR frame flows back to engine through relay
 # =============================================================================
 
 def test_1123_cyclic_strand_fails_hard():
@@ -389,7 +389,7 @@ def test_1123_cyclic_strand_fails_hard():
 
 
 # =============================================================================
-# TEST1124: MachineParseError wraps MachineSyntaxError correctly
+# TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field
 # =============================================================================
 
 def test_1124_machine_parse_error_wraps_syntax_error():
@@ -405,7 +405,7 @@ def test_1124_machine_parse_error_wraps_syntax_error():
 
 
 # =============================================================================
-# TEST1125: parse_machine raises MachineParseError wrapping UnknownCapError
+# TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]
 # =============================================================================
 
 def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause():
@@ -427,7 +427,7 @@ def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
 
 
 # =============================================================================
-# TEST1126: parse_machine single-wiring notation produces one strand
+# TEST1126: map_progress is deterministic — same inputs always produce same output
 # =============================================================================
 
 def test_1126_parse_machine_single_wiring_one_strand():
@@ -449,7 +449,7 @@ def test_1126_parse_machine_single_wiring_one_strand():
 
 
 # =============================================================================
-# TEST1127: parse_machine union-find partitions disconnected wirings into separate strands
+# TEST1127: Documentation field round-trips through JSON serialize/deserialize.  The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.
 # =============================================================================
 
 def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
@@ -474,7 +474,7 @@ def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
 
 
 # =============================================================================
-# TEST1128: parse_machine shared node name connects wirings into same strand
+# TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null.
 # =============================================================================
 
 def test_1128_parse_machine_shared_node_name_yields_one_strand():
@@ -500,7 +500,7 @@ def test_1128_parse_machine_shared_node_name_yields_one_strand():
 
 
 # =============================================================================
-# TEST1129: EdgeAssignmentBinding stores correct slot identity (not stdin inner type)
+# TEST1129: A JSON document produced by capgraph (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
 # =============================================================================
 
 def test_1129_binding_slot_identity_is_outer_media_urn():
@@ -542,7 +542,7 @@ def test_1129_binding_slot_identity_is_outer_media_urn():
 
 
 # =============================================================================
-# TEST1130: MachineStrand.is_equivalent rejects strands with wrong URN at bijected node
+# TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description.
 # =============================================================================
 
 def test_1130_strand_equivalence_rejects_mismatched_node_urns():
@@ -568,7 +568,7 @@ def test_1130_strand_equivalence_rejects_mismatched_node_urns():
 
 
 # =============================================================================
-# TEST1131: resolve_strand with ForEach sets is_loop on next cap edge
+# TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec.  This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
 # =============================================================================
 
 def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
@@ -604,7 +604,7 @@ def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
 
 
 # =============================================================================
-# TEST1132: resolve_strand with only ForEach/Collect steps (no cap) raises error
+# TEST1132: MediaSpecDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
 # =============================================================================
 
 def test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps():
@@ -631,7 +631,7 @@ def test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps():
 
 
 # =============================================================================
-# TEST1133: Machine.from_string is an alias for parse_machine with registry
+# TEST1133: MediaSpecDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body).
 # =============================================================================
 
 def test_1133_machine_from_string_delegates_to_parse_machine():

@@ -77,7 +77,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
         handler(reader, writer)
 
 
-# TEST413: RegisterCartridge adds entries to capTable
+# TEST413: Register cartridge adds entries to cap_table
 def test_413_register_cartridge_adds_cap_table():
     host = CartridgeHost()
     host.register_cartridge("/path/to/converter", ["cap:op=convert", "cap:op=analyze"])
@@ -92,7 +92,7 @@ def test_413_register_cartridge_adds_cap_table():
         assert not host._cartridges[0].running, "registered cartridge must not be running"
 
 
-# TEST414: Capabilities() returns None when no cartridges are running
+# TEST414: capabilities() returns empty JSON initially (no running cartridges)
 def test_414_capabilities_empty_initially():
     host = CartridgeHost()
     assert host.capabilities() is None, "no cartridges → None capabilities"
@@ -100,7 +100,7 @@ def test_414_capabilities_empty_initially():
     assert host.capabilities() is None, "registered but not running → None capabilities"
 
 
-# TEST415: REQ for known cap triggers spawn (expect error for non-existent binary)
+# TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 def test_415_req_triggers_spawn():
     host = CartridgeHost()
     host.register_cartridge("/nonexistent/cartridge/binary", ["cap:op=test"])
@@ -130,7 +130,7 @@ def test_415_req_triggers_spawn():
     assert err_frame[0].error_code() == "SPAWN_FAILED"
 
 
-# TEST416: AttachCartridge performs HELLO handshake, extracts manifest, updates capabilities
+# TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities
 def test_416_attach_cartridge_handshake():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:in=media:;out=media:"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -157,7 +157,7 @@ def test_416_attach_cartridge_handshake():
     t.join(timeout=5)
 
 
-# TEST417: Route REQ to correct cartridge by cap_urn (two cartridges)
+# TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)
 def test_417_route_req_by_cap_urn():
     manifest_a = '{"name":"A","version":"1.0","caps":[{"urn":"cap:op=convert"}]}'
     manifest_b = '{"name":"B","version":"1.0","caps":[{"urn":"cap:op=analyze"}]}'
@@ -218,7 +218,7 @@ def test_417_route_req_by_cap_urn():
     assert response_payload[0] == b"converted"
 
 
-# TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id
+# TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames.
 def test_418_route_continuation_by_req_id():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:op=cont"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -339,7 +339,7 @@ def test_419_heartbeat_local_handling():
     assert FrameType.LOG in received_types, "LOG must be forwarded to relay"
 
 
-# TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay
+# TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)
 def test_420_cartridge_frames_forwarded_to_relay():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:op=fwd"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -397,7 +397,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
     assert FrameType.END in type_set, "END must be forwarded"
 
 
-# TEST421: Cartridge death updates capability list (removes dead cartridge's caps)
+# TEST421: Cartridge death updates capability list (caps removed)
 def test_421_cartridge_death_updates_caps():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:op=die"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -438,7 +438,7 @@ def test_421_cartridge_death_updates_caps():
     t_close.join(timeout=5)
 
 
-# TEST422: Cartridge death sends ERR for all pending requests
+# TEST422: Cartridge death sends ERR for all pending requests via relay
 def test_422_cartridge_death_sends_err():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:op=die"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -486,7 +486,7 @@ def test_422_cartridge_death_sends_err():
     assert err_frame[0].error_code() == "CARTRIDGE_DIED"
 
 
-# TEST423: Multiple cartridges with distinct caps route independently
+# TEST423: Multiple cartridges registered with distinct caps route independently
 def test_423_multi_cartridge_distinct_caps():
     manifest_a = '{"name":"A","version":"1.0","caps":[{"urn":"cap:op=alpha"}]}'
     manifest_b = '{"name":"B","version":"1.0","caps":[{"urn":"cap:op=beta"}]}'
@@ -567,7 +567,7 @@ def test_423_multi_cartridge_distinct_caps():
         assert responses.get("beta") == b"from-B"
 
 
-# TEST424: Concurrent requests to same cartridge handled independently
+# TEST424: Concurrent requests to the same cartridge are handled independently
 def test_424_concurrent_requests_same_cartridge():
     manifest = '{"name":"Test","version":"1.0","caps":[{"urn":"cap:op=conc"}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
@@ -634,7 +634,7 @@ def test_424_concurrent_requests_same_cartridge():
         assert responses.get("1") == b"response-1"
 
 
-# TEST425: FindCartridgeForCap returns None for unknown cap
+# TEST425: find_cartridge_for_cap returns None for unregistered cap
 def test_425_find_cartridge_for_cap_unknown():
     host = CartridgeHost()
     host.register_cartridge("/path/to/cartridge", ["cap:op=known"])

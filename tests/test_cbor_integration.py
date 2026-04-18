@@ -175,7 +175,7 @@ def test_286_streaming_chunks():
     cartridge.join(timeout=5.0)
 
 
-# TEST287: Host-initiated heartbeat handling
+# TEST287: Host-initiated heartbeat
 def test_287_heartbeat_from_host():
     """Test host-initiated heartbeat"""
     host_write_sock, cartridge_read_sock = create_socket_pair()
@@ -213,7 +213,7 @@ def test_287_heartbeat_from_host():
     cartridge.join(timeout=5.0)
 
 
-# TEST290: Limit negotiation picks minimum values
+# TEST290: Limit negotiation picks minimum
 def test_290_limits_negotiation():
     """Test limit negotiation picks minimum of both sides"""
     host_write_sock, cartridge_read_sock = create_socket_pair()

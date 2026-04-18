@@ -156,7 +156,7 @@ def test_250_typed_handler_deserialization():
     assert received[0] == b"hello"
 
 
-# TEST251: Test Op handler propagates errors through HandlerError
+# TEST251: Test Op handler propagates errors through RuntimeError::Handler
 def test_251_typed_handler_rejects_invalid_json():
     class JsonParseOp(Op):
         async def perform(self, dry, wet):
@@ -192,7 +192,7 @@ def test_252_find_handler_unknown_cap():
     assert runtime.find_handler("cap:op=nonexistent") is None
 
 
-# TEST253: Test OpFactory can be used across threads (Send + Sync equivalent)
+# TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync)
 def test_253_handler_is_send_sync():
     import threading
 
@@ -223,7 +223,7 @@ def test_253_handler_is_send_sync():
     assert received == [b"done"]
 
 
-# TEST254: Test NoPeerInvoker always returns PeerRequest error regardless of arguments
+# TEST254: Test NoPeerInvoker always returns PeerRequest error
 def test_254_no_peer_invoker():
     no_peer = NoPeerInvoker()
 
@@ -233,7 +233,7 @@ def test_254_no_peer_invoker():
     assert "not supported" in str(exc_info.value).lower()
 
 
-# TEST255: Test NoPeerInvoker returns error even with valid arguments
+# TEST255: Test NoPeerInvoker call_with_bytes also returns error
 def test_255_no_peer_invoker_with_arguments():
     no_peer = NoPeerInvoker()
     args = [CapArgumentValue.from_str("media:test", "value")]
@@ -269,7 +269,7 @@ def test_258_with_manifest_struct():
     assert runtime.manifest is not None
 
 
-# TEST259: Test extract_effective_payload with single stream matching cap in_spec
+# TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged
 def test_259_extract_effective_payload_non_cbor():
     # Single stream with data matching the cap's input spec
     streams = [
@@ -279,7 +279,7 @@ def test_259_extract_effective_payload_non_cbor():
     assert result == b"raw data", "Should extract matching stream"
 
 
-# TEST260: Test extract_effective_payload with wildcard in_spec accepts any stream
+# TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged
 def test_260_extract_effective_payload_no_content_type():
     streams = [
         ("stream-0", PendingStream(media_urn="media:", chunks=[b"raw data"], complete=True))
@@ -288,7 +288,7 @@ def test_260_extract_effective_payload_no_content_type():
     assert result == b"raw data", "Wildcard should accept any stream"
 
 
-# TEST261: Test extract_effective_payload extracts matching stream by media URN
+# TEST261: Test extract_effective_payload with CBOR content extracts matching argument value
 def test_261_extract_effective_payload_cbor_match():
     # Stream with media URN that matches cap's input spec
     streams = [
@@ -305,7 +305,7 @@ def test_261_extract_effective_payload_cbor_match():
     assert result == b"hello"
 
 
-# TEST262: Test extract_effective_payload fails when no stream matches expected input
+# TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input
 def test_262_extract_effective_payload_cbor_no_match():
     # Multiple streams, none match cap's specific input spec
     streams = [
@@ -330,7 +330,7 @@ def test_262_extract_effective_payload_cbor_no_match():
     assert "No stream found matching" in str(exc_info.value)
 
 
-# TEST263: Test extract_effective_payload with empty streams returns error
+# TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error
 def test_263_extract_effective_payload_invalid_cbor():
     # No streams provided
     streams = []
@@ -342,7 +342,7 @@ def test_263_extract_effective_payload_invalid_cbor():
     assert "No stream found matching" in str(exc_info.value)
 
 
-# TEST264: Test extract_effective_payload with incomplete stream skips it
+# TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error
 def test_264_extract_effective_payload_cbor_not_array():
     # Stream that's not complete
     streams = [
@@ -369,7 +369,7 @@ def test_extract_effective_payload_invalid_cap_urn():
         )
 
 
-# TEST266: Test CliStreamEmitter writes to stdout and stderr correctly (basic construction)
+# TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction)
 def test_266_cli_stream_emitter_construction():
     emitter = CliStreamEmitter()
     assert emitter.ndjson, "default CLI emitter must use NDJSON"
@@ -457,7 +457,7 @@ def test_271_handler_replacement():
     assert result2 == [b"second"], "later registration must replace earlier"
 
 
-# TEST272: Test extract_effective_payload with multiple streams selects the correct one
+# TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one
 def test_272_extract_effective_payload_multiple_args():
     # Multiple streams, only one matches the cap's input spec
     streams = [
@@ -480,7 +480,7 @@ def test_272_extract_effective_payload_multiple_args():
     assert result == b"correct"
 
 
-# TEST273: Test extract_effective_payload with binary data in stream (not just text)
+# TEST273: Test extract_effective_payload with binary data in CBOR value (not just text)
 def test_273_extract_effective_payload_binary_value():
     binary_data = bytes(range(256))
     streams = [
@@ -829,7 +829,7 @@ def test_343_non_file_path_args_unaffected():
     assert value_str == "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
-# TEST344: file-path-array with invalid JSON fails clearly
+# TEST344: file-path-array with nonexistent path fails clearly
 def test_344_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
     from capdag.bifaci.cartridge_runtime import CliError
@@ -863,7 +863,7 @@ def test_344_file_path_array_invalid_json_fails():
     assert "expected JSON array" in err, "Error should explain expected format"
 
 
-# TEST345: file-path-array with one file failing stops and reports error
+# TEST345: file-path-array with literal nonexistent path fails hard
 def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
     from capdag.bifaci.cartridge_runtime import IoRuntimeError
@@ -1112,7 +1112,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     assert received_payload[0] == test_content, "Handler should receive file bytes, not path"
 
 
-# TEST351: file-path-array with empty array succeeds
+# TEST351: file-path array with empty CBOR array returns empty (CBOR mode)
 def test_351_file_path_array_empty_array():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1221,7 +1221,7 @@ def test_353_cbor_payload_format_consistency():
     assert arg.value == b"test value"
 
 
-# TEST354: Glob pattern with no matches produces empty array
+# TEST354: Glob pattern with no matches fails hard (NO FALLBACK)
 def test_354_glob_pattern_no_matches_empty_array(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1537,7 +1537,7 @@ def test_361_cli_mode_file_path(tmp_path):
     assert arguments[0].value == pdf_content
 
 
-# TEST362: CLI mode with binary piped in - pipe binary data via stdin
+# TEST362: CLI mode with binary piped in - pipe binary data via stdin  This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload
 #
 # This test simulates real-world conditions:
 # - Pure binary data piped to stdin (NOT CBOR)
@@ -1802,7 +1802,7 @@ class ErrorReader:
         raise IOError("simulated read error")
 
 
-# TEST398: IO error from reader propagates as error
+# TEST398: IO error from reader propagates as RuntimeError::Io
 def test_398_build_payload_io_error():
     cap = create_test_cap(
         'cap:in="media:";op=process;out="media:void"',
@@ -1895,7 +1895,7 @@ def make_mock_emitter(media_urn="media:test"):
 # PeerCall / PeerResponse Tests
 # =============================================================================
 
-# TEST544: PeerCall finish sends END frame
+# TEST544: PeerCall::finish sends END frame
 # In Python, PeerInvokerImpl.invoke() sends END after all args.
 # This test validates that the response queue receives frames including END.
 def test_544_peer_invoker_sends_end_frame():
@@ -1922,7 +1922,7 @@ def test_544_peer_invoker_sends_end_frame():
     assert len(end_frames) == 1, f"Expected 1 END frame, got {len(end_frames)}"
 
 
-# TEST545: PeerCall finish returns PeerResponse with data
+# TEST545: PeerCall::finish returns PeerResponse with data
 def test_545_peer_response_returns_data():
     """demux_peer_response yields data items from peer response frames."""
     from capdag.bifaci.frame import compute_checksum
@@ -1947,7 +1947,7 @@ def test_545_peer_response_returns_data():
     assert result == b"response data"
 
 
-# TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately
+# TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately  This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive.  Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads.
 #
 # This tests the critical fix: during a peer call, the peer (e.g., modelcartridge)
 # sends LOG frames for minutes during model download BEFORE sending any data
@@ -2003,7 +2003,7 @@ def test_839_peer_response_delivers_logs_before_stream_start():
     assert response.recv() is None, "stream must end after STREAM_END"
 
 
-# TEST840: PeerResponse.collect_bytes discards LOG frames
+# TEST840: PeerResponse::collect_bytes discards LOG frames
 def test_840_peer_response_collect_bytes_discards_logs():
     from capdag.bifaci.frame import compute_checksum
 
@@ -2033,7 +2033,7 @@ def test_840_peer_response_collect_bytes_discards_logs():
     assert result == b"hello", "collect_bytes must return only data, discarding all LOG frames"
 
 
-# TEST841: PeerResponse.collect_value discards LOG frames
+# TEST841: PeerResponse::collect_value discards LOG frames
 def test_841_peer_response_collect_value_discards_logs():
     from capdag.bifaci.frame import compute_checksum
 
@@ -2073,7 +2073,7 @@ def test_678_find_stream_equivalent_urn():
     assert result == b"hello world"
 
 
-# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict
+# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record".
 def test_679_find_stream_base_vs_full_fails():
     streams = [
         ("media:textable;txt", b"hello"),
@@ -2082,7 +2082,7 @@ def test_679_find_stream_base_vs_full_fails():
     assert result is None, "Base URN must not match more specific URN (is_equivalent is strict)"
 
 
-# TEST680: require_stream with missing URN returns hard error
+# TEST680: require_stream with missing URN returns hard StreamError
 def test_680_require_stream_missing_fails():
     streams = [
         ("media:textable;txt", b"hello"),
@@ -2104,7 +2104,7 @@ def test_681_find_stream_multiple():
     assert find_stream(streams, "media:json;textable") == b"json data"
 
 
-# TEST682: require_stream returns data for matching URN
+# TEST682: require_stream_str returns UTF-8 string for text data
 def test_682_require_stream_returns_data():
     streams = [
         ("media:textable;txt", b"hello text"),
@@ -2113,7 +2113,7 @@ def test_682_require_stream_returns_data():
     assert result == b"hello text"
 
 
-# TEST683: find_stream returns None for invalid media URN string (not a parse error)
+# TEST683: find_stream returns None for invalid media URN string (not a parse error — just None)
 def test_683_find_stream_invalid_urn_returns_none():
     streams = [
         ("media:textable;txt", b"data"),
@@ -2126,7 +2126,7 @@ def test_683_find_stream_invalid_urn_returns_none():
 # ProgressSender Tests
 # =============================================================================
 
-# TEST842: ThreadSafeEmitter.progress_sender() returns a working ProgressSender
+# TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames)
 # (Mirrors Rust run_with_keepalive returning closure result — Python doesn't have
 # run_with_keepalive because blocking model loads are not done via tokio.
 # Instead we test ProgressSender directly.)
@@ -2146,7 +2146,7 @@ def test_842_progress_sender_emits_frames():
     assert log_frames[1].log_message() == "loading complete"
 
 
-# TEST843: ProgressSender from background thread emits correctly
+# TEST843: run_with_keepalive returns Ok/Err from closure
 def test_843_progress_sender_from_background_thread():
     import threading
 
@@ -2169,7 +2169,7 @@ def test_843_progress_sender_from_background_thread():
     assert log_frames[0].log_progress() == pytest.approx(0.25, abs=0.01)
 
 
-# TEST844: ProgressSender cloned (Python: shared reference) emits from multiple threads
+# TEST844: run_with_keepalive propagates errors from closure
 def test_844_progress_sender_multiple_threads():
     import threading
 

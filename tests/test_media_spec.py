@@ -56,7 +56,7 @@ async def test_088_resolve_from_registry_str():
     assert resolved.profile_uri is not None
 
 
-# TEST089: Test resolving object media URN from registry returns JSON media type
+# TEST089: Test resolving JSON media URN from registry returns JSON media type
 @pytest.mark.asyncio
 async def test_089_resolve_from_registry_obj():
     registry = await create_test_registry()
@@ -64,7 +64,7 @@ async def test_089_resolve_from_registry_obj():
     assert resolved.media_type == "application/json"
 
 
-# TEST090: Test resolving wildcard media URN returns octet-stream and is_binary true
+# TEST090: Test resolving binary media URN returns octet-stream and is_binary true
 @pytest.mark.asyncio
 async def test_090_resolve_from_registry_binary():
     registry = await create_test_registry()
@@ -112,7 +112,7 @@ async def test_091_resolve_custom_media_spec():
     assert resolved.schema is None
 
 
-# TEST092: Test resolving custom object form media spec with schema from local media_specs
+# TEST092: Test resolving custom record media spec with schema from local media_specs
 @pytest.mark.asyncio
 async def test_092_resolve_custom_with_schema():
     registry = await create_test_registry()
@@ -268,7 +268,7 @@ def test_098_validate_no_duplicate_urns_passes_for_unique():
 # =============================================================================
 
 
-# TEST099: Test ResolvedMediaSpec is_binary returns true for non-textable media URN
+# TEST099: Test ResolvedMediaSpec is_binary returns true when textable tag is absent
 def test_099_resolved_is_binary():
     resolved = ResolvedMediaSpec(
         media_urn="media:",
@@ -286,7 +286,7 @@ def test_099_resolved_is_binary():
     assert not resolved.is_json()
 
 
-# TEST100: Test ResolvedMediaSpec is_record returns true for record marker tag media URN
+# TEST100: Test ResolvedMediaSpec is_record returns true when record marker is present
 def test_100_resolved_is_record():
     resolved = ResolvedMediaSpec(
         media_urn="media:record;textable",
@@ -305,7 +305,7 @@ def test_100_resolved_is_record():
     assert not resolved.is_list()
 
 
-# TEST101: Test ResolvedMediaSpec is_scalar returns true when list marker tag is NOT present
+# TEST101: Test ResolvedMediaSpec is_scalar returns true when list marker is absent
 def test_101_resolved_is_scalar():
     resolved = ResolvedMediaSpec(
         media_urn="media:textable",
@@ -323,7 +323,7 @@ def test_101_resolved_is_scalar():
     assert not resolved.is_list()
 
 
-# TEST102: Test ResolvedMediaSpec is_list returns true for list marker tag media URN
+# TEST102: Test ResolvedMediaSpec is_list returns true when list marker is present
 def test_102_resolved_is_list():
     resolved = ResolvedMediaSpec(
         media_urn="media:list;textable",
@@ -341,7 +341,7 @@ def test_102_resolved_is_list():
     assert not resolved.is_scalar()
 
 
-# TEST103: Test ResolvedMediaSpec is_json returns true when json marker tag is present
+# TEST103: Test ResolvedMediaSpec is_json returns true when json tag is present
 def test_103_resolved_is_json():
     resolved = ResolvedMediaSpec(
         media_urn="media:json;record;textable",

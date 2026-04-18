@@ -111,7 +111,7 @@ def test_474_cap_discard_accepts_specific_void_cap():
         "CAP_DISCARD must NOT accept a cap with non-void output"
 
 
-# TEST605: all_coercion_paths builds valid URNs with op=coerce
+# TEST605: all_coercion_paths each entry builds a valid parseable CapUrn
 def test_605_all_coercion_paths_build_valid_urns():
     paths = all_coercion_paths()
     assert len(paths) > 0, "Coercion paths must not be empty"

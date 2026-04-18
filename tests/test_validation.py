@@ -171,7 +171,7 @@ def test_584_rule6_position_gap():
     assert "RULE6" in exc_info.value.issue
 
 
-# TEST585: RULE6 - sequential positions (0, 1) pass
+# TEST585: RULE6 - sequential positions (0, 1, 2) pass
 def test_585_rule6_sequential_ok():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
@@ -221,7 +221,7 @@ def test_588_rule10_reserved_cli_flags():
         assert reserved_flag in exc_info.value.issue
 
 
-# TEST589: Valid cap args with mixed sources pass all rules
+# TEST589: valid cap args with mixed sources pass all rules
 def test_589_all_rules_pass():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")

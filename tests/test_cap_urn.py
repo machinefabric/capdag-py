@@ -746,7 +746,7 @@ def test_562_canonical_option():
         CapUrn.canonical_option("invalid")
 
 
-# TEST568: is_dispatchable with tags in different order (record;textable vs textable;record)
+# TEST568: is_dispatchable with different tag order in output spec
 def test_568_dispatch_output_tag_order():
     provider = CapUrn.from_string(
         'cap:in="media:model-spec;textable";op=download-model;out="media:download-result;record;textable"'
@@ -987,7 +987,7 @@ def test_653_wildcard_identity_routing_isolation():
     assert identity.accepts(specific_request), "Identity pattern accepts any instance"
 
 
-# TEST823: is_dispatchable exact match
+# TEST823: is_dispatchable — exact match provider dispatches request
 def test_823_dispatch_exact_match():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:record;textable"'
@@ -998,7 +998,7 @@ def test_823_dispatch_exact_match():
     assert provider.is_dispatchable(request)
 
 
-# TEST824: is_dispatchable contravariant input
+# TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
 def test_824_dispatch_contravariant_input():
     provider = CapUrn.from_string(
         'cap:in="media:";op=analyze;out="media:record;textable"'
@@ -1009,7 +1009,7 @@ def test_824_dispatch_contravariant_input():
     assert provider.is_dispatchable(request)
 
 
-# TEST825: is_dispatchable request unconstrained input
+# TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true
 def test_825_dispatch_request_unconstrained_input():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=analyze;out="media:record;textable"'
@@ -1021,7 +1021,7 @@ def test_825_dispatch_request_unconstrained_input():
         "Request in=media: is unconstrained — axis is vacuously true"
 
 
-# TEST826: is_dispatchable covariant output
+# TEST826: is_dispatchable — provider output must satisfy request output (covariance)
 def test_826_dispatch_covariant_output():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:record;textable"'
@@ -1033,7 +1033,7 @@ def test_826_dispatch_covariant_output():
         "Provider output record;textable conforms to request output textable"
 
 
-# TEST827: is_dispatchable generic output fails
+# TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
 def test_827_dispatch_generic_output_fails():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:"'
@@ -1045,7 +1045,7 @@ def test_827_dispatch_generic_output_fails():
         "Provider out=media: cannot guarantee specific output"
 
 
-# TEST828: is_dispatchable wildcard requires tag presence
+# TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
 def test_828_dispatch_wildcard_requires_tag_presence():
     provider = CapUrn.from_string(
         'cap:in="media:model-spec";op=run-inference;out="media:record;textable"'
@@ -1057,7 +1057,7 @@ def test_828_dispatch_wildcard_requires_tag_presence():
         "Wildcard * means tag must be present — provider has no candle tag"
 
 
-# TEST829: is_dispatchable wildcard with tag present
+# TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
 def test_829_dispatch_wildcard_with_tag_present():
     provider = CapUrn.from_string(
         'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
@@ -1069,7 +1069,7 @@ def test_829_dispatch_wildcard_with_tag_present():
         "Provider has candle=metal, request has candle=* — tag present, any value OK"
 
 
-# TEST830: is_dispatchable provider extra tags
+# TEST830: is_dispatchable — provider extra tags are refinement, always OK
 def test_830_dispatch_provider_extra_tags():
     provider = CapUrn.from_string(
         'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
@@ -1081,7 +1081,7 @@ def test_830_dispatch_provider_extra_tags():
         "Provider extra tag candle=metal is refinement — always OK"
 
 
-# TEST831: is_dispatchable cross-backend mismatch
+# TEST831: is_dispatchable — cross-backend mismatch prevented
 def test_831_dispatch_cross_backend_mismatch():
     gguf_provider = CapUrn.from_string(
         'cap:gguf=q4_k_m;in="media:model-spec";op=run-inference;out="media:record;textable"'
@@ -1093,7 +1093,7 @@ def test_831_dispatch_cross_backend_mismatch():
         "GGUF provider has no candle tag — cross-backend mismatch"
 
 
-# TEST832: is_dispatchable is asymmetric
+# TEST832: is_dispatchable is NOT symmetric
 def test_832_dispatch_asymmetric():
     broad = CapUrn.from_string(
         'cap:in="media:";op=process;out="media:record;textable"'
@@ -1112,7 +1112,7 @@ def test_832_dispatch_asymmetric():
     assert not narrow.is_dispatchable(broad)
 
 
-# TEST833: is_comparable symmetric
+# TEST833: is_comparable — both directions checked
 def test_833_comparable_symmetric():
     a = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:textable"'
@@ -1124,7 +1124,7 @@ def test_833_comparable_symmetric():
     assert b.is_comparable(a)
 
 
-# TEST834: is_comparable unrelated
+# TEST834: is_comparable — unrelated caps are NOT comparable
 def test_834_comparable_unrelated():
     a = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:textable"'
@@ -1136,7 +1136,7 @@ def test_834_comparable_unrelated():
     assert not b.is_comparable(a)
 
 
-# TEST835: is_equivalent identical
+# TEST835: is_equivalent — identical caps
 def test_835_equivalent_identical():
     a = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:record;textable"'
@@ -1148,7 +1148,7 @@ def test_835_equivalent_identical():
     assert b.is_equivalent(a)
 
 
-# TEST836: is_equivalent non-equivalent
+# TEST836: is_equivalent — non-equivalent comparable caps
 def test_836_equivalent_non_equivalent():
     a = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:textable"'
@@ -1160,7 +1160,7 @@ def test_836_equivalent_non_equivalent():
     assert not a.is_equivalent(b)
 
 
-# TEST837: is_dispatchable op mismatch
+# TEST837: is_dispatchable — op tag mismatch rejects
 def test_837_dispatch_op_mismatch():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:record;textable"'
@@ -1171,7 +1171,7 @@ def test_837_dispatch_op_mismatch():
     assert not provider.is_dispatchable(request)
 
 
-# TEST838: is_dispatchable request wildcard output
+# TEST838: is_dispatchable — request with wildcard output accepts any provider output
 def test_838_dispatch_request_wildcard_output():
     provider = CapUrn.from_string(
         'cap:in="media:pdf";op=extract;out="media:record;textable"'
@@ -1183,7 +1183,7 @@ def test_838_dispatch_request_wildcard_output():
         "Request out=media: is unconstrained — any provider output accepted"
 
 
-# TEST890: Direction semantic matching (accepts method)
+# TEST890: Semantic direction matching - generic provider matches specific request
 def test_890_direction_semantic_matching():
     generic_cap = CapUrn.from_string(
         'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
@@ -1224,7 +1224,7 @@ def test_890_direction_semantic_matching():
     assert not generic_out_cap.accepts(specific_out_request)
 
 
-# TEST891: Direction semantic specificity
+# TEST891: Semantic direction specificity - more media URN tags = higher specificity
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(
         'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
@@ -1249,7 +1249,7 @@ def test_891_direction_semantic_specificity():
     assert best.in_spec() == "media:pdf"
 
 
-# TEST920: CapUrn total ordering — less-than is irreflexive and transitive.
+# TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node
 #
 # The Rust Ord impl compares (in_urn, out_urn, tags) structurally. Python
 # mirrors this via _cmp_key(). This test checks that URNs with different
@@ -1282,7 +1282,7 @@ def test_920_cap_urn_total_order_basic():
     assert (a < c) != (c < a), "antisymmetry violated for a vs c"
 
 
-# TEST921: CapUrn comparison is consistent with equality.
+# TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
 #
 # a == b must imply not (a < b) and not (b < a). A violation here would mean
 # `sorted()` or `bisect` give wrong results for equal caps.
@@ -1296,7 +1296,7 @@ def test_921_cap_urn_order_consistent_with_equality():
     assert a >= b
 
 
-# TEST922: CapUrn list is sortable and produces a stable deterministic order.
+# TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly
 #
 # The point of Ord is to support sorted collections. If `sorted()` raises or
 # gives a non-deterministic result, the planner's path-ranking step would be
@@ -1318,7 +1318,7 @@ def test_922_cap_urn_list_sortable():
             f"sorted order violated at index {i}: {sorted_once[i]} > {sorted_once[i+1]}"
 
 
-# TEST923: NotImplemented is returned (not TypeError raised) when comparing
+# TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
 # against a non-CapUrn, which lets Python fall back to the reflected operation
 # or raise TypeError — the correct Python comparison protocol.
 def test_923_cap_urn_order_returns_not_implemented_for_non_cap():

@@ -80,7 +80,7 @@ def test_405_master_reads_relay_notify():
     t.join()
 
 
-# TEST406: Slave stores RelayState from master (resource_state() returns payload)
+# TEST406: Slave stores RelayState from master
 def test_406_slave_stores_relay_state():
     """Verify slave stores RelayState payload"""
     resources = b'{"memory_mb":4096}'
@@ -206,7 +206,7 @@ def test_407_protocol_frames_pass_through():
     assert len(errors) == 0, f"Thread errors: {errors}"
 
 
-# TEST408: RelayNotify/RelayState are NOT forwarded through relay (intercepted)
+# TEST408: RelayNotify/RelayState are NOT forwarded through relay
 def test_408_relay_frames_not_forwarded():
     """Verify RelayState is intercepted, only normal frames forwarded"""
     slave_socket_read, master_socket_write = make_pipe()
@@ -322,7 +322,7 @@ def test_409_slave_injects_relay_notify_midstream():
     t.join()
 
 
-# TEST410: Master receives updated RelayNotify (cap change via read_frame)
+# TEST410: Master receives updated RelayNotify (cap change callback via read_frame)
 def test_410_master_receives_updated_relay_notify():
     """Verify master intercepts updated RelayNotify and updates state"""
     master_socket_read, slave_socket_write = make_pipe()

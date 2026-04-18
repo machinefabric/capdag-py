@@ -132,7 +132,7 @@ def test_166_skip_validation_without_schema():
     validator.validate_argument(cap, arg, value)
 
 
-# TEST167: Test validation with unresolved media URN skips validation gracefully
+# TEST167: Test validation fails hard when media URN cannot be resolved from any source
 def test_167_unresolved_media_urn_skips_validation():
     validator = SchemaValidator()
 
