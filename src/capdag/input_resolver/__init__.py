@@ -10,15 +10,18 @@ from capdag.input_resolver.path_resolver import (
 )
 from capdag.input_resolver.resolver import (
     detect_file,
+    detect_file_confirmed,
     detect_file_with_media_registry,
     resolve_input,
     resolve_inputs,
+    resolve_inputs_confirmed,
     resolve_paths,
     structure_from_marker_tags,
 )
 from capdag.input_resolver.types import (
     ContentStructure,
     EmptyInputError,
+    InspectionFailedError,
     InputItem,
     InputResolverError,
     InvalidGlobError,
@@ -34,6 +37,7 @@ from capdag.input_resolver.types import (
 __all__ = [
     "ContentStructure",
     "EmptyInputError",
+    "InspectionFailedError",
     "InputItem",
     "InputResolverError",
     "InvalidGlobError",
@@ -52,9 +56,11 @@ __all__ = [
     "resolve_item",
     "resolve_items",
     "detect_file",
+    "detect_file_confirmed",
     "detect_file_with_media_registry",
     "resolve_input",
     "resolve_inputs",
+    "resolve_inputs_confirmed",
     "resolve_paths",
     "structure_from_marker_tags",
 ]

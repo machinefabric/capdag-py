@@ -68,6 +68,39 @@ async def test_770_rejects_foreach():
         await plan_to_resolved_graph(plan, registry)
 
 
+# TEST1161: Converting a simple linear plan produces resolved edges for the cap-to-cap chain.
+@pytest.mark.asyncio
+async def test_1161_simple_linear_chain_conversion():
+    registry = _registry_with_caps(
+        [
+            "cap:in=media:pdf;op=extract;out=media:text",
+            "cap:in=media:text;op=summarize;out=media:summary",
+        ]
+    )
+
+    plan = MachinePlan("test_chain")
+    plan.add_node(MachineNode.input_slot("input", "input", "media:pdf", InputCardinality.SINGLE))
+    plan.add_node(MachineNode.cap("cap_0", "cap:in=media:pdf;op=extract;out=media:text"))
+    plan.add_node(MachineNode.cap("cap_1", "cap:in=media:text;op=summarize;out=media:summary"))
+    plan.add_node(MachineNode.output("output", "result", "cap_1"))
+
+    plan.add_edge(MachinePlanEdge.direct("input", "cap_0"))
+    plan.add_edge(MachinePlanEdge.direct("cap_0", "cap_1"))
+    plan.add_edge(MachinePlanEdge.direct("cap_1", "output"))
+
+    graph = await plan_to_resolved_graph(plan, registry)
+
+    assert graph.graph_name == "test_chain"
+    assert graph.nodes["input"] == "media:pdf"
+    assert graph.nodes["cap_0"] == "media:text"
+    assert graph.nodes["cap_1"] == "media:summary"
+    assert len(graph.edges) == 2
+    assert graph.edges[0].from_node == "input"
+    assert graph.edges[0].to_node == "cap_0"
+    assert graph.edges[1].from_node == "cap_0"
+    assert graph.edges[1].to_node == "cap_1"
+
+
 # TEST771: plan_to_resolved_graph rejects plans containing Collect nodes
 @pytest.mark.asyncio
 async def test_771_rejects_collect():

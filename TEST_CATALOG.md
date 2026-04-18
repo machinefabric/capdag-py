@@ -1,12 +1,14 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 888
+**Total Tests:** 951
 
-**Numbered Tests:** 859
+**Numbered Tests:** 925
 
-**Unnumbered Tests:** 29
+**Unnumbered Tests:** 26
 
-**Numbered Tests Missing Descriptions:** 2
+**Numbered Tests Missing Descriptions:** 0
+
+**Numbering Mismatches:** 0
 
 All numbered test numbers are unique.
 
@@ -293,8 +295,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test307 | `test_307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs | tests/test_standard_caps.py:27 |
 | test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct op and media specs | tests/test_standard_caps.py:35 |
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:43 |
-| test310 | `test_310_llm_generate_text_urn_tags` |  | tests/test_standard_caps.py:49 |
-| test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:71 |
+| test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | tests/test_standard_caps.py:50 |
+| test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:73 |
 | test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify fields | tests/test_cartridge_repo.py:19 |
 | test321 | `test_321_cartridge_info_is_signed` | TEST321: Verify is_signed() method | tests/test_cartridge_repo.py:60 |
 | test322 | `test_322_cartridge_info_build_for_platform` | TEST322: Verify build_for_platform() method | tests/test_cartridge_repo.py:80 |
@@ -414,8 +416,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test460 | `test_460_reorder_buffer_err_frame` | TEST460: Terminal ERR frame flows through correctly | tests/test_cbor_frame.py:936 |
 | test461 | `test_461_write_chunked_seq_zero` | TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage | tests/test_cbor_io.py:340 |
 | test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:367 |
-| test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:91 |
-| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:98 |
+| test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:93 |
+| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:100 |
 | test475 | `test_475_validate_passes_with_identity` | TEST475: CapManifest::validate() passes when CAP_IDENTITY is present | tests/test_manifest.py:203 |
 | test476 | `test_476_validate_fails_without_identity` | TEST476: CapManifest::validate() fails when CAP_IDENTITY is missing | tests/test_manifest.py:214 |
 | test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1857 |
@@ -542,8 +544,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test601 | `test_601_get_content_type` | TEST601: get_content_type returns correct MIME type for each variant | tests/test_response.py:91 |
 | test602 | `test_602_as_type_binary_error` | TEST602: as_type on binary response returns error (cannot deserialize binary) | tests/test_response.py:103 |
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
-| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:114 |
-| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:131 |
+| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:116 |
+| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:133 |
 | test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_spec.py:562 |
 | test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_spec.py:570 |
 | test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_spec.py:593 |
@@ -682,7 +684,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test768 | `test_768_path_argument_requirements_structure` | TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information | tests/test_plan_builder.py:72 |
 | test769 | `test_769_path_with_required_slot` | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false | tests/test_plan_builder.py:106 |
 | test770 | `test_770_rejects_foreach` | TEST770: plan_to_resolved_graph rejects plans containing ForEach nodes | tests/test_orchestrator_plan_converter.py:40 |
-| test771 | `test_771_rejects_collect` | TEST771: plan_to_resolved_graph rejects plans containing Collect nodes | tests/test_orchestrator_plan_converter.py:73 |
+| test771 | `test_771_rejects_collect` | TEST771: plan_to_resolved_graph rejects plans containing Collect nodes | tests/test_orchestrator_plan_converter.py:106 |
 | test772 | `test_772_find_paths_finds_multi_step_paths` | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly | tests/test_live_cap_graph.py:49 |
 | test773 | `test_773_find_paths_returns_empty_when_no_path` | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable | tests/test_live_cap_graph.py:63 |
 | test774 | `test_774_get_reachable_targets_finds_all_targets` | TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect) | tests/test_live_cap_graph.py:73 |
@@ -804,8 +806,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test935 | `test_935_find_first_foreach_linear` | TEST935: find_first_foreach returns None for linear plans | tests/test_plan.py:385 |
 | test936 | `test_936_has_foreach` | TEST936: has_foreach detects ForEach nodes | tests/test_plan.py:391 |
 | test937 | `test_937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | tests/test_plan.py:413 |
-| test953 | `test_953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | tests/test_orchestrator_plan_converter.py:111 |
-| test954 | `test_954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through | tests/test_orchestrator_plan_converter.py:140 |
+| test953 | `test_953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | tests/test_orchestrator_plan_converter.py:144 |
+| test954 | `test_954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through | tests/test_orchestrator_plan_converter.py:173 |
 | test955 | `test_955_split_map_array` | TEST955: split_cbor_array with nested maps | tests/test_cbor_util.py:67 |
 | test956 | `test_956_roundtrip_assemble_split` | TEST956: assemble then split roundtrip preserves data | tests/test_cbor_util.py:76 |
 | test957 | `test_957_cap_input_file_new` | TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None | tests/test_planner_argument_binding.py:345 |
@@ -828,6 +830,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test974 | `test_974_sequence_is_not_array` | TEST974: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence | tests/test_cbor_util.py:185 |
 | test975 | `test_975_single_value_sequence` | TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value) | tests/test_cbor_util.py:192 |
 | test976 | `test_976_cap_graph_find_best_path` | TEST976: CapGraph::find_best_path returns highest-specificity path over shortest | tests/test_cap_matrix.py:647 |
+| test977 | `test_977_os_files_excluded_integration` | TEST977: OS files excluded in resolve_paths | tests/test_input_resolver.py:222 |
 | test991 | `test_991_detects_duplicate_cap_urns` | TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn | tests/test_plan_builder.py:150 |
 | test992 | `test_992_different_ops_same_types_not_duplicates` | TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection | tests/test_plan_builder.py:178 |
 | test993 | `test_993_same_op_different_input_types_not_duplicates` | TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name | tests/test_plan_builder.py:188 |
@@ -837,10 +840,41 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test997 | `test_997_file_path_type_fallback_first_cap` | TEST997: Tests MEDIA_FILE_PATH argument type resolves to input file for first cap Verifies that generic file-path arguments are bound to input file in the first cap | tests/test_plan_builder.py:250 |
 | test998 | `test_998_file_path_type_fallback_subsequent_cap` | TEST998: Tests MEDIA_FILE_PATH argument type resolves to previous output for subsequent caps Verifies that generic file-path arguments are bound to previous cap's output after the first cap | tests/test_plan_builder.py:264 |
 | test999 | `test_999_file_path_array_fallback` | TEST999: Tests MEDIA_FILE_PATH_ARRAY argument type resolution for first and subsequent caps Verifies that file-path array arguments follow the same resolution pattern as single file paths | tests/test_plan_builder.py:278 |
+| test1000 | `test_1000_single_existing_file` | TEST1000: Single existing file | tests/test_input_resolver.py:36 |
+| test1001 | `test_1001_nonexistent_file` | TEST1001: Single non-existent file | tests/test_input_resolver.py:45 |
+| test1002 | `test_1002_empty_directory` | TEST1002: Empty directory | tests/test_input_resolver.py:51 |
+| test1003 | `test_1003_directory_with_files` | TEST1003: Directory with files | tests/test_input_resolver.py:56 |
+| test1004 | `test_1004_directory_with_subdirs` | TEST1004: Directory with subdirs (recursive) | tests/test_input_resolver.py:64 |
+| test1005 | `test_1005_glob_matching_files` | TEST1005: Glob matching files | tests/test_input_resolver.py:73 |
+| test1006 | `test_1006_glob_matching_nothing` | TEST1006: Glob matching nothing | tests/test_input_resolver.py:81 |
+| test1007 | `test_1007_recursive_glob` | TEST1007: Recursive glob | tests/test_input_resolver.py:87 |
+| test1008 | `test_1008_mixed_file_dir` | TEST1008: Mixed file + dir | tests/test_input_resolver.py:96 |
 | test1009 | `test_1009_non_io_arg_with_default_has_default` | TEST1009: Tests required non-IO arguments with default values are marked as HasDefault Verifies that arguments like integers with defaults don't require user input | tests/test_plan_builder.py:302 |
+| test1010 | `test_1010_duplicate_paths` | TEST1010: Duplicate paths are deduplicated | tests/test_input_resolver.py:106 |
+| test1011 | `test_1011_invalid_glob` | TEST1011: Invalid glob syntax | tests/test_input_resolver.py:114 |
 | test1012 | `test_1012_non_io_arg_without_default_requires_user_input` | TEST1012: Tests required non-IO arguments without defaults require user input Verifies that arguments like strings without defaults are marked as RequiresUserInput | tests/test_plan_builder.py:330 |
+| test1013 | `test_1013_empty_input` | TEST1013: Empty input array | tests/test_input_resolver.py:120 |
+| test1014 | `test_1014_symlink_to_file` | TEST1014: Symlink to file | tests/test_input_resolver.py:127 |
 | test1015 | `test_1015_optional_non_io_arg_without_default_requires_user_input` | TEST1015: Tests optional non-IO arguments without defaults still require user input Verifies that optional arguments without defaults must be explicitly provided or skipped | tests/test_plan_builder.py:344 |
+| test1016 | `test_1016_path_with_spaces` | TEST1016: Path with spaces | tests/test_input_resolver.py:136 |
+| test1017 | `test_1017_path_with_unicode` | TEST1017: Path with unicode | tests/test_input_resolver.py:143 |
+| test1018 | `test_1018_relative_path` | TEST1018: Relative path | tests/test_input_resolver.py:150 |
 | test1019 | `test_1019_validation_to_json_none` | TEST1019: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None | tests/test_plan_builder.py:358 |
+| test1020 | `test_1020_ds_store_excluded` | TEST1020: macOS .DS_Store is excluded | tests/test_input_resolver.py:158 |
+| test1021 | `test_1021_thumbs_db_excluded` | TEST1021: Windows Thumbs.db is excluded | tests/test_input_resolver.py:164 |
+| test1022 | `test_1022_resource_fork_excluded` | TEST1022: macOS resource fork files are excluded | tests/test_input_resolver.py:170 |
+| test1023 | `test_1023_office_lock_excluded` | TEST1023: Office lock files are excluded | tests/test_input_resolver.py:176 |
+| test1024 | `test_1024_git_dir_excluded` | TEST1024: .git directory is excluded | tests/test_input_resolver.py:182 |
+| test1025 | `test_1025_macosx_dir_excluded` | TEST1025: __MACOSX archive artifact is excluded | tests/test_input_resolver.py:188 |
+| test1026 | `test_1026_temp_files_excluded` | TEST1026: Temp files are excluded | tests/test_input_resolver.py:194 |
+| test1027 | `test_1027_localized_excluded` | TEST1027: .localized is excluded | tests/test_input_resolver.py:202 |
+| test1028 | `test_1028_desktop_ini_excluded` | TEST1028: desktop.ini is excluded | tests/test_input_resolver.py:207 |
+| test1029 | `test_1029_normal_files_not_excluded` | TEST1029: Normal files are NOT excluded | tests/test_input_resolver.py:212 |
+| test1090 | `test_1090_single_file_scalar` | TEST1090: 1 file -> is_sequence=false | tests/test_input_resolver.py:231 |
+| test1092 | `test_1092_two_files` | TEST1092: 2 files -> is_sequence=true | tests/test_input_resolver.py:239 |
+| test1093 | `test_1093_dir_single_file` | TEST1093: 1 dir with 1 file -> is_sequence=false | tests/test_input_resolver.py:248 |
+| test1094 | `test_1094_dir_multiple_files` | TEST1094: 1 dir with 3 files -> is_sequence=true | tests/test_input_resolver.py:256 |
+| test1098 | `test_1098_extension_based_pdf` | TEST1098: Extension-based detection picks up pdf tag for .pdf files | tests/test_input_resolver.py:266 |
 | test1100 | `test_1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry | tests/test_cap_urn.py:1228 |
 | test1103 | `test_1103_is_dispatchable_uses_correct_directionality` | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request) | tests/test_cap_urn.py:1242 |
 | test1104 | `test_1104_is_dispatchable_rejects_non_dispatchable` | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request | tests/test_cap_urn.py:1253 |
@@ -849,34 +883,67 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:133 |
 | test1108 | `test_1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | tests/test_planner_argument_binding.py:160 |
 | test1109 | `test_1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | tests/test_planner_argument_binding.py:187 |
-| test1110 | `test_1110_no_capability_steps_error_on_empty_wirings` |  | tests/test_machine.py:102 |
-| test1111 | `test_1111_unknown_cap_error_when_not_in_registry` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:list;textable;txt is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_machine.py:112 |
-| test1112 | `test_1112_single_edge_strand_resolves_correctly` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_machine.py:131 |
-| test1113 | `test_1113_two_step_chain_shares_intermediate_node` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_machine.py:156 |
-| test1114 | `test_1114_from_strand_produces_single_strand_machine` | TEST1114: Graph stores only Cap edges after sync | tests/test_machine.py:191 |
-| test1115 | `test_1115_from_strands_keeps_strands_disjoint` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_machine.py:208 |
-| test1116 | `test_1116_from_strands_empty_raises_no_capability_steps` | TEST1116: Collect is never synthesized during path finding | tests/test_machine.py:232 |
-| test1117 | `test_1117_machine_is_equivalent_strict_positional_order_matters` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_machine.py:242 |
-| test1118 | `test_1118_strand_is_equivalent_consistent_node_bijection` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_machine.py:266 |
-| test1119 | `test_1119_match_sources_to_args_single_trivial` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_machine.py:287 |
-| test1120 | `test_1120_match_sources_more_specific_source_matches_general_arg` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_machine.py:303 |
-| test1121 | `test_1121_match_sources_unmatched_source_fails_hard` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | tests/test_machine.py:316 |
-| test1122 | `test_1122_match_sources_ambiguous_raises_ambiguous_error` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_machine.py:333 |
-| test1123 | `test_1123_cyclic_strand_fails_hard` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_machine.py:350 |
-| test1124 | `test_1124_machine_parse_error_wraps_syntax_error` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | tests/test_machine.py:379 |
-| test1125 | `test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | tests/test_machine.py:394 |
-| test1126 | `test_1126_parse_machine_single_wiring_one_strand` | TEST1126: map_progress is deterministic — same inputs always produce same output | tests/test_machine.py:415 |
-| test1127 | `test_1127_parse_machine_disconnected_wirings_become_separate_strands` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. | tests/test_machine.py:436 |
-| test1128 | `test_1128_parse_machine_shared_node_name_yields_one_strand` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | tests/test_machine.py:460 |
-| test1129 | `test_1129_binding_slot_identity_is_outer_media_urn` | TEST1129: A JSON document produced by capgraph (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | tests/test_machine.py:485 |
-| test1130 | `test_1130_strand_equivalence_rejects_mismatched_node_urns` | TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description. | tests/test_machine.py:527 |
-| test1131 | `test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec. This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_machine.py:553 |
-| test1132 | `test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps` | TEST1132: MediaSpecDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_machine.py:588 |
-| test1133 | `test_1133_machine_from_string_delegates_to_parse_machine` | TEST1133: MediaSpecDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_machine.py:614 |
+| test1111 | `test_1111_unknown_cap_error_when_not_in_registry` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:list;textable;txt is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_machine.py:113 |
+| test1112 | `test_1112_single_edge_strand_resolves_correctly` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_machine.py:132 |
+| test1113 | `test_1113_two_step_chain_shares_intermediate_node` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_machine.py:157 |
+| test1114 | `test_1114_from_strand_produces_single_strand_machine` | TEST1114: Graph stores only Cap edges after sync | tests/test_machine.py:192 |
+| test1115 | `test_1115_from_strands_keeps_strands_disjoint` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_machine.py:209 |
+| test1116 | `test_1116_from_strands_empty_raises_no_capability_steps` | TEST1116: Collect is never synthesized during path finding | tests/test_machine.py:233 |
+| test1117 | `test_1117_machine_is_equivalent_strict_positional_order_matters` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_machine.py:243 |
+| test1118 | `test_1118_strand_is_equivalent_consistent_node_bijection` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_machine.py:267 |
+| test1119 | `test_1119_match_sources_to_args_single_trivial` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_machine.py:288 |
+| test1120 | `test_1120_match_sources_more_specific_source_matches_general_arg` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_machine.py:304 |
+| test1121 | `test_1121_match_sources_unmatched_source_fails_hard` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | tests/test_machine.py:317 |
+| test1122 | `test_1122_match_sources_ambiguous_raises_ambiguous_error` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_machine.py:334 |
+| test1123 | `test_1123_cyclic_strand_fails_hard` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_machine.py:351 |
+| test1124 | `test_1124_machine_parse_error_wraps_syntax_error` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | tests/test_machine.py:380 |
+| test1125 | `test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | tests/test_machine.py:395 |
+| test1126 | `test_1126_parse_machine_single_wiring_one_strand` | TEST1126: map_progress is deterministic — same inputs always produce same output | tests/test_machine.py:416 |
+| test1127 | `test_1127_parse_machine_disconnected_wirings_become_separate_strands` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. | tests/test_machine.py:437 |
+| test1128 | `test_1128_parse_machine_shared_node_name_yields_one_strand` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | tests/test_machine.py:461 |
+| test1129 | `test_1129_binding_slot_identity_is_outer_media_urn` | TEST1129: A JSON document produced by capgraph (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | tests/test_machine.py:486 |
+| test1130 | `test_1130_strand_equivalence_rejects_mismatched_node_urns` | TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description. | tests/test_machine.py:528 |
+| test1131 | `test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec. This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_machine.py:554 |
+| test1132 | `test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps` | TEST1132: MediaSpecDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_machine.py:589 |
+| test1133 | `test_1133_machine_from_string_delegates_to_parse_machine` | TEST1133: MediaSpecDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_machine.py:615 |
+| test1134 | `test_1134_abstraction_error_subclass_hierarchy` | TEST1134: All resolution error subclasses are instances of MachineAbstractionError. | tests/test_machine.py:636 |
+| test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:653 |
+| test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:672 |
+| test1137 | `test_1137_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:688 |
+| test1142 | `test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes` | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels | tests/test_orchestrator_types.py:13 |
+| test1161 | `test_1161_simple_linear_chain_conversion` | TEST1161: Converting a simple linear plan produces resolved edges for the cap-to-cap chain. | tests/test_orchestrator_plan_converter.py:73 |
+| test1188 | `test_1188_resolve_strand_no_cap_steps_fails_hard` | TEST1188: Strand resolution fails when the strand contains no capability steps. | tests/test_machine.py:103 |
+| test1221 | `test_1221_refine_with_matching_adapter` | TEST1221: Matching value adapters refine the base media URN when the value fits. | tests/test_input_resolver.py:320 |
+| test1222 | `test_1222_refine_no_matching_adapter` | TEST1222: Base URNs without a registered adapter are returned unchanged. | tests/test_input_resolver.py:327 |
+| test1223 | `test_1223_refine_adapter_returns_none` | TEST1223: Adapters that decline to refine leave the original media URN intact. | tests/test_input_resolver.py:334 |
+| test1224 | `test_1224_refine_longest_prefix_match` | TEST1224: When multiple adapter prefixes match, the longest prefix wins. | tests/test_input_resolver.py:341 |
+| test1225 | `test_1225_empty_registry` | TEST1225: An empty value adapter registry returns the input media URN unchanged. | tests/test_input_resolver.py:349 |
+| test1226 | `test_1226_has_adapter` | TEST1226: Adapter presence checks report only the prefixes that were registered. | tests/test_input_resolver.py:355 |
+| test1228 | `test_1228_value_adapter_refine_match` | TEST1228: Value adapters can append a more specific marker when both base URN and value match. | tests/test_input_resolver.py:363 |
+| test1229 | `test_1229_value_adapter_refine_no_match_base` | TEST1229: Value adapters return no refinement when the base media URN is outside their domain. | tests/test_input_resolver.py:369 |
+| test1230 | `test_1230_value_adapter_refine_no_match_value` | TEST1230: Value adapters return no refinement when the inspected value does not match. | tests/test_input_resolver.py:375 |
+| test1235 | `test_1235_disc_1_plain_text_eliminates_model_specs` | TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates. | tests/test_input_resolver.py:381 |
+| test1236 | `test_1236_disc_2_model_spec_content_survives_pattern` | TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. | tests/test_input_resolver.py:397 |
+| test1237 | `test_1237_disc_5_empty_candidates` | TEST1237: Empty candidates -> empty result | tests/test_input_resolver.py:412 |
+| test1238 | `test_1238_disc_6_unknown_urn_survives` | TEST1238: Unknown URN survives discrimination | tests/test_input_resolver.py:420 |
+| test1276 | `test_1276_register_non_conflicting` | TEST1276: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:429 |
+| test1277 | `test_1277_reject_conforming_overlap` | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:436 |
+| test1278 | `test_1278_reject_entire_group` | TEST1278: Registration rejects the entire group - no partial registration | tests/test_input_resolver.py:447 |
+| test1279 | `test_1279_intra_group_conflict` | TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected | tests/test_input_resolver.py:456 |
+| test1280 | `test_1280_find_adapters_for_extension` | TEST1280: find_adapters_for_extension returns correct cartridge IDs | tests/test_input_resolver.py:463 |
+| test1281 | `test_1281_no_adapter_for_unknown` | TEST1281: has_adapter_for_extension returns false for unregistered extension | tests/test_input_resolver.py:472 |
+| test1285 | `test_1285_confirmed_no_adapters_fails` | TEST1285: detect_file_confirmed fails when no adapters are registered for the extension | tests/test_input_resolver.py:479 |
+| test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:489 |
+| test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:506 |
+| test1288 | `test_1288_structure_from_marker_tags` | TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure | tests/test_input_resolver.py:275 |
+| test1289 | `test_1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | tests/test_live_cap_graph.py:264 |
+| test1290 | `test_1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. | tests/test_live_cap_graph.py:289 |
+| test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_graph.py:316 |
+| test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_graph.py:341 |
+| test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_graph.py:358 |
 | | | | |
-| unnumbered | `test_abstraction_error_subclass_hierarchy` | TEST1134: All resolution error subclasses are instances of MachineAbstractionError. | tests/test_machine.py:635 |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
-| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:712 |
+| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:713 |
 | unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:398 |
 | unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:363 |
 | unnumbered | `test_cap_caller_validate_arguments_success` |  | tests/test_caller.py:346 |
@@ -888,17 +955,15 @@ This catalog lists all tests in the CapDag-Py codebase.
 | unnumbered | `test_extract_effective_payload_invalid_cap_urn` | Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error | tests/test_cartridge_runtime.py:392 |
 | unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:61 |
 | unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:75 |
-| unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:57 |
+| unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:59 |
 | unnumbered | `test_max_chunk_plus_one_splits_into_two_chunks` | Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END | tests/test_cbor_io.py:812 |
 | unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
 | unnumbered | `test_normalize_urn_with_trailing_semicolon` |  | tests/test_registry.py:337 |
 | unnumbered | `test_output_validation_with_details` | TEST: Output validation with error details | tests/test_schema_validation.py:335 |
-| unnumbered | `test_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:671 |
 | unnumbered | `test_registry_add_caps_to_cache` | Additional integration tests for registry functionality | tests/test_registry.py:294 |
 | unnumbered | `test_registry_cache_key_consistency` |  | tests/test_registry.py:311 |
 | unnumbered | `test_registry_config_builder_pattern` |  | tests/test_registry.py:327 |
-| unnumbered | `test_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:652 |
-| unnumbered | `test_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:687 |
+| unnumbered | `test_resolve_inputs_confirmed_wraps_detect_file_confirmed` |  | tests/test_input_resolver.py:517 |
 | unnumbered | `test_type_constraint_validation` | TEST: Schema validation with type constraints | tests/test_schema_validation.py:251 |
 | unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
 | unnumbered | `test_write_frame_writes_length_prefixed` | Mirror-specific coverage: Test write_frame writes length-prefixed frame | tests/test_cbor_io.py:81 |
@@ -909,9 +974,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
-- `test_abstraction_error_subclass_hierarchy` — tests/test_machine.py:635
 - `test_array_schema_validation` — tests/test_schema_validation.py:207
-- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:712
+- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:713
 - `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:398
 - `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:363
 - `test_cap_caller_validate_arguments_success` — tests/test_caller.py:346
@@ -923,17 +987,15 @@ The following tests are cataloged but do not currently participate in numeric te
 - `test_extract_effective_payload_invalid_cap_urn` — tests/test_cartridge_runtime.py:392
 - `test_input_validation_optional_arg` — tests/test_validation.py:61
 - `test_input_validation_too_many_args` — tests/test_validation.py:75
-- `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:57
+- `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:59
 - `test_max_chunk_plus_one_splits_into_two_chunks` — tests/test_cbor_io.py:812
 - `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
 - `test_normalize_urn_with_trailing_semicolon` — tests/test_registry.py:337
 - `test_output_validation_with_details` — tests/test_schema_validation.py:335
-- `test_parse_machine_undefined_alias_raises_syntax_error` — tests/test_machine.py:671
 - `test_registry_add_caps_to_cache` — tests/test_registry.py:294
 - `test_registry_cache_key_consistency` — tests/test_registry.py:311
 - `test_registry_config_builder_pattern` — tests/test_registry.py:327
-- `test_strand_node_urn_accessor` — tests/test_machine.py:652
-- `test_two_strand_machine_serializes_to_notation` — tests/test_machine.py:687
+- `test_resolve_inputs_confirmed_wraps_detect_file_confirmed` — tests/test_input_resolver.py:517
 - `test_type_constraint_validation` — tests/test_schema_validation.py:251
 - `test_validate_multiple_arguments` — tests/test_schema_validation.py:286
 - `test_write_frame_writes_length_prefixed` — tests/test_cbor_io.py:81
@@ -941,17 +1003,9 @@ The following tests are cataloged but do not currently participate in numeric te
 
 ---
 
-## Numbered Tests Missing Descriptions
-
-These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
-
-- `test310` / `test_310_llm_generate_text_urn_tags` — tests/test_standard_caps.py:49
-- `test1110` / `test_1110_no_capability_steps_error_on_empty_wirings` — tests/test_machine.py:102
-
----
-
 *Generated from CapDag-Py source tree*
-*Total tests: 888*
-*Total numbered tests: 859*
-*Total unnumbered tests: 29*
-*Total numbered tests missing descriptions: 2*
+*Total tests: 951*
+*Total numbered tests: 925*
+*Total unnumbered tests: 26*
+*Total numbered tests missing descriptions: 0*
+*Total numbering mismatches: 0*

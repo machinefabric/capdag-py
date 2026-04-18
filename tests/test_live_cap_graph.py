@@ -258,3 +258,107 @@ async def test_791_sync_from_cap_urns_adds_edges():
     node_count, edge_count = graph.stats()
     assert edge_count == 2
     assert node_count >= 3
+
+
+# TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A).
+def test_1289_bfs_reachable_includes_source_roundtrip():
+    graph = LiveCapGraph()
+    graph.add_cap(
+        _make_test_cap(
+            "media:textable",
+            "media:integer;numeric;textable",
+            "coerce_to_int",
+            "Coerce to Integer",
+        )
+    )
+    graph.add_cap(
+        _make_test_cap(
+            "media:integer;numeric;textable",
+            "media:textable",
+            "coerce_to_text",
+            "Coerce to Text",
+        )
+    )
+
+    source = _media("media:textable")
+    targets = graph.get_reachable_targets(source, False, 5)
+    assert any(t.media_spec.is_equivalent(source) for t in targets)
+
+
+# TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target.
+def test_1290_iddfs_finds_roundtrip_paths():
+    graph = LiveCapGraph()
+    graph.add_cap(
+        _make_test_cap(
+            "media:textable",
+            "media:integer;numeric;textable",
+            "coerce_to_int",
+            "Coerce to Integer",
+        )
+    )
+    graph.add_cap(
+        _make_test_cap(
+            "media:integer;numeric;textable",
+            "media:textable",
+            "coerce_to_text",
+            "Coerce to Text",
+        )
+    )
+
+    source = _media("media:textable")
+    paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
+    assert paths
+    shortest = min(paths, key=lambda p: p.total_steps)
+    assert shortest.total_steps == 2
+
+
+# TEST1291: IDDFS round-trip paths are also found with is_sequence=true.
+def test_1291_iddfs_roundtrip_with_sequence():
+    graph = LiveCapGraph()
+    graph.add_cap(
+        _make_test_cap(
+            "media:textable",
+            "media:integer;numeric;textable",
+            "coerce_to_int",
+            "Coerce to Integer",
+        )
+    )
+    graph.add_cap(
+        _make_test_cap(
+            "media:integer;numeric;textable",
+            "media:textable",
+            "coerce_to_text",
+            "Coerce to Text",
+        )
+    )
+
+    source = _media("media:textable")
+    paths = graph.find_paths_to_exact_target(source, source, True, 5, 100)
+    assert paths
+
+
+# TEST1292: BFS and IDDFS agree that round-trip targets exist.
+def test_1292_bfs_iddfs_roundtrip_consistency():
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
+    graph.add_cap(_make_test_cap("media:b", "media:c", "b_to_c", "B to C"))
+    graph.add_cap(_make_test_cap("media:c", "media:a", "c_to_a", "C to A"))
+
+    source = _media("media:a")
+    bfs_targets = graph.get_reachable_targets(source, False, 5)
+    assert any(t.media_spec.is_equivalent(source) for t in bfs_targets)
+
+    paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
+    assert paths
+    shortest = min(paths, key=lambda p: p.total_steps)
+    assert shortest.total_steps == 3
+
+
+# TEST1293: IDDFS round-trip does not produce paths with 0 cap steps.
+def test_1293_roundtrip_requires_cap_steps():
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
+
+    source = _media("media:a")
+    paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
+    assert paths == []

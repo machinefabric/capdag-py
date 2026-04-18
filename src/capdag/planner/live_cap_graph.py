@@ -574,40 +574,46 @@ class LiveCapGraph:
         if len(results) >= max_paths:
             return
 
+        if path and current.is_equivalent(target):
+            steps = []
+            cap_count = 0
+            for edge in path:
+                step = self._edge_to_step(edge)
+                steps.append(step)
+                if step.is_cap():
+                    cap_count += 1
+
+            if depth_limit == 0:
+                if cap_count > 0:
+                    desc = " → ".join(step.title() for step in steps)
+                    results.append(Strand(
+                        steps=steps,
+                        source_spec=original_source,
+                        target_spec=target,
+                        total_steps=len(steps),
+                        cap_step_count=cap_count,
+                        description=desc,
+                    ))
+                return
+
+            if cap_count > 0:
+                return
+
+        if depth_limit == 0:
+            return
+
         vk = (str(current), is_sequence)
         if vk in visited:
             return
         visited.add(vk)
 
         try:
-            if path and current.is_equivalent(target):
-                if len(path) == depth_limit:
-                    steps = []
-                    cap_count = 0
-                    for edge in path:
-                        step = self._edge_to_step(edge)
-                        steps.append(step)
-                        if step.is_cap():
-                            cap_count += 1
-
-                    if cap_count > 0:
-                        desc = " → ".join(step.title() for step in steps)
-                        results.append(Strand(
-                            steps=steps,
-                            source_spec=original_source,
-                            target_spec=target,
-                            total_steps=len(steps),
-                            cap_step_count=cap_count,
-                            description=desc,
-                        ))
-                return
-
-            if depth_limit == 0:
-                return
-
             for edge, out_seq in self._get_outgoing_edges(current, is_sequence):
                 if len(results) >= max_paths:
                     return
+                next_key = (str(edge.to_spec), out_seq)
+                if next_key in visited and not edge.to_spec.is_equivalent(target):
+                    continue
                 path.append(edge)
                 self._iddfs_find(
                     original_source=original_source,

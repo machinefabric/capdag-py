@@ -46,11 +46,13 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-def test_310_llm_generate_text_urn_tags():
+# TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs
+def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
-    assert urn.get_tag("llm") is not None, "LLM generate text URN must have 'llm' tag"
-    assert urn.get_tag("ml-model") is not None, "LLM generate text URN must have 'ml-model' tag"
+    assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"
     assert urn.has_tag("op", "generate_text"), "must have op=generate_text"
+    assert MediaUrn.from_string(urn.in_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
+    assert MediaUrn.from_string(urn.out_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
 
 
 # Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically

@@ -99,7 +99,8 @@ def _strand_with_cap_steps(steps_data: list) -> Strand:
     )
 
 
-def test_1110_no_capability_steps_error_on_empty_wirings():
+# TEST1188: Strand resolution fails when the strand contains no capability steps.
+def test_1188_resolve_strand_no_cap_steps_fails_hard():
     reg = _registry_with([])
     with pytest.raises(NoCapabilityStepsError):
         resolve_pre_interned([], [], reg, 0)
@@ -632,7 +633,7 @@ def test_1133_machine_from_string_delegates_to_parse_machine():
 # Mirror-specific coverage: MachineAbstractionError subclass hierarchy is correct
 # =============================================================================
 
-def test_abstraction_error_subclass_hierarchy():
+def test_1134_abstraction_error_subclass_hierarchy():
     """TEST1134: All resolution error subclasses are instances of MachineAbstractionError."""
     err_no_steps = NoCapabilityStepsError()
     err_unknown = UnknownCapError("cap:op=x")
@@ -649,7 +650,7 @@ def test_abstraction_error_subclass_hierarchy():
 # Mirror-specific coverage: MachineStrand nodes() returns correct MediaUrns by NodeId
 # =============================================================================
 
-def test_strand_node_urn_accessor():
+def test_1135_strand_node_urn_accessor():
     """TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
@@ -668,7 +669,7 @@ def test_strand_node_urn_accessor():
 # Mirror-specific coverage: parse_machine undefined alias raises MachineParseError with syntax cause
 # =============================================================================
 
-def test_parse_machine_undefined_alias_raises_syntax_error():
+def test_1136_parse_machine_undefined_alias_raises_syntax_error():
     """TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
     reg = _registry_with([])
     notation = "[doc -> undefined_alias -> text]"
@@ -684,7 +685,7 @@ def test_parse_machine_undefined_alias_raises_syntax_error():
 # Mirror-specific coverage: Two-strand machine to_machine_notation produces valid string
 # =============================================================================
 
-def test_two_strand_machine_serializes_to_notation():
+def test_1137_two_strand_machine_serializes_to_notation():
     """TEST1137: Machine with two strands serializes to a non-empty notation string."""
     import capdag.machine.serializer  # ensure methods are attached
 

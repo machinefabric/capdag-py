@@ -49,6 +49,13 @@ class NoFilesResolvedError(InputResolverError):
         super().__init__("No files found after resolving all inputs")
 
 
+class InspectionFailedError(InputResolverError):
+    def __init__(self, path: Path, reason: str):
+        self.path = Path(path)
+        self.reason = reason
+        super().__init__(f"Inspection failed for {self.path}: {reason}")
+
+
 class SymlinkCycleError(InputResolverError):
     def __init__(self, path: Path):
         self.path = Path(path)
