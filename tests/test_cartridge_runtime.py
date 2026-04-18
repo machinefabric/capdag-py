@@ -45,7 +45,7 @@ from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
 from capdag.bifaci.manifest import CapManifest
 from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, FrameType, MessageId
-from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
+from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
 # Test manifest JSON with a single cap for basic tests.
 # Note: cap URN uses "cap:op=test" which lacks in/out tags, so CapManifest deserialization
@@ -2452,3 +2452,33 @@ def test_845_progress_sender_independent_of_emitter():
     # Verify log frame
     assert log_frames[1].log_level() == "info"
     assert log_frames[1].log_message() == "loading complete"
+
+
+# TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime
+def test_1282_adapter_selection_auto_registered():
+    runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
+    assert runtime.find_handler(CAP_ADAPTER_SELECTION) is not None, \
+        "CartridgeRuntime must auto-register adapter selection handler"
+
+
+# TEST1283: Custom adapter selection Op overrides the default
+def test_1283_adapter_selection_custom_override():
+    runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
+
+    # Verify default is registered
+    assert runtime.find_handler(CAP_ADAPTER_SELECTION) is not None
+
+    # Override with custom handler
+    class CustomAdapterOp(Op):
+        def perform(self, dry: DryContext, wet: WetContext):
+            pass
+        def metadata(self):
+            return OpMetadata.builder("CustomAdapterOp").build()
+
+    runtime.register_op_type(CAP_ADAPTER_SELECTION, CustomAdapterOp)
+
+    # Must still find a handler (the custom one)
+    assert runtime.find_handler(CAP_ADAPTER_SELECTION) is not None, \
+        "Custom adapter selection handler must be findable after override"
+    assert runtime.find_handler(CAP_ADAPTER_SELECTION) is CustomAdapterOp, \
+        "Handler after override must be the custom class"

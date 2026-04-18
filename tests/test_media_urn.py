@@ -516,3 +516,15 @@ def test_629_profile_constants_format():
     from capdag.media.spec import PROFILE_STR, PROFILE_OBJ
     assert PROFILE_STR.startswith("https://capdag.com/schema/")
     assert PROFILE_OBJ.startswith("https://capdag.com/schema/")
+
+
+# TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags
+def test_1271_media_adapter_selection_constant():
+    from capdag.urn.media_urn import MEDIA_ADAPTER_SELECTION
+    urn = MediaUrn.from_string(MEDIA_ADAPTER_SELECTION)
+    assert urn.has_marker_tag("adapter-selection"), \
+        f"Must have adapter-selection tag, got: {urn.to_string()}"
+    assert urn.has_marker_tag("json"), \
+        f"Must have json tag, got: {urn.to_string()}"
+    assert urn.has_marker_tag("record"), \
+        f"Must have record tag, got: {urn.to_string()}"

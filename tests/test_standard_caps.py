@@ -7,11 +7,14 @@ import pytest
 from capdag import CapUrn, MediaUrn
 from capdag.standard.caps import (
     CAP_DISCARD,
+    CAP_ADAPTER_SELECTION,
     coercion_urn,
     all_coercion_paths,
     model_availability_urn,
     model_path_urn,
     llm_generate_text_urn,
+    identity_urn,
+    adapter_selection_urn,
 )
 from capdag.urn.media_urn import (
     MEDIA_VOID,
@@ -20,6 +23,7 @@ from capdag.urn.media_urn import (
     MEDIA_PATH_OUTPUT,
     MEDIA_STRING,
     MEDIA_INTEGER,
+    MEDIA_ADAPTER_SELECTION,
 )
 
 
@@ -144,3 +148,31 @@ def test_606_coercion_urn_specs():
     expected_out = MediaUrn.from_string(MEDIA_INTEGER)
     assert out_urn.conforms_to(expected_out), \
         f"out_spec '{urn.out_spec()}' should conform to '{MEDIA_INTEGER}'"
+
+
+# TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn
+def test_1272_adapter_cap_constant_parses():
+    urn = CapUrn.from_string(CAP_ADAPTER_SELECTION)
+    assert urn is not None, \
+        f"CAP_ADAPTER_SELECTION must be a valid cap URN: {CAP_ADAPTER_SELECTION}"
+
+
+# TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs
+def test_1273_adapter_selection_urn_builder():
+    urn = adapter_selection_urn()
+    # in_spec should be bare "media:" (accepts any)
+    assert urn.in_spec() == "media:", \
+        f"in_spec must be 'media:', got: {urn.in_spec()}"
+    # out_spec should conform to the adapter selection media URN
+    out_urn = MediaUrn.from_string(urn.out_spec())
+    expected_out = MediaUrn.from_string(MEDIA_ADAPTER_SELECTION)
+    assert out_urn.conforms_to(expected_out), \
+        f"out_spec '{urn.out_spec()}' should conform to adapter-selection URN"
+
+
+# TEST1275: CAP_ADAPTER_SELECTION is dispatchable by identity (identity accepts everything)
+def test_1275_adapter_selection_dispatchable_by_identity():
+    identity = identity_urn()
+    adapter = adapter_selection_urn()
+    assert identity.is_dispatchable(adapter), \
+        "Identity must be dispatchable for adapter selection requests"

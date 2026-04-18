@@ -1556,3 +1556,24 @@ def test_907_cbor_rejects_stream_end_without_chunk_count():
 
     with pytest.raises(InvalidFrameError, match="chunk_count"):
         decode_frame(encoded)
+
+
+# TEST1162: Heartbeat frames preserve self-reported memory values stored in metadata.
+def test_1162_heartbeat_frame_with_memory_meta():
+    id = MessageId.random()
+    frame = Frame.heartbeat(id)
+
+    # Simulate cartridge attaching memory info to heartbeat response
+    frame.meta = {
+        "footprint_mb": 4096,
+        "rss_mb": 5120,
+    }
+
+    assert frame.frame_type == FrameType.HEARTBEAT
+    assert frame.id == id
+
+    # Verify memory values can be extracted
+    assert frame.meta["footprint_mb"] == 4096, \
+        f"Expected footprint_mb=4096, got {frame.meta['footprint_mb']}"
+    assert frame.meta["rss_mb"] == 5120, \
+        f"Expected rss_mb=5120, got {frame.meta['rss_mb']}"
