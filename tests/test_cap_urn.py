@@ -1224,6 +1224,41 @@ def test_890_direction_semantic_matching():
     assert not generic_out_cap.accepts(specific_out_request)
 
 
+# TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry
+def test_1100_cap_urn_normalizes_media_urn_tag_order():
+    urn1 = CapUrn.from_string(
+        'cap:in=media:pdf;op=extract_metadata;out="media:file-metadata;record;textable"'
+    )
+    urn2 = CapUrn.from_string(
+        'cap:in=media:pdf;op=extract_metadata;out="media:file-metadata;textable;record"'
+    )
+
+    assert urn1.to_string() == urn2.to_string()
+    canonical = urn1.to_string()
+    assert "record;textable" in canonical or "textable;record" in canonical
+
+
+# TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)
+def test_1103_is_dispatchable_uses_correct_directionality():
+    general_request = CapUrn.from_string("cap:in=media:pdf;op=extract;out=media:text")
+    specific_provider = CapUrn.from_string(
+        "cap:in=media:pdf;op=extract;out=media:text;version=2"
+    )
+
+    assert specific_provider.is_dispatchable(general_request)
+    assert not general_request.is_dispatchable(specific_provider)
+
+
+# TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
+def test_1104_is_dispatchable_rejects_non_dispatchable():
+    request = CapUrn.from_string(
+        "cap:in=media:pdf;op=extract;out=media:text;required=yes"
+    )
+    provider = CapUrn.from_string("cap:in=media:pdf;op=extract;out=media:text")
+
+    assert not provider.is_dispatchable(request)
+
+
 # TEST891: Semantic direction specificity - more media URN tags = higher specificity
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(

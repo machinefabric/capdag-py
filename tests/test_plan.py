@@ -433,6 +433,50 @@ def test_927_execution_result():
     assert result.primary_output() is not None
 
 
+# TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node
+def test_924_validate_invalid_edge():
+    plan = MachinePlan("invalid")
+    plan.nodes["node_0"] = MachineNode.cap("node_0", "cap:test")
+    plan.edges.append(MachinePlanEdge.direct("node_0", "nonexistent"))
+    with pytest.raises(InternalError, match="Edge to_node 'nonexistent' not found"):
+        plan.validate()
+
+
+# TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last)
+def test_925_topological_order_diamond():
+    plan = MachinePlan("diamond")
+    for name in ["A", "B", "C", "D"]:
+        plan.nodes[name] = MachineNode.cap(name, f"cap:{name.lower()}")
+    plan.edges.extend(
+        [
+            MachinePlanEdge.direct("A", "B"),
+            MachinePlanEdge.direct("A", "C"),
+            MachinePlanEdge.direct("B", "D"),
+            MachinePlanEdge.direct("C", "D"),
+        ]
+    )
+    order = plan.topological_order()
+    assert len(order) == 4
+    assert order[0].id == "A"
+    assert order[3].id == "D"
+
+
+# TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error
+def test_926_topological_order_detects_cycle():
+    plan = MachinePlan("cyclic")
+    for name in ["A", "B", "C"]:
+        plan.nodes[name] = MachineNode.cap(name, f"cap:{name.lower()}")
+    plan.edges.extend(
+        [
+            MachinePlanEdge.direct("A", "B"),
+            MachinePlanEdge.direct("B", "C"),
+            MachinePlanEdge.direct("C", "A"),
+        ]
+    )
+    with pytest.raises(InternalError, match="Cycle detected"):
+        plan.topological_order()
+
+
 # TEST928: Tests plan validation detects edges originating from non-existent nodes Verifies that validate() returns an error when an edge references a missing from_node
 def test_928_validate_invalid_from_node():
     plan = MachinePlan("invalid")

@@ -15,6 +15,8 @@ Key types:
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import mkdtemp
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -161,6 +163,38 @@ class MachinePlanBuilder:
     def __init__(self, cap_registry: CapRegistry, media_registry: MediaUrnRegistry) -> None:
         self._cap_registry = cap_registry
         self._media_registry = media_registry
+
+    @staticmethod
+    def check_for_duplicate_caps(caps: List[Cap]) -> int:
+        """Simulate graph-building duplicate detection logic from the reference implementation."""
+        seen_edges = set()
+        edge_count = 0
+
+        for cap in caps:
+            input_spec = str(cap.urn.in_spec())
+            output_spec = str(cap.urn.out_spec())
+
+            if not input_spec or not output_spec:
+                continue
+
+            cap_urn = str(cap.urn)
+            edge_key = (input_spec, cap_urn)
+            if edge_key in seen_edges:
+                raise ValueError(
+                    f"Duplicate cap_urn detected: {cap_urn} (input_spec: {input_spec})"
+                )
+            seen_edges.add(edge_key)
+            edge_count += 1
+
+        return edge_count
+
+    @classmethod
+    def new_for_test(cls, cap_registry: CapRegistry) -> "MachinePlanBuilder":
+        """Create a test builder with a fresh test media registry."""
+        media_registry = MediaUrnRegistry.new_for_test(
+            Path(mkdtemp(prefix="capdag_test_media_"))
+        )
+        return cls(cap_registry, media_registry)
 
     @staticmethod
     def _find_file_path_arg(cap: Cap) -> Optional[str]:
@@ -532,3 +566,22 @@ class MachinePlanBuilder:
         if default_value is not None:
             return ArgumentResolution.HAS_DEFAULT
         return ArgumentResolution.REQUIRES_USER_INPUT
+
+    def determine_resolution_with_io_check(
+        self,
+        media_urn: str,
+        in_spec: str,
+        out_spec: str,
+        step_index: int,
+        is_required: bool,
+        default_value: Optional[Any],
+    ) -> ArgumentResolution:
+        """Public alias matching the reference API used by parity tests."""
+        return self._determine_resolution_with_io_check(
+            media_urn,
+            in_spec,
+            out_spec,
+            step_index,
+            is_required,
+            default_value,
+        )

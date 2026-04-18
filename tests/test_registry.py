@@ -15,6 +15,7 @@ from capdag.cap.registry import (
     RegistryConfig,
     normalize_cap_urn,
     HttpError,
+    NetworkBlockedError,
     NotFoundError,
     ValidationError,
     CacheError,
@@ -216,6 +217,42 @@ def test_144_custom_registry_url():
 
     assert config.registry_base_url == "https://localhost:8888"
     assert config.schema_base_url == "https://localhost:8888/schema"
+
+
+# TEST908: Cached caps remain accessible when offline
+@pytest.mark.asyncio
+async def test_908_cached_caps_accessible_when_offline():
+    registry = CapRegistry.new_for_test()
+    cap = Cap.from_dict(
+        json.loads(
+            '{"urn":"cap:in=media:void;op=test_offline;out=media:void","command":"test","title":"Test Cap","args":[]}'
+        )
+    )
+    registry.add_caps_to_cache([cap])
+
+    registry.set_offline(True)
+
+    cached = await registry.get_cap("cap:in=media:void;op=test_offline;out=media:void")
+    assert cached.title == "Test Cap"
+
+
+# TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked)
+@pytest.mark.asyncio
+async def test_909_set_offline_false_restores_fetch(monkeypatch):
+    registry = CapRegistry.new_for_test()
+    registry.set_offline(True)
+
+    with pytest.raises(NetworkBlockedError):
+        await registry.get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+
+    async def fake_fetch(_urn: str):
+        raise HttpError("simulated http failure")
+
+    monkeypatch.setattr(registry, "_fetch_from_registry", fake_fetch)
+    registry.set_offline(False)
+
+    with pytest.raises(HttpError, match="simulated http failure"):
+        await registry.get_cap("cap:in=media:void;op=nonexistent;out=media:void")
 
 
 # TEST145: Test custom registry and schema URLs set independently

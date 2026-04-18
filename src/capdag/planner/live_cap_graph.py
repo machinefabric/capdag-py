@@ -267,6 +267,27 @@ class LiveCapGraph:
         for cap in caps:
             self.add_cap(cap)
 
+    async def sync_from_cap_urns(self, cap_urns: List[str], registry) -> None:
+        """Rebuild the graph from cap URN strings using the registry cache."""
+        self.clear()
+
+        all_caps = await registry.get_cached_caps()
+
+        from capdag.standard.caps import identity_urn
+
+        for cap_urn_str in cap_urns:
+            cap_urn = CapUrn.from_string(cap_urn_str)
+
+            if cap_urn.is_equivalent(identity_urn()):
+                continue
+
+            matching_cap = next(
+                (registry_cap for registry_cap in all_caps if cap_urn.is_equivalent(registry_cap.urn)),
+                None,
+            )
+            if matching_cap is not None:
+                self.add_cap(matching_cap)
+
     def add_cap(self, cap) -> None:
         """Add a capability as an edge in the graph."""
         from capdag.standard.caps import identity_urn
@@ -559,26 +580,26 @@ class LiveCapGraph:
         visited.add(vk)
 
         try:
-            if current.is_equivalent(target):
-                steps = []
-                cap_count = 0
-                for edge in path:
-                    step = self._edge_to_step(edge)
-                    steps.append(step)
-                    if step.is_cap():
-                        cap_count += 1
+            if path and current.is_equivalent(target):
+                if len(path) == depth_limit:
+                    steps = []
+                    cap_count = 0
+                    for edge in path:
+                        step = self._edge_to_step(edge)
+                        steps.append(step)
+                        if step.is_cap():
+                            cap_count += 1
 
-                if cap_count > 0:
-                    titles = [s.title() for s in steps if s.is_cap()]
-                    desc = " → ".join(titles)
-                    results.append(Strand(
-                        steps=steps,
-                        source_spec=original_source,
-                        target_spec=target,
-                        total_steps=len(steps),
-                        cap_step_count=cap_count,
-                        description=desc,
-                    ))
+                    if cap_count > 0:
+                        desc = " → ".join(step.title() for step in steps)
+                        results.append(Strand(
+                            steps=steps,
+                            source_spec=original_source,
+                            target_spec=target,
+                            total_steps=len(steps),
+                            cap_step_count=cap_count,
+                            description=desc,
+                        ))
                 return
 
             if depth_limit == 0:

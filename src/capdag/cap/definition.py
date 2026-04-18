@@ -557,7 +557,7 @@ class Cap:
         if "args" in data:
             cap.args = [CapArg.from_dict(a) for a in data["args"]]
 
-        if "output" in data:
+        if "output" in data and data["output"] is not None:
             cap.output = CapOutput.from_dict(data["output"])
 
         if "metadata" in data:

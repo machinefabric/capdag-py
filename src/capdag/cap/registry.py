@@ -42,6 +42,11 @@ class HttpError(RegistryError):
     pass
 
 
+class NetworkBlockedError(RegistryError):
+    """Network access was explicitly blocked by offline mode."""
+    pass
+
+
 class NotFoundError(RegistryError):
     """Cap not found in registry"""
     pass
@@ -180,6 +185,7 @@ class CapRegistry:
         self.client = client
         self.cached_caps: Dict[str, Cap] = {}
         self.cache_lock = threading.Lock()
+        self._offline = False
 
     @classmethod
     async def new(cls) -> "CapRegistry":
@@ -356,6 +362,11 @@ class CapRegistry:
             if normalized_urn in self.cached_caps:
                 return self.cached_caps[normalized_urn]
 
+        if self._offline:
+            raise NetworkBlockedError(
+                f"Network access blocked while offline: cannot fetch cap {urn!r}"
+            )
+
         # Not in cache, fetch from registry
         cap = await self._fetch_from_registry(urn)
 
@@ -407,6 +418,10 @@ class CapRegistry:
         normalized_urn = normalize_cap_urn(urn)
         with self.cache_lock:
             return self.cached_caps.get(normalized_urn)
+
+    def set_offline(self, offline: bool) -> None:
+        """Enable or disable offline mode."""
+        self._offline = offline
 
     def ensure_identity_cap(self) -> None:
         """Install the mandatory identity cap into the in-memory cache if not already present.
