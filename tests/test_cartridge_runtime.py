@@ -52,10 +52,10 @@ from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
 
 # Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
 
 
 # =============================================================================
@@ -544,11 +544,12 @@ def create_test_cap(urn_str: str, title: str, command: str, args: list) -> 'Cap'
 
 def create_test_manifest(name: str, version: str, description: str, caps: list) -> CapManifest:
     """Helper function to create a CapManifest for tests"""
+    from capdag.bifaci.manifest import default_group
     return CapManifest(
         name=name,
         version=version,
         description=description,
-        caps=caps
+        cap_groups=[default_group(caps)],
     )
 
 

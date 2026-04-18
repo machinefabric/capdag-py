@@ -1069,6 +1069,26 @@ class DiscardOp(Op):
             .build()
 
 
+class AdapterSelectionOp(Op):
+    """Default adapter-selection handler — drains input, returns empty END (no match).
+
+    Cartridges that inspect file content override this with a handler that
+    returns {"media_urns": [...]}.
+    """
+
+    async def perform(self, dry: DryContext, wet: WetContext) -> None:
+        req: Request = wet.get_required(WET_KEY_REQUEST)
+        frames = req.take_frames()
+        for frame in iter(frames.get, None):
+            if frame is None or frame.frame_type == FrameType.END:
+                break
+
+    def metadata(self) -> OpMetadata:
+        return OpMetadata.builder("AdapterSelectionOp") \
+            .description("Default adapter selection — returns empty END (no match)") \
+            .build()
+
+
 def dispatch_op(
     op: Op,
     frames: queue.Queue,
@@ -1478,7 +1498,7 @@ class CartridgeRuntime:
 
         has_identity = any(
             identity_urn.conforms_to(cap.urn) or cap.urn.conforms_to(identity_urn)
-            for cap in manifest.caps
+            for cap in manifest.all_caps()
         )
 
         if not has_identity:
@@ -1498,11 +1518,11 @@ class CartridgeRuntime:
         return cls(manifest_json.encode('utf-8'))
 
     def _register_standard_caps(self) -> None:
-        """Register the standard identity and discard handlers.
+        """Register the standard identity, discard, and adapter-selection handlers.
 
-        Cartridge authors can override either by calling register_op() after construction.
+        Cartridge authors can override any by calling register_op() after construction.
         """
-        from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
+        from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
         # Auto-register if not already present (mirrors Rust: find_handler check)
         if self.find_handler(CAP_IDENTITY) is None:
@@ -1510,6 +1530,9 @@ class CartridgeRuntime:
 
         if self.find_handler(CAP_DISCARD) is None:
             self.register_op_type(CAP_DISCARD, DiscardOp)
+
+        if self.find_handler(CAP_ADAPTER_SELECTION) is None:
+            self.register_op_type(CAP_ADAPTER_SELECTION, AdapterSelectionOp)
 
     def register_op(self, cap_urn: str, factory: OpFactory) -> None:
         """Register an Op factory for a cap URN.
@@ -2115,7 +2138,7 @@ class CartridgeRuntime:
 
     def find_cap_by_command(self, manifest: CapManifest, command_name: str) -> Optional[Cap]:
         """Find a cap by its command name (the CLI subcommand)."""
-        for cap in manifest.caps:
+        for cap in manifest.all_caps():
             if cap.command == command_name:
                 return cap
         return None
@@ -2501,7 +2524,7 @@ class CartridgeRuntime:
         print("COMMANDS:", file=sys.stderr)
         print("    manifest    Output the cartridge manifest as JSON", file=sys.stderr)
 
-        for cap in manifest.caps:
+        for cap in manifest.all_caps():
             desc = cap.cap_description or cap.title
             print(f"    {cap.command:<12} {desc}", file=sys.stderr)
 

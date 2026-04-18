@@ -79,6 +79,11 @@ CAP_IDENTITY = "cap:"
 # The capdag lib provides a default implementation; cartridges may override.
 CAP_DISCARD = "cap:in=media:;out=media:void"
 
+# Adapter-selection capability. Default implementation returns empty END (no match).
+# Cartridges that inspect file content override this with a handler
+# that returns {"media_urns": [...]}.
+CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;record"'
+
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -93,6 +98,11 @@ def identity_urn() -> CapUrn:
 def discard_urn() -> CapUrn:
     """Parse and return the canonical discard CapUrn from CAP_DISCARD."""
     return CapUrn.from_string(CAP_DISCARD)
+
+
+def adapter_selection_urn() -> CapUrn:
+    """Parse and return the canonical adapter-selection CapUrn from CAP_ADAPTER_SELECTION."""
+    return CapUrn.from_string(CAP_ADAPTER_SELECTION)
 
 
 def identity_cap() -> Cap:

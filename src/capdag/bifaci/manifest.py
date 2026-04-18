@@ -4,8 +4,52 @@ This module defines the unified manifest interface with standardized cap-based d
 """
 
 import json
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from capdag.cap.definition import Cap
+
+
+@dataclass
+class CapGroup:
+    """A cap group bundles caps and adapter URNs as an atomic registration unit.
+
+    If any adapter in the group creates ambiguity with an already-registered adapter,
+    the entire group is rejected — none of its caps or adapters get registered.
+    """
+
+    name: str
+    """Group name (for diagnostics and error messages)"""
+
+    caps: List[Cap]
+    """Caps in this group"""
+
+    adapter_urns: List[str] = field(default_factory=list)
+    """Media URNs this group's adapter handles.
+    These are matched via conforms_to during registration — they are not patterns,
+    they are declared URNs checked for overlap with existing registrations.
+    """
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "name": self.name,
+            "caps": [cap.to_dict() for cap in self.caps],
+        }
+        if self.adapter_urns:
+            result["adapter_urns"] = self.adapter_urns
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CapGroup":
+        return cls(
+            name=data["name"],
+            caps=[Cap.from_dict(c) for c in data.get("caps", [])],
+            adapter_urns=data.get("adapter_urns", []),
+        )
+
+
+def default_group(caps: List[Cap]) -> CapGroup:
+    """Wrap caps in a default cap group with no adapter URNs."""
+    return CapGroup(name="default", caps=caps)
 
 
 class CapManifest:
@@ -13,17 +57,24 @@ class CapManifest:
 
     A manifest includes:
     - Component metadata (name, version, description)
-    - List of capabilities
+    - Cap groups (bundles of caps + adapter URNs)
     - Optional author and page URL
     """
 
-    def __init__(self, name: str, version: str, description: str, caps: List[Cap]):
+    def __init__(self, name: str, version: str, description: str, cap_groups: List[CapGroup]):
         self.name = name
         self.version = version
         self.description = description
-        self.caps = caps
+        self.cap_groups = cap_groups
         self.author: Optional[str] = None
         self.page_url: Optional[str] = None
+
+    def all_caps(self) -> List[Cap]:
+        """Returns all caps from all cap groups."""
+        result = []
+        for group in self.cap_groups:
+            result.extend(group.caps)
+        return result
 
     def with_author(self, author: str) -> "CapManifest":
         """Set the author of the component"""
@@ -37,11 +88,11 @@ class CapManifest:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
-        result = {
+        result: Dict[str, Any] = {
             "name": self.name,
             "version": self.version,
             "description": self.description,
-            "caps": [cap.to_dict() for cap in self.caps],
+            "cap_groups": [g.to_dict() for g in self.cap_groups],
         }
 
         if self.author is not None:
@@ -63,7 +114,7 @@ class CapManifest:
             name=data["name"],
             version=data["version"],
             description=data["description"],
-            caps=[Cap.from_dict(c) for c in data["caps"]],
+            cap_groups=[CapGroup.from_dict(g) for g in data["cap_groups"]],
         )
 
         if "author" in data:
@@ -82,6 +133,7 @@ class CapManifest:
 
     def validate(self) -> None:
         """Validate that this manifest has CAP_IDENTITY.
+        Checks caps within cap_groups.
 
         Raises ValueError if identity cap is missing.
         """
@@ -89,7 +141,7 @@ class CapManifest:
         from capdag.standard.caps import CAP_IDENTITY
 
         identity_urn = CapUrn.from_string(CAP_IDENTITY)
-        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.caps)
+        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
         if not has_identity:
             raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
 
@@ -102,7 +154,7 @@ class CapManifest:
         from capdag.standard.caps import CAP_IDENTITY
 
         identity_urn = CapUrn.from_string(CAP_IDENTITY)
-        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.caps)
+        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
 
         if not has_identity:
             identity_cap = Cap(
@@ -110,6 +162,6 @@ class CapManifest:
                 title="Identity",
                 command="identity"
             )
-            self.caps.insert(0, identity_cap)
+            self.cap_groups.insert(0, default_group([identity_cap]))
 
         return self

@@ -178,6 +178,8 @@ MEDIA_IMAGE_DESCRIPTION = "media:image-description;textable"
 MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG
 MEDIA_DECISION = "media:decision;json;record;textable"
+# Media URN for adapter selection output - JSON record
+MEDIA_ADAPTER_SELECTION = "media:adapter-selection;json;record"
 
 
 # Helper functions to build media URNs

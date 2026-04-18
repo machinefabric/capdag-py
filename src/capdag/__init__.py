@@ -202,7 +202,7 @@ from capdag.media.spec import (
 
 # Bifaci module
 from capdag.bifaci import decode_chunk_payload
-from capdag.bifaci.manifest import CapManifest
+from capdag.bifaci.manifest import CapManifest, CapGroup, default_group
 from capdag.bifaci.relay import (
     RelaySlave,
     RelayMaster,
@@ -234,8 +234,10 @@ import capdag.orchestrator  # noqa: F401
 from capdag.standard.caps import (
     CAP_IDENTITY,
     CAP_DISCARD,
+    CAP_ADAPTER_SELECTION,
     identity_urn,
     discard_urn,
+    adapter_selection_urn,
     identity_cap,
     discard_cap,
     media_urn_for_type,
@@ -341,6 +343,8 @@ __all__ = [
     "MediaSpecDef",
     # Manifest
     "CapManifest",
+    "CapGroup",
+    "default_group",
     # Bifaci utilities
     "decode_chunk_payload",
     # Validation
@@ -441,6 +445,8 @@ __all__ = [
     # Standard caps
     "CAP_IDENTITY",
     "CAP_DISCARD",
+    "CAP_ADAPTER_SELECTION",
+    "adapter_selection_urn",
     "identity_urn",
     "discard_urn",
     "identity_cap",
