@@ -2,9 +2,9 @@
 
 **Total Tests:** 636
 
-**Numbered Tests:** 622
+**Numbered Tests:** 623
 
-**Unnumbered Tests:** 14
+**Unnumbered Tests:** 13
 
 All numbered test numbers are unique.
 
@@ -396,6 +396,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test458 | `test_458_reorder_buffer_non_flow_bypass` | TEST458: ReorderBuffer non-flow frames bypass reordering | tests/test_cbor_frame.py:908 |
 | test459 | `test_459_reorder_buffer_end_frame` | TEST459: ReorderBuffer handles END frame correctly | tests/test_cbor_frame.py:922 |
 | test460 | `test_460_reorder_buffer_err_frame` | TEST460: ReorderBuffer handles ERR frame correctly | tests/test_cbor_frame.py:936 |
+| test462 | `test_462_seq_assigner_same_rid_different_xids_independent` | TEST462: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:92 |
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:99 |
 | test475 | `test_475_validate_passes_with_identity` | TEST475: CapManifest.validate() passes when CAP_IDENTITY is present | tests/test_manifest.py:203 |
@@ -635,7 +636,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1137 | `test_1137_two_strand_machine_serializes_to_notation` | ============================================================================= TEST1137: Two-strand machine to_machine_notation produces valid string ============================================================================= | tests/test_machine.py:711 |
 | test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | ============================================================================= TEST1138: Assignment bindings are sorted by cap_arg_media_urn for canonical form ============================================================================= | tests/test_machine.py:736 |
 | | | | |
-| unnumbered | `test_445a_seq_assigner_same_rid_different_xids_independent` | TEST445a: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
 | unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:329 |
 | unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:294 |
@@ -655,7 +655,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
-- `test_445a_seq_assigner_same_rid_different_xids_independent` — tests/test_cbor_frame.py:687
 - `test_array_schema_validation` — tests/test_schema_validation.py:207
 - `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:329
 - `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:294
@@ -674,5 +673,5 @@ The following tests are cataloged but do not currently participate in numeric te
 
 *Generated from CapDag-Py source tree*
 *Total tests: 636*
-*Total numbered tests: 622*
-*Total unnumbered tests: 14*
+*Total numbered tests: 623*
+*Total unnumbered tests: 13*
