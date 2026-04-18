@@ -476,8 +476,8 @@ async def test_107_extensions_propagation():
     assert resolved.extensions == ["pdf"]
 
 
-# TEST108: Test extensions serializes/deserializes correctly in MediaSpecDef
-def test_108_extensions_serialization():
+# TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef
+def test_892_extensions_serialization():
     spec_def = MediaSpecDef(
         urn="media:json-data",
         media_type="application/json",
@@ -497,9 +497,9 @@ def test_108_extensions_serialization():
     assert parsed.extensions == ["json"]
 
 
-# TEST109: Test extensions can coexist with metadata and validation
+# TEST893: Test extensions can coexist with metadata and validation
 @pytest.mark.asyncio
-async def test_109_extensions_with_metadata_and_validation():
+async def test_893_extensions_with_metadata_and_validation():
     registry = await create_test_registry()
     media_specs = create_media_specs([
         MediaSpecDef(
@@ -530,9 +530,9 @@ async def test_109_extensions_with_metadata_and_validation():
     assert resolved.extensions == ["json"]
 
 
-# TEST110: Test multiple extensions in a media spec
+# TEST894: Test multiple extensions in a media spec
 @pytest.mark.asyncio
-async def test_110_multiple_extensions():
+async def test_894_multiple_extensions():
     registry = await create_test_registry()
     media_specs = create_media_specs([
         MediaSpecDef(

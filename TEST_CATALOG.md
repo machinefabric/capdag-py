@@ -1,13 +1,12 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 622
+**Total Tests:** 636
 
-**Numbered Tests:** 610
+**Numbered Tests:** 622
 
-**Unnumbered Tests:** 12
+**Unnumbered Tests:** 14
 
-**⚠ Duplicate test numbers detected: 2 number(s) used more than once.**
-Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
+All numbered test numbers are unique.
 
 This catalog lists all tests in the CapDag-Py codebase.
 
@@ -84,6 +83,13 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking matches | tests/test_media_urn.py:228 |
 | test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:238 |
 | test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:247 |
+| test088 | `test_088_resolve_from_registry_str` |  | tests/test_media_spec.py:51 |
+| test089 | `test_089_resolve_from_registry_obj` |  | tests/test_media_spec.py:61 |
+| test090 | `test_090_resolve_from_registry_binary` |  | tests/test_media_spec.py:69 |
+| test091 | `test_091_resolve_custom_media_spec` |  | tests/test_media_spec.py:91 |
+| test092 | `test_092_resolve_custom_with_schema` |  | tests/test_media_spec.py:117 |
+| test093 | `test_093_resolve_unresolvable_fails_hard` |  | tests/test_media_spec.py:148 |
+| test094 | `test_094_local_overrides_registry` |  | tests/test_media_spec.py:158 |
 | test095 | `test_095_media_spec_def_serialize` | TEST095: Test MediaSpecDef serializes with required fields and skips None fields | tests/test_media_spec.py:187 |
 | test096 | `test_096_media_spec_def_deserialize` | TEST096: Test deserializing MediaSpecDef from JSON object | tests/test_media_spec.py:211 |
 | test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST097: Test duplicate URN validation catches duplicates | tests/test_media_spec.py:230 |
@@ -94,6 +100,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaSpec is_list returns true for list marker tag media URN | tests/test_media_spec.py:327 |
 | test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaSpec is_json returns true when json marker tag is present | tests/test_media_spec.py:345 |
 | test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaSpec is_text returns true when textable tag is present | tests/test_media_spec.py:363 |
+| test105 | `test_105_metadata_propagation` |  | tests/test_media_spec.py:387 |
+| test106 | `test_106_metadata_with_validation` |  | tests/test_media_spec.py:414 |
+| test107 | `test_107_extensions_propagation` |  | tests/test_media_spec.py:459 |
+| test108 | `test_108_cap_creation` | TEST108: Test Cap creation with URN, title, and command | tests/test_cap.py:19 |
 | test109 | `test_109_cap_with_args` | TEST109: Test Cap with args stores and retrieves arguments correctly | tests/test_cap.py:30 |
 | test110 | `test_110_cap_with_stdin` | TEST110: Test Cap with stdin source stores stdin media URN correctly | tests/test_cap.py:49 |
 | test111 | `test_111_cap_without_stdin` | TEST111: Test Cap with no stdin returns None for get_stdin_media_urn | tests/test_cap.py:65 |
@@ -390,6 +400,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:99 |
 | test475 | `test_475_validate_passes_with_identity` | TEST475: CapManifest.validate() passes when CAP_IDENTITY is present | tests/test_manifest.py:203 |
 | test476 | `test_476_validate_fails_without_identity` | TEST476: CapManifest.validate() fails when CAP_IDENTITY is missing | tests/test_manifest.py:214 |
+| test477 | `test_477_chunk_corrupted_payload_rejected` | TEST477: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum) | tests/test_cbor_frame.py:1035 |
 | test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1827 |
 | test491 | `test_491_chunk_requires_chunk_index_and_checksum` | TEST491: CHUNK frame requires chunk_index and checksum | tests/test_cbor_frame.py:958 |
 | test492 | `test_492_stream_end_requires_chunk_count` | TEST492: STREAM_END frame requires and sets chunk_count | tests/test_cbor_frame.py:972 |
@@ -397,6 +408,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test494 | `test_494_compute_checksum_deterministic` | TEST494: compute_checksum is deterministic | tests/test_cbor_frame.py:989 |
 | test495 | `test_495_cbor_rejects_chunk_without_chunk_index` | TEST495: CBOR decode REJECTS CHUNK frame missing chunk_index field | tests/test_cbor_frame.py:999 |
 | test496 | `test_496_cbor_rejects_chunk_without_checksum` | TEST496: CBOR decode REJECTS CHUNK frame missing checksum field | tests/test_cbor_frame.py:1018 |
+| test497 | `test_497_chunk_corrupted_payload_rejected` | TEST497: Corrupted payload detectable via checksum mismatch | tests/test_cbor_io.py:792 |
 | test498 | `test_498_routing_id_cbor_roundtrip` | TEST498: routing_id field roundtrips through CBOR encoding | tests/test_cbor_frame.py:1052 |
 | test499 | `test_499_chunk_index_checksum_cbor_roundtrip` | TEST499: chunk_index and checksum roundtrip through CBOR encoding | tests/test_cbor_frame.py:1067 |
 | test500 | `test_500_chunk_count_cbor_roundtrip` | TEST500: chunk_count roundtrips through CBOR encoding | tests/test_cbor_frame.py:1083 |
@@ -576,6 +588,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:498 |
 | test890 | `test_890_direction_semantic_matching` | TEST890: Direction semantic matching (accepts method) | tests/test_cap_urn.py:1174 |
 | test891 | `test_891_direction_semantic_specificity` | TEST891: Direction semantic specificity | tests/test_cap_urn.py:1215 |
+| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:480 |
+| test893 | `test_893_extensions_with_metadata_and_validation` |  | tests/test_media_spec.py:502 |
+| test894 | `test_894_multiple_extensions` |  | tests/test_media_spec.py:535 |
 | test902 | `test_902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | tests/test_cbor_frame.py:1514 |
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
@@ -620,11 +635,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1137 | `test_1137_two_strand_machine_serializes_to_notation` | ============================================================================= TEST1137: Two-strand machine to_machine_notation produces valid string ============================================================================= | tests/test_machine.py:711 |
 | test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | ============================================================================= TEST1138: Assignment bindings are sorted by cap_arg_media_urn for canonical form ============================================================================= | tests/test_machine.py:736 |
 | | | | |
-| test108 ⚠ | `test_108_cap_creation` | TEST108: Test Cap creation with URN, title, and command | tests/test_cap.py:19 |
-| test108 ⚠ | `test_108_extensions_serialization` | TEST108: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:480 |
-| test497 ⚠ | `test_497_chunk_corrupted_payload_rejected` | TEST497: Corrupted payload detectable via checksum mismatch | tests/test_cbor_io.py:792 |
-| test497 ⚠ | `test_497_chunk_corrupted_payload_rejected` | TEST497: chunk corrupted payload is detected by checksum mismatch | tests/test_cbor_frame.py:1035 |
-| | | | |
 | unnumbered | `test_445a_seq_assigner_same_rid_different_xids_independent` | TEST445a: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
 | unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:329 |
@@ -634,30 +644,11 @@ This catalog lists all tests in the CapDag-Py codebase.
 | unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
 | unnumbered | `test_normalize_urn_with_trailing_semicolon` |  | tests/test_registry.py:300 |
 | unnumbered | `test_output_validation_with_details` | TEST: Output validation with error details | tests/test_schema_validation.py:335 |
+| unnumbered | `test_registry_add_caps_to_cache` |  | tests/test_registry.py:257 |
+| unnumbered | `test_registry_cache_key_consistency` |  | tests/test_registry.py:274 |
 | unnumbered | `test_registry_config_builder_pattern` |  | tests/test_registry.py:290 |
 | unnumbered | `test_type_constraint_validation` | TEST: Schema validation with type constraints | tests/test_schema_validation.py:251 |
 | unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
-
----
-
-## ⚠ Duplicate Test Numbers
-
-The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
-
-### test108 (2 occurrences)
-
-- `test_108_cap_creation` — tests/test_cap.py:19
-- `test_108_extensions_serialization` — tests/test_media_spec.py:480
-
-**Suggested free number(s):** test107
-
-### test497 (2 occurrences)
-
-- `test_497_chunk_corrupted_payload_rejected` — tests/test_cbor_io.py:792
-- `test_497_chunk_corrupted_payload_rejected` — tests/test_cbor_frame.py:1035
-
-**Suggested free number(s):** test490
-
 ---
 
 ## Unnumbered Tests
@@ -673,6 +664,8 @@ The following tests are cataloged but do not currently participate in numeric te
 - `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
 - `test_normalize_urn_with_trailing_semicolon` — tests/test_registry.py:300
 - `test_output_validation_with_details` — tests/test_schema_validation.py:335
+- `test_registry_add_caps_to_cache` — tests/test_registry.py:257
+- `test_registry_cache_key_consistency` — tests/test_registry.py:274
 - `test_registry_config_builder_pattern` — tests/test_registry.py:290
 - `test_type_constraint_validation` — tests/test_schema_validation.py:251
 - `test_validate_multiple_arguments` — tests/test_schema_validation.py:286
@@ -680,6 +673,6 @@ The following tests are cataloged but do not currently participate in numeric te
 ---
 
 *Generated from CapDag-Py source tree*
-*Total tests: 622*
-*Total numbered tests: 610*
-*Total unnumbered tests: 12*
+*Total tests: 636*
+*Total numbered tests: 622*
+*Total unnumbered tests: 14*

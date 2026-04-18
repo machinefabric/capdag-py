@@ -1031,8 +1031,8 @@ def test_496_cbor_rejects_chunk_without_checksum():
         decode_frame(encoded)
 
 
-# TEST497: chunk corrupted payload is detected by checksum mismatch
-def test_497_chunk_corrupted_payload_rejected():
+# TEST477: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum)
+def test_477_chunk_corrupted_payload_rejected():
     req_id = MessageId.random()
     payload = b"original data"
     checksum = compute_checksum(payload)
