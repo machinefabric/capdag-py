@@ -653,10 +653,10 @@ def test_1133_machine_from_string_delegates_to_parse_machine():
 
 
 # =============================================================================
-# TEST1134: MachineAbstractionError subclass hierarchy is correct
+# Mirror-specific coverage: MachineAbstractionError subclass hierarchy is correct
 # =============================================================================
 
-def test_1134_abstraction_error_subclass_hierarchy():
+def test_abstraction_error_subclass_hierarchy():
     """TEST1134: All resolution error subclasses are instances of MachineAbstractionError."""
     err_no_steps = NoCapabilityStepsError()
     err_unknown = UnknownCapError("cap:op=x")
@@ -670,10 +670,10 @@ def test_1134_abstraction_error_subclass_hierarchy():
 
 
 # =============================================================================
-# TEST1135: MachineStrand nodes() returns correct MediaUrns by NodeId
+# Mirror-specific coverage: MachineStrand nodes() returns correct MediaUrns by NodeId
 # =============================================================================
 
-def test_1135_strand_node_urn_accessor():
+def test_strand_node_urn_accessor():
     """TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
@@ -689,10 +689,10 @@ def test_1135_strand_node_urn_accessor():
 
 
 # =============================================================================
-# TEST1136: parse_machine undefined alias raises MachineParseError with syntax cause
+# Mirror-specific coverage: parse_machine undefined alias raises MachineParseError with syntax cause
 # =============================================================================
 
-def test_1136_parse_machine_undefined_alias_raises_syntax_error():
+def test_parse_machine_undefined_alias_raises_syntax_error():
     """TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
     reg = _registry_with([])
     notation = "[doc -> undefined_alias -> text]"
@@ -705,10 +705,10 @@ def test_1136_parse_machine_undefined_alias_raises_syntax_error():
 
 
 # =============================================================================
-# TEST1137: Two-strand machine to_machine_notation produces valid string
+# Mirror-specific coverage: Two-strand machine to_machine_notation produces valid string
 # =============================================================================
 
-def test_1137_two_strand_machine_serializes_to_notation():
+def test_two_strand_machine_serializes_to_notation():
     """TEST1137: Machine with two strands serializes to a non-empty notation string."""
     import capdag.machine.serializer  # ensure methods are attached
 
@@ -730,10 +730,10 @@ def test_1137_two_strand_machine_serializes_to_notation():
 
 
 # =============================================================================
-# TEST1138: Assignment bindings are sorted by cap_arg_media_urn for canonical form
+# Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form
 # =============================================================================
 
-def test_1138_assignment_bindings_sorted_by_slot_urn():
+def test_assignment_bindings_sorted_by_slot_urn():
     """TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn, enabling
     canonical comparison across different creation orders.
 

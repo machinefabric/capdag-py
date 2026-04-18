@@ -54,8 +54,8 @@ def test_310_llm_generate_text_urn_tags():
     assert urn.has_tag("op", "generate_text"), "must have op=generate_text"
 
 
-# TEST311: Test llm_generate_text_urn in/out specs match the expected media URNs semantically
-def test_311_llm_generate_text_urn_specs():
+# Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically
+def test_llm_generate_text_urn_specs():
     urn = CapUrn.from_string(llm_generate_text_urn())
 
     # Compare semantically via MediaUrn matching (tag order may differ)

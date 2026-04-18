@@ -2,9 +2,9 @@
 
 **Total Tests:** 636
 
-**Numbered Tests:** 623
+**Numbered Tests:** 606
 
-**Unnumbered Tests:** 13
+**Unnumbered Tests:** 30
 
 All numbered test numbers are unique.
 
@@ -30,59 +30,57 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test016 | `test_016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | tests/test_cap_urn.py:240 |
 | test017 | `test_017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | tests/test_cap_urn.py:260 |
 | test018 | `test_018_quoted_values_case_sensitive` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | tests/test_cap_urn.py:282 |
-| test019 | `test_019_missing_tags_as_wildcards` | TEST019: Test that missing tags are treated as wildcards (cap without tag matches any value for that tag) | tests/test_cap_urn.py:289 |
-| test020 | `test_020_specificity_calculation` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | tests/test_cap_urn.py:301 |
-| test021 | `test_021_builder_creates_cap_urn` | TEST021: Test builder creates cap URN with correct tags and direction specs | tests/test_cap_urn.py:315 |
-| test022 | `test_022_builder_requires_direction_specs` | TEST022: Test builder requires both in_spec and out_spec | tests/test_cap_urn.py:331 |
-| test023 | `test_023_builder_key_normalization` | TEST023: Test builder lowercases keys but preserves value case | tests/test_cap_urn.py:346 |
-| test024 | `test_024_directional_accepts` | TEST024: Test directional accepts (different op values, wildcard, direction mismatch) | tests/test_cap_urn.py:362 |
-| test025 | `test_025_find_best_match` | TEST025: Test find_best_match returns most specific matching cap | tests/test_cap_urn.py:383 |
-| test026 | `test_026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | tests/test_cap_urn.py:400 |
-| test027 | `test_027_with_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | tests/test_cap_urn.py:417 |
-| test028 | `test_028_empty_cap_urn_defaults` | TEST028: Test bare "cap:" defaults to media: for both directions (identity morphism) | tests/test_cap_urn.py:434 |
-| test029 | `test_029_minimal_valid_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | tests/test_cap_urn.py:442 |
-| test030 | `test_030_extended_characters_in_values` | TEST030: Test extended characters (forward slashes, colons) in tag values | tests/test_cap_urn.py:450 |
-| test031 | `test_031_wildcard_in_keys_and_values` | TEST031: Test wildcard rejected in keys but accepted in values | tests/test_cap_urn.py:457 |
-| test032 | `test_032_duplicate_keys_rejected` | TEST032: Test duplicate keys are rejected with DuplicateKey error | tests/test_cap_urn.py:468 |
-| test033 | `test_033_numeric_keys` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | tests/test_cap_urn.py:474 |
-| test034 | `test_034_empty_values_rejected` | TEST034: Test empty values are rejected | tests/test_cap_urn.py:489 |
-| test035 | `test_035_has_tag_behavior` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | tests/test_cap_urn.py:496 |
-| test036 | `test_036_with_tag_preserves_case` | TEST036: Test with_tag preserves value case | tests/test_cap_urn.py:515 |
-| test037 | `test_037_with_tag_rejects_empty` | TEST037: Test with_tag rejects empty value | tests/test_cap_urn.py:522 |
-| test038 | `test_038_semantic_equivalence_quoted_unquoted` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | tests/test_cap_urn.py:529 |
-| test039 | `test_039_get_tag_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | tests/test_cap_urn.py:538 |
-| test040 | `test_040_matching_semantics_exact_match` | TEST040: Matching semantics - exact match succeeds | tests/test_cap_urn.py:562 |
-| test041 | `test_041_matching_semantics_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | tests/test_cap_urn.py:569 |
-| test042 | `test_042_matching_semantics_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | tests/test_cap_urn.py:576 |
-| test043 | `test_043_matching_semantics_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | tests/test_cap_urn.py:586 |
-| test044 | `test_044_matching_semantics_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | tests/test_cap_urn.py:593 |
-| test045 | `test_045_matching_semantics_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | tests/test_cap_urn.py:600 |
-| test046 | `test_046_matching_semantics_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | tests/test_cap_urn.py:607 |
-| test047 | `test_047_matching_semantics_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | tests/test_cap_urn.py:615 |
-| test048 | `test_048_matching_semantics_wildcard_direction` | TEST048: Matching semantics - wildcard direction matches anything | tests/test_cap_urn.py:623 |
-| test049 | `test_049_matching_semantics_cross_dimension` | TEST049: Non-overlapping tags — neither direction accepts | tests/test_cap_urn.py:630 |
-| test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:639 |
-| test051 | `test_051_input_validation_success` | TEST051: Input validation succeeds with valid positional argument | tests/test_validation.py:26 |
-| test052 | `test_052_input_validation_missing_required` | TEST052: Input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:40 |
-| test053 | `test_053_input_validation_optional_arg` | TEST053: Validation accepts optional argument when not provided | tests/test_validation.py:57 |
-| test054 | `test_054_input_validation_too_many_args` | TEST054: Validation rejects too many arguments | tests/test_validation.py:71 |
+| test019 | `test_019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | tests/test_cap_urn.py:289 |
+| test020 | `test_020_specificity_calculation` | TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count) | tests/test_cap_urn.py:307 |
+| test021 | `test_021_builder_creates_cap_urn` | TEST021: Test builder creates cap URN with correct tags and direction specs | tests/test_cap_urn.py:321 |
+| test022 | `test_022_builder_requires_direction_specs` | TEST022: Test builder requires both in_spec and out_spec | tests/test_cap_urn.py:337 |
+| test023 | `test_023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves value case | tests/test_cap_urn.py:352 |
+| test024 | `test_024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | tests/test_cap_urn.py:368 |
+| test025 | `test_025_find_best_match` | TEST025: Test find_best_match returns most specific matching cap | tests/test_cap_urn.py:396 |
+| test026 | `test_026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | tests/test_cap_urn.py:413 |
+| test027 | `test_027_with_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | tests/test_cap_urn.py:430 |
+| test028 | `test_028_empty_cap_urn_defaults` | TEST028: Test empty cap URN defaults to media: wildcard | tests/test_cap_urn.py:447 |
+| test029 | `test_029_minimal_valid_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | tests/test_cap_urn.py:455 |
+| test030 | `test_030_extended_characters_in_values` | TEST030: Test extended characters (forward slashes, colons) in tag values | tests/test_cap_urn.py:463 |
+| test031 | `test_031_wildcard_in_keys_and_values` | TEST031: Test wildcard rejected in keys but accepted in values | tests/test_cap_urn.py:470 |
+| test032 | `test_032_duplicate_keys_rejected` | TEST032: Test duplicate keys are rejected with DuplicateKey error | tests/test_cap_urn.py:481 |
+| test033 | `test_033_numeric_keys` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | tests/test_cap_urn.py:487 |
+| test034 | `test_034_empty_values_rejected` | TEST034: Test empty values are rejected | tests/test_cap_urn.py:502 |
+| test035 | `test_035_has_tag_behavior` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | tests/test_cap_urn.py:509 |
+| test036 | `test_036_with_tag_preserves_case` | TEST036: Test with_tag preserves value case | tests/test_cap_urn.py:528 |
+| test037 | `test_037_with_tag_rejects_empty` | TEST037: Test with_tag rejects empty value | tests/test_cap_urn.py:535 |
+| test038 | `test_038_semantic_equivalence_quoted_unquoted` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | tests/test_cap_urn.py:542 |
+| test039 | `test_039_get_tag_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | tests/test_cap_urn.py:551 |
+| test040 | `test_040_matching_semantics_exact_match` | TEST040: Matching semantics - exact match succeeds | tests/test_cap_urn.py:575 |
+| test041 | `test_041_matching_semantics_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | tests/test_cap_urn.py:582 |
+| test042 | `test_042_matching_semantics_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | tests/test_cap_urn.py:589 |
+| test043 | `test_043_matching_semantics_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | tests/test_cap_urn.py:599 |
+| test044 | `test_044_matching_semantics_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | tests/test_cap_urn.py:606 |
+| test045 | `test_045_matching_semantics_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | tests/test_cap_urn.py:613 |
+| test046 | `test_046_matching_semantics_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | tests/test_cap_urn.py:620 |
+| test047 | `test_047_matching_semantics_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | tests/test_cap_urn.py:628 |
+| test048 | `test_048_matching_semantics_wildcard_direction` | TEST048: Matching semantics - wildcard direction matches anything | tests/test_cap_urn.py:636 |
+| test049 | `test_049_matching_semantics_cross_dimension` | TEST049: Non-overlapping tags — neither direction accepts | tests/test_cap_urn.py:643 |
+| test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:652 |
+| test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:26 |
+| test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:40 |
 | test060 | `test_060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | tests/test_media_urn.py:40 |
-| test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable marker tag is NOT present | tests/test_media_urn.py:46 |
-| test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:60 |
-| test063 | `test_063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is NOT present indicating single value | tests/test_media_urn.py:74 |
-| test064 | `test_064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | tests/test_media_urn.py:87 |
-| test065 | `test_065_record_and_list` | TEST065: Test is_record and is_list for structure checking (is_structured removed from MediaUrn) | tests/test_media_urn.py:100 |
-| test066 | `test_066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | tests/test_media_urn.py:123 |
-| test067 | `test_067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | tests/test_media_urn.py:133 |
-| test068 | `test_068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | tests/test_media_urn.py:146 |
-| test071 | `test_071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | tests/test_media_urn.py:156 |
-| test072 | `test_072_all_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | tests/test_media_urn.py:165 |
-| test073 | `test_073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | tests/test_media_urn.py:186 |
-| test074 | `test_074_media_urn_matching` | TEST074: Test media URN matching using tagged URN semantics with specific and generic requirements | tests/test_media_urn.py:210 |
-| test075 | `test_075_matching` | TEST075: Test matching with implicit wildcards where handlers with fewer tags can handle more requests | tests/test_media_urn.py:218 |
-| test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking matches | tests/test_media_urn.py:228 |
-| test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:238 |
-| test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:247 |
+| test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | tests/test_media_urn.py:46 |
+| test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:59 |
+| test063 | `test_063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default) | tests/test_media_urn.py:73 |
+| test064 | `test_064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | tests/test_media_urn.py:84 |
+| test065 | `test_065_is_opaque` | TEST065: Test is_opaque returns true when record marker is absent (opaque is default) | tests/test_media_urn.py:97 |
+| test066 | `test_066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | tests/test_media_urn.py:108 |
+| test067 | `test_067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | tests/test_media_urn.py:118 |
+| test068 | `test_068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | tests/test_media_urn.py:131 |
+| test071 | `test_071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | tests/test_media_urn.py:141 |
+| test072 | `test_072_all_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | tests/test_media_urn.py:150 |
+| test073 | `test_073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | tests/test_media_urn.py:171 |
+| test074 | `test_074_media_urn_matching` | TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements | tests/test_media_urn.py:195 |
+| test075 | `test_075_matching` | TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests | tests/test_media_urn.py:210 |
+| test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | tests/test_media_urn.py:223 |
+| test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:237 |
+| test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:246 |
 | test088 | `test_088_resolve_from_registry_str` |  | tests/test_media_spec.py:51 |
 | test089 | `test_089_resolve_from_registry_obj` |  | tests/test_media_spec.py:61 |
 | test090 | `test_090_resolve_from_registry_binary` |  | tests/test_media_spec.py:69 |
@@ -203,7 +201,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test206 | `test_206_decode_frame_parses_cbor_correctly` | TEST206: Test decode_frame parses CBOR frame correctly | tests/test_cbor_io.py:53 |
 | test207 | `test_207_decode_frame_fails_on_invalid_cbor` | TEST207: Test decode_frame fails on invalid CBOR | tests/test_cbor_io.py:65 |
 | test208 | `test_208_decode_frame_fails_on_non_map` | TEST208: Test decode_frame fails on non-map CBOR | tests/test_cbor_io.py:71 |
-| test209 | `test_209_write_frame_writes_length_prefixed` | TEST209: Test write_frame writes length-prefixed frame | tests/test_cbor_io.py:80 |
 | test210 | `test_210_read_frame_reads_length_prefixed` | TEST210: Test read_frame reads length-prefixed frame | tests/test_cbor_io.py:96 |
 | test211 | `test_211_read_frame_returns_none_on_eof` | TEST211: Test read_frame returns None on EOF | tests/test_cbor_io.py:113 |
 | test212 | `test_212_read_frame_fails_on_incomplete_length_prefix` | TEST212: Test read_frame fails on incomplete length prefix | tests/test_cbor_io.py:122 |
@@ -259,7 +256,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test262 | `test_262_extract_effective_payload_cbor_no_match` | TEST262: Test extract_effective_payload fails when no stream matches expected input | tests/test_cartridge_runtime.py:309 |
 | test263 | `test_263_extract_effective_payload_invalid_cbor` | TEST263: Test extract_effective_payload with empty streams returns error | tests/test_cartridge_runtime.py:334 |
 | test264 | `test_264_extract_effective_payload_cbor_not_array` | TEST264: Test extract_effective_payload with incomplete stream skips it | tests/test_cartridge_runtime.py:346 |
-| test265 | `test_265_extract_effective_payload_invalid_cap_urn` | TEST265: Test extract_effective_payload with invalid cap URN returns CapUrn error | tests/test_cartridge_runtime.py:362 |
 | test266 | `test_266_cli_stream_emitter_construction` | TEST266: Test CliStreamEmitter writes to stdout and stderr correctly (basic construction) | tests/test_cartridge_runtime.py:373 |
 | test268 | `test_268_runtime_error_display` | TEST268: Test RuntimeError variants display correct messages | tests/test_cartridge_runtime.py:382 |
 | test270 | `test_270_multiple_handlers` | TEST270: Test registering multiple Op handlers for different caps and finding each independently | tests/test_cartridge_runtime.py:403 |
@@ -284,20 +280,14 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:249 |
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:294 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:335 |
-| test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:258 |
-| test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:266 |
-| test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:274 |
+| test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:257 |
+| test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:265 |
+| test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:273 |
 | test307 | `test_307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs | tests/test_standard_caps.py:27 |
 | test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct op and media specs | tests/test_standard_caps.py:35 |
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:43 |
 | test310 | `test_310_llm_generate_text_urn_tags` | TEST310: Test llm_generate_text_urn uses llm and ml-model tags | tests/test_standard_caps.py:50 |
-| test311 | `test_311_llm_generate_text_urn_specs` | TEST311: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:58 |
 | test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:72 |
-| test313 | `test_313_write_stream_chunked_reassembly` | TEST313: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk, CHUNK frames + END frame, and reading them back reassembles the full original data | tests/test_cbor_io.py:549 |
-| test314 | `test_314_exact_max_chunk_stream_chunked` | TEST314: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END | tests/test_cbor_io.py:591 |
-| test315 | `test_315_max_chunk_plus_one_splits_into_two_chunks` | TEST315: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END | tests/test_cbor_io.py:622 |
-| test316 | `test_316_concatenated_vs_final_payload_divergence` | TEST316: Test that concatenated() returns full payload while final_payload() returns only last chunk | tests/test_cartridge_host_runtime.py:265 |
-| test317 | `test_317_chunking_data_integrity_3x` | TEST317: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:658 |
 | test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:526 |
 | test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:594 |
 | test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:624 |
@@ -396,12 +386,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test458 | `test_458_reorder_buffer_non_flow_bypass` | TEST458: ReorderBuffer non-flow frames bypass reordering | tests/test_cbor_frame.py:908 |
 | test459 | `test_459_reorder_buffer_end_frame` | TEST459: ReorderBuffer handles END frame correctly | tests/test_cbor_frame.py:922 |
 | test460 | `test_460_reorder_buffer_err_frame` | TEST460: ReorderBuffer handles ERR frame correctly | tests/test_cbor_frame.py:936 |
-| test462 | `test_462_seq_assigner_same_rid_different_xids_independent` | TEST462: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:92 |
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:99 |
 | test475 | `test_475_validate_passes_with_identity` | TEST475: CapManifest.validate() passes when CAP_IDENTITY is present | tests/test_manifest.py:203 |
 | test476 | `test_476_validate_fails_without_identity` | TEST476: CapManifest.validate() fails when CAP_IDENTITY is missing | tests/test_manifest.py:214 |
-| test477 | `test_477_chunk_corrupted_payload_rejected` | TEST477: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum) | tests/test_cbor_frame.py:1035 |
 | test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1827 |
 | test491 | `test_491_chunk_requires_chunk_index_and_checksum` | TEST491: CHUNK frame requires chunk_index and checksum | tests/test_cbor_frame.py:958 |
 | test492 | `test_492_stream_end_requires_chunk_count` | TEST492: STREAM_END frame requires and sets chunk_count | tests/test_cbor_frame.py:972 |
@@ -443,28 +431,28 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test528 | `test_528_relay_frames_use_uint_zero_id` | TEST528: RelayNotify and RelayState use MessageId(0) | tests/test_cbor_frame.py:1505 |
 | test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall finish sends END frame In Python, PeerInvokerImpl.invoke() sends END after all args. This test validates that the response queue receives frames including END. | tests/test_cartridge_runtime.py:1901 |
 | test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall finish returns PeerResponse with data | tests/test_cartridge_runtime.py:1926 |
-| test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:282 |
-| test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:293 |
-| test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:304 |
-| test549 | `test_549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | tests/test_media_urn.py:314 |
-| test550 | `test_550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | tests/test_media_urn.py:326 |
-| test551 | `test_551_is_file_path` | TEST551: is_file_path returns true for scalar file-path, false for array | tests/test_media_urn.py:338 |
-| test552 | `test_552_is_file_path_array` | TEST552: is_file_path_array returns true for list file-path, false for scalar | tests/test_media_urn.py:348 |
-| test553 | `test_553_is_any_file_path` | TEST553: is_any_file_path returns true for both scalar and array file-path | tests/test_media_urn.py:357 |
-| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:366 |
-| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:382 |
-| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:391 |
-| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants | tests/test_media_urn.py:400 |
-| test559 | `test_559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | tests/test_cap_urn.py:653 |
-| test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:677 |
-| test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:698 |
-| test562 | `test_562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | tests/test_cap_urn.py:718 |
-| test563 | `test_563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | tests/test_cap_urn.py:755 |
-| test564 | `test_564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | tests/test_cap_urn.py:773 |
-| test565 | `test_565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | tests/test_cap_urn.py:796 |
-| test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:808 |
-| test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:821 |
-| test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with tags in different order (record;textable vs textable;record) | tests/test_cap_urn.py:737 |
+| test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:281 |
+| test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:292 |
+| test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:303 |
+| test549 | `test_549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | tests/test_media_urn.py:313 |
+| test550 | `test_550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | tests/test_media_urn.py:325 |
+| test551 | `test_551_is_file_path` | TEST551: is_file_path returns true for scalar file-path, false for array | tests/test_media_urn.py:337 |
+| test552 | `test_552_is_file_path_array` | TEST552: is_file_path_array returns true for list file-path, false for scalar | tests/test_media_urn.py:347 |
+| test553 | `test_553_is_any_file_path` | TEST553: is_any_file_path returns true for both scalar and array file-path | tests/test_media_urn.py:356 |
+| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:365 |
+| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:381 |
+| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:390 |
+| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants | tests/test_media_urn.py:399 |
+| test559 | `test_559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | tests/test_cap_urn.py:666 |
+| test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:690 |
+| test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:711 |
+| test562 | `test_562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | tests/test_cap_urn.py:731 |
+| test563 | `test_563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | tests/test_cap_urn.py:768 |
+| test564 | `test_564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | tests/test_cap_urn.py:786 |
+| test565 | `test_565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | tests/test_cap_urn.py:809 |
+| test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:821 |
+| test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:834 |
+| test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with tags in different order (record;textable vs textable;record) | tests/test_cap_urn.py:750 |
 | test569 | `test_569_cap_matrix_unregister_cap_set` | TEST569: unregister_cap_set removes a host and returns true, false if not found | tests/test_cap_matrix.py:338 |
 | test570 | `test_570_cap_matrix_clear` | TEST570: clear removes all registered sets | tests/test_cap_matrix.py:355 |
 | test571 | `test_571_cap_matrix_get_all_capabilities` | TEST571: get_all_capabilities returns caps from all hosts | tests/test_cap_matrix.py:303 |
@@ -523,24 +511,24 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test625 | `test_625_string_array_validation` | TEST625: string array validation — ["a","b","c"] passes, ["a",1,"c"] fails, "hello" fails | tests/test_media_profile.py:131 |
 | test626 | `test_626_unknown_profile_skips_validation` | TEST626: unknown profile URL returns Ok (skip validation) | tests/test_media_profile.py:141 |
 | test627 | `test_627_is_embedded_profile` | TEST627: is_embedded_profile recognizes standard profiles but not custom | tests/test_media_profile.py:148 |
-| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:508 |
-| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:516 |
+| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:507 |
+| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:515 |
 | test638 | `test_638_no_peer_router_rejects_all` | TEST638: NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
-| test639 | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) defaults to in=media:;out=media: | tests/test_cap_urn.py:846 |
-| test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults out to media: | tests/test_cap_urn.py:854 |
-| test641 | `test_641_wildcard_out_only_defaults_in` | TEST641: cap:out defaults in to media: | tests/test_cap_urn.py:861 |
-| test642 | `test_642_wildcard_in_out_no_values` | TEST642: cap:in;out both become media: | tests/test_cap_urn.py:868 |
-| test643 | `test_643_wildcard_explicit_asterisk` | TEST643: cap:in=*;out=* becomes media: | tests/test_cap_urn.py:875 |
-| test644 | `test_644_wildcard_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | tests/test_cap_urn.py:882 |
-| test645 | `test_645_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | tests/test_cap_urn.py:889 |
-| test646 | `test_646_wildcard_invalid_in_spec` | TEST646: cap:in=foo fails (invalid media URN) | tests/test_cap_urn.py:896 |
-| test647 | `test_647_wildcard_invalid_out_spec` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | tests/test_cap_urn.py:902 |
-| test648 | `test_648_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | tests/test_cap_urn.py:908 |
-| test649 | `test_649_wildcard_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | tests/test_cap_urn.py:917 |
-| test650 | `test_650_wildcard_preserve_other_tags` | TEST650: cap:in;out;op=test preserves other tags | tests/test_cap_urn.py:926 |
-| test651 | `test_651_wildcard_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | tests/test_cap_urn.py:934 |
-| test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:952 |
-| test653 | `test_653_wildcard_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | tests/test_cap_urn.py:965 |
+| test639 | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) defaults to in=media:;out=media: | tests/test_cap_urn.py:859 |
+| test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults out to media: | tests/test_cap_urn.py:867 |
+| test641 | `test_641_wildcard_out_only_defaults_in` | TEST641: cap:out defaults in to media: | tests/test_cap_urn.py:874 |
+| test642 | `test_642_wildcard_in_out_no_values` | TEST642: cap:in;out both become media: | tests/test_cap_urn.py:881 |
+| test643 | `test_643_wildcard_explicit_asterisk` | TEST643: cap:in=*;out=* becomes media: | tests/test_cap_urn.py:888 |
+| test644 | `test_644_wildcard_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | tests/test_cap_urn.py:895 |
+| test645 | `test_645_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | tests/test_cap_urn.py:902 |
+| test646 | `test_646_wildcard_invalid_in_spec` | TEST646: cap:in=foo fails (invalid media URN) | tests/test_cap_urn.py:909 |
+| test647 | `test_647_wildcard_invalid_out_spec` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | tests/test_cap_urn.py:915 |
+| test648 | `test_648_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | tests/test_cap_urn.py:921 |
+| test649 | `test_649_wildcard_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | tests/test_cap_urn.py:930 |
+| test650 | `test_650_wildcard_preserve_other_tags` | TEST650: cap:in;out;op=test preserves other tags | tests/test_cap_urn.py:939 |
+| test651 | `test_651_wildcard_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | tests/test_cap_urn.py:947 |
+| test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:965 |
+| test653 | `test_653_wildcard_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | tests/test_cap_urn.py:978 |
 | test667 | `test_667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | tests/test_cbor_frame.py:538 |
 | test668 | `test_668_resolve_slot_with_populated_byte_slot_values` | TEST668: Resolve slot with populated byte slot_values using step-index key | tests/test_planner_argument_binding.py:40 |
 | test669 | `test_669_resolve_slot_falls_back_to_default` | TEST669: Resolve slot falls back to default when no slot_value or cap_setting | tests/test_planner_argument_binding.py:58 |
@@ -552,22 +540,22 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test681 | `test_681_find_stream_multiple` | TEST681: find_stream with multiple streams returns the correct one | tests/test_cartridge_runtime.py:2096 |
 | test682 | `test_682_require_stream_returns_data` | TEST682: require_stream returns data for matching URN | tests/test_cartridge_runtime.py:2108 |
 | test683 | `test_683_find_stream_invalid_urn_returns_none` | TEST683: find_stream returns None for invalid media URN string (not a parse error) | tests/test_cartridge_runtime.py:2117 |
-| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable exact match | tests/test_cap_urn.py:978 |
-| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable contravariant input | tests/test_cap_urn.py:989 |
-| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable request unconstrained input | tests/test_cap_urn.py:1000 |
-| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable covariant output | tests/test_cap_urn.py:1012 |
-| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable generic output fails | tests/test_cap_urn.py:1024 |
-| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable wildcard requires tag presence | tests/test_cap_urn.py:1036 |
-| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable wildcard with tag present | tests/test_cap_urn.py:1048 |
-| test830 | `test_830_dispatch_provider_extra_tags` | TEST830: is_dispatchable provider extra tags | tests/test_cap_urn.py:1060 |
-| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable cross-backend mismatch | tests/test_cap_urn.py:1072 |
-| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is asymmetric | tests/test_cap_urn.py:1084 |
-| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable symmetric | tests/test_cap_urn.py:1103 |
-| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable unrelated | tests/test_cap_urn.py:1115 |
-| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent identical | tests/test_cap_urn.py:1127 |
-| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent non-equivalent | tests/test_cap_urn.py:1139 |
-| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable op mismatch | tests/test_cap_urn.py:1151 |
-| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable request wildcard output | tests/test_cap_urn.py:1162 |
+| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable exact match | tests/test_cap_urn.py:991 |
+| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable contravariant input | tests/test_cap_urn.py:1002 |
+| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable request unconstrained input | tests/test_cap_urn.py:1013 |
+| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable covariant output | tests/test_cap_urn.py:1025 |
+| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable generic output fails | tests/test_cap_urn.py:1037 |
+| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable wildcard requires tag presence | tests/test_cap_urn.py:1049 |
+| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable wildcard with tag present | tests/test_cap_urn.py:1061 |
+| test830 | `test_830_dispatch_provider_extra_tags` | TEST830: is_dispatchable provider extra tags | tests/test_cap_urn.py:1073 |
+| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable cross-backend mismatch | tests/test_cap_urn.py:1085 |
+| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is asymmetric | tests/test_cap_urn.py:1097 |
+| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable symmetric | tests/test_cap_urn.py:1116 |
+| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable unrelated | tests/test_cap_urn.py:1128 |
+| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent identical | tests/test_cap_urn.py:1140 |
+| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent non-equivalent | tests/test_cap_urn.py:1152 |
+| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable op mismatch | tests/test_cap_urn.py:1164 |
+| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable request wildcard output | tests/test_cap_urn.py:1175 |
 | test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately  This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. | tests/test_cartridge_runtime.py:1956 |
 | test840 | `test_840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse.collect_bytes discards LOG frames | tests/test_cartridge_runtime.py:2007 |
 | test841 | `test_841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse.collect_value discards LOG frames | tests/test_cartridge_runtime.py:2037 |
@@ -579,16 +567,16 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:846 |
 | test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:723 |
 | test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:745 |
-| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:436 |
-| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:443 |
-| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones | tests/test_media_urn.py:453 |
-| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:463 |
-| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:473 |
-| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:480 |
-| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:487 |
-| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:498 |
-| test890 | `test_890_direction_semantic_matching` | TEST890: Direction semantic matching (accepts method) | tests/test_cap_urn.py:1174 |
-| test891 | `test_891_direction_semantic_specificity` | TEST891: Direction semantic specificity | tests/test_cap_urn.py:1215 |
+| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:435 |
+| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:442 |
+| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones | tests/test_media_urn.py:452 |
+| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:462 |
+| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:472 |
+| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:479 |
+| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:486 |
+| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:497 |
+| test890 | `test_890_direction_semantic_matching` | TEST890: Direction semantic matching (accepts method) | tests/test_cap_urn.py:1187 |
+| test891 | `test_891_direction_semantic_specificity` | TEST891: Direction semantic specificity | tests/test_cap_urn.py:1228 |
 | test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:480 |
 | test893 | `test_893_extensions_with_metadata_and_validation` |  | tests/test_media_spec.py:502 |
 | test894 | `test_894_multiple_extensions` |  | tests/test_media_spec.py:535 |
@@ -596,10 +584,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
 | test907 | `test_907_cbor_rejects_stream_end_without_chunk_count` | TEST907: CBOR decode REJECTS STREAM_END frame missing chunk_count field | tests/test_cbor_frame.py:1547 |
-| test920 | `test_920_cap_urn_total_order_basic` | TEST920: CapUrn total ordering — less-than is irreflexive and transitive.  The Rust Ord impl compares (in_urn, out_urn, tags) structurally. Python mirrors this via _cmp_key(). This test checks that URNs with different in/out/tag combinations sort in a deterministic, consistent order and that the ordering is self-consistent (not just accidentally True for one pair). | tests/test_cap_urn.py:1245 |
-| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: CapUrn comparison is consistent with equality.  a == b must imply not (a < b) and not (b < a). A violation here would mean `sorted()` or `bisect` give wrong results for equal caps. | tests/test_cap_urn.py:1276 |
-| test922 | `test_922_cap_urn_list_sortable` | TEST922: CapUrn list is sortable and produces a stable deterministic order.  The point of Ord is to support sorted collections. If `sorted()` raises or gives a non-deterministic result, the planner's path-ranking step would be order-dependent and non-reproducible across runs. | tests/test_cap_urn.py:1291 |
-| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: NotImplemented is returned (not TypeError raised) when comparing against a non-CapUrn, which lets Python fall back to the reflected operation or raise TypeError — the correct Python comparison protocol. | tests/test_cap_urn.py:1311 |
+| test920 | `test_920_cap_urn_total_order_basic` | TEST920: CapUrn total ordering — less-than is irreflexive and transitive.  The Rust Ord impl compares (in_urn, out_urn, tags) structurally. Python mirrors this via _cmp_key(). This test checks that URNs with different in/out/tag combinations sort in a deterministic, consistent order and that the ordering is self-consistent (not just accidentally True for one pair). | tests/test_cap_urn.py:1258 |
+| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: CapUrn comparison is consistent with equality.  a == b must imply not (a < b) and not (b < a). A violation here would mean `sorted()` or `bisect` give wrong results for equal caps. | tests/test_cap_urn.py:1289 |
+| test922 | `test_922_cap_urn_list_sortable` | TEST922: CapUrn list is sortable and produces a stable deterministic order.  The point of Ord is to support sorted collections. If `sorted()` raises or gives a non-deterministic result, the planner's path-ranking step would be order-dependent and non-reproducible across runs. | tests/test_cap_urn.py:1304 |
+| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: NotImplemented is returned (not TypeError raised) when comparing against a non-CapUrn, which lets Python fall back to the reflected operation or raise TypeError — the correct Python comparison protocol. | tests/test_cap_urn.py:1324 |
 | test976 | `test_976_cap_graph_find_best_path` | TEST976: CapGraph::find_best_path returns highest-specificity path over shortest | tests/test_cap_matrix.py:647 |
 | test1105 | `test_1105_two_steps_same_cap_urn_different_slot_values` | TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve. | tests/test_planner_argument_binding.py:90 |
 | test1106 | `test_1106_slot_falls_through_to_cap_settings_shared` | TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value. | tests/test_planner_argument_binding.py:118 |
@@ -630,48 +618,77 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1131 | `test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap` | ============================================================================= TEST1131: resolve_strand with ForEach sets is_loop on next cap edge ============================================================================= | tests/test_machine.py:574 |
 | test1132 | `test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps` | ============================================================================= TEST1132: resolve_strand with only ForEach/Collect steps (no cap) raises error ============================================================================= | tests/test_machine.py:610 |
 | test1133 | `test_1133_machine_from_string_delegates_to_parse_machine` | ============================================================================= TEST1133: Machine.from_string is an alias for parse_machine with registry ============================================================================= | tests/test_machine.py:637 |
-| test1134 | `test_1134_abstraction_error_subclass_hierarchy` | ============================================================================= TEST1134: MachineAbstractionError subclass hierarchy is correct ============================================================================= | tests/test_machine.py:659 |
-| test1135 | `test_1135_strand_node_urn_accessor` | ============================================================================= TEST1135: MachineStrand nodes() returns correct MediaUrns by NodeId ============================================================================= | tests/test_machine.py:676 |
-| test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | ============================================================================= TEST1136: parse_machine undefined alias raises MachineParseError with syntax cause ============================================================================= | tests/test_machine.py:695 |
-| test1137 | `test_1137_two_strand_machine_serializes_to_notation` | ============================================================================= TEST1137: Two-strand machine to_machine_notation produces valid string ============================================================================= | tests/test_machine.py:711 |
-| test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | ============================================================================= TEST1138: Assignment bindings are sorted by cap_arg_media_urn for canonical form ============================================================================= | tests/test_machine.py:736 |
 | | | | |
+| unnumbered | `test_abstraction_error_subclass_hierarchy` | ============================================================================= Mirror-specific coverage: MachineAbstractionError subclass hierarchy is correct ============================================================================= | tests/test_machine.py:659 |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
+| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | ============================================================================= Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form ============================================================================= | tests/test_machine.py:736 |
 | unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:329 |
 | unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:294 |
 | unnumbered | `test_cap_caller_validate_arguments_success` |  | tests/test_caller.py:277 |
 | unnumbered | `test_cap_caller_validate_arguments_unknown` |  | tests/test_caller.py:311 |
+| unnumbered | `test_chunk_corrupted_payload_rejected` | Mirror-specific coverage: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum) | tests/test_cbor_frame.py:1035 |
+| unnumbered | `test_chunking_data_integrity_3x` | Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:658 |
+| unnumbered | `test_concatenated_vs_final_payload_divergence` | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk | tests/test_cartridge_host_runtime.py:265 |
+| unnumbered | `test_exact_max_chunk_stream_chunked` | Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END | tests/test_cbor_io.py:591 |
+| unnumbered | `test_extract_effective_payload_invalid_cap_urn` | Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error | tests/test_cartridge_runtime.py:362 |
+| unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:57 |
+| unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:71 |
+| unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:58 |
+| unnumbered | `test_max_chunk_plus_one_splits_into_two_chunks` | Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END | tests/test_cbor_io.py:622 |
 | unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
 | unnumbered | `test_normalize_urn_with_trailing_semicolon` |  | tests/test_registry.py:300 |
 | unnumbered | `test_output_validation_with_details` | TEST: Output validation with error details | tests/test_schema_validation.py:335 |
+| unnumbered | `test_parse_machine_undefined_alias_raises_syntax_error` | ============================================================================= Mirror-specific coverage: parse_machine undefined alias raises MachineParseError with syntax cause ============================================================================= | tests/test_machine.py:695 |
 | unnumbered | `test_registry_add_caps_to_cache` |  | tests/test_registry.py:257 |
 | unnumbered | `test_registry_cache_key_consistency` |  | tests/test_registry.py:274 |
 | unnumbered | `test_registry_config_builder_pattern` |  | tests/test_registry.py:290 |
+| unnumbered | `test_seq_assigner_same_rid_different_xids_independent` | Mirror-specific coverage: SeqAssigner same RID different XIDs are independent | tests/test_cbor_frame.py:687 |
+| unnumbered | `test_strand_node_urn_accessor` | ============================================================================= Mirror-specific coverage: MachineStrand nodes() returns correct MediaUrns by NodeId ============================================================================= | tests/test_machine.py:676 |
+| unnumbered | `test_two_strand_machine_serializes_to_notation` | ============================================================================= Mirror-specific coverage: Two-strand machine to_machine_notation produces valid string ============================================================================= | tests/test_machine.py:711 |
 | unnumbered | `test_type_constraint_validation` | TEST: Schema validation with type constraints | tests/test_schema_validation.py:251 |
 | unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
+| unnumbered | `test_write_frame_writes_length_prefixed` | Mirror-specific coverage: Test write_frame writes length-prefixed frame | tests/test_cbor_io.py:80 |
+| unnumbered | `test_write_stream_chunked_reassembly` | Mirror-specific coverage: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk, CHUNK frames + END frame, and reading them back reassembles the full original data | tests/test_cbor_io.py:549 |
 ---
 
 ## Unnumbered Tests
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
+- `test_abstraction_error_subclass_hierarchy` — tests/test_machine.py:659
 - `test_array_schema_validation` — tests/test_schema_validation.py:207
+- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:736
 - `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:329
 - `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:294
 - `test_cap_caller_validate_arguments_success` — tests/test_caller.py:277
 - `test_cap_caller_validate_arguments_unknown` — tests/test_caller.py:311
+- `test_chunk_corrupted_payload_rejected` — tests/test_cbor_frame.py:1035
+- `test_chunking_data_integrity_3x` — tests/test_cbor_io.py:658
+- `test_concatenated_vs_final_payload_divergence` — tests/test_cartridge_host_runtime.py:265
+- `test_exact_max_chunk_stream_chunked` — tests/test_cbor_io.py:591
+- `test_extract_effective_payload_invalid_cap_urn` — tests/test_cartridge_runtime.py:362
+- `test_input_validation_optional_arg` — tests/test_validation.py:57
+- `test_input_validation_too_many_args` — tests/test_validation.py:71
+- `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:58
+- `test_max_chunk_plus_one_splits_into_two_chunks` — tests/test_cbor_io.py:622
 - `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
 - `test_normalize_urn_with_trailing_semicolon` — tests/test_registry.py:300
 - `test_output_validation_with_details` — tests/test_schema_validation.py:335
+- `test_parse_machine_undefined_alias_raises_syntax_error` — tests/test_machine.py:695
 - `test_registry_add_caps_to_cache` — tests/test_registry.py:257
 - `test_registry_cache_key_consistency` — tests/test_registry.py:274
 - `test_registry_config_builder_pattern` — tests/test_registry.py:290
+- `test_seq_assigner_same_rid_different_xids_independent` — tests/test_cbor_frame.py:687
+- `test_strand_node_urn_accessor` — tests/test_machine.py:676
+- `test_two_strand_machine_serializes_to_notation` — tests/test_machine.py:711
 - `test_type_constraint_validation` — tests/test_schema_validation.py:251
 - `test_validate_multiple_arguments` — tests/test_schema_validation.py:286
+- `test_write_frame_writes_length_prefixed` — tests/test_cbor_io.py:80
+- `test_write_stream_chunked_reassembly` — tests/test_cbor_io.py:549
 
 ---
 
 *Generated from CapDag-Py source tree*
 *Total tests: 636*
-*Total numbered tests: 623*
-*Total unnumbered tests: 13*
+*Total numbered tests: 606*
+*Total unnumbered tests: 30*

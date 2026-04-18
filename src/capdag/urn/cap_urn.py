@@ -41,19 +41,22 @@ class CapUrn:
         'in' and 'out' keys in tags dict are filtered out.
         """
         # Canonicalize specs through MediaUrn parsing for consistent tag ordering.
-        # Silently skip if not parseable — validation is the caller's responsibility
-        # (from_string validates before reaching here; direct callers pass known-good specs).
-        # Special values like "*" are not media URNs and should pass through unchanged.
-        if in_urn and in_urn != "media:" and in_urn.startswith("media:"):
+        # Invalid direction specs are a hard error; silent fallthrough would hide
+        # broken CapUrn construction and diverge from the reference regime.
+        if in_urn and in_urn not in ("media:", "*"):
+            if not in_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}'")
             try:
                 in_urn = str(MediaUrn.from_string(in_urn))
-            except Exception:
-                pass
-        if out_urn and out_urn != "media:" and out_urn.startswith("media:"):
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}': {e}") from e
+        if out_urn and out_urn not in ("media:", "*"):
+            if not out_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}'")
             try:
                 out_urn = str(MediaUrn.from_string(out_urn))
-            except Exception:
-                pass
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
         # Filter out 'in' and 'out' from tags, normalize remaining keys
         self.in_urn = in_urn
         self.out_urn = out_urn
@@ -259,11 +262,29 @@ class CapUrn:
 
     def with_in_spec(self, in_urn: str) -> "CapUrn":
         """Create a new cap URN with a different input spec"""
-        return CapUrn(in_urn, self.out_urn, self.tags)
+        updated = CapUrn(self.in_urn, self.out_urn, self.tags)
+        if in_urn not in ("media:", "*"):
+            if not in_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}'")
+            try:
+                MediaUrn.from_string(in_urn)
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}': {e}") from e
+        updated.in_urn = in_urn
+        return updated
 
     def with_out_spec(self, out_urn: str) -> "CapUrn":
         """Create a new cap URN with a different output spec"""
-        return CapUrn(self.in_urn, out_urn, self.tags)
+        updated = CapUrn(self.in_urn, self.out_urn, self.tags)
+        if out_urn not in ("media:", "*"):
+            if not out_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}'")
+            try:
+                MediaUrn.from_string(out_urn)
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
+        updated.out_urn = out_urn
+        return updated
 
     def without_tag(self, key: str) -> "CapUrn":
         """Remove a tag

@@ -358,8 +358,8 @@ def test_264_extract_effective_payload_cbor_not_array():
     assert "No stream found matching" in str(exc_info.value)
 
 
-# TEST265: Test extract_effective_payload with invalid cap URN returns CapUrn error
-def test_265_extract_effective_payload_invalid_cap_urn():
+# Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error
+def test_extract_effective_payload_invalid_cap_urn():
     streams = []
 
     with pytest.raises(CapUrnError):

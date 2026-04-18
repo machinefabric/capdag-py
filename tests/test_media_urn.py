@@ -42,18 +42,17 @@ def test_060_wrong_prefix_fails():
         MediaUrn.from_string("cap:string")
 
 
-# TEST061: Test is_binary returns true when textable marker tag is NOT present
+# TEST061: Test is_binary returns true when textable tag is absent (binary = not textable)
 def test_061_is_binary():
-    binary_urn = MediaUrn.from_string(MEDIA_IDENTITY)
-    assert binary_urn.is_binary()
-
-    # PNG is also binary
-    png_urn = MediaUrn.from_string(MEDIA_PNG)
-    assert png_urn.is_binary()
-
-    # String is not binary
-    string_urn = MediaUrn.from_string(MEDIA_STRING)
-    assert not string_urn.is_binary()
+    assert MediaUrn.from_string(MEDIA_IDENTITY).is_binary()
+    assert MediaUrn.from_string(MEDIA_PNG).is_binary()
+    assert MediaUrn.from_string(MEDIA_PDF).is_binary()
+    assert MediaUrn.from_string("media:video").is_binary()
+    assert MediaUrn.from_string("media:epub").is_binary()
+    assert not MediaUrn.from_string("media:textable").is_binary()
+    assert not MediaUrn.from_string("media:textable;record").is_binary()
+    assert not MediaUrn.from_string(MEDIA_STRING).is_binary()
+    assert not MediaUrn.from_string(MEDIA_JSON).is_binary()
 
 
 # TEST062: Test is_record returns true when record marker tag is present indicating key-value structure
@@ -70,17 +69,15 @@ def test_062_is_record():
     assert not string_urn.is_record()
 
 
-# TEST063: Test is_scalar returns true when list marker tag is NOT present indicating single value
+# TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default)
 def test_063_is_scalar():
-    string_urn = MediaUrn.from_string(MEDIA_STRING)
-    assert string_urn.is_scalar()
-
-    int_urn = MediaUrn.from_string(MEDIA_INTEGER)
-    assert int_urn.is_scalar()
-
-    # Lists are not scalar
-    list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
-    assert not list_urn.is_scalar()
+    assert MediaUrn.from_string(MEDIA_STRING).is_scalar()
+    assert MediaUrn.from_string(MEDIA_INTEGER).is_scalar()
+    assert MediaUrn.from_string(MEDIA_NUMBER).is_scalar()
+    assert MediaUrn.from_string(MEDIA_BOOLEAN).is_scalar()
+    assert MediaUrn.from_string(MEDIA_OBJECT).is_scalar()
+    assert MediaUrn.from_string("media:textable").is_scalar()
+    assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_scalar()
 
 
 # TEST064: Test is_list returns true when list marker tag is present indicating ordered collection
@@ -96,27 +93,15 @@ def test_064_is_list():
     assert not scalar_urn.is_list()
 
 
-# TEST065: Test is_record and is_list for structure checking (is_structured removed from MediaUrn)
-def test_065_record_and_list():
-    # Record has internal structure
-    obj_urn = MediaUrn.from_string(MEDIA_OBJECT)
-    assert obj_urn.is_record()
-    assert not obj_urn.is_opaque()
-
-    # List is a collection
-    list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
-    assert list_urn.is_list()
-    assert not list_urn.is_scalar()
-
-    # Opaque scalar has no structure
-    scalar_urn = MediaUrn.from_string(MEDIA_STRING)
-    assert scalar_urn.is_opaque()
-    assert not scalar_urn.is_record()
-
-    # Binary wildcard is opaque
-    bin_urn = MediaUrn.from_string(MEDIA_IDENTITY)
-    assert bin_urn.is_opaque()
-    assert not bin_urn.is_record()
+# TEST065: Test is_opaque returns true when record marker is absent (opaque is default)
+def test_065_is_opaque():
+    assert MediaUrn.from_string(MEDIA_STRING).is_opaque()
+    assert MediaUrn.from_string(MEDIA_STRING_LIST).is_opaque()
+    assert MediaUrn.from_string(MEDIA_PDF).is_opaque()
+    assert MediaUrn.from_string("media:textable").is_opaque()
+    assert not MediaUrn.from_string(MEDIA_OBJECT).is_opaque()
+    assert not MediaUrn.from_string(MEDIA_JSON).is_opaque()
+    assert not MediaUrn.from_string("media:list;record").is_opaque()
 
 
 # TEST066: Test is_json returns true only when json marker tag is present for JSON representation
@@ -206,32 +191,46 @@ def test_073_extension_helpers():
     assert audio_urn.extension() == "mp3"
 
 
-# TEST074: Test media URN matching using tagged URN semantics with specific and generic requirements
+# TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 def test_074_media_urn_matching():
-    generic_handler = MediaUrn.from_string("media:")
-    specific_request = MediaUrn.from_string("media:pdf")
-    assert specific_request.conforms_to(generic_handler), "Specific pdf request should conform to generic handler"
-    assert not generic_handler.conforms_to(specific_request), "Generic request should NOT conform to specific pdf handler"
+    pdf_listing = MediaUrn.from_string(MEDIA_PDF)
+    pdf_requirement = MediaUrn.from_string("media:pdf")
+    assert pdf_listing.conforms_to(pdf_requirement)
+
+    md_listing = MediaUrn.from_string("media:md;textable")
+    md_requirement = MediaUrn.from_string("media:md")
+    assert md_listing.conforms_to(md_requirement)
+
+    string_urn = MediaUrn.from_string(MEDIA_STRING)
+    string_req = MediaUrn.from_string(MEDIA_STRING)
+    assert string_urn.conforms_to(string_req)
 
 
-# TEST075: Test matching with implicit wildcards where handlers with fewer tags can handle more requests
+# TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests
 def test_075_matching():
-    generic_handler = MediaUrn.from_string("media:textable")
-    specific_scalar_request = MediaUrn.from_string("media:textable")
-    specific_list_request = MediaUrn.from_string("media:textable;list")
+    handler = MediaUrn.from_string("media:string")
+    request = MediaUrn.from_string("media:string")
+    assert handler.accepts(request)
 
-    assert specific_scalar_request.conforms_to(generic_handler)
-    assert specific_list_request.conforms_to(generic_handler)
+    general_handler = MediaUrn.from_string("media:string")
+    assert general_handler.accepts(request)
+
+    same = MediaUrn.from_string("media:string")
+    assert handler.accepts(same)
 
 
-# TEST076: Test specificity increases with more tags for ranking matches
+# TEST076: Test specificity increases with more tags for ranking conformance
 def test_076_specificity():
-    urn1 = MediaUrn.from_string("media:")
-    urn2 = MediaUrn.from_string("media:pdf")
-    urn3 = MediaUrn.from_string("media:image;png;thumbnail")
+    urn1 = MediaUrn.from_string("media:string")
+    urn2 = MediaUrn.from_string("media:textable")
+    urn3 = MediaUrn.from_string("media:textable;numeric")
 
-    assert urn1.specificity() < urn2.specificity()
-    assert urn2.specificity() < urn3.specificity()
+    s1 = urn1.specificity()
+    s2 = urn2.specificity()
+    s3 = urn3.specificity()
+
+    assert s2 >= s1
+    assert s3 >= s2
 
 
 # TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly

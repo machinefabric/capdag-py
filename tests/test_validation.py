@@ -22,7 +22,7 @@ def _test_urn(tags: str) -> str:
     return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
 
 
-# TEST051: Input validation succeeds with valid positional argument
+# TEST051: Test input validation succeeds with valid positional argument
 def test_051_input_validation_success():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
@@ -36,7 +36,7 @@ def test_051_input_validation_success():
     validate_positional_arguments(cap, input_args)
 
 
-# TEST052: Input validation fails with MissingRequiredArgument when required arg missing
+# TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
 def test_052_input_validation_missing_required():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
@@ -53,8 +53,8 @@ def test_052_input_validation_missing_required():
     assert exc_info.value.cap_urn == cap.urn_string()
 
 
-# TEST053: Validation accepts optional argument when not provided
-def test_053_input_validation_optional_arg():
+# Extra Python-specific validation coverage: optional argument omitted
+def test_input_validation_optional_arg():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -67,8 +67,8 @@ def test_053_input_validation_optional_arg():
     validate_positional_arguments(cap, input_args)
 
 
-# TEST054: Validation rejects too many arguments
-def test_054_input_validation_too_many_args():
+# Extra Python-specific validation coverage: too many positional arguments
+def test_input_validation_too_many_args():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 

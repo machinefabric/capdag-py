@@ -76,8 +76,8 @@ def test_208_decode_frame_fails_on_non_map():
         decode_frame(data)
 
 
-# TEST209: Test write_frame writes length-prefixed frame
-def test_209_write_frame_writes_length_prefixed():
+# Mirror-specific coverage: Test write_frame writes length-prefixed frame
+def test_write_frame_writes_length_prefixed():
     output = io.BytesIO()
     frame = Frame.hello(1024, 512)
     limits = Limits(10000, 5000)
@@ -544,9 +544,9 @@ def test_234_handshake_with_very_small_limits():
     assert received.hello_max_frame() == 256
 
 
-# TEST313: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk,
+# Mirror-specific coverage: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk,
 # CHUNK frames + END frame, and reading them back reassembles the full original data
-def test_313_write_stream_chunked_reassembly():
+def test_write_stream_chunked_reassembly():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -587,8 +587,8 @@ def test_313_write_stream_chunked_reassembly():
     assert reassembled == data, "concatenated chunks must match original data"
 
 
-# TEST314: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END
-def test_314_exact_max_chunk_stream_chunked():
+# Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END
+def test_exact_max_chunk_stream_chunked():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -618,8 +618,8 @@ def test_314_exact_max_chunk_stream_chunked():
     assert frames[3].frame_type == FrameType.END
 
 
-# TEST315: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END
-def test_315_max_chunk_plus_one_splits_into_two_chunks():
+# Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END
+def test_max_chunk_plus_one_splits_into_two_chunks():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -654,8 +654,8 @@ def test_315_max_chunk_plus_one_splits_into_two_chunks():
     assert reassembled == data
 
 
-# TEST317: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
-def test_317_chunking_data_integrity_3x():
+# Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
+def test_chunking_data_integrity_3x():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 

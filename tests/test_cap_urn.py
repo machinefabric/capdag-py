@@ -285,16 +285,22 @@ def test_018_quoted_values_case_sensitive():
     assert not cap1.accepts(cap2)
 
 
-# TEST019: Test that missing tags are treated as wildcards (cap without tag matches any value for that tag)
-def test_019_missing_tags_as_wildcards():
-    # Cap without ext tag can handle request with any ext value
-    cap = CapUrn.from_string(_test_urn("op=generate"))  # No ext tag
-    request1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    request2 = CapUrn.from_string(_test_urn("op=generate;ext=docx"))
+# TEST019: Missing tag in instance causes rejection — pattern's tags are constraints
+def test_019_missing_tag_handling():
+    cap = CapUrn.from_string(_test_urn("op=generate"))
+    request1 = CapUrn.from_string(_test_urn("ext=pdf"))
 
-    # Cap can accept both requests (missing tag is wildcard)
-    assert cap.accepts(request1)
-    assert cap.accepts(request2)
+    # cap(op) as pattern: instance(ext) missing op -> reject
+    assert not cap.accepts(request1)
+    # request(ext) as pattern: instance(cap) missing ext -> reject
+    assert not request1.accepts(cap)
+
+    # Routing: request(op) accepts cap(op,ext) — instance has op -> match
+    cap2 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    request2 = CapUrn.from_string(_test_urn("op=generate"))
+    assert request2.accepts(cap2)
+    # Reverse: cap(op,ext) as pattern rejects request missing ext
+    assert not cap2.accepts(request2)
 
 
 # TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
@@ -343,7 +349,7 @@ def test_022_builder_requires_direction_specs():
 
 
 # TEST023: Test builder lowercases keys but preserves value case
-def test_023_builder_key_normalization():
+def test_023_builder_preserves_case():
     cap = (
         CapUrnBuilder()
         .in_spec(MEDIA_VOID)
@@ -358,25 +364,32 @@ def test_023_builder_key_normalization():
     assert cap.get_tag("op") == "Generate"
 
 
-# TEST024: Test directional accepts (different op values, wildcard, direction mismatch)
+# TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
 def test_024_directional_accepts():
-    # Different op values: neither accepts the other
-    cap1 = CapUrn.from_string(_test_urn("op=generate"))
-    cap2 = CapUrn.from_string(_test_urn("op=convert"))
+    cap1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap2 = CapUrn.from_string(_test_urn("op=generate;format=*"))
+    cap3 = CapUrn.from_string(_test_urn("type=image;op=extract"))
+
+    # cap1(op,ext) as pattern: cap2 missing ext -> reject
     assert not cap1.accepts(cap2)
+    # cap2(op,format) as pattern: cap1 missing format -> reject
     assert not cap2.accepts(cap1)
+    # op mismatch: neither direction accepts
+    assert not cap1.accepts(cap3)
+    assert not cap3.accepts(cap1)
 
-    # Wildcard op accepts specific op
-    cap_wildcard = CapUrn.from_string(_test_urn("op=*"))
-    assert cap_wildcard.accepts(cap1)
-    # cap1 also accepts wildcard (missing non-direction tag = implicit wildcard for cap matching)
-    assert cap1.accepts(cap_wildcard)
+    # Routing: general request(op) accepts specific cap(op,ext) — instance has op
+    cap4 = CapUrn.from_string(_test_urn("op=generate"))
+    assert cap4.accepts(cap1)
+    # Reverse: specific cap(op,ext) rejects general request missing ext
+    assert not cap1.accepts(cap4)
 
-    # Different direction specs: neither accepts the other
-    cap3 = CapUrn.from_string(f'cap:in="media:";out="media:record;textable";op=test')
-    cap4 = CapUrn.from_string(f'cap:in="media:textable";out="media:integer;textable;numeric";op=test')
-    assert not cap3.accepts(cap4)
-    assert not cap4.accepts(cap3)
+    # Different direction specs: cap1 has in=media:void (specific), cap5 has in=media: (wildcard)
+    cap5 = CapUrn.from_string(f'cap:in="media:";op=generate;out="{MEDIA_OBJECT}"')
+    # cap1 (in=media:void) cannot accept cap5 (in=media:) - specific doesn't accept wildcard
+    assert not cap1.accepts(cap5)
+    # cap5 (in=media:) CAN accept cap1 (in=media:void) - wildcard accepts specific
+    assert cap5.accepts(cap1)
 
 
 # TEST025: Test find_best_match returns most specific matching cap
@@ -430,7 +443,7 @@ def test_027_with_wildcard_tag():
     assert cap4.out_spec() == "*"
 
 
-# TEST028: Test bare "cap:" defaults to media: for both directions (identity morphism)
+# TEST028: Test empty cap URN defaults to media: wildcard
 def test_028_empty_cap_urn_defaults():
     cap = CapUrn.from_string("cap:")
     assert cap.in_spec() == "media:"
@@ -690,8 +703,8 @@ def test_560_with_in_out_spec():
 
     # Chain both
     changed_both = cap.with_in_spec("media:pdf").with_out_spec("media:txt;textable")
-    assert changed_both.in_spec() == "media:pdf" or changed_both.in_spec() == "media:pdf"
-    assert changed_both.out_spec() == "media:txt;textable" or changed_both.out_spec() == "media:textable;txt"
+    assert changed_both.in_spec() == "media:pdf"
+    assert changed_both.out_spec() == "media:txt;textable"
 
 
 # TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
