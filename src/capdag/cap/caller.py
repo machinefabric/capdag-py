@@ -3,9 +3,13 @@
 This module provides data structures and execution infrastructure for calling capabilities.
 """
 
+import cbor2
+
 from enum import Enum
 from typing import Optional, List, Dict, Tuple, Union
 from dataclasses import dataclass
+
+from capdag.bifaci.frame import Frame, MessageId, compute_checksum
 
 
 @dataclass
@@ -89,6 +93,46 @@ class CapArgumentValue:
     def clone(self) -> "CapArgumentValue":
         """Create an independent copy"""
         return CapArgumentValue(self.media_urn, bytes(self.value))
+
+    @staticmethod
+    def build_request_frames(
+        request_id: MessageId,
+        cap_urn: str,
+        arguments: List["CapArgumentValue"],
+        max_chunk: int,
+    ) -> List[Frame]:
+        """Build protocol-v2 request frames preserving each argument media URN."""
+        import uuid as _uuid
+
+        frames: List[Frame] = [Frame.req(request_id, cap_urn, b"", "application/cbor")]
+
+        for arg in arguments:
+            stream_id = str(_uuid.uuid4())
+            frames.append(Frame.stream_start(request_id, stream_id, arg.media_urn))
+
+            offset = 0
+            chunk_index = 0
+            while offset < len(arg.value):
+                chunk_size = min(len(arg.value) - offset, max_chunk)
+                chunk_bytes = arg.value[offset:offset + chunk_size]
+                cbor_payload = cbor2.dumps(chunk_bytes)
+                frames.append(
+                    Frame.chunk(
+                        request_id,
+                        stream_id,
+                        0,
+                        cbor_payload,
+                        chunk_index,
+                        compute_checksum(cbor_payload),
+                    )
+                )
+                offset += chunk_size
+                chunk_index += 1
+
+            frames.append(Frame.stream_end(request_id, stream_id, chunk_index))
+
+        frames.append(Frame.end(request_id, None))
+        return frames
 
 
 class CapResultKind(Enum):

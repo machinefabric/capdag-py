@@ -46,7 +46,6 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-# TEST310: Test llm_generate_text_urn uses llm and ml-model tags
 def test_310_llm_generate_text_urn_tags():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn.get_tag("llm") is not None, "LLM generate text URN must have 'llm' tag"

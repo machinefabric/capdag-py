@@ -3,6 +3,7 @@
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
+import cbor2
 import pytest
 from capdag.cap.caller import (
     StdinSourceData,
@@ -11,6 +12,8 @@ from capdag.cap.caller import (
     CapCaller,
     CapSet,
 )
+from capdag.bifaci.frame import FrameType, MessageId
+from capdag.bifaci.cartridge_runtime import find_stream
 from capdag import Cap, CapUrn, CapArg
 from capdag.cap.definition import PositionSource
 from capdag.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
@@ -252,6 +255,72 @@ def test_283_cap_argument_value_large_binary():
     # Verify all bytes are preserved
     for i in range(10240):
         assert arg.value[i] == large_data[i]
+
+
+def _extract_streams_from_request_frames(frames):
+    streams = []
+    active = {}
+
+    for frame in frames:
+        if frame.frame_type == FrameType.STREAM_START:
+            stream_id = frame.stream_id or ""
+            media_urn = frame.media_urn or ""
+            index = len(streams)
+            streams.append((media_urn, bytearray()))
+            active[stream_id] = index
+        elif frame.frame_type == FrameType.CHUNK:
+            stream_id = frame.stream_id or ""
+            if stream_id not in active:
+                continue
+            payload = frame.payload or b""
+            value = cbor2.loads(payload)
+            if isinstance(value, bytes):
+                streams[active[stream_id]][1].extend(value)
+            elif isinstance(value, str):
+                streams[active[stream_id]][1].extend(value.encode("utf-8"))
+            else:
+                raise AssertionError(f"Unexpected CBOR value type: {type(value).__name__}")
+
+    return [(media_urn, bytes(data)) for media_urn, data in streams]
+
+
+# TEST675: build_request_frames with full media URN preserves it in STREAM_START frame
+def test_675_build_request_frames_preserves_media_urn_in_stream_start():
+    full_urn = "media:llm-generation-request;json;record"
+    arg = CapArgumentValue(full_urn, b'{"prompt":"test"}')
+    request_id = MessageId.new_uuid()
+
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    stream_start = next(frame for frame in frames if frame.frame_type == FrameType.STREAM_START)
+
+    assert stream_start.media_urn == full_urn
+
+
+# TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds
+def test_676_build_request_frames_round_trip_find_stream_succeeds():
+    full_urn = "media:llm-generation-request;json;record"
+    payload = b'{"prompt":"hello","model_spec":"test"}'
+    arg = CapArgumentValue(full_urn, payload)
+    request_id = MessageId.new_uuid()
+
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    streams = _extract_streams_from_request_frames(frames)
+
+    found = find_stream(streams, full_urn)
+    assert found == payload
+
+
+# TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:llm-generation-request;json;record" (full). is_equivalent requires exact tag set match, so base != full.
+def test_677_base_urn_does_not_match_full_urn_in_find_stream():
+    base_urn = "media:llm-generation-request"
+    full_urn = "media:llm-generation-request;json;record"
+    arg = CapArgumentValue(base_urn, b"{}")
+    request_id = MessageId.new_uuid()
+
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    streams = _extract_streams_from_request_frames(frames)
+
+    assert find_stream(streams, full_urn) is None
 
 
 # ============================================================================

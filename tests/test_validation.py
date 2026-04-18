@@ -6,11 +6,15 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 from capdag import CapUrn, Cap, CapArg
 from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
+from capdag.media.spec import MediaSpecDef
 from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,
+    validate_no_inline_media_spec_redefinition,
     MissingRequiredArgumentError,
+    InvalidArgumentTypeError,
     InvalidCapSchemaError,
+    InlineMediaSpecRedefinesRegistryError,
     TooManyArgumentsError,
     RESERVED_CLI_FLAGS,
 )
@@ -82,6 +86,83 @@ def test_input_validation_too_many_args():
 
     assert exc_info.value.max_expected == 1
     assert exc_info.value.actual_count == 3
+
+
+class _StubMediaRegistry:
+    def __init__(self, *media_urns):
+        self.cached_specs = {urn: object() for urn in media_urns}
+        self.extension_index = {}
+
+
+# TEST053: Test input validation fails with InvalidArgumentType when wrong type provided
+def test_053_input_validation_wrong_type():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.set_media_specs(
+        [
+            MediaSpecDef(
+                urn=MEDIA_INTEGER,
+                media_type="text/plain",
+                title="Integer",
+                profile_uri="https://capdag.com/schema/integer",
+                schema={"type": "integer"},
+                description="Integer value",
+            )
+        ]
+    )
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(0)]))
+
+    with pytest.raises(InvalidArgumentTypeError):
+        validate_positional_arguments(cap, ["not_a_number"])
+
+
+# TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
+def test_054_xv5_inline_spec_redefinition_detected():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.set_media_specs(
+        [
+            MediaSpecDef(
+                urn=MEDIA_STRING,
+                media_type="text/plain",
+                title="My Custom String",
+                profile_uri="https://example.com/my-string",
+                description="Trying to redefine string",
+            )
+        ]
+    )
+
+    with pytest.raises(InlineMediaSpecRedefinesRegistryError) as exc_info:
+        validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
+
+    assert exc_info.value.media_urn == MEDIA_STRING
+
+
+# TEST055: XV5 - Test new inline media spec (not in registry) is allowed
+def test_055_xv5_new_inline_spec_allowed():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.set_media_specs(
+        [
+            MediaSpecDef(
+                urn="media:my-unique-custom-type-xyz123",
+                media_type="application/json",
+                title="My Custom Output",
+                profile_uri="https://example.com/my-custom-output",
+                schema={"type": "object"},
+                description="A custom output type",
+            )
+        ]
+    )
+
+    validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
+
+
+# TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
+def test_056_xv5_empty_media_specs_allowed():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
 
 
 # TEST578: RULE1 - duplicate media_urns rejected

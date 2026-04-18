@@ -1250,11 +1250,6 @@ def test_891_direction_semantic_specificity():
 
 
 # TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node
-#
-# The Rust Ord impl compares (in_urn, out_urn, tags) structurally. Python
-# mirrors this via _cmp_key(). This test checks that URNs with different
-# in/out/tag combinations sort in a deterministic, consistent order and that
-# the ordering is self-consistent (not just accidentally True for one pair).
 def test_920_cap_urn_total_order_basic():
     a = CapUrn.from_string('cap:in="media:";op=a;out="media:"')
     b = CapUrn.from_string('cap:in="media:";op=b;out="media:"')
@@ -1283,9 +1278,6 @@ def test_920_cap_urn_total_order_basic():
 
 
 # TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
-#
-# a == b must imply not (a < b) and not (b < a). A violation here would mean
-# `sorted()` or `bisect` give wrong results for equal caps.
 def test_921_cap_urn_order_consistent_with_equality():
     a = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
     b = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
@@ -1297,10 +1289,6 @@ def test_921_cap_urn_order_consistent_with_equality():
 
 
 # TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly
-#
-# The point of Ord is to support sorted collections. If `sorted()` raises or
-# gives a non-deterministic result, the planner's path-ranking step would be
-# order-dependent and non-reproducible across runs.
 def test_922_cap_urn_list_sortable():
     urns = [
         CapUrn.from_string('cap:in="media:pdf";op=z;out="media:"'),
@@ -1319,8 +1307,6 @@ def test_922_cap_urn_list_sortable():
 
 
 # TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
-# against a non-CapUrn, which lets Python fall back to the reflected operation
-# or raise TypeError — the correct Python comparison protocol.
 def test_923_cap_urn_order_returns_not_implemented_for_non_cap():
     a = CapUrn.from_string('cap:in="media:";op=x;out="media:"')
     result = a.__lt__("not a cap urn")

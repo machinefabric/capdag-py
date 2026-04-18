@@ -58,7 +58,7 @@ def test_117_register_and_find_cap_set():
         registry.find_cap_sets(make_test_urn("op=different"))
 
 
-# TEST118: Test selecting best cap set based on specificity ranking  With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints)
+# TEST118: Test selecting best cap set based on specificity ranking With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints)
 def test_118_best_cap_set_selection():
     registry = CapMatrix()
 

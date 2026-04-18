@@ -20,8 +20,50 @@ from capdag.bifaci.relay_switch import (
 def send_notify(writer: FrameWriter, manifest_json: dict, limits: Limits):
     """Helper to send RelayNotify"""
     manifest_bytes = json.dumps(manifest_json).encode("utf-8")
-    notify = Frame.relay_notify(manifest_bytes, limits.max_frame, limits.max_chunk)
+    notify = Frame.relay_notify(
+        manifest_bytes,
+        limits.max_frame,
+        limits.max_chunk,
+        limits.max_reorder_buffer,
+    )
     writer.write(notify)
+
+
+def make_manifest(*caps: str) -> dict:
+    return {"caps": ["cap:", *caps]}
+
+
+def complete_identity_verification(reader: FrameReader, writer: FrameWriter) -> None:
+    req = reader.read()
+    assert req is not None
+    assert req.frame_type == FrameType.REQ
+    assert req.cap == "cap:"
+
+    stream_start = reader.read()
+    chunk = reader.read()
+    stream_end = reader.read()
+    end = reader.read()
+
+    assert stream_start is not None and stream_start.frame_type == FrameType.STREAM_START
+    assert chunk is not None and chunk.frame_type == FrameType.CHUNK
+    assert stream_end is not None and stream_end.frame_type == FrameType.STREAM_END
+    assert end is not None and end.frame_type == FrameType.END
+
+    response_stream_id = stream_start.stream_id or "identity-verify"
+    payload = chunk.payload or b""
+    writer.write(Frame.stream_start(req.id, response_stream_id, "media:"))
+    writer.write(
+        Frame.chunk(
+            req.id,
+            response_stream_id,
+            0,
+            payload,
+            0,
+            compute_checksum(payload),
+        )
+    )
+    writer.write(Frame.stream_end(req.id, response_stream_id, 1))
+    writer.write(Frame.end(req.id, None))
 
 
 # TEST426: Single master REQ/response routing
@@ -38,9 +80,10 @@ def test_426_single_master_req_response():
         reader = FrameReader(slave_read.makefile('rb'))
         writer = FrameWriter(slave_write.makefile('wb'))
 
-        manifest = {"capabilities": ['cap:in=media:;out=media:']}
+        manifest = make_manifest('cap:in=media:;out=media:')
         send_notify(writer, manifest, Limits.default())
         done.set()
+        complete_identity_verification(reader, writer)
 
         # Read one REQ and send response
         frame = reader.read()
@@ -90,9 +133,10 @@ def test_427_multi_master_cap_routing():
         reader = FrameReader(slave_read1.makefile('rb'))
         writer = FrameWriter(slave_write1.makefile('wb'))
 
-        manifest = {"capabilities": ['cap:in=media:;out=media:']}
+        manifest = make_manifest('cap:in=media:;out=media:')
         send_notify(writer, manifest, Limits.default())
         done1.set()
+        complete_identity_verification(reader, writer)
 
         while True:
             frame = reader.read()
@@ -107,9 +151,10 @@ def test_427_multi_master_cap_routing():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
 
-        manifest = {"capabilities": ['cap:in="media:void";op=double;out="media:void"']}
+        manifest = make_manifest('cap:in="media:void";op=double;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done2.set()
+        complete_identity_verification(reader, writer)
 
         while True:
             frame = reader.read()
@@ -164,11 +209,13 @@ def test_428_unknown_cap_returns_error():
     done = threading.Event()
 
     def slave_thread():
+        reader = FrameReader(slave_read.makefile('rb'))
         writer = FrameWriter(slave_write.makefile('wb'))
 
-        manifest = {"capabilities": ['cap:in=media:;out=media:']}
+        manifest = make_manifest('cap:in=media:;out=media:')
         send_notify(writer, manifest, Limits.default())
         done.set()
+        complete_identity_verification(reader, writer)
 
     threading.Thread(target=slave_thread, daemon=True).start()
 
@@ -201,16 +248,20 @@ def test_429_find_master_for_cap():
     done2 = threading.Event()
 
     def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
         writer = FrameWriter(slave_write1.makefile('wb'))
-        manifest = {"capabilities": ['cap:in=media:;out=media:']}
+        manifest = make_manifest('cap:in=media:;out=media:')
         send_notify(writer, manifest, Limits.default())
         done1.set()
+        complete_identity_verification(reader, writer)
 
     def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        manifest = {"capabilities": ['cap:in="media:void";op=double;out="media:void"']}
+        manifest = make_manifest('cap:in="media:void";op=double;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done2.set()
+        complete_identity_verification(reader, writer)
 
     threading.Thread(target=slave1_thread, daemon=True).start()
     threading.Thread(target=slave2_thread, daemon=True).start()
@@ -231,7 +282,129 @@ def test_429_find_master_for_cap():
     # Verify aggregate capabilities
     caps = json.loads(switch.capabilities())
     cap_list = caps["capabilities"]
-    assert len(cap_list) == 2
+    assert len(cap_list) == 3
+    assert "cap:" in cap_list
+
+
+# TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
+def test_437_preferred_cap_routes_to_generic():
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+
+    done1 = threading.Event()
+    done2 = threading.Event()
+
+    def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
+        writer = FrameWriter(slave_write1.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done1.set()
+        complete_identity_verification(reader, writer)
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
+        writer = FrameWriter(slave_write2.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=\"media:pdf\";out=media:'), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave1_thread, daemon=True).start()
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done1.wait(timeout=2)
+    done2.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+    ])
+
+    assert switch._find_master_for_cap(
+        'cap:in=\"media:pdf\";out=media:',
+        preferred_cap='cap:in=media:;out=media:',
+    ) == 0
+
+
+# TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set
+def test_438_preferred_cap_falls_back_when_not_comparable():
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+
+    done1 = threading.Event()
+    done2 = threading.Event()
+
+    def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
+        writer = FrameWriter(slave_write1.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=\"media:text\";out=media:text'), Limits.default())
+        done1.set()
+        complete_identity_verification(reader, writer)
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
+        writer = FrameWriter(slave_write2.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave1_thread, daemon=True).start()
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done1.wait(timeout=2)
+    done2.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+    ])
+
+    assert switch._find_master_for_cap(
+        'cap:in=\"media:text\";out=media:text',
+        preferred_cap='cap:in=\"media:pdf\";out=media:pdf',
+    ) == 0
+
+
+# TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
+def test_439_generic_provider_can_dispatch_specific_request():
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+
+    done1 = threading.Event()
+    done2 = threading.Event()
+
+    def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
+        writer = FrameWriter(slave_write1.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done1.set()
+        complete_identity_verification(reader, writer)
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
+        writer = FrameWriter(slave_write2.makefile('wb'))
+        send_notify(writer, make_manifest('cap:in=\"media:pdf\";out=media:'), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave1_thread, daemon=True).start()
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done1.wait(timeout=2)
+    done2.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+    ])
+
+    assert switch._find_master_for_cap('cap:in=\"media:pdf\";out=media:') == 1
+    assert switch._find_master_for_cap(
+        'cap:in=\"media:pdf\";out=media:',
+        preferred_cap='cap:in=media:;out=media:',
+    ) == 0
 
 
 # TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent)
@@ -252,9 +425,10 @@ def test_430_tie_breaking_same_cap_multiple_masters():
     def slave1_thread():
         reader = FrameReader(slave_read1.makefile('rb'))
         writer = FrameWriter(slave_write1.makefile('wb'))
-        manifest = {"capabilities": [same_cap]}
+        manifest = make_manifest(same_cap)
         send_notify(writer, manifest, Limits.default())
         done1.set()
+        complete_identity_verification(reader, writer)
 
         # Echo with marker 1
         while True:
@@ -269,9 +443,10 @@ def test_430_tie_breaking_same_cap_multiple_masters():
     def slave2_thread():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        manifest = {"capabilities": [same_cap]}
+        manifest = make_manifest(same_cap)
         send_notify(writer, manifest, Limits.default())
         done2.set()
+        complete_identity_verification(reader, writer)
 
         # Echo with marker 2 (should never be called if routing is consistent)
         while True:
@@ -320,9 +495,10 @@ def test_431_continuation_frame_routing():
         reader = FrameReader(slave_read.makefile('rb'))
         writer = FrameWriter(slave_write.makefile('wb'))
 
-        manifest = {"capabilities": ['cap:in="media:void";op=test;out="media:void"']}
+        manifest = make_manifest('cap:in="media:void";op=test;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done.set()
+        complete_identity_verification(reader, writer)
 
         # Read REQ
         req = reader.read()
@@ -390,26 +566,26 @@ def test_433_capability_aggregation_deduplicates():
     done2 = threading.Event()
 
     def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
         writer = FrameWriter(slave_write1.makefile('wb'))
-        manifest = {
-            "capabilities": [
-                'cap:in=media:;out=media:',
-                'cap:in="media:void";op=double;out="media:void"'
-            ]
-        }
+        manifest = make_manifest(
+            'cap:in=media:;out=media:',
+            'cap:in="media:void";op=double;out="media:void"',
+        )
         send_notify(writer, manifest, Limits.default())
         done1.set()
+        complete_identity_verification(reader, writer)
 
     def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        manifest = {
-            "capabilities": [
-                'cap:in=media:;out=media:',  # Duplicate
-                'cap:in="media:void";op=triple;out="media:void"'
-            ]
-        }
+        manifest = make_manifest(
+            'cap:in=media:;out=media:',
+            'cap:in="media:void";op=triple;out="media:void"',
+        )
         send_notify(writer, manifest, Limits.default())
         done2.set()
+        complete_identity_verification(reader, writer)
 
     threading.Thread(target=slave1_thread, daemon=True).start()
     threading.Thread(target=slave2_thread, daemon=True).start()
@@ -425,8 +601,9 @@ def test_433_capability_aggregation_deduplicates():
     caps = json.loads(switch.capabilities())
     cap_list = sorted(caps["capabilities"])
 
-    # Should have 3 unique caps (echo appears twice but deduplicated)
-    assert len(cap_list) == 3
+    # Should have 4 unique caps including CAP_IDENTITY (echo appears twice but deduplicated)
+    assert len(cap_list) == 4
+    assert 'cap:' in cap_list
     assert 'cap:in="media:void";op=double;out="media:void"' in cap_list
     assert 'cap:in=media:;out=media:' in cap_list
     assert 'cap:in="media:void";op=triple;out="media:void"' in cap_list
@@ -444,18 +621,22 @@ def test_434_limits_negotiation_minimum():
     done2 = threading.Event()
 
     def slave1_thread():
+        reader = FrameReader(slave_read1.makefile('rb'))
         writer = FrameWriter(slave_write1.makefile('wb'))
-        manifest = {"capabilities": []}
+        manifest = make_manifest()
         limits1 = Limits(max_frame=1_000_000, max_chunk=100_000)
         send_notify(writer, manifest, limits1)
         done1.set()
+        complete_identity_verification(reader, writer)
 
     def slave2_thread():
+        reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        manifest = {"capabilities": []}
+        manifest = make_manifest()
         limits2 = Limits(max_frame=2_000_000, max_chunk=50_000)  # Larger frame, smaller chunk
         send_notify(writer, manifest, limits2)
         done2.set()
+        complete_identity_verification(reader, writer)
 
     threading.Thread(target=slave1_thread, daemon=True).start()
     threading.Thread(target=slave2_thread, daemon=True).start()
@@ -487,9 +668,10 @@ def test_435_urn_matching_exact_and_accepts():
     def slave_thread():
         reader = FrameReader(slave_read.makefile('rb'))
         writer = FrameWriter(slave_write.makefile('wb'))
-        manifest = {"capabilities": [registered_cap]}
+        manifest = make_manifest(registered_cap)
         send_notify(writer, manifest, Limits.default())
         done.set()
+        complete_identity_verification(reader, writer)
 
         # Respond to request
         while True:
@@ -524,3 +706,85 @@ def test_435_urn_matching_exact_and_accepts():
     switch.send_to_master(req2)
     resp2 = switch.read_from_masters()
     assert resp2.payload == bytes([42])
+
+
+# TEST487: RelaySwitch construction verifies identity through relay chain
+def test_487_relay_switch_identity_verification_succeeds():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in="media:void";op=test;out="media:void"'), Limits.default())
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+
+    switch = RelaySwitch([SocketPair(read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+    assert switch._find_master_for_cap('cap:in="media:void";op=test;out="media:void"') == 0
+
+
+# TEST488: RelaySwitch construction fails when master's identity verification fails
+def test_488_relay_switch_identity_verification_fails():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in="media:void";op=test;out="media:void"'), Limits.default())
+        req = reader.read()
+        assert req is not None
+        assert req.frame_type == FrameType.REQ
+        assert req.cap == "cap:"
+        writer.write(Frame.err(req.id, "BROKEN", "identity verification broken"))
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+
+    with pytest.raises(ProtocolError) as exc_info:
+        RelaySwitch([SocketPair(read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+    assert "identity verification failed" in str(exc_info.value)
+
+
+# TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match
+def test_666_preferred_cap_routing():
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+
+    done1 = threading.Event()
+    done2 = threading.Event()
+
+    generic_cap = 'cap:in=media:;out=media:'
+    specific_cap = 'cap:in="media:pdf";out=media:'
+
+    def slave1_thread():
+        reader = FrameReader(slave_read1.makefile("rb"))
+        writer = FrameWriter(slave_write1.makefile("wb"))
+        send_notify(writer, make_manifest(generic_cap), Limits.default())
+        done1.set()
+        complete_identity_verification(reader, writer)
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile("rb"))
+        writer = FrameWriter(slave_write2.makefile("wb"))
+        send_notify(writer, make_manifest(specific_cap), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave1_thread, daemon=True).start()
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done1.wait(timeout=2)
+    done2.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
+        SocketPair(read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb")),
+    ])
+
+    request = 'cap:in="media:pdf";out=media:'
+    assert switch._find_master_for_cap(request) == 1
+    assert switch._find_master_for_cap(request, preferred_cap=specific_cap) == 1
+    assert switch._find_master_for_cap(request, preferred_cap=generic_cap) == 0

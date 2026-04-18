@@ -13,6 +13,8 @@ from capdag.planner.argument_binding import (
     ArgumentResolutionContext,
     ArgumentSource,
     CapInputFile,
+    SourceEntityType,
+    StrandInput,
     resolve_binding,
 )
 from capdag.planner.error import InternalError
@@ -31,12 +33,7 @@ def _empty_context(**overrides):
     defaults.update(overrides)
     return ArgumentResolutionContext(**defaults)
 
-
-# ---------------------------------------------------------------------------
-# Existing parity tests (test668–test671)
-# ---------------------------------------------------------------------------
-
-# TEST668: Resolve slot with populated byte slot_values using step-index key
+# TEST668: resolve_slot_with_populated_byte_slot_values
 def test_668_resolve_slot_with_populated_byte_slot_values():
     slot_values = {
         "step_0:media:width;textable;numeric": b"800",
@@ -53,8 +50,7 @@ def test_668_resolve_slot_with_populated_byte_slot_values():
     assert result.value == b"800"
     assert result.source == ArgumentSource.SLOT
 
-
-# TEST669: Resolve slot falls back to default when no slot_value or cap_setting
+# TEST669: resolve_slot_falls_back_to_default
 def test_669_resolve_slot_falls_back_to_default():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:quality;textable;numeric")
@@ -63,8 +59,7 @@ def test_669_resolve_slot_falls_back_to_default():
     assert result.value == json.dumps(85, separators=(",", ":")).encode("utf-8")
     assert result.source == ArgumentSource.CAP_DEFAULT
 
-
-# TEST670: Required slot with no value returns error
+# TEST670: resolve_required_slot_no_value_returns_err
 def test_670_resolve_required_slot_no_value_returns_err():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:question;textable")
@@ -72,8 +67,7 @@ def test_670_resolve_required_slot_no_value_returns_err():
         resolve_binding(binding, ctx, "cap:op=generate", "step_0", None, True)
     assert "media:question;textable" in str(exc_info.value)
 
-
-# TEST671: Optional slot with no value returns None
+# TEST671: resolve_optional_slot_no_value_returns_none
 def test_671_resolve_optional_slot_no_value_returns_none():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:suffix;textable")
@@ -203,3 +197,174 @@ def test_1109_slot_key_uses_node_id_not_cap_urn():
     # Should NOT find the value because the key format is wrong (cap_urn instead of node_id)
     result = resolve_binding(binding, ctx, cap_urn, "step_0", None, False)
     assert result is None, "Old cap_urn-based key must not match node_id-based lookup"
+
+
+# TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false
+def test_792_argument_binding_requires_input():
+    assert ArgumentBinding.slot("width").requires_input()
+    assert not ArgumentBinding.literal(100).requires_input()
+
+
+# TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values
+def test_793_argument_binding_serialization():
+    binding = ArgumentBinding.previous_output("node_0", "result_path")
+    payload = binding.to_dict()
+    assert payload["type"] == "previous_output"
+    assert payload["node_id"] == "node_0"
+    round_trip = ArgumentBinding.from_dict(payload)
+    assert round_trip.kind == ArgumentBinding.PREVIOUS_OUTPUT
+    assert round_trip.node_id == "node_0"
+    assert round_trip.output_field == "result_path"
+
+
+# TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant
+def test_794_argument_bindings_add_file_path():
+    bindings = ArgumentBindings()
+    bindings.add_file_path("input")
+    assert "input" in bindings.bindings
+    assert bindings.bindings["input"].kind == ArgumentBinding.INPUT_FILE_PATH
+
+
+# TEST795: Tests ArgumentBindings identifies unresolved Slot bindings Verifies has_unresolved_slots() and get_unresolved_slots() detect Slots needing values
+def test_795_argument_bindings_unresolved_slots():
+    bindings = ArgumentBindings()
+    bindings.add("width", ArgumentBinding.slot("width"))
+    bindings.add("height", ArgumentBinding.literal(100))
+    assert bindings.has_unresolved_slots()
+    assert bindings.get_unresolved_slots() == ["width"]
+
+
+# TEST796: Tests resolve_binding resolves InputFilePath to current file path Verifies InputFilePath binding resolves to file path bytes with InputFile source
+def test_796_resolve_input_file_path():
+    files = [CapInputFile("/path/to/file.pdf", "media:pdf")]
+    ctx = _empty_context(input_files=files)
+    result = resolve_binding(
+        ArgumentBinding.input_file_path(),
+        ctx,
+        "cap:test",
+        "step_0",
+        None,
+        True,
+    )
+    assert result is not None
+    assert result.value == b"/path/to/file.pdf"
+    assert result.source == ArgumentSource.INPUT_FILE
+
+
+# TEST797: Tests resolve_binding resolves Literal to JSON-encoded bytes Verifies Literal binding serializes value to bytes with Literal source
+def test_797_resolve_literal():
+    result = resolve_binding(
+        ArgumentBinding.literal(42),
+        _empty_context(),
+        "cap:test",
+        "step_0",
+        None,
+        True,
+    )
+    assert result is not None
+    assert result.value == json.dumps(42, separators=(",", ":")).encode("utf-8")
+    assert result.source == ArgumentSource.LITERAL
+
+
+# TEST798: Tests resolve_binding extracts value from previous node output Verifies PreviousOutput binding fetches field from earlier execution results
+def test_798_resolve_previous_output():
+    ctx = _empty_context(previous_outputs={"node_0": {"result_path": "/output/result.png"}})
+    result = resolve_binding(
+        ArgumentBinding.previous_output("node_0", "result_path"),
+        ctx,
+        "cap:test",
+        "step_0",
+        None,
+        True,
+    )
+    assert result is not None
+    assert result.value == b"/output/result.png"
+    assert result.source == ArgumentSource.PREVIOUS_OUTPUT
+
+
+# TEST799: Tests StrandInput single constructor creates valid Single cardinality input Verifies single() wraps one file with Single cardinality and validates correctly
+def test_799_machine_input_single():
+    input_file = CapInputFile("/path/to/file.pdf", "media:pdf")
+    strand_input = StrandInput.single(input_file)
+    assert len(strand_input.files) == 1
+    assert strand_input.cardinality.value == "single"
+    assert strand_input.is_valid()
+
+
+# TEST800: Tests StrandInput sequence constructor creates valid Sequence cardinality input Verifies sequence() wraps multiple files with Sequence cardinality
+def test_800_machine_input_vector():
+    files = [
+        CapInputFile("/path/1.pdf", "media:pdf"),
+        CapInputFile("/path/2.pdf", "media:pdf"),
+    ]
+    strand_input = StrandInput.sequence(files, "media:pdf")
+    assert len(strand_input.files) == 2
+    assert strand_input.cardinality.value == "sequence"
+    assert strand_input.is_valid()
+
+
+# TEST801: Tests CapInputFile deserializes from JSON with source metadata fields Verifies JSON with source_id and source_type deserializes to CapInputFile correctly
+def test_801_cap_input_file_deserialization_from_dry_context():
+    payload = [
+        {
+            "file_path": "/Users/bahram/ws/prj/machinefabric/pdfcartridge/test_files/aws_in_action.pdf",
+            "media_urn": "media:pdf",
+            "source_id": "1b964d3b-f409-4f51-8684-884348ec2501",
+            "source_type": "listing",
+        }
+    ]
+    files = [CapInputFile.from_dict(item) for item in payload]
+    assert len(files) == 1
+    assert files[0].source_type == SourceEntityType.LISTING
+
+
+# TEST802: Tests CapInputFile deserializes from compact JSON via serde_json::Value Verifies deserialization through Value intermediate works correctly
+def test_802_cap_input_file_deserialization_via_value():
+    payload = json.loads(
+        '[{"file_path":"/path/to/file.pdf","media_urn":"media:pdf","source_id":"abc123","source_type":"listing"}]'
+    )
+    files = [CapInputFile.from_dict(item) for item in payload]
+    assert len(files) == 1
+    assert files[0].source_id == "abc123"
+
+
+# TEST803: Tests StrandInput validation detects mismatched Single cardinality with multiple files Verifies is_valid() returns false when Single cardinality has more than one file
+def test_803_machine_input_invalid_single():
+    strand_input = StrandInput(
+        files=[
+            CapInputFile("/path/1.pdf", "media:pdf"),
+            CapInputFile("/path/2.pdf", "media:pdf"),
+        ],
+        expected_media_urn="media:pdf",
+        cardinality=StrandInput.single(CapInputFile("/tmp/x.pdf", "media:pdf")).cardinality,
+    )
+    assert not strand_input.is_valid()
+
+
+# TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None
+def test_957_cap_input_file_new():
+    file = CapInputFile("/path/to/file.pdf", "media:pdf")
+    assert file.file_path == "/path/to/file.pdf"
+    assert file.media_urn == "media:pdf"
+    assert file.metadata is None
+    assert file.source_id is None
+
+
+# TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing
+def test_958_cap_input_file_from_listing():
+    file = CapInputFile.from_listing("listing-123", "/path/to/file.pdf", "media:pdf")
+    assert file.source_id == "listing-123"
+    assert file.source_type == SourceEntityType.LISTING
+
+
+# TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path
+def test_959_cap_input_file_filename():
+    file = CapInputFile("/path/to/document.pdf", "media:pdf")
+    assert file.filename() == "document.pdf"
+
+
+# TEST960: Tests ArgumentBinding literal_string creates Literal variant with string value Verifies literal_string() wraps string in JSON Value::String
+def test_960_argument_binding_literal_string():
+    binding = ArgumentBinding.literal_string("test")
+    assert binding.kind == ArgumentBinding.LITERAL
+    assert binding.value == "test"

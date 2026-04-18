@@ -99,12 +99,7 @@ def _strand_with_cap_steps(steps_data: list) -> Strand:
     )
 
 
-# =============================================================================
-# TEST1110: NoCapabilityStepsError on empty wiring list
-# =============================================================================
-
 def test_1110_no_capability_steps_error_on_empty_wirings():
-    """TEST1110: resolve_pre_interned with empty wirings raises NoCapabilityStepsError."""
     reg = _registry_with([])
     with pytest.raises(NoCapabilityStepsError):
         resolve_pre_interned([], [], reg, 0)
@@ -115,7 +110,6 @@ def test_1110_no_capability_steps_error_on_empty_wirings():
 # =============================================================================
 
 def test_1111_unknown_cap_error_when_not_in_registry():
-    """TEST1111: resolve_pre_interned raises UnknownCapError when cap is not cached."""
     reg = _registry_with([])  # empty registry
     cap_urn = _cap_urn("cap:in=media:pdf;op=extract;out=\"media:txt;textable\"")
     nodes = [_media("media:pdf"), _media("media:txt;textable")]
@@ -135,7 +129,6 @@ def test_1111_unknown_cap_error_when_not_in_registry():
 # =============================================================================
 
 def test_1112_single_edge_strand_resolves_correctly():
-    """TEST1112: resolve_strand on a one-cap strand produces one edge, correct anchors."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -161,7 +154,6 @@ def test_1112_single_edge_strand_resolves_correctly():
 # =============================================================================
 
 def test_1113_two_step_chain_shares_intermediate_node():
-    """TEST1113: resolve_strand on a two-cap chain shares the intermediate NodeId."""
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -197,7 +189,6 @@ def test_1113_two_step_chain_shares_intermediate_node():
 # =============================================================================
 
 def test_1114_from_strand_produces_single_strand_machine():
-    """TEST1114: Machine.from_strand always yields exactly one strand."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -215,7 +206,6 @@ def test_1114_from_strand_produces_single_strand_machine():
 # =============================================================================
 
 def test_1115_from_strands_keeps_strands_disjoint():
-    """TEST1115: Machine.from_strands with two strands produces two disjoint MachineStrands."""
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -240,7 +230,6 @@ def test_1115_from_strands_keeps_strands_disjoint():
 # =============================================================================
 
 def test_1116_from_strands_empty_raises_no_capability_steps():
-    """TEST1116: Machine.from_strands([]) raises NoCapabilityStepsError."""
     reg = _registry_with([])
     with pytest.raises(NoCapabilityStepsError):
         Machine.from_strands([], reg)
@@ -251,7 +240,6 @@ def test_1116_from_strands_empty_raises_no_capability_steps():
 # =============================================================================
 
 def test_1117_machine_is_equivalent_strict_positional_order_matters():
-    """TEST1117: Two machines with same strands in different order are NOT equivalent."""
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -297,7 +285,6 @@ def test_1118_strand_is_equivalent_consistent_node_bijection():
 # =============================================================================
 
 def test_1119_match_sources_to_args_single_trivial():
-    """TEST1119: Single source matching single arg at distance 0 succeeds with correct pair."""
     sources = [_media("media:pdf")]
     args = [_media("media:pdf")]
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
@@ -314,7 +301,6 @@ def test_1119_match_sources_to_args_single_trivial():
 # =============================================================================
 
 def test_1120_match_sources_more_specific_source_matches_general_arg():
-    """TEST1120: source media:txt;textable conforms to arg media:textable → matched with nonzero cost."""
     sources = [_media("media:txt;textable")]
     args = [_media("media:textable")]
     pairs = match_sources_to_args(sources, args, "cap:in=media:textable;op=embed;out=media:vec", 0)
@@ -328,7 +314,6 @@ def test_1120_match_sources_more_specific_source_matches_general_arg():
 # =============================================================================
 
 def test_1121_match_sources_unmatched_source_fails_hard():
-    """TEST1121: Source that conforms to no arg raises UnmatchedSourceInCapArgsError."""
     sources = [_media("media:numeric")]
     args = [_media("media:textable")]
     cap_urn_str = "cap:in=media:textable;op=t;out=media:textable"
@@ -346,7 +331,6 @@ def test_1121_match_sources_unmatched_source_fails_hard():
 # =============================================================================
 
 def test_1122_match_sources_ambiguous_raises_ambiguous_error():
-    """TEST1122: Two sources with identical URNs competing for two identical-cost args → ambiguous."""
     # Two sources both conform equally to both args at the same distance.
     sources = [_media("media:textable"), _media("media:textable")]
     args = [_media("media:textable"), _media("media:textable")]
@@ -393,7 +377,6 @@ def test_1123_cyclic_strand_fails_hard():
 # =============================================================================
 
 def test_1124_machine_parse_error_wraps_syntax_error():
-    """TEST1124: parse_machine on empty input raises MachineParseError wrapping MachineSyntaxError."""
     reg = _registry_with([])
     with pytest.raises(MachineParseError) as exc_info:
         parse_machine("", reg)
@@ -409,7 +392,6 @@ def test_1124_machine_parse_error_wraps_syntax_error():
 # =============================================================================
 
 def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause():
-    """TEST1125: parse_machine with cap not in registry raises MachineParseError (abstraction)."""
     reg = _registry_with([])  # empty — no caps loaded
 
     notation = (
@@ -431,7 +413,6 @@ def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
 # =============================================================================
 
 def test_1126_parse_machine_single_wiring_one_strand():
-    """TEST1126: parse_machine on a simple one-edge notation produces Machine with one strand."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -449,11 +430,10 @@ def test_1126_parse_machine_single_wiring_one_strand():
 
 
 # =============================================================================
-# TEST1127: Documentation field round-trips through JSON serialize/deserialize.  The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.
+# TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.
 # =============================================================================
 
 def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
-    """TEST1127: Two wirings with no shared node names are separate strands."""
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:image;op=caption;out=\"media:txt;textable\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -478,7 +458,6 @@ def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
 # =============================================================================
 
 def test_1128_parse_machine_shared_node_name_yields_one_strand():
-    """TEST1128: Two wirings sharing a node name form one connected strand."""
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -568,11 +547,10 @@ def test_1130_strand_equivalence_rejects_mismatched_node_urns():
 
 
 # =============================================================================
-# TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec.  This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
+# TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec. This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
 # =============================================================================
 
 def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
-    """TEST1131: A strand with a ForEach step followed by a Cap step produces is_loop=True on the edge."""
     cap_urn_str = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap = _simple_cap(cap_urn_str, "media:textable", "media:vec;record")
     reg = _registry_with([cap])
@@ -608,7 +586,6 @@ def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
 # =============================================================================
 
 def test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps():
-    """TEST1132: A strand with only ForEach (no CAP step) raises NoCapabilityStepsError."""
     reg = _registry_with([])
 
     foreach_step = StrandStep(
@@ -635,7 +612,6 @@ def test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps():
 # =============================================================================
 
 def test_1133_machine_from_string_delegates_to_parse_machine():
-    """TEST1133: Machine.from_string(notation, registry) returns the same Machine as parse_machine."""
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])

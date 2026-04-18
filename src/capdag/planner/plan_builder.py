@@ -45,7 +45,7 @@ class ArgumentInfo:
 
     __slots__ = (
         "name", "media_urn", "description", "resolution",
-        "default_value", "is_required", "validation",
+        "default_value", "is_required", "is_sequence", "validation",
     )
 
     def __init__(
@@ -56,6 +56,7 @@ class ArgumentInfo:
         resolution: ArgumentResolution,
         default_value: Optional[Any] = None,
         is_required: bool = True,
+        is_sequence: bool = False,
         validation: Optional[Any] = None,
     ) -> None:
         self.name = name
@@ -64,6 +65,7 @@ class ArgumentInfo:
         self.resolution = resolution
         self.default_value = default_value
         self.is_required = is_required
+        self.is_sequence = is_sequence
         self.validation = validation
 
     def to_dict(self) -> Dict[str, Any]:
@@ -73,6 +75,7 @@ class ArgumentInfo:
             "description": self.description,
             "resolution": self.resolution.value,
             "is_required": self.is_required,
+            "is_sequence": self.is_sequence,
         }
         if self.default_value is not None:
             d["default_value"] = self.default_value
@@ -486,6 +489,11 @@ class MachinePlanBuilder:
             if val is not None:
                 d[attr] = val
         return d
+
+    @staticmethod
+    def validation_to_json(validation: Any) -> Optional[Any]:
+        """Public alias matching the reference API used by parity tests."""
+        return MachinePlanBuilder._validation_to_json(validation)
 
     def _determine_resolution_with_io_check(
         self,

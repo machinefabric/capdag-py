@@ -674,3 +674,80 @@ def test_617_normalize_media_urn():
     urn2 = normalize_media_urn("media:string")
     assert urn1
     assert urn2
+
+
+# TEST895: All cap output media specs must have file extensions defined. This is a regression guard: every media URN used as a cap output produces user-facing files. If a spec lacks extensions, save_cap_output and import flows will fail at runtime.
+def test_895_cap_output_media_specs_have_extensions():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    cap_output_urns = [
+        "media:textable",
+        "media:embedding-vector;textable;record",
+        "media:image-description;textable",
+        "media:transcription;textable;record",
+        "media:decision;json;record;textable",
+        "media:llm-text-stream;ndjson",
+        "media:generated-text;textable;record",
+        "media:llm-vocab-response;json;record",
+        "media:llm-model-info;json;record",
+        "media:model-dim;integer;textable;numeric",
+        "media:model-availability;textable;record",
+        "media:model-contents;textable;record",
+        "media:model-list;textable;record",
+        "media:model-path;textable;record",
+        "media:model-status;textable;record",
+        "media:download-result;textable;record",
+        "media:json;textable;record",
+    ]
+    missing = []
+    for urn in cap_output_urns:
+        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        if spec is None:
+            missing.append(f"{urn} (spec not found in registry)")
+        elif not spec.extensions:
+            missing.append(f"{urn} (found spec but extensions is empty)")
+    assert not missing, "Cap output media specs missing file extensions:\n  " + "\n  ".join(missing)
+
+
+# TEST896: All cap input media specs that represent user files must have extensions. These are the entry points — the file types users can right-click on.
+def test_896_cap_input_media_specs_have_extensions():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    cap_input_urns = [
+        "media:textable",
+        "media:txt;textable",
+        "media:md;textable",
+        "media:rst;textable",
+        "media:pdf",
+        "media:image;png",
+        "media:audio;wav;speech",
+        "media:log;textable",
+        "media:json;json-schema;textable;record",
+        "media:llm-generation-request;json;record",
+        "media:model-repo;textable;record",
+        "media:model-spec;textable",
+    ]
+    missing = []
+    for urn in cap_input_urns:
+        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        if spec is None:
+            missing.append(f"{urn} (spec not found in registry)")
+        elif not spec.extensions:
+            missing.append(f"{urn} (found spec but extensions is empty)")
+    assert not missing, "Cap input media specs missing file extensions:\n  " + "\n  ".join(missing)
+
+
+# TEST897: Verify that specific cap output URNs resolve to the correct extension. This catches misconfigurations where a spec exists but has the wrong extension.
+def test_897_cap_output_extension_values_correct():
+    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    expected = [
+        ("media:textable", "txt"),
+        ("media:embedding-vector;textable;record", "json"),
+        ("media:image-description;textable", "txt"),
+        ("media:transcription;textable;record", "json"),
+        ("media:decision;json;record;textable", "json"),
+        ("media:llm-text-stream;ndjson", "ndjson"),
+        ("media:generated-text;textable;record", "json"),
+    ]
+    for urn, extension in expected:
+        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        assert spec is not None, f"{urn} should exist in standard registry"
+        assert extension in spec.extensions, f"{urn} should include extension {extension!r}, got {spec.extensions!r}"

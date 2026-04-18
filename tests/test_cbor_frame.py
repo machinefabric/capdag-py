@@ -683,8 +683,8 @@ def test_445_seq_assigner_remove_by_flow_key():
     assert f5.seq == 2
 
 
-# Mirror-specific coverage: SeqAssigner same RID different XIDs are independent
-def test_seq_assigner_same_rid_different_xids_independent():
+# TEST860: Same RID with different XIDs get independent seq counters
+def test_860_seq_assigner_same_rid_different_xids_independent():
     assigner = SeqAssigner()
     rid = MessageId.random()
     xid_a = MessageId.random()

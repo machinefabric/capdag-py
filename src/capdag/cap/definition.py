@@ -485,13 +485,16 @@ class Cap:
 
     def add_media_spec(self, spec: MediaSpecDef):
         """Add an inline media spec"""
-        self.media_specs.append(spec.to_dict())
+        if hasattr(spec, "to_dict"):
+            self.media_specs.append(spec.to_dict())
+            return
+        raise ValueError(f"Invalid media spec type: {type(spec)}")
 
     def set_media_specs(self, media_specs: List[Any]):
         """Set inline media specs (accepts MediaSpecDef or dict)"""
         self.media_specs = []
         for spec in media_specs:
-            if isinstance(spec, MediaSpecDef):
+            if hasattr(spec, "to_dict"):
                 self.media_specs.append(spec.to_dict())
             elif isinstance(spec, dict):
                 self.media_specs.append(spec)

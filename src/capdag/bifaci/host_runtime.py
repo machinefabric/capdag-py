@@ -36,6 +36,7 @@ from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
     handshake,
+    verify_identity,
     CborError,
 )
 from capdag.urn.cap_urn import CapUrn, CapUrnError
@@ -333,6 +334,7 @@ class CartridgeHost:
 
         try:
             result = handshake(reader, writer)
+            verify_identity(reader, writer)
         except Exception as e:
             raise Handshake(f"handshake failed: {e}")
 
@@ -674,6 +676,7 @@ class CartridgeHost:
 
         try:
             result = handshake(reader, writer)
+            verify_identity(reader, writer)
         except Exception as e:
             cartridge.hello_failed = True
             try:
@@ -731,8 +734,12 @@ class CartridgeHost:
         """Rebuild the aggregate capabilities JSON."""
         all_caps = []
         for cartridge in self._cartridges:
-            if cartridge.running:
-                all_caps.extend(cartridge.caps)
+            if cartridge.hello_failed:
+                continue
+            caps = cartridge.known_caps
+            if cartridge.running and len(cartridge.caps) > 0:
+                caps = cartridge.caps
+            all_caps.extend(caps)
 
         if not all_caps:
             self._capabilities = None
@@ -764,6 +771,8 @@ def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
 
     Expected format: {"caps": [{"urn": "cap:op=test", ...}, ...]}
     """
+    from capdag.standard.caps import CAP_IDENTITY
+
     if not manifest:
         return []
 
@@ -773,4 +782,8 @@ def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
         urn = cap.get("urn", "")
         if urn:
             caps.append(urn)
+
+    if CAP_IDENTITY not in caps:
+        raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
+
     return caps

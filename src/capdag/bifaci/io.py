@@ -18,6 +18,7 @@ The CBOR payload is a map with integer keys (see cbor_frame.py).
 
 import asyncio
 import io
+import os
 from typing import BinaryIO, Optional
 from dataclasses import dataclass
 
@@ -38,7 +39,9 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_REORDER_BUFFER,
     PROTOCOL_VERSION,
     compute_checksum,
+    verify_chunk_checksum,
 )
+from capdag.standard.caps import CAP_IDENTITY
 
 
 # Maximum frame size (16 MB) - hard limit to prevent memory exhaustion
@@ -453,6 +456,58 @@ class FrameWriter:
         """
         write_frame(self.writer, frame, self.limits)
 
+    def write_chunked(self, request_id: MessageId, stream_id: str, content_type: str, data: bytes) -> None:
+        """Write CHUNK frames directly, matching the reference chunking semantics.
+
+        Chunks emitted by this helper always have `seq=0`. Ordering is carried by
+        `chunk_index`; the final output stage is responsible for assigning wire
+        sequence numbers when needed.
+
+        The first chunk carries the total payload length and content type. The
+        final chunk carries `eof=true`. Empty payloads still emit a single EOF
+        chunk.
+        """
+        max_chunk = self.limits.max_chunk
+
+        if len(data) == 0:
+            empty = Frame.chunk(
+                request_id,
+                stream_id,
+                0,
+                b"",
+                0,
+                compute_checksum(b""),
+            )
+            empty.len = 0
+            empty.content_type = content_type
+            empty.eof = True
+            self.write(empty)
+            return
+
+        offset = 0
+        chunk_index = 0
+        total_len = len(data)
+        while offset < total_len:
+            chunk_size = min(total_len - offset, max_chunk)
+            chunk_data = data[offset:offset + chunk_size]
+            offset += chunk_size
+
+            frame = Frame.chunk(
+                request_id,
+                stream_id,
+                0,
+                chunk_data,
+                chunk_index,
+                compute_checksum(chunk_data),
+            )
+            if chunk_index == 0:
+                frame.len = total_len
+                frame.content_type = content_type
+            if offset == total_len:
+                frame.eof = True
+            self.write(frame)
+            chunk_index += 1
+
     def write_stream_chunked(self, request_id: MessageId, stream_id: str, media_urn: str, payload: bytes) -> None:
         """Write a response using Protocol v2 stream multiplexing.
 
@@ -474,15 +529,20 @@ class FrameWriter:
 
         # CHUNK(s)
         offset = 0
-        seq = 0
         chunk_index = 0
         while offset < len(payload):
             chunk_size = min(len(payload) - offset, max_chunk)
             chunk_data = payload[offset:offset + chunk_size]
             offset += chunk_size
-            frame = Frame.chunk(request_id, stream_id, seq, chunk_data, chunk_index, compute_checksum(chunk_data))
+            frame = Frame.chunk(
+                request_id,
+                stream_id,
+                0,
+                chunk_data,
+                chunk_index,
+                compute_checksum(chunk_data),
+            )
             self.write(frame)
-            seq += 1
             chunk_index += 1
 
         # STREAM_END
@@ -607,6 +667,50 @@ def handshake_accept(
     writer.set_limits(limits)
 
     return limits
+
+
+def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
+    """Verify a peer's CAP_IDENTITY handler by round-tripping a nonce."""
+    request_id = MessageId.new_uuid()
+    stream_id = "identity-verify"
+    nonce = os.urandom(32)
+
+    writer.write(Frame.req(request_id, CAP_IDENTITY, b"", "application/cbor"))
+    writer.write(Frame.stream_start(request_id, stream_id, "media:"))
+    writer.write(Frame.chunk(request_id, stream_id, 0, nonce, 0, compute_checksum(nonce)))
+    writer.write(Frame.stream_end(request_id, stream_id, 1))
+    writer.write(Frame.end(request_id, None))
+
+    saw_stream_start = False
+    saw_stream_end = False
+    echoed = bytearray()
+
+    while True:
+        frame = reader.read()
+        if frame is None:
+            raise HandshakeError("identity verification failed: connection closed before response")
+
+        if frame.frame_type == FrameType.STREAM_START:
+            saw_stream_start = True
+            continue
+        if frame.frame_type == FrameType.CHUNK:
+            verify_chunk_checksum(frame)
+            echoed.extend(frame.payload or b"")
+            continue
+        if frame.frame_type == FrameType.STREAM_END:
+            saw_stream_end = True
+            continue
+        if frame.frame_type == FrameType.ERR:
+            raise HandshakeError(
+                f"identity verification failed: "
+                f"{frame.error_code() or 'ERR'} {frame.error_message() or ''}".strip()
+            )
+        if frame.frame_type == FrameType.END:
+            if not saw_stream_start or not saw_stream_end:
+                raise HandshakeError("identity verification failed: incomplete response stream")
+            if bytes(echoed) != nonce:
+                raise HandshakeError("identity verification failed: nonce mismatch")
+            return
 
 
 # =============================================================================

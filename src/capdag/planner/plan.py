@@ -192,6 +192,22 @@ class ExecutionNodeType:
                 d[k] = v
         return d
 
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> ExecutionNodeType:
+        kind = d["node_type"]
+        raw = {k: v for k, v in d.items() if k != "node_type"}
+        data: Dict[str, Any] = {}
+        for key, value in raw.items():
+            if key == "arg_bindings":
+                data[key] = ArgumentBindings.from_dict(value)
+            elif key == "cardinality":
+                data[key] = InputCardinality(value)
+            elif key == "merge_strategy":
+                data[key] = MergeStrategy(value)
+            else:
+                data[key] = value
+        return ExecutionNodeType(kind, data)
+
     def __repr__(self) -> str:
         return f"ExecutionNodeType({self.kind!r})"
 
@@ -281,6 +297,14 @@ class MachineNode:
             d["description"] = self.description
         return d
 
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> MachineNode:
+        return MachineNode(
+            id=d["id"],
+            node_type=ExecutionNodeType.from_dict(d["node_type"]),
+            description=d.get("description"),
+        )
+
     def __repr__(self) -> str:
         return f"MachineNode(id={self.id!r}, type={self.node_type.kind!r})"
 
@@ -335,6 +359,14 @@ class EdgeType:
             return d
         return self.kind
 
+    @staticmethod
+    def from_dict(value: Any) -> EdgeType:
+        if isinstance(value, str):
+            return EdgeType(value)
+        edge_type = value["type"]
+        data = {k: v for k, v in value.items() if k != "type"}
+        return EdgeType(edge_type, data)
+
     def __repr__(self) -> str:
         if self._data:
             return f"EdgeType({self.kind!r}, {self._data!r})"
@@ -378,6 +410,14 @@ class MachinePlanEdge:
             "to_node": self.to_node,
             "edge_type": self.edge_type.to_dict(),
         }
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> MachinePlanEdge:
+        return MachinePlanEdge(
+            from_node=d["from_node"],
+            to_node=d["to_node"],
+            edge_type=EdgeType.from_dict(d["edge_type"]),
+        )
 
     def __repr__(self) -> str:
         return f"MachinePlanEdge({self.from_node!r} -> {self.to_node!r}, {self.edge_type!r})"
@@ -713,6 +753,19 @@ class MachinePlan:
         if self.metadata is not None:
             d["metadata"] = self.metadata
         return d
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> MachinePlan:
+        plan = MachinePlan(d["name"])
+        plan.nodes = {
+            node_id: MachineNode.from_dict(node_data)
+            for node_id, node_data in d["nodes"].items()
+        }
+        plan.edges = [MachinePlanEdge.from_dict(edge_data) for edge_data in d["edges"]]
+        plan.entry_nodes = list(d["entry_nodes"])
+        plan.output_nodes = list(d["output_nodes"])
+        plan.metadata = d.get("metadata")
+        return plan
 
     def __repr__(self) -> str:
         return (

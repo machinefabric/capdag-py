@@ -1,26 +1,28 @@
-"""Cardinality and Structure Detection from Media URNs
+"""Cardinality and structure analysis for planner shape checks.
 
 This module provides shape analysis for cap inputs and outputs across two orthogonal dimensions:
 
 1. Cardinality (how many items)
-   Detected from the `list` marker tag:
-   - media:pdf → Single (scalar, no list marker)
-   - media:pdf;list → Sequence (array, has list marker)
+   Tracked from execution context, not URN tags:
+   - scalar file input or scalar stream → Single
+   - sequence input / fan-out output → Sequence
 
 2. Structure (internal shape of each item)
    Detected from the `record` marker tag:
    - media:textable → Opaque (no internal fields, no record marker)
    - media:json;record → Record (has key-value fields, record marker)
 
-The Four Combinations:
+The four combinations:
 | Cardinality | Structure | Example                          |
 |-------------|-----------|----------------------------------|
 | scalar      | opaque    | media:textable - one string      |
 | scalar      | record    | media:json;record - one JSON obj |
-| list        | opaque    | media:file-path;list - paths     |
-| list        | record    | media:json;list;record - objects  |
+| list        | opaque    | sequence of media:file-path      |
+| list        | record    | sequence of media:json;record    |
 
 Design principle: URN handling uses proper parsing via MediaUrn, never string comparison.
+The `list` tag remains a semantic type/property marker on media URNs; it is not
+used here as the planner's cardinality source of truth.
 """
 
 from __future__ import annotations
@@ -313,6 +315,34 @@ class CapShapeInfo:
         return CapShapeInfo(
             input_shape=MediaShape.from_media_urn(in_spec),
             output_shape=MediaShape.from_media_urn(out_spec),
+            cap_urn=cap_urn,
+        )
+
+    @staticmethod
+    def from_cap_specs_with_sequence(
+        cap_urn: str,
+        in_spec: str,
+        out_spec: str,
+        in_is_sequence: bool,
+        out_is_sequence: bool,
+    ) -> CapShapeInfo:
+        """Create shape info with explicit contextual cardinality.
+
+        This mirrors the reference implementation's regime: URN parsing provides
+        structure, while cardinality is supplied explicitly from execution
+        context / cap metadata.
+        """
+        input_shape = MediaShape.from_media_urn(in_spec)
+        output_shape = MediaShape.from_media_urn(out_spec)
+        input_shape.cardinality = (
+            InputCardinality.SEQUENCE if in_is_sequence else InputCardinality.SINGLE
+        )
+        output_shape.cardinality = (
+            InputCardinality.SEQUENCE if out_is_sequence else InputCardinality.SINGLE
+        )
+        return CapShapeInfo(
+            input_shape=input_shape,
+            output_shape=output_shape,
             cap_urn=cap_urn,
         )
 

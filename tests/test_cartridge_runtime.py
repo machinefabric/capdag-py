@@ -25,6 +25,10 @@ from capdag.bifaci.cartridge_runtime import (
     ProgressSender,
     ThreadSafeEmitter,
     SyncFrameWriter,
+    InputStream,
+    InputPackage,
+    OutputStream,
+    PeerCall,
     RuntimeError as CartridgeRuntimeError,
     NoHandlerError,
     MissingArgumentError,
@@ -41,6 +45,7 @@ from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
 from capdag.bifaci.manifest import CapManifest
 from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, FrameType, MessageId
+from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD
 
 # Test manifest JSON with a single cap for basic tests.
 # Note: cap URN uses "cap:op=test" which lacks in/out tags, so CapManifest deserialization
@@ -189,6 +194,31 @@ def test_251_typed_handler_rejects_invalid_json():
 # TEST252: Test find_handler returns None for unregistered cap URNs
 def test_252_find_handler_unknown_cap():
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
+    assert runtime.find_handler("cap:op=nonexistent") is None
+
+
+# TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN
+def test_293_cartridge_runtime_handler_registration():
+    class JsonEchoOp(Op):
+        async def perform(self, dry, wet):
+            req = wet.get_required(WET_KEY_REQUEST)
+            _ = req.take_frames()
+            req.emitter().emit_cbor(b"echo")
+        def metadata(self): return OpMetadata.builder("JsonEchoOp").build()
+
+    class TransformOp(Op):
+        async def perform(self, dry, wet):
+            req = wet.get_required(WET_KEY_REQUEST)
+            _ = req.take_frames()
+            req.emitter().emit_cbor(b"transformed")
+        def metadata(self): return OpMetadata.builder("TransformOp").build()
+
+    runtime = CartridgeRuntime(TEST_MANIFEST.encode("utf-8"))
+    runtime.register_op("cap:op=json-echo", JsonEchoOp)
+    runtime.register_op("cap:op=transform", TransformOp)
+
+    assert runtime.find_handler("cap:op=json-echo") is JsonEchoOp
+    assert runtime.find_handler("cap:op=transform") is TransformOp
     assert runtime.find_handler("cap:op=nonexistent") is None
 
 
@@ -1537,7 +1567,7 @@ def test_361_cli_mode_file_path(tmp_path):
     assert arguments[0].value == pdf_content
 
 
-# TEST362: CLI mode with binary piped in - pipe binary data via stdin  This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload
+# TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload
 #
 # This test simulates real-world conditions:
 # - Pure binary data piped to stdin (NOT CBOR)
@@ -1823,10 +1853,17 @@ def test_398_build_payload_io_error():
     assert "simulated read error" in str(exc_info.value), f"Expected 'simulated read error', got: {exc_info.value}"
 
 
+# TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction
+def test_478_auto_registers_identity_and_discard_handlers():
+    runtime = CartridgeRuntime.with_manifest_json(VALID_MANIFEST)
+
+    assert runtime.find_handler(CAP_IDENTITY) is not None
+    assert runtime.find_handler(CAP_DISCARD) is not None
+    assert runtime.find_handler('cap:in="media:void";op=nonexistent;out="media:void"') is None
+
+
 # TEST479: Custom identity Op overrides auto-registered default
 def test_479_custom_identity_overrides_default():
-    from capdag.standard.caps import CAP_IDENTITY
-
     class FailOp(Op):
         async def perform(self, dry, wet):
             raise ExecutionFailedError("custom identity")
@@ -1891,13 +1928,225 @@ def make_mock_emitter(media_urn="media:test"):
     return emitter, mock_writer
 
 
+def make_input_stream(media_urn: str, items):
+    q = queue.Queue()
+    for item in items:
+        q.put(item)
+    q.put(None)
+    return InputStream(media_urn, q)
+
+
+def make_input_package(streams):
+    q = queue.Queue()
+    for stream in streams:
+        q.put(stream)
+    q.put(None)
+    return InputPackage(q)
+
+
+# TEST529: InputStream recv yields chunks in order
+def test_529_input_stream_recv_order():
+    stream = make_input_stream("media:test", [b"chunk1", b"chunk2", b"chunk3"])
+
+    collected = []
+    while True:
+        item = stream.recv_data()
+        if item is None:
+            break
+        collected.append(item)
+
+    assert collected == [b"chunk1", b"chunk2", b"chunk3"]
+
+
+# TEST530: InputStream::collect_bytes concatenates byte chunks
+def test_530_input_stream_collect_bytes():
+    stream = make_input_stream("media:", [b"hello", b" ", b"world"])
+    assert stream.collect_bytes() == b"hello world"
+
+
+# TEST531: InputStream::collect_bytes handles text chunks
+def test_531_input_stream_collect_bytes_text():
+    stream = make_input_stream("media:text", ["hello", " world"])
+    assert stream.collect_bytes() == b"hello world"
+
+
+# TEST532: InputStream empty stream produces empty bytes
+def test_532_input_stream_empty():
+    stream = make_input_stream("media:void", [])
+    assert stream.collect_bytes() == b""
+
+
+# TEST533: InputStream propagates errors
+def test_533_input_stream_error_propagation():
+    stream = make_input_stream("media:test", [b"data", CartridgeRuntimeError("test error")])
+    with pytest.raises(CartridgeRuntimeError) as exc_info:
+        stream.collect_bytes()
+    assert str(exc_info.value) == "test error"
+
+
+# TEST534: InputStream::media_urn returns correct URN
+def test_534_input_stream_media_urn():
+    stream = make_input_stream("media:image;format=png", [b"data"])
+    assert stream.media_urn() == "media:image;format=png"
+
+
+# TEST535: InputPackage recv yields streams
+def test_535_input_package_iteration():
+    package = make_input_package(
+        [
+            make_input_stream("media:stream0", [b"stream0"]),
+            make_input_stream("media:stream1", [b"stream1"]),
+            make_input_stream("media:stream2", [b"stream2"]),
+        ]
+    )
+
+    streams = []
+    while True:
+        item = package.recv()
+        if item is None:
+            break
+        streams.append(item)
+
+    assert len(streams) == 3
+    assert [stream.media_urn() for stream in streams] == [
+        "media:stream0",
+        "media:stream1",
+        "media:stream2",
+    ]
+
+
+# TEST536: InputPackage::collect_all_bytes aggregates all streams
+def test_536_input_package_collect_all_bytes():
+    package = make_input_package(
+        [
+            make_input_stream("media:s1", [b"hello"]),
+            make_input_stream("media:s2", [b" world"]),
+        ]
+    )
+    assert package.collect_all_bytes() == b"hello world"
+
+
+# TEST537: InputPackage empty package produces empty bytes
+def test_537_input_package_empty():
+    package = make_input_package([])
+    assert package.collect_all_bytes() == b""
+
+
+# TEST538: InputPackage propagates stream errors
+def test_538_input_package_error_propagation():
+    package = make_input_package(
+        [
+            make_input_stream("media:good", [b"data"]),
+            make_input_stream("media:bad", [CartridgeRuntimeError("stream error")]),
+        ]
+    )
+    with pytest.raises(CartridgeRuntimeError) as exc_info:
+        package.collect_all_bytes()
+    assert str(exc_info.value) == "stream error"
+
+
 # =============================================================================
 # PeerCall / PeerResponse Tests
 # =============================================================================
 
+# TEST539: OutputStream sends STREAM_START on first write
+def test_539_output_stream_sends_stream_start():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:test",
+        max_chunk=256_000,
+    )
+
+    stream.start(False, None)
+    stream.emit_cbor(b"test")
+
+    assert len(mock_writer.frames) >= 2
+    assert mock_writer.frames[0].frame_type == FrameType.STREAM_START
+    assert mock_writer.frames[0].stream_id == "stream-1"
+
+
+# TEST540: OutputStream::close sends STREAM_END with correct chunk_count
+def test_540_output_stream_close_sends_stream_end():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:test",
+        max_chunk=256_000,
+    )
+
+    stream.start(False, None)
+    stream.emit_cbor(b"chunk1")
+    stream.emit_cbor(b"chunk2")
+    stream.emit_cbor(b"chunk3")
+    stream.close()
+
+    stream_end = next(frame for frame in mock_writer.frames if frame.frame_type == FrameType.STREAM_END)
+    assert stream_end.chunk_count == 3
+
+
+# TEST541: OutputStream chunks large data correctly
+def test_541_output_stream_chunks_large_data():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:",
+        max_chunk=100,
+    )
+
+    stream.start(False, None)
+    stream.emit_cbor(bytes([0xAA]) * 250)
+    stream.close()
+
+    chunks = [frame for frame in mock_writer.frames if frame.frame_type == FrameType.CHUNK]
+    assert len(chunks) >= 3
+
+
+# TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only
+def test_542_output_stream_empty():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:void",
+        max_chunk=256_000,
+    )
+
+    stream.start(False, None)
+    stream.close()
+
+    assert any(frame.frame_type == FrameType.STREAM_START for frame in mock_writer.frames)
+    assert any(frame.frame_type == FrameType.STREAM_END for frame in mock_writer.frames)
+    assert sum(1 for frame in mock_writer.frames if frame.frame_type == FrameType.CHUNK) == 0
+
+
+# TEST543: PeerCall::arg creates OutputStream with correct stream_id
+def test_543_peer_call_arg_creates_stream():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    peer = PeerCall(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        max_chunk=256_000,
+    )
+
+    arg_stream = peer.arg("media:argument")
+    assert arg_stream.media_urn == "media:argument"
+    assert arg_stream.stream_id != ""
+
+
 # TEST544: PeerCall::finish sends END frame
-# In Python, PeerInvokerImpl.invoke() sends END after all args.
-# This test validates that the response queue receives frames including END.
 def test_544_peer_invoker_sends_end_frame():
     """PeerInvokerImpl sends END frame after all args."""
     from capdag.bifaci.frame import compute_checksum
@@ -1947,12 +2196,7 @@ def test_545_peer_response_returns_data():
     assert result == b"response data"
 
 
-# TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately  This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive.  Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads.
-#
-# This tests the critical fix: during a peer call, the peer (e.g., modelcartridge)
-# sends LOG frames for minutes during model download BEFORE sending any data
-# (StreamStart + Chunk). The handler must receive these LOGs in real-time so it
-# can re-emit progress and keep the engine's activity timer alive.
+# TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads.
 def test_839_peer_response_delivers_logs_before_stream_start():
     from capdag.bifaci.frame import compute_checksum
 
@@ -2127,9 +2371,6 @@ def test_683_find_stream_invalid_urn_returns_none():
 # =============================================================================
 
 # TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames)
-# (Mirrors Rust run_with_keepalive returning closure result — Python doesn't have
-# run_with_keepalive because blocking model loads are not done via tokio.
-# Instead we test ProgressSender directly.)
 def test_842_progress_sender_emits_frames():
     emitter, mock_writer = make_mock_emitter()
 

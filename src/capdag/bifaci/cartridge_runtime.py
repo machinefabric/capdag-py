@@ -818,6 +818,213 @@ class Request:
         return self._peer
 
 
+class InputStream:
+    """Synchronous input stream of decoded items for a single media URN."""
+
+    def __init__(self, media_urn: str, q: queue.Queue):
+        self._media_urn = media_urn
+        self._queue = q
+
+    def recv_data(self):
+        """Receive the next item, or None when the stream ends."""
+        item = self._queue.get()
+        if item is None:
+            return None
+        return item
+
+    def collect_bytes(self) -> bytes:
+        """Collect all byte/text chunks into a single byte string."""
+        result = bytearray()
+        while True:
+            item = self.recv_data()
+            if item is None:
+                return bytes(result)
+            if isinstance(item, Exception):
+                raise item
+            if isinstance(item, bytes):
+                result.extend(item)
+                continue
+            if isinstance(item, str):
+                result.extend(item.encode("utf-8"))
+                continue
+            raise RuntimeError(
+                f"InputStream.collect_bytes only supports bytes/str chunks, got {type(item).__name__}"
+            )
+
+    def media_urn(self) -> str:
+        return self._media_urn
+
+
+class InputPackage:
+    """Synchronous package of InputStreams."""
+
+    def __init__(self, q: queue.Queue):
+        self._queue = q
+
+    def recv(self):
+        """Receive the next InputStream, or None when the package ends."""
+        item = self._queue.get()
+        if item is None:
+            return None
+        return item
+
+    def collect_all_bytes(self) -> bytes:
+        """Collect bytes from every stream in order."""
+        result = bytearray()
+        while True:
+            stream = self.recv()
+            if stream is None:
+                return bytes(result)
+            if isinstance(stream, Exception):
+                raise stream
+            if not isinstance(stream, InputStream):
+                raise RuntimeError(
+                    f"InputPackage expected InputStream items, got {type(stream).__name__}"
+                )
+            result.extend(stream.collect_bytes())
+
+
+class OutputStream:
+    """Synchronous output stream that emits STREAM_START/CHUNK/STREAM_END frames."""
+
+    def __init__(
+        self,
+        writer: SyncFrameWriter,
+        request_id: MessageId,
+        stream_id: str,
+        media_urn: str,
+        routing_id: Optional[MessageId] = None,
+        max_chunk: Optional[int] = None,
+    ):
+        self.writer = writer
+        self.request_id = request_id
+        self.stream_id = stream_id
+        self.media_urn = media_urn
+        self.routing_id = routing_id
+        self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
+        self.chunk_index = 0
+        self.started = False
+        self.closed = False
+        self._lock = threading.Lock()
+
+    def _start_unlocked(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        if self.started:
+            return
+        frame = Frame.stream_start(
+            self.request_id,
+            self.stream_id,
+            self.media_urn,
+            is_sequence if is_sequence else None,
+        )
+        if meta is not None:
+            frame.meta = dict(meta)
+        frame.routing_id = self.routing_id
+        self.writer.write(frame)
+        self.started = True
+
+    def start(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Emit STREAM_START exactly once."""
+        with self._lock:
+            self._start_unlocked(is_sequence=is_sequence, meta=meta)
+
+    def _write_chunk_payload(self, payload: bytes) -> None:
+        frame = Frame.chunk(
+            self.request_id,
+            self.stream_id,
+            0,
+            payload,
+            self.chunk_index,
+            compute_checksum(payload),
+        )
+        frame.routing_id = self.routing_id
+        self.writer.write(frame)
+        self.chunk_index += 1
+
+    def emit_cbor(self, value: Any) -> None:
+        """Emit a CBOR value split into max_chunk-sized CHUNK payloads."""
+        with self._lock:
+            if self.closed:
+                raise RuntimeError("OutputStream already closed")
+            if not self.started:
+                self._start_unlocked()
+
+            if isinstance(value, bytes):
+                offset = 0
+                while offset < len(value):
+                    chunk_size = min(self.max_chunk, len(value) - offset)
+                    chunk_bytes = value[offset:offset + chunk_size]
+                    self._write_chunk_payload(cbor2.dumps(chunk_bytes))
+                    offset += chunk_size
+                return
+
+            if isinstance(value, str):
+                encoded = value.encode("utf-8")
+                offset = 0
+                while offset < len(encoded):
+                    chunk_size = min(self.max_chunk, len(encoded) - offset)
+                    while chunk_size > 0:
+                        try:
+                            chunk_str = encoded[offset:offset + chunk_size].decode("utf-8")
+                            break
+                        except UnicodeDecodeError:
+                            chunk_size -= 1
+                    if chunk_size == 0:
+                        raise RuntimeError("Cannot split string on character boundary")
+                    self._write_chunk_payload(cbor2.dumps(chunk_str))
+                    offset += len(chunk_str.encode("utf-8"))
+                return
+
+            self._write_chunk_payload(cbor2.dumps(value))
+
+    def close(self) -> None:
+        """Emit STREAM_END exactly once."""
+        with self._lock:
+            if self.closed:
+                raise RuntimeError("OutputStream already closed")
+            if not self.started:
+                self._start_unlocked()
+            frame = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
+            frame.routing_id = self.routing_id
+            self.writer.write(frame)
+            self.closed = True
+
+
+class PeerCall:
+    """Peer-call helper that owns request-level output streams and final END."""
+
+    def __init__(
+        self,
+        writer: SyncFrameWriter,
+        request_id: MessageId,
+        response: Optional[PeerResponse] = None,
+        routing_id: Optional[MessageId] = None,
+        max_chunk: Optional[int] = None,
+    ):
+        self.writer = writer
+        self.request_id = request_id
+        self.response = response
+        self.routing_id = routing_id
+        self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
+
+    def arg(self, media_urn: str) -> OutputStream:
+        import uuid as _uuid
+
+        return OutputStream(
+            writer=self.writer,
+            request_id=self.request_id,
+            stream_id=str(_uuid.uuid4()),
+            media_urn=media_urn,
+            routing_id=self.routing_id,
+            max_chunk=self.max_chunk,
+        )
+
+    def finish(self) -> Optional[PeerResponse]:
+        frame = Frame.end(self.request_id, None)
+        frame.routing_id = self.routing_id
+        self.writer.write(frame)
+        return self.response
+
+
 # WetContext key for the Request object.
 WET_KEY_REQUEST: str = "request"
 
@@ -835,9 +1042,8 @@ class IdentityOp(Op):
             if frame.frame_type == FrameType.CHUNK:
                 # Verify checksum (protocol v2 integrity check)
                 verify_chunk_checksum(frame)
-                if frame.payload:
-                    value = cbor2.loads(frame.payload)
-                    req.emitter().emit_cbor(value)
+                if frame.payload is not None:
+                    req.emitter().write(frame.payload)
             elif frame.frame_type == FrameType.END:
                 break
 

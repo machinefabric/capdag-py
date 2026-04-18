@@ -21,6 +21,14 @@ from typing import List
 import cbor2
 
 
+def _strict_cbor_loads(data: bytes):
+    """Decode one standalone CBOR value and reject invalid top-level break markers."""
+    value = cbor2.loads(data)
+    if value is cbor2.break_marker:
+        raise CborDeserializeError("invalid standalone break marker")
+    return value
+
+
 class CborUtilError(Exception):
     """Base class for CBOR utility errors."""
     pass
@@ -61,8 +69,10 @@ def split_cbor_array(data: bytes) -> List[bytes]:
         CborDeserializeError: If the input bytes are not valid CBOR.
     """
     try:
-        value = cbor2.loads(data)
+        value = _strict_cbor_loads(data)
     except Exception as e:
+        if isinstance(e, CborDeserializeError):
+            raise
         raise CborDeserializeError(str(e)) from e
 
     if not isinstance(value, list):
@@ -94,8 +104,10 @@ def assemble_cbor_array(items: List[bytes]) -> bytes:
     values = []
     for i, item in enumerate(items):
         try:
-            values.append(cbor2.loads(item))
+            values.append(_strict_cbor_loads(item))
         except Exception as e:
+            if isinstance(e, CborDeserializeError):
+                raise CborDeserializeError(f"Item {i}: {e}") from e
             raise CborDeserializeError(f"Item {i}: {e}") from e
 
     try:
@@ -121,19 +133,30 @@ def split_cbor_sequence(data: bytes) -> List[bytes]:
         raise CborEmptyArrayError()
 
     items: List[bytes] = []
-    stream = io.BytesIO(data)
+    offset = 0
 
-    while stream.tell() < len(data):
+    while offset < len(data):
+        chunk = data[offset:]
         try:
-            decoder = cbor2.CBORDecoder(stream)
-            value = decoder.decode()
+            decoder = cbor2.CBORDecoder(io.BytesIO(b""))
+            value = decoder.decode_from_bytes(chunk)
+            if value is cbor2.break_marker:
+                raise CborDeserializeError("invalid standalone break marker")
         except Exception as e:
+            if isinstance(e, CborDeserializeError):
+                raise
             raise CborDeserializeError(str(e)) from e
 
         try:
-            items.append(cbor2.dumps(value))
+            item_bytes = cbor2.dumps(value)
         except Exception as e:
             raise CborSerializeError(str(e)) from e
+
+        if not item_bytes:
+            raise CborDeserializeError("decoded empty CBOR item")
+
+        items.append(item_bytes)
+        offset += len(item_bytes)
 
     if not items:
         raise CborEmptyArrayError()
@@ -154,8 +177,10 @@ def assemble_cbor_sequence(items: List[bytes]) -> bytes:
     for i, item in enumerate(items):
         # Validate each item is valid CBOR
         try:
-            cbor2.loads(item)
+            _strict_cbor_loads(item)
         except Exception as e:
+            if isinstance(e, CborDeserializeError):
+                raise CborDeserializeError(f"Item {i}: {e}") from e
             raise CborDeserializeError(f"Item {i}: {e}") from e
         result.extend(item)
     return bytes(result)

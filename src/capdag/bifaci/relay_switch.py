@@ -34,7 +34,7 @@ from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass
 
 from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
-from capdag.bifaci.io import FrameReader, FrameWriter, CborError
+from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity
 from capdag.urn.cap_urn import CapUrn
 
 # =============================================================================
@@ -162,6 +162,13 @@ class RelaySwitch:
                 raise ProtocolError("RelayNotify missing manifest or limits")
 
             caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+            reader.set_limits(limits)
+            writer.set_limits(limits)
+
+            try:
+                verify_identity(reader, writer)
+            except Exception as e:
+                raise ProtocolError(f"identity verification failed: {e}") from e
 
             # Spawn reader thread for this master
             reader_thread = threading.Thread(
@@ -416,10 +423,17 @@ class RelaySwitch:
             if dispatchable:
                 specificity = registered_urn.specificity()
                 signed_distance = specificity - request_specificity
-                # Check if this registered cap is equivalent to the preferred cap
+                # Preferred-cap routing must select the exact registered cap, not
+                # any order-theoretically equivalent cap. Broad and specific caps
+                # can be comparable/equivalent in the dispatch lattice while still
+                # representing different concrete registrations.
                 is_preferred = False
                 if preferred_urn:
-                    is_preferred = preferred_urn.is_equivalent(registered_urn)
+                    is_preferred = (
+                        preferred_urn.in_urn == registered_urn.in_urn
+                        and preferred_urn.out_urn == registered_urn.out_urn
+                        and preferred_urn.tags == registered_urn.tags
+                    )
                 matches.append((master_idx, signed_distance, is_preferred))
 
         if not matches:

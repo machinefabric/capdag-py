@@ -14,6 +14,7 @@ from capdag.bifaci.io import (
     FrameWriter,
     handshake,
     handshake_accept,
+    verify_identity,
     HandshakeResult,
     CborError,
     FrameTooLargeError,
@@ -138,16 +139,24 @@ def test_213_read_frame_fails_on_incomplete_frame_data():
 
 
 # TEST214: Test write_frame/read_frame IO roundtrip through length-prefixed wire format
-def test_214_write_frame_enforces_max_frame_size():
+def test_214_write_read_frame_io_roundtrip():
     output = io.BytesIO()
+    limits = Limits(10000, 5000)
+    original = Frame.req(
+        MessageId.new_uuid(),
+        "cap:op=test",
+        b"payload",
+        "application/json",
+    )
 
-    # Create a frame with large payload (use CHUNK frame since RES removed in Protocol v2)
-    payload = b"x" * 2000
-    frame = Frame.chunk(MessageId.new_uuid(), "test-stream", 0, payload, 0, compute_checksum(payload))
-    limits = Limits(1024, 512)  # Max frame 1KB
+    write_frame(output, original, limits)
+    output.seek(0)
+    decoded = read_frame(output, limits)
 
-    with pytest.raises(FrameTooLargeError):
-        write_frame(output, frame, limits)
+    assert decoded is not None
+    assert decoded.frame_type == original.frame_type
+    assert decoded.cap == original.cap
+    assert decoded.payload == original.payload
 
 
 # TEST215: Test reading multiple sequential frames from a single buffer
@@ -155,11 +164,14 @@ def test_215_frame_reader_reads_multiple_frames():
     output = io.BytesIO()
     limits = Limits(10000, 5000)
 
-    frame1 = Frame.hello(1024, 512)
-    frame2 = Frame.hello(2048, 1024)
+    frame1 = Frame.req(MessageId.new_uuid(), "cap:op=first", b"one", "text/plain")
+    payload = b"two"
+    frame2 = Frame.chunk(MessageId.new_uuid(), "stream-001", 0, payload, 0, compute_checksum(payload))
+    frame3 = Frame.end(MessageId.new_uuid(), b"three")
 
     write_frame(output, frame1, limits)
     write_frame(output, frame2, limits)
+    write_frame(output, frame3, limits)
 
     # Read back
     output.seek(0)
@@ -167,132 +179,310 @@ def test_215_frame_reader_reads_multiple_frames():
 
     read1 = reader.read()
     assert read1 is not None
-    assert read1.hello_max_frame() == 1024
+    assert read1.frame_type == FrameType.REQ
+    assert read1.id == frame1.id
 
     read2 = reader.read()
     assert read2 is not None
-    assert read2.hello_max_frame() == 2048
+    assert read2.frame_type == FrameType.CHUNK
+    assert read2.id == frame2.id
+    assert read2.stream_id == "stream-001"
+
+    read3 = reader.read()
+    assert read3 is not None
+    assert read3.frame_type == FrameType.END
+    assert read3.id == frame3.id
+
+    assert reader.read() is None
 
 
 # TEST216: Test write_frame rejects frames exceeding max_frame limit
-def test_216_frame_writer_writes_multiple_frames():
+def test_216_write_frame_rejects_oversized_frame():
     output = io.BytesIO()
-    limits = Limits(10000, 5000)
-    writer = FrameWriter(output, limits)
+    limits = Limits(100, 50)
+    payload = b"x" * 200
+    frame = Frame.req(
+        MessageId.new_uuid(),
+        "cap:op=test",
+        payload,
+        "application/octet-stream",
+    )
 
-    frame1 = Frame.hello(1024, 512)
-    frame2 = Frame.hello(2048, 1024)
-
-    writer.write(frame1)
-    writer.write(frame2)
-
-    # Read back
-    output.seek(0)
-    reader = FrameReader(output, limits)
-
-    read1 = reader.read()
-    read2 = reader.read()
-
-    assert read1.hello_max_frame() == 1024
-    assert read2.hello_max_frame() == 2048
+    with pytest.raises(FrameTooLargeError):
+        write_frame(output, frame, limits)
 
 
 # TEST217: Test read_frame rejects incoming frames exceeding the negotiated max_frame limit
-def test_217_frame_reader_new_creates_with_default_limits():
-    input_stream = io.BytesIO()
-    reader = FrameReader.new(input_stream)
+def test_217_read_frame_rejects_oversized_incoming_frame():
+    output = io.BytesIO()
+    write_limits = Limits(10_000_000, 1_000_000)
+    read_limits = Limits(50, 50)
+    frame = Frame.req(
+        MessageId.new_uuid(),
+        "cap:op=test",
+        b"x" * 200,
+        "text/plain",
+    )
 
-    assert reader.get_limits().max_frame == DEFAULT_MAX_FRAME
-    assert reader.get_limits().max_chunk == DEFAULT_MAX_CHUNK
+    write_frame(output, frame, write_limits)
+    output.seek(0)
+
+    with pytest.raises(FrameTooLargeError):
+        read_frame(output, read_limits)
 
 
 # TEST218: Test write_chunked splits data into chunks respecting max_chunk and reconstructs correctly Chunks from write_chunked have seq=0. SeqAssigner at the output stage assigns final seq. Chunk ordering within a stream is tracked by chunk_index (chunk_index field).
-def test_218_frame_writer_new_creates_with_default_limits():
+def test_218_write_chunked_splits_and_reconstructs():
     output = io.BytesIO()
-    writer = FrameWriter.new(output)
+    limits = Limits(1_000_000, 10)
+    writer = FrameWriter(output, limits)
 
-    assert writer.get_limits().max_frame == DEFAULT_MAX_FRAME
-    assert writer.get_limits().max_chunk == DEFAULT_MAX_CHUNK
+    request_id = MessageId.new_uuid()
+    stream_id = "stream-test-218"
+    data = b"Hello, this is a longer message that will be chunked!"
+
+    writer.write_chunked(request_id, stream_id, "text/plain", data)
+    output.seek(0)
+
+    reader = FrameReader(output, Limits(1_000_000, 1_000_000))
+    received = b""
+    chunk_count = 0
+    first_chunk_had_len = False
+    first_chunk_had_content_type = False
+
+    while True:
+        frame = reader.read()
+        assert frame is not None
+        assert frame.frame_type == FrameType.CHUNK
+        assert frame.id == request_id
+        assert frame.stream_id == stream_id
+        assert frame.seq == 0
+        assert frame.chunk_index == chunk_count
+
+        if chunk_count == 0:
+            first_chunk_had_len = frame.len is not None
+            first_chunk_had_content_type = frame.content_type is not None
+            assert frame.len == len(data)
+            assert frame.content_type == "text/plain"
+
+        received += frame.payload or b""
+        if frame.eof:
+            break
+        chunk_count += 1
+
+    assert received == data
+    assert chunk_count > 0
+    assert first_chunk_had_len
+    assert first_chunk_had_content_type
 
 
 # TEST219: Test write_chunked with empty data produces a single EOF chunk
-def test_219_frame_reader_with_limits():
-    input_stream = io.BytesIO()
-    limits = Limits(2048, 1024)
-    reader = FrameReader.with_limits(input_stream, limits)
+def test_219_write_chunked_empty_data():
+    output = io.BytesIO()
+    limits = Limits(1_000_000, 100)
+    writer = FrameWriter(output, limits)
 
-    assert reader.get_limits().max_frame == 2048
-    assert reader.get_limits().max_chunk == 1024
+    request_id = MessageId.new_uuid()
+    writer.write_chunked(request_id, "stream-empty", "text/plain", b"")
+    output.seek(0)
+
+    frame = read_frame(output, limits)
+    assert frame is not None
+    assert frame.frame_type == FrameType.CHUNK
+    assert frame.stream_id == "stream-empty"
+    assert frame.eof is True
+    assert frame.len == 0
+    assert frame.payload == b""
+    assert read_frame(output, limits) is None
 
 
 # TEST220: Test write_chunked with data exactly equal to max_chunk produces exactly one chunk
-def test_220_frame_writer_with_limits():
+def test_220_write_chunked_exact_fit():
     output = io.BytesIO()
-    limits = Limits(2048, 1024)
-    writer = FrameWriter.with_limits(output, limits)
+    limits = Limits(1_000_000, 10)
+    writer = FrameWriter(output, limits)
 
-    assert writer.get_limits().max_frame == 2048
-    assert writer.get_limits().max_chunk == 1024
+    request_id = MessageId.new_uuid()
+    data = b"0123456789"
+    writer.write_chunked(request_id, "stream-exact", "text/plain", data)
+    output.seek(0)
+
+    frame = read_frame(output, Limits(1_000_000, 1_000_000))
+    assert frame is not None
+    assert frame.stream_id == "stream-exact"
+    assert frame.eof is True
+    assert frame.payload == data
+    assert frame.seq == 0
+    assert read_frame(output, Limits(1_000_000, 1_000_000)) is None
 
 
 # TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream)
-def test_221_frame_reader_set_limits():
-    input_stream = io.BytesIO()
-    reader = FrameReader.new(input_stream)
-
-    new_limits = Limits(4096, 2048)
-    reader.set_limits(new_limits)
-
-    assert reader.get_limits().max_frame == 4096
-    assert reader.get_limits().max_chunk == 2048
+def test_221_read_frame_returns_none_on_eof():
+    input_stream = io.BytesIO(b"")
+    assert read_frame(input_stream, Limits.default()) is None
 
 
 # TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available)
-def test_222_frame_writer_set_limits():
-    output = io.BytesIO()
-    writer = FrameWriter.new(output)
-
-    new_limits = Limits(4096, 2048)
-    writer.set_limits(new_limits)
-
-    assert writer.get_limits().max_frame == 4096
-    assert writer.get_limits().max_chunk == 2048
+def test_222_read_frame_fails_on_truncated_length_prefix():
+    input_stream = io.BytesIO(b"\x00\x01")
+    with pytest.raises(UnexpectedEofError):
+        read_frame(input_stream, Limits.default())
 
 
 # TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available)
-def test_223_handshake_host_sends_hello_first():
-    # Create connected streams (simulate pipe)
+def test_223_read_frame_fails_on_truncated_frame_body():
+    input_stream = io.BytesIO(b"\x00\x00\x00\x64" + b"\x01\x02\x03\x04\x05")
+    with pytest.raises(UnexpectedEofError):
+        read_frame(input_stream, Limits.default())
+
+
+# TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage
+def test_461_write_chunked_seq_zero():
+    output = io.BytesIO()
+    limits = Limits(1_000_000, 5)
+    writer = FrameWriter(output, limits)
+
+    request_id = MessageId.new_uuid()
+    writer.write_chunked(request_id, "s", "application/octet-stream", b"abcdefghij")
+    output.seek(0)
+
+    reader = FrameReader(output, Limits(1_000_000, 1_000_000))
+    frames = []
+
+    while True:
+        frame = reader.read()
+        assert frame is not None
+        frames.append(frame)
+        if frame.eof:
+            break
+
+    assert len(frames) == 2
+    assert [frame.seq for frame in frames] == [0, 0]
+    assert [frame.chunk_index for frame in frames] == [0, 1]
+    assert frames[0].payload == b"abcde"
+    assert frames[1].payload == b"fghij"
+
+
+# TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides)
+def test_472_handshake_negotiates_reorder_buffer():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
 
-    # Host side
     host_writer = FrameWriter.new(host_to_cartridge)
     host_reader = FrameReader.new(cartridge_to_host)
+    host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, 64))
 
-    # Cartridge side - prepare response
-    manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
+    host_to_cartridge.seek(0)
     cartridge_reader = FrameReader.new(host_to_cartridge)
     cartridge_writer = FrameWriter.new(cartridge_to_host)
+    received = cartridge_reader.read()
+    assert received is not None
+    assert received.hello_max_reorder_buffer() == 64
 
-    # Host initiates
-    host_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
-    host_writer.write(host_hello)
+    manifest = b'{"name":"test","version":"1.0.0","description":"test","caps":[{"urn":"cap:in=media:;out=media:"}]}'
+    cartridge_writer.write(
+        Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 32)
+    )
 
-    # Cartridge receives and responds
-    host_to_cartridge.seek(0)
-    received_hello = cartridge_reader.read()
-    assert received_hello is not None
-    assert received_hello.frame_type == FrameType.HELLO
-
-    # Cartridge responds with manifest
-    cartridge_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
-    cartridge_writer.write(cartridge_hello)
-
-    # Host reads response
     cartridge_to_host.seek(0)
-    result = host_reader.read()
-    assert result is not None
-    assert result.hello_manifest() == manifest
+    result = handshake(host_reader, host_writer)
+    assert isinstance(result, HandshakeResult)
+    assert result.manifest == manifest
+    assert result.limits.max_reorder_buffer == 32
+
+
+# TEST481: verify_identity succeeds with standard identity echo handler
+def test_481_verify_identity_succeeds():
+    import socket
+    import threading
+
+    host_read_sock, cartridge_write_sock = socket.socketpair()
+    cartridge_read_sock, host_write_sock = socket.socketpair()
+    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb"))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb"))
+        handshake_accept(reader, writer, manifest)
+        req = reader.read()
+        assert req is not None and req.frame_type == FrameType.REQ
+        ss = reader.read()
+        chunk = reader.read()
+        se = reader.read()
+        end = reader.read()
+        assert ss.frame_type == FrameType.STREAM_START
+        assert chunk.frame_type == FrameType.CHUNK
+        assert se.frame_type == FrameType.STREAM_END
+        assert end.frame_type == FrameType.END
+        writer.write(Frame.stream_start(req.id, "identity-verify", "media:"))
+        writer.write(Frame.chunk(req.id, "identity-verify", 0, chunk.payload, 0, compute_checksum(chunk.payload)))
+        writer.write(Frame.stream_end(req.id, "identity-verify", 1))
+        writer.write(Frame.end(req.id, None))
+
+    t = threading.Thread(target=cartridge_thread, daemon=True)
+    t.start()
+
+    reader = FrameReader(host_read_sock.makefile("rb"))
+    writer = FrameWriter(host_write_sock.makefile("wb"))
+    handshake(reader, writer)
+    verify_identity(reader, writer)
+    t.join(timeout=2)
+
+
+# TEST482: verify_identity fails when cartridge returns ERR on identity call
+def test_482_verify_identity_fails_on_err():
+    import socket
+    import threading
+
+    host_read_sock, cartridge_write_sock = socket.socketpair()
+    cartridge_read_sock, host_write_sock = socket.socketpair()
+    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb"))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb"))
+        handshake_accept(reader, writer, manifest)
+        req = reader.read()
+        assert req is not None and req.frame_type == FrameType.REQ
+        writer.write(Frame.err(req.id, "BROKEN", "identity handler broken"))
+
+    t = threading.Thread(target=cartridge_thread, daemon=True)
+    t.start()
+
+    reader = FrameReader(host_read_sock.makefile("rb"))
+    writer = FrameWriter(host_write_sock.makefile("wb"))
+    handshake(reader, writer)
+    with pytest.raises(HandshakeError) as exc_info:
+        verify_identity(reader, writer)
+    assert "BROKEN" in str(exc_info.value)
+    t.join(timeout=2)
+
+
+# TEST483: verify_identity fails when connection closes before response
+def test_483_verify_identity_fails_on_close():
+    import socket
+    import threading
+
+    host_read_sock, cartridge_write_sock = socket.socketpair()
+    cartridge_read_sock, host_write_sock = socket.socketpair()
+    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+
+    def cartridge_thread():
+        reader = FrameReader(cartridge_read_sock.makefile("rb"))
+        writer = FrameWriter(cartridge_write_sock.makefile("wb"))
+        handshake_accept(reader, writer, manifest)
+        _ = reader.read()
+        cartridge_write_sock.close()
+
+    t = threading.Thread(target=cartridge_thread, daemon=True)
+    t.start()
+
+    reader = FrameReader(host_read_sock.makefile("rb"))
+    writer = FrameWriter(host_write_sock.makefile("wb"))
+    handshake(reader, writer)
+    with pytest.raises(HandshakeError):
+        verify_identity(reader, writer)
+    t.join(timeout=2)
 
 
 # TEST224: Test MessageId::Uint roundtrips through encode/decode
