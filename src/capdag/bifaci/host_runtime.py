@@ -745,7 +745,7 @@ class CartridgeHost:
             self._capabilities = None
             return
 
-        self._capabilities = json.dumps({"caps": all_caps}).encode("utf-8")
+        self._capabilities = json.dumps({"caps": all_caps, "installed_cartridges": []}).encode("utf-8")
 
     def _kill_all_cartridges(self) -> None:
         """Stop all managed cartridges."""

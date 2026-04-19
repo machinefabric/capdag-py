@@ -555,7 +555,8 @@ class RelaySwitch:
                 all_caps.update(master.caps)
 
         manifest = {
-            "capabilities": sorted(list(all_caps))
+            "caps": sorted(list(all_caps)),
+            "installed_cartridges": [],
         }
         self._aggregate_capabilities = json.dumps(manifest).encode("utf-8")
 
@@ -607,24 +608,20 @@ class _MasterConnection:
 def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeIdentity]]:
     """Parse capability URNs and installed cartridges from RelayNotify manifest JSON.
 
-    Tries "caps" first (new format), falls back to "capabilities" (old format).
-    Returns (caps, installed_cartridges).
+    The payload must contain "caps" (list of URN strings) and optionally
+    "installed_cartridges". Returns (caps, installed_cartridges).
     """
     try:
         parsed = json.loads(manifest.decode("utf-8"))
     except json.JSONDecodeError as e:
         raise ProtocolError(f"Failed to parse manifest JSON: {e}")
 
-    # Try "caps" first (new format), fall back to "capabilities" (old format)
-    if "caps" in parsed:
-        caps_value = parsed["caps"]
-    elif "capabilities" in parsed:
-        caps_value = parsed["capabilities"]
-    else:
-        raise ProtocolError("manifest missing caps/capabilities array")
+    if "caps" not in parsed:
+        raise ProtocolError("manifest missing required caps array")
 
+    caps_value = parsed["caps"]
     if not isinstance(caps_value, list):
-        raise ProtocolError(f"Manifest capabilities must be array, got {type(caps_value)}")
+        raise ProtocolError(f"Manifest caps must be array, got {type(caps_value)}")
     caps = [str(cap) for cap in caps_value]
 
     installed_cartridges = []

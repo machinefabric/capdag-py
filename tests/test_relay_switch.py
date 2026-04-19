@@ -30,7 +30,7 @@ def send_notify(writer: FrameWriter, manifest_json: dict, limits: Limits):
 
 
 def make_manifest(*caps: str) -> dict:
-    return {"caps": ["cap:", *caps]}
+    return {"caps": ["cap:", *caps], "installed_cartridges": []}
 
 
 def complete_identity_verification(reader: FrameReader, writer: FrameWriter) -> None:
@@ -281,7 +281,7 @@ def test_429_find_master_for_cap():
 
     # Verify aggregate capabilities
     caps = json.loads(switch.capabilities())
-    cap_list = caps["capabilities"]
+    cap_list = caps["caps"]
     assert len(cap_list) == 3
     assert "cap:" in cap_list
 
@@ -599,7 +599,7 @@ def test_433_capability_aggregation_deduplicates():
     ])
 
     caps = json.loads(switch.capabilities())
-    cap_list = sorted(caps["capabilities"])
+    cap_list = sorted(caps["caps"])
 
     # Should have 4 unique caps including CAP_IDENTITY (echo appears twice but deduplicated)
     assert len(cap_list) == 4
