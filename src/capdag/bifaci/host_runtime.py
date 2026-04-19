@@ -769,7 +769,7 @@ class CartridgeHost:
 def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
     """Parse cap URNs from a JSON manifest.
 
-    Expected format: {"caps": [{"urn": "cap:op=test", ...}, ...]}
+    Expected format: {"cap_groups": [{"caps": [{"urn": "cap:op=test", ...}, ...]}]}
     """
     from capdag.standard.caps import CAP_IDENTITY
 
@@ -777,11 +777,16 @@ def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
         return []
 
     parsed = json.loads(manifest)
+    cap_groups = parsed.get("cap_groups")
+    if not cap_groups:
+        raise ValueError("Manifest missing required cap_groups array")
+
     caps = []
-    for cap in parsed.get("caps", []):
-        urn = cap.get("urn", "")
-        if urn:
-            caps.append(urn)
+    for group in cap_groups:
+        for cap in group.get("caps", []):
+            urn = cap.get("urn", "")
+            if urn:
+                caps.append(urn)
 
     if CAP_IDENTITY not in caps:
         raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
