@@ -1,12 +1,12 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 959
+**Total Tests:** 999
 
-**Numbered Tests:** 933
+**Numbered Tests:** 973
 
 **Unnumbered Tests:** 26
 
-**Numbered Tests Missing Descriptions:** 0
+**Numbered Tests Missing Descriptions:** 1
 
 **Numbering Mismatches:** 0
 
@@ -883,37 +883,59 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:133 |
 | test1108 | `test_1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | tests/test_planner_argument_binding.py:160 |
 | test1109 | `test_1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | tests/test_planner_argument_binding.py:187 |
-| test1111 | `test_1111_unknown_cap_error_when_not_in_registry` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:list;textable;txt is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_machine.py:113 |
-| test1112 | `test_1112_single_edge_strand_resolves_correctly` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_machine.py:132 |
-| test1113 | `test_1113_two_step_chain_shares_intermediate_node` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_machine.py:157 |
-| test1114 | `test_1114_from_strand_produces_single_strand_machine` | TEST1114: Graph stores only Cap edges after sync | tests/test_machine.py:192 |
-| test1115 | `test_1115_from_strands_keeps_strands_disjoint` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_machine.py:209 |
-| test1116 | `test_1116_from_strands_empty_raises_no_capability_steps` | TEST1116: Collect is never synthesized during path finding | tests/test_machine.py:233 |
-| test1117 | `test_1117_machine_is_equivalent_strict_positional_order_matters` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_machine.py:243 |
-| test1118 | `test_1118_strand_is_equivalent_consistent_node_bijection` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_machine.py:267 |
-| test1119 | `test_1119_match_sources_to_args_single_trivial` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_machine.py:288 |
-| test1120 | `test_1120_match_sources_more_specific_source_matches_general_arg` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_machine.py:304 |
-| test1121 | `test_1121_match_sources_unmatched_source_fails_hard` | TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support) | tests/test_machine.py:317 |
-| test1122 | `test_1122_match_sources_ambiguous_raises_ambiguous_error` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_machine.py:334 |
-| test1123 | `test_1123_cyclic_strand_fails_hard` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_machine.py:351 |
-| test1124 | `test_1124_machine_parse_error_wraps_syntax_error` | TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field | tests/test_machine.py:380 |
-| test1125 | `test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause` | TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight] | tests/test_machine.py:395 |
-| test1126 | `test_1126_parse_machine_single_wiring_one_strand` | TEST1126: map_progress is deterministic — same inputs always produce same output | tests/test_machine.py:416 |
-| test1127 | `test_1127_parse_machine_disconnected_wirings_become_separate_strands` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't. | tests/test_machine.py:437 |
-| test1128 | `test_1128_parse_machine_shared_node_name_yields_one_strand` | TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null. | tests/test_machine.py:461 |
-| test1129 | `test_1129_binding_slot_identity_is_outer_media_urn` | TEST1129: A JSON document produced by capgraph (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | tests/test_machine.py:486 |
-| test1130 | `test_1130_strand_equivalence_rejects_mismatched_node_urns` | TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description. | tests/test_machine.py:528 |
-| test1131 | `test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec. This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_machine.py:554 |
-| test1132 | `test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps` | TEST1132: MediaSpecDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_machine.py:589 |
-| test1133 | `test_1133_machine_from_string_delegates_to_parse_machine` | TEST1133: MediaSpecDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_machine.py:615 |
-| test1134 | `test_1134_abstraction_error_subclass_hierarchy` | TEST1134: All resolution error subclasses are instances of MachineAbstractionError. | tests/test_machine.py:636 |
-| test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:653 |
-| test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:672 |
-| test1137 | `test_1137_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:688 |
+| test1134 | `test_1134_abstraction_error_subclass_hierarchy` | TEST1134: All resolution error subclasses are instances of MachineAbstractionError. | tests/test_machine.py:554 |
+| test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:571 |
+| test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:590 |
+| test1137 | `test_1137_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:606 |
 | test1142 | `test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes` | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels | tests/test_orchestrator_types.py:13 |
+| test1143 | `test_1143_input_item_from_string_distinguishes_glob_directory_and_file` | TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path. | tests/test_input_resolver.py:533 |
+| test1144 | `test_1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and string values are correct. | tests/test_input_resolver.py:551 |
+| test1145 | `test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality` | TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence. | tests/test_input_resolver.py:562 |
+| test1146 | `test_1146_input_resolver_error_display_and_source` | TEST1146: InputResolverError subclass display messages and exception hierarchy are correct. | tests/test_input_resolver.py:596 |
+| test1147 | `test_1147_machine_syntax_error_display_is_specific` | TEST1147: InvalidWiringError display message is human-readable and specific. | tests/test_machine.py:687 |
+| test1148 | `test_1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause. | tests/test_machine.py:694 |
+| test1149 | `test_1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause. | tests/test_machine.py:704 |
+| test1150 | `test_1150_add_cap_and_basic_traversal` | TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output. | tests/test_live_cap_graph.py:372 |
+| test1151 | `test_1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular path over indirect paths with more steps. | tests/test_live_cap_graph.py:392 |
+| test1152 | `test_1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | tests/test_live_cap_graph.py:416 |
+| test1153 | `test_1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | tests/test_live_cap_graph.py:432 |
+| test1154 | `test_1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | tests/test_live_cap_graph.py:452 |
+| test1155 | `test_1155_from_strand_produces_single_strand_machine` | TEST1155: Building a machine from one strand produces one strand with one resolved edge. | tests/test_machine.py:180 |
+| test1156 | `test_1156_from_strands_keeps_strands_disjoint` | TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order. | tests/test_machine.py:194 |
+| test1157 | `test_1157_from_strands_empty_raises_no_capability_steps` | TEST1157: Building from zero strands fails with NoCapabilitySteps. | tests/test_machine.py:215 |
+| test1158 | `test_1158_machine_is_equivalent_strict_positional_order_matters` | TEST1158: Machine equivalence is strict about strand order and rejects reordered strands. | tests/test_machine.py:222 |
+| test1159 | `test_1159_strand_is_equivalent_consistent_node_bijection` | TEST1159: MachineStrand equivalence accepts two separately built but structurally identical strands. | tests/test_machine.py:243 |
 | test1161 | `test_1161_simple_linear_chain_conversion` | TEST1161: Converting a simple linear plan produces resolved edges for the cap-to-cap chain. | tests/test_orchestrator_plan_converter.py:73 |
 | test1162 | `test_1162_heartbeat_frame_with_memory_meta` | TEST1162: Heartbeat frames preserve self-reported memory values stored in metadata. | tests/test_cbor_frame.py:1562 |
+| test1163 | `test_1163_parse_machine_shared_node_name_yields_one_strand` | TEST1163: Two caps whose wirings share a node name are folded into a single strand with two edges. | tests/test_machine.py:405 |
+| test1164 | `test_1164_parse_machine_disconnected_wirings_become_separate_strands` | TEST1164: Parsing two disconnected strand definitions yields two separate machine strands. | tests/test_machine.py:381 |
+| test1165 | `test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause` | TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache. | tests/test_machine.py:345 |
+| test1166 | `test_1166_parse_duplicate_alias_is_syntax_error` | TEST1166: Parsing notation that declares the same alias twice is rejected as a syntax error. | tests/test_machine.py:724 |
+| test1167 | `test_1167_parse_undefined_alias_is_syntax_error` | TEST1167: Wiring that references an undefined alias is reported as a syntax error. | tests/test_machine.py:737 |
+| test1168 | `test_1168_parse_node_alias_collision_with_header_alias_fails_hard` | TEST1168: Parsing rejects node names that collide with declared cap aliases. | tests/test_machine.py:749 |
+| test1169 | `test_1169_parse_loop_marker_sets_is_loop_on_resolved_edge` | TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step. | tests/test_machine.py:762 |
+| test1170 | `test_1170_parse_then_serialize_round_trips_to_canonical_form` | TEST1170: Parsing and then serializing machine notation round-trips to the canonical form. | tests/test_machine.py:778 |
+| test1171 | `test_1171_machine_parse_error_wraps_syntax_error` | TEST1171: Empty machine notation is rejected as a syntax error. | tests/test_machine.py:333 |
+| test1172 | `test_1172_serialize_two_step_strand_emits_global_aliases_and_node_names` | TEST1172: Serializing a two-step strand emits global edge_N aliases and nN node names. | tests/test_machine.py:804 |
+| test1173 | `test_1173_serialize_then_parse_round_trip_preserves_strict_equivalence` | TEST1173: Serializing and reparsing a machine preserves strict machine equivalence. | tests/test_machine.py:822 |
+| test1174 | `test_1174_line_based_format_round_trips_to_same_machine` | TEST1174: The line-based notation format round-trips back to the same machine. | tests/test_machine.py:839 |
+| test1175 | `test_1175_empty_machine_serializes_to_empty_string` | TEST1175: Serializing an empty machine produces an empty string. | tests/test_machine.py:855 |
+| test1176 | `test_1176_render_payload_json_includes_strand_with_anchors` | TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine. | tests/test_machine.py:863 |
+| test1177 | `test_1177_render_payload_for_empty_machine_has_empty_strands_array` | TEST1177: Rendering payload JSON for an empty machine emits an empty strands array. | tests/test_machine.py:886 |
+| test1178 | `test_1178_match_sources_to_args_single_trivial` | TEST1178: Source-to-arg matching: single source picks the unique arg. | tests/test_machine.py:256 |
+| test1179 | `test_1179_match_sources_more_specific_source_matches_general_arg` | TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument. | tests/test_machine.py:269 |
+| test1180 | `test_1180_match_sources_unmatched_source_fails_hard` | TEST1180: Matching fails when a source does not conform to any cap input argument. | tests/test_machine.py:279 |
+| test1181 | `test_1181_match_two_sources_disambiguated_by_specificity` | TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment. | tests/test_machine.py:898 |
+| test1182 | `test_1182_match_sources_ambiguous_raises_ambiguous_error` | TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost. | tests/test_machine.py:293 |
+| test1183 | `test_1183_match_more_sources_than_args_fails_hard` | TEST1183: Matching fails when more sources are provided than the cap has input arguments. | tests/test_machine.py:918 |
+| test1184 | `test_1184_single_edge_strand_resolves_correctly` | TEST1184: Resolving a strand with one cap produces one resolved machine edge. | tests/test_machine.py:126 |
+| test1185 | `test_1185_two_step_chain_shares_intermediate_node` | TEST1185: Resolving a strand with two chained caps shares the intermediate node. | tests/test_machine.py:148 |
+| test1186 | `test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST1186: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True. | tests/test_machine.py:498 |
+| test1187 | `test_1187_unknown_cap_error_when_not_in_registry` | TEST1187: Resolving a strand fails hard when a referenced cap is not in the registry. | tests/test_machine.py:110 |
 | test1188 | `test_1188_resolve_strand_no_cap_steps_fails_hard` | TEST1188: Strand resolution fails when the strand contains no capability steps. | tests/test_machine.py:103 |
+| test1189 | `test_1189_resolve_strand_canonical_anchor_order_is_stable` | TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs. | tests/test_machine.py:927 |
+| test1190 | `test_1190_resolve_strand_inverse_format_converters_no_cycle` | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. | tests/test_machine.py:942 |
+| test1191 | `test_1191_binding_slot_identity_is_outer_media_urn` | TEST1191: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN. | tests/test_machine.py:430 |
 | test1221 | `test_1221_refine_with_matching_adapter` | TEST1221: Matching value adapters refine the base media URN when the value fits. | tests/test_input_resolver.py:320 |
 | test1222 | `test_1222_refine_no_matching_adapter` | TEST1222: Base URNs without a registered adapter are returned unchanged. | tests/test_input_resolver.py:327 |
 | test1223 | `test_1223_refine_adapter_returns_none` | TEST1223: Adapters that decline to refine leave the original media URN intact. | tests/test_input_resolver.py:334 |
@@ -927,6 +949,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1236 | `test_1236_disc_2_model_spec_content_survives_pattern` | TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. | tests/test_input_resolver.py:397 |
 | test1237 | `test_1237_disc_5_empty_candidates` | TEST1237: Empty candidates -> empty result | tests/test_input_resolver.py:412 |
 | test1238 | `test_1238_disc_6_unknown_urn_survives` | TEST1238: Unknown URN survives discrimination | tests/test_input_resolver.py:420 |
+| test1256 | `test_1256_parse_simple_machine` | TEST1256: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge. | tests/test_orchestrator_parser.py:45 |
+| test1257 | `test_1257_parse_two_step_chain` | TEST1257: Two sequential wirings preserve the intermediate node media type. | tests/test_orchestrator_parser.py:66 |
+| test1258 | `test_1258_parse_fan_out` | TEST1258: One source node can fan out into multiple caps and target nodes. | tests/test_orchestrator_parser.py:111 |
+| test1259 | `test_1259_parse_fan_in` | TEST1259: Fan-in wiring resolves multiple upstream outputs into one multi-arg cap. | tests/test_orchestrator_parser.py:135 |
+| test1260 | `test_1260_parse_loop_wiring` | TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics. | tests/test_orchestrator_parser.py:159 |
+| test1261 | `test_1261_cap_not_found_in_registry` | TEST1261: A cap URN not present in the registry cache causes a parse orchestration error. | tests/test_orchestrator_parser.py:88 |
+| test1262 | `test_1262_invalid_machine_notation` | TEST1262: Non-machine text fails with a machine syntax parse error. | tests/test_orchestrator_parser.py:103 |
+| test1263 | `test_1263_cycle_detection` | TEST1263: Cyclic wirings are rejected as non-DAG orchestrations. | tests/test_orchestrator_parser.py:175 |
+| test1264 | `test_1264_incompatible_media_types_at_shared_node` | TEST1264: Shared nodes with incompatible upstream and downstream media fail during parsing. | tests/test_orchestrator_parser.py:192 |
+| test1265 | `test_1265_compatible_media_urns_at_shared_node` |  | tests/test_orchestrator_parser.py:220 |
+| test1266 | `test_1266_structure_mismatch_record_to_opaque` | TEST1266: Record-to-opaque structure mismatches are skipped until structure checking is implemented. | tests/test_orchestrator_parser.py:240 |
+| test1267 | `test_1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | tests/test_orchestrator_parser.py:260 |
+| test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:279 |
+| test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:298 |
 | test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:522 |
 | test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:154 |
 | test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:161 |
@@ -949,9 +985,13 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_graph.py:316 |
 | test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_graph.py:341 |
 | test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_graph.py:358 |
+| test1308 | `test_1308_cyclic_strand_fails_hard` | TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError. | tests/test_machine.py:307 |
+| test1309 | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:363 |
+| test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
+| test1311 | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:533 |
 | | | | |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
-| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:713 |
+| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
 | unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:398 |
 | unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:363 |
 | unnumbered | `test_cap_caller_validate_arguments_success` |  | tests/test_caller.py:346 |
@@ -983,7 +1023,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
 - `test_array_schema_validation` — tests/test_schema_validation.py:207
-- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:713
+- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:631
 - `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:398
 - `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:363
 - `test_cap_caller_validate_arguments_success` — tests/test_caller.py:346
@@ -1011,9 +1051,17 @@ The following tests are cataloged but do not currently participate in numeric te
 
 ---
 
+## Numbered Tests Missing Descriptions
+
+These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
+
+- `test1265` / `test_1265_compatible_media_urns_at_shared_node` — tests/test_orchestrator_parser.py:220
+
+---
+
 *Generated from CapDag-Py source tree*
-*Total tests: 959*
-*Total numbered tests: 933*
+*Total tests: 999*
+*Total numbered tests: 973*
 *Total unnumbered tests: 26*
-*Total numbered tests missing descriptions: 0*
+*Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 0*
