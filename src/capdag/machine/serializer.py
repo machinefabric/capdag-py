@@ -213,8 +213,96 @@ def from_strand(path, registry) -> Machine:
     return Machine.from_strand(path, registry)
 
 
+def _json_escape(s: str) -> str:
+    """Minimal JSON string-escape for canonical CapUrn/MediaUrn text."""
+    out: List[str] = []
+    for c in s:
+        if c == "\\":
+            out.append("\\\\")
+        elif c == '"':
+            out.append('\\"')
+        elif c == "\n":
+            out.append("\\n")
+        elif c == "\r":
+            out.append("\\r")
+        elif c == "\t":
+            out.append("\\t")
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def to_render_payload_json(graph: Machine) -> str:
+    """Serialize to render payload JSON.
+
+    Produces {"strands":[...]} with nodes, edges, input_anchor_nodes,
+    output_anchor_nodes for each strand. Mirrors Rust's to_render_payload_json.
+    """
+    if graph.is_empty():
+        return '{"strands":[]}'
+
+    aliases, node_names, emit_order = _build_serialization_maps(graph)
+
+    # Build (s_idx, e_idx) -> alias reverse map
+    edge_to_alias: Dict[Tuple[int, int], str] = {}
+    for alias, (s_idx, e_idx, _) in aliases.items():
+        edge_to_alias[(s_idx, e_idx)] = alias
+
+    strand_parts: List[str] = []
+    for s_idx, strand in enumerate(graph.strands()):
+        # nodes
+        nodes_json_parts: List[str] = []
+        for node_id, urn in enumerate(strand.nodes()):
+            name = node_names.get((s_idx, node_id), f"n{node_id}")
+            nodes_json_parts.append(
+                f'{{"id":"{name}","urn":"{_json_escape(str(urn))}"}}'
+            )
+
+        # edges
+        edges_json_parts: List[str] = []
+        for e_idx, edge in enumerate(strand.edges()):
+            alias = edge_to_alias.get((s_idx, e_idx), f"edge_{e_idx}")
+            is_loop_str = "true" if edge.is_loop else "false"
+            assignment_parts: List[str] = []
+            for b in edge.assignment:
+                src_name = node_names.get((s_idx, b.source), f"n{b.source}")
+                assignment_parts.append(
+                    f'{{"cap_arg_media_urn":"{_json_escape(str(b.cap_arg_media_urn))}",'
+                    f'"source_node":"{src_name}"}}'
+                )
+            target_name = node_names.get((s_idx, edge.target), f"n{edge.target}")
+            edges_json_parts.append(
+                f'{{"alias":"{alias}",'
+                f'"cap_urn":"{_json_escape(str(edge.cap_urn))}",'
+                f'"is_loop":{is_loop_str},'
+                f'"assignment":[{",".join(assignment_parts)}],'
+                f'"target_node":"{target_name}"}}'
+            )
+
+        # input_anchor_nodes
+        input_names = [
+            f'"{node_names.get((s_idx, i), f"n{i}")}"'
+            for i in strand.input_anchor_ids()
+        ]
+        # output_anchor_nodes
+        output_names = [
+            f'"{node_names.get((s_idx, i), f"n{i}")}"'
+            for i in strand.output_anchor_ids()
+        ]
+
+        strand_parts.append(
+            f'{{"nodes":[{",".join(nodes_json_parts)}],'
+            f'"edges":[{",".join(edges_json_parts)}],'
+            f'"input_anchor_nodes":[{",".join(input_names)}],'
+            f'"output_anchor_nodes":[{",".join(output_names)}]}}'
+        )
+
+    return f'{{"strands":[{",".join(strand_parts)}]}}'
+
+
 # Attach methods to Machine at import time.
 Machine.to_machine_notation = to_machine_notation  # type: ignore[attr-defined]
 Machine.to_machine_notation_multiline = to_machine_notation_multiline  # type: ignore[attr-defined]
 Machine.to_machine_notation_formatted = to_machine_notation_formatted  # type: ignore[attr-defined]
+Machine.to_render_payload_json = to_render_payload_json  # type: ignore[attr-defined]
 Machine.from_strand_path = staticmethod(from_strand)  # type: ignore[attr-defined]

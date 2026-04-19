@@ -859,6 +859,37 @@ def test_1175_empty_machine_serializes_to_empty_string():
     assert notation == ""
 
 
+# TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
+def test_1176_render_payload_json_includes_strand_with_anchors():
+    import capdag.machine.serializer  # ensure to_render_payload_json is attached
+    extract_urn = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    embed_urn = "cap:in=\"media:txt;textable\";op=embed;out=\"media:vec;record\""
+    cap_e = _simple_cap(extract_urn, "media:pdf", "media:txt;textable")
+    cap_s = _simple_cap(embed_urn, "media:txt;textable", "media:vec;record")
+    reg = _registry_with([cap_e, cap_s])
+    strand = _strand_with_cap_steps([
+        (extract_urn, "media:pdf", "media:txt;textable"),
+        (embed_urn, "media:txt;textable", "media:vec;record"),
+    ])
+    machine = Machine.from_strand(strand, reg)
+    payload = machine.to_render_payload_json()
+    assert payload.startswith('{"strands":[')
+    assert '"nodes":[' in payload
+    assert '"edges":[' in payload
+    assert '"input_anchor_nodes":[' in payload
+    assert '"output_anchor_nodes":[' in payload
+    assert "op=extract" in payload
+    assert "op=embed" in payload
+
+
+# TEST1177: Rendering payload JSON for an empty machine emits an empty strands array.
+def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
+    import capdag.machine.serializer  # ensure to_render_payload_json is attached
+    machine = Machine.from_resolved_strands([])
+    payload = machine.to_render_payload_json()
+    assert payload == '{"strands":[]}'
+
+
 # =============================================================================
 # Tests ported from Rust resolve.rs (1181, 1183, 1189, 1190)
 # =============================================================================

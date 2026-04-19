@@ -58,19 +58,20 @@ def _check_structure_compatibility(
 class _WiringInfo:
     """Information about a single wiring statement's node names."""
 
-    __slots__ = ("source_names", "target_name")
+    __slots__ = ("source_names", "target_name", "cap_alias")
 
-    def __init__(self, source_names: List[str], target_name: str) -> None:
+    def __init__(self, source_names: List[str], target_name: str, cap_alias: str) -> None:
         self.source_names = source_names
         self.target_name = target_name
+        self.cap_alias = cap_alias
 
 
-def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
-    """Extract wiring node names from machine notation via the pest parser.
+def _extract_wiring_and_header_info(notation: str):
+    """Extract wiring node names and header alias→cap_urn map from machine notation.
 
-    The Machine model intentionally discards alias/node names (they're
-    serialization concerns). But the executor uses node names as data-flow
-    keys. This function extracts them from the wiring statements in order.
+    Returns (wirings, alias_to_cap_urn) where:
+    - wirings: list of _WiringInfo in notation order, each carrying the cap alias
+    - alias_to_cap_urn: dict mapping cap alias string → normalized cap URN string
     """
     try:
         parse_tree = _PARSER.parse("program", notation.strip())
@@ -78,6 +79,7 @@ def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
         raise MachineSyntaxParseFailedError(str(e)) from e
 
     wirings: List[_WiringInfo] = []
+    alias_to_cap_urn: Dict[str, str] = {}
 
     program_pair = _first_child(parse_tree)
     for pair in program_pair:
@@ -87,24 +89,34 @@ def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
         inner = _first_child(pair)
         content = _first_child(inner)
 
-        if content.rule.name != "wiring":
-            continue  # Skip headers — we only need wiring node names
+        if content.rule.name == "header":
+            children = list(content)
+            alias = children[0].text
+            cap_urn_text = children[1].text
+            # Normalize by parsing through CapUrn
+            try:
+                from capdag.urn.cap_urn import CapUrn
+                alias_to_cap_urn[alias] = str(CapUrn.from_string(cap_urn_text))
+            except Exception:
+                alias_to_cap_urn[alias] = cap_urn_text
 
-        children = list(content)
+        elif content.rule.name == "wiring":
+            children = list(content)
 
-        # Parse source (single alias or group)
-        source_pair = children[0]
-        source_names = _parse_source_names(source_pair)
+            # Parse source (single alias or group)
+            source_pair = children[0]
+            source_names = _parse_source_names(source_pair)
 
-        # Skip arrow (children[1])
-        # Skip loop_cap (children[2])
-        # Skip arrow (children[3])
-        # Target alias (children[4])
-        target_name = children[4].text
+            # children[2] is loop_cap — its text is "LOOP alias" or just "alias"
+            loop_cap_text = children[2].text.strip()
+            cap_alias = loop_cap_text.removeprefix("LOOP").strip()
 
-        wirings.append(_WiringInfo(source_names, target_name))
+            # children[4] is the target alias
+            target_name = children[4].text
 
-    return wirings
+            wirings.append(_WiringInfo(source_names, target_name, cap_alias))
+
+    return wirings, alias_to_cap_urn
 
 
 def _first_child(pair):
@@ -153,14 +165,23 @@ async def parse_machine_to_cap_dag(
     except Exception as e:
         raise MachineSyntaxParseFailedError(str(e)) from e
 
-    # Step 2: Extract node names from the machine notation.
-    wiring_info = _extract_wiring_info(notation)
+    # Step 2: Extract node names and header alias→cap_urn map from notation.
+    wiring_info, alias_to_cap_urn = _extract_wiring_and_header_info(notation)
 
     # Flatten strands into an ordered list of edges for pairing with wiring_info.
+    # Strands may reorder edges topologically, so we match by cap URN rather than position.
     all_strand_edges = []
     for strand in machine.strands():
         for edge in strand.edges():
             all_strand_edges.append(edge)
+
+    # Build cap_urn → wiring lookup (normalized strings → _WiringInfo).
+    # Fan-in caps appear once in headers but generate multiple edges; each edge
+    # resolves to the same wiring info entry for that cap alias.
+    cap_urn_to_wiring: Dict[str, _WiringInfo] = {}
+    for w in wiring_info:
+        normalized_urn = alias_to_cap_urn.get(w.cap_alias, w.cap_alias)
+        cap_urn_to_wiring[normalized_urn] = w
 
     # Validate that wiring count matches edge count.
     if len(wiring_info) != len(all_strand_edges):
@@ -169,7 +190,7 @@ async def parse_machine_to_cap_dag(
             f"{len(all_strand_edges)} edges — machine parser edge ordering invariant violated"
         )
 
-    # Step 3: For each edge, resolve cap via registry and build ResolvedEdge entries.
+    # Step 3: For each edge (in topological order), match to wiring info by cap URN.
     node_media: Dict[str, MediaUrn] = {}
     resolved_edges: List[ResolvedEdge] = []
 
@@ -189,7 +210,10 @@ async def parse_machine_to_cap_dag(
         except Exception as e:
             raise MediaUrnParseError(str(e)) from e
 
-        wiring = wiring_info[edge_idx]
+        wiring = cap_urn_to_wiring.get(cap_urn_str)
+        if wiring is None:
+            # Fallback: positional match (for cases where alias lookup fails)
+            wiring = wiring_info[edge_idx]
 
         # Build resolved edges — one per source (fan-in produces multiple edges)
         for i, src_name in enumerate(wiring.source_names):

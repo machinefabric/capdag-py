@@ -330,6 +330,15 @@ class Machine:
             "to_machine_notation is attached by capdag.machine.serializer at import time"
         )
 
+    def to_render_payload_json(self) -> str:
+        """Serialize to render payload JSON.
+
+        Delegates to the serializer. Attached by serializer.py at import time.
+        """
+        raise NotImplementedError(
+            "to_render_payload_json is attached by capdag.machine.serializer at import time"
+        )
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Machine):
             return NotImplemented
