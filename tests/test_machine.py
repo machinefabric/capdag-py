@@ -106,11 +106,8 @@ def test_1188_resolve_strand_no_cap_steps_fails_hard():
         resolve_pre_interned([], [], reg, 0)
 
 
-# =============================================================================
-# TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:list;textable;txt is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.
-# =============================================================================
-
-def test_1111_unknown_cap_error_when_not_in_registry():
+# TEST1187: Resolving a strand fails hard when a referenced cap is not in the registry.
+def test_1187_unknown_cap_error_when_not_in_registry():
     reg = _registry_with([])  # empty registry
     cap_urn = _cap_urn("cap:in=media:pdf;op=extract;out=\"media:txt;textable\"")
     nodes = [_media("media:pdf"), _media("media:txt;textable")]
@@ -125,11 +122,8 @@ def test_1111_unknown_cap_error_when_not_in_registry():
     assert "cap:in=media:pdf" in str(exc_info.value) or "op=extract" in str(exc_info.value)
 
 
-# =============================================================================
-# TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type.
-# =============================================================================
-
-def test_1112_single_edge_strand_resolves_correctly():
+# TEST1184: Resolving a strand with one cap produces one resolved machine edge.
+def test_1184_single_edge_strand_resolves_correctly():
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -150,11 +144,8 @@ def test_1112_single_edge_strand_resolves_correctly():
     assert ms.nodes()[ms.output_anchor_ids()[0]].is_equivalent(_media("media:txt;textable"))
 
 
-# =============================================================================
-# TEST1113: Multi-cap path without Collect — Collect is not synthesized
-# =============================================================================
-
-def test_1113_two_step_chain_shares_intermediate_node():
+# TEST1185: Resolving a strand with two chained caps shares the intermediate node.
+def test_1185_two_step_chain_shares_intermediate_node():
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -185,11 +176,8 @@ def test_1113_two_step_chain_shares_intermediate_node():
     assert len(ms.output_anchor_ids()) == 1
 
 
-# =============================================================================
-# TEST1114: Graph stores only Cap edges after sync
-# =============================================================================
-
-def test_1114_from_strand_produces_single_strand_machine():
+# TEST1155: Building a machine from one strand produces one strand with one resolved edge.
+def test_1155_from_strand_produces_single_strand_machine():
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -202,11 +190,8 @@ def test_1114_from_strand_produces_single_strand_machine():
     assert len(m.strands()[0].edges()) == 1
 
 
-# =============================================================================
-# TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items
-# =============================================================================
-
-def test_1115_from_strands_keeps_strands_disjoint():
+# TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order.
+def test_1156_from_strands_keeps_strands_disjoint():
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -226,21 +211,15 @@ def test_1115_from_strands_keeps_strands_disjoint():
     assert "embed" in str(m.strands()[1].edges()[0].cap_urn)
 
 
-# =============================================================================
-# TEST1116: Collect is never synthesized during path finding
-# =============================================================================
-
-def test_1116_from_strands_empty_raises_no_capability_steps():
+# TEST1157: Building from zero strands fails with NoCapabilitySteps.
+def test_1157_from_strands_empty_raises_no_capability_steps():
     reg = _registry_with([])
     with pytest.raises(NoCapabilityStepsError):
         Machine.from_strands([], reg)
 
 
-# =============================================================================
-# TEST1117: ForEach is NOT synthesized when is_sequence=false
-# =============================================================================
-
-def test_1117_machine_is_equivalent_strict_positional_order_matters():
+# TEST1158: Machine equivalence is strict about strand order and rejects reordered strands.
+def test_1158_machine_is_equivalent_strict_positional_order_matters():
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -260,16 +239,8 @@ def test_1117_machine_is_equivalent_strict_positional_order_matters():
     assert reversed_.is_equivalent(reversed_)
 
 
-# =============================================================================
-# TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true
-# =============================================================================
-
-def test_1118_strand_is_equivalent_consistent_node_bijection():
-    """TEST1118: Two MachineStrands built from identical inputs are equivalent.
-
-    The bijection logic must confirm that NodeIds map consistently across
-    both the anchor lists and the edge assignment vecs.
-    """
+# TEST1159: MachineStrand equivalence accepts two separately built but structurally identical strands.
+def test_1159_strand_is_equivalent_consistent_node_bijection():
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -281,11 +252,8 @@ def test_1118_strand_is_equivalent_consistent_node_bijection():
     assert m1.strands()[0].is_equivalent(m2.strands()[0])
 
 
-# =============================================================================
-# TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end.
-# =============================================================================
-
-def test_1119_match_sources_to_args_single_trivial():
+# TEST1178: Source-to-arg matching: single source picks the unique arg.
+def test_1178_match_sources_to_args_single_trivial():
     sources = [_media("media:pdf")]
     args = [_media("media:pdf")]
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
@@ -297,11 +265,8 @@ def test_1119_match_sources_to_args_single_trivial():
     assert pairs[0][1].is_equivalent(_media("media:pdf"))  # source urn
 
 
-# =============================================================================
-# TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed.
-# =============================================================================
-
-def test_1120_match_sources_more_specific_source_matches_general_arg():
+# TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
+def test_1179_match_sources_more_specific_source_matches_general_arg():
     sources = [_media("media:txt;textable")]
     args = [_media("media:textable")]
     pairs = match_sources_to_args(sources, args, "cap:in=media:textable;op=embed;out=media:vec", 0)
@@ -310,11 +275,8 @@ def test_1120_match_sources_more_specific_source_matches_general_arg():
     assert pairs[0][1].is_equivalent(_media("media:txt;textable"))
 
 
-# =============================================================================
-# TEST1121: CBOR Array of file-paths in CBOR mode (validates new Array support)
-# =============================================================================
-
-def test_1121_match_sources_unmatched_source_fails_hard():
+# TEST1180: Matching fails when a source does not conform to any cap input argument.
+def test_1180_match_sources_unmatched_source_fails_hard():
     sources = [_media("media:numeric")]
     args = [_media("media:textable")]
     cap_urn_str = "cap:in=media:textable;op=t;out=media:textable"
@@ -327,11 +289,8 @@ def test_1121_match_sources_unmatched_source_fails_hard():
     assert "media:numeric" in err.source_urn
 
 
-# =============================================================================
-# TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay
-# =============================================================================
-
-def test_1122_match_sources_ambiguous_raises_ambiguous_error():
+# TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost.
+def test_1182_match_sources_ambiguous_raises_ambiguous_error():
     # Two sources both conform equally to both args at the same distance.
     sources = [_media("media:textable"), _media("media:textable")]
     args = [_media("media:textable"), _media("media:textable")]
@@ -344,11 +303,8 @@ def test_1122_match_sources_ambiguous_raises_ambiguous_error():
     assert err.strand_index == 3
 
 
-# =============================================================================
-# TEST1123: Cartridge ERR frame flows back to engine through relay
-# =============================================================================
-
-def test_1123_cyclic_strand_fails_hard():
+# TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.
+def test_1308_cyclic_strand_fails_hard():
     """TEST1123: A wiring that feeds a cap's output back into itself raises CyclicMachineStrandError.
 
     Cycle: node 0 → cap A → node 1 → cap B → node 0
@@ -373,11 +329,8 @@ def test_1123_cyclic_strand_fails_hard():
     assert exc_info.value.strand_index == 5
 
 
-# =============================================================================
-# TEST1124: CBOR decode REJECTS STREAM_END frame missing chunk_count field
-# =============================================================================
-
-def test_1124_machine_parse_error_wraps_syntax_error():
+# TEST1171: Empty machine notation is rejected as a syntax error.
+def test_1171_machine_parse_error_wraps_syntax_error():
     reg = _registry_with([])
     with pytest.raises(MachineParseError) as exc_info:
         parse_machine("", reg)
@@ -388,11 +341,8 @@ def test_1124_machine_parse_error_wraps_syntax_error():
     assert isinstance(err.cause, MachineSyntaxError)
 
 
-# =============================================================================
-# TEST1125: map_progress clamps child to [0.0, 1.0] and maps to [base, base+weight]
-# =============================================================================
-
-def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause():
+# TEST1165: Parsing fails hard when a referenced cap is missing from the registry cache.
+def test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause():
     reg = _registry_with([])  # empty — no caps loaded
 
     notation = (
@@ -409,11 +359,8 @@ def test_1125_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
     assert isinstance(err.cause, MachineAbstractionError)
 
 
-# =============================================================================
-# TEST1126: map_progress is deterministic — same inputs always produce same output
-# =============================================================================
-
-def test_1126_parse_machine_single_wiring_one_strand():
+# TEST1309: Parsing a single-cap machine notation produces one strand with one edge.
+def test_1309_parse_machine_single_wiring_one_strand():
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -430,11 +377,8 @@ def test_1126_parse_machine_single_wiring_one_strand():
     assert not m.is_empty()
 
 
-# =============================================================================
-# TEST1127: Documentation field round-trips through JSON serialize/deserialize. The documentation field carries an arbitrary markdown body authored in the source TOML via the triple-quoted literal string syntax. The round-trip must preserve every character — including newlines, backticks, double quotes, and Unicode — because consumers (info panels, capdag.com, etc.) render it directly. JSON.stringify on the capgraph side and the Rust serializer on this side must agree on escaping; this test fails hard if they don't.
-# =============================================================================
-
-def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
+# TEST1164: Parsing two disconnected strand definitions yields two separate machine strands.
+def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:image;op=caption;out=\"media:txt;textable\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -455,10 +399,10 @@ def test_1127_parse_machine_disconnected_wirings_become_separate_strands():
 
 
 # =============================================================================
-# TEST1128: When documentation is None, the serializer must skip the field entirely. This matches the behaviour of the JS toJSON, the ObjC toDictionary, and the schema's "if present" semantics — there is no null sentinel, only absence. A bug here would silently start emitting `"documentation":null` and break consumers that distinguish between absent and explicit null.
+# TEST1163: Two caps whose wirings share a node name are folded into a single strand with two edges.
 # =============================================================================
 
-def test_1128_parse_machine_shared_node_name_yields_one_strand():
+def test_1163_parse_machine_shared_node_name_yields_one_strand():
     urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
@@ -480,10 +424,10 @@ def test_1128_parse_machine_shared_node_name_yields_one_strand():
 
 
 # =============================================================================
-# TEST1129: A JSON document produced by capgraph (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
+# TEST1191: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN.
 # =============================================================================
 
-def test_1129_binding_slot_identity_is_outer_media_urn():
+def test_1191_binding_slot_identity_is_outer_media_urn():
     """TEST1129: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn),
     not the stdin inner URN.
 
@@ -522,10 +466,10 @@ def test_1129_binding_slot_identity_is_outer_media_urn():
 
 
 # =============================================================================
-# TEST1130: documentation set/clear lifecycle parallels cap_description. Catches a regression where the setter or clearer is wired to the wrong field — for example, set_documentation accidentally writing to cap_description.
+# TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage).
 # =============================================================================
 
-def test_1130_strand_equivalence_rejects_mismatched_node_urns():
+def test_1310_strand_equivalence_rejects_mismatched_node_urns():
     """TEST1130: Two strands that differ only in one node's media URN are NOT equivalent.
 
     The NodeBijection check requires URN-level is_equivalent at both ends of
@@ -548,10 +492,10 @@ def test_1130_strand_equivalence_rejects_mismatched_node_urns():
 
 
 # =============================================================================
-# TEST1131: Documentation propagates from MediaSpecDef through resolve_media_urn into ResolvedMediaSpec. This is the resolution path used by every consumer that asks the registry for a media spec — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
+# TEST1186: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True.
 # =============================================================================
 
-def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
+def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
     cap_urn_str = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
     cap = _simple_cap(cap_urn_str, "media:textable", "media:vec;record")
     reg = _registry_with([cap])
@@ -583,36 +527,10 @@ def test_1131_resolve_strand_foreach_sets_is_loop_on_next_cap():
 
 
 # =============================================================================
-# TEST1132: MediaSpecDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
+# TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage).
 # =============================================================================
 
-def test_1132_resolve_strand_no_cap_steps_raises_no_capability_steps():
-    reg = _registry_with([])
-
-    foreach_step = StrandStep(
-        step_type=StrandStepType.FOR_EACH,
-        from_spec=_media("media:list;textable"),
-        to_spec=_media("media:textable"),
-        media_spec=_media("media:textable"),
-    )
-    strand = Strand(
-        steps=[foreach_step],
-        source_spec=_media("media:list;textable"),
-        target_spec=_media("media:textable"),
-        total_steps=1,
-        cap_step_count=0,
-        description="only foreach",
-    )
-
-    with pytest.raises(NoCapabilityStepsError):
-        resolve_strand(strand, reg, 0)
-
-
-# =============================================================================
-# TEST1133: MediaSpecDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body).
-# =============================================================================
-
-def test_1133_machine_from_string_delegates_to_parse_machine():
+def test_1311_machine_from_string_delegates_to_parse_machine():
     cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
@@ -755,3 +673,225 @@ def test_assignment_bindings_sorted_by_slot_urn():
     assert slot_strs == sorted(slot_strs), (
         f"Bindings not in sorted order: {slot_strs}"
     )
+
+
+# =============================================================================
+# Tests ported from Rust parser.rs (1166-1170)
+# =============================================================================
+
+_URN_EXTRACT = 'cap:in=media:pdf;op=extract;out="media:txt;textable"'
+_URN_EMBED = 'cap:in=media:textable;op=embed;out="media:vec;record"'
+
+
+def _pdf_extract_embed_registry() -> "CapRegistry":
+    cap_e = _simple_cap(_URN_EXTRACT, "media:pdf", "media:txt;textable")
+    cap_b = _simple_cap(_URN_EMBED, "media:textable", "media:vec;record")
+    return _registry_with([cap_e, cap_b])
+
+
+# TEST1166: Parsing notation that declares the same alias twice is rejected as a syntax error.
+def test_1166_parse_duplicate_alias_is_syntax_error():
+    reg = _pdf_extract_embed_registry()
+    notation = (
+        f"[extract {_URN_EXTRACT}]"
+        f"[extract {_URN_EMBED}]"
+        "[a -> extract -> b]"
+    )
+    with pytest.raises(MachineParseError) as exc_info:
+        parse_machine(notation, reg)
+    assert exc_info.value.is_syntax_error
+
+
+# TEST1167: Wiring that references an undefined alias is reported as a syntax error.
+def test_1167_parse_undefined_alias_is_syntax_error():
+    reg = _pdf_extract_embed_registry()
+    notation = (
+        f"[extract {_URN_EXTRACT}]"
+        "[a -> notDefined -> b]"
+    )
+    with pytest.raises(MachineParseError) as exc_info:
+        parse_machine(notation, reg)
+    assert exc_info.value.is_syntax_error
+
+
+# TEST1168: Parsing rejects node names that collide with declared cap aliases.
+def test_1168_parse_node_alias_collision_with_header_alias_fails_hard():
+    # "extract" is used as both a cap alias in the header and a node name in the wiring.
+    reg = _pdf_extract_embed_registry()
+    notation = (
+        f"[extract {_URN_EXTRACT}]"
+        "[extract -> extract -> b]"
+    )
+    with pytest.raises(MachineParseError) as exc_info:
+        parse_machine(notation, reg)
+    assert exc_info.value.is_syntax_error
+
+
+# TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
+def test_1169_parse_loop_marker_sets_is_loop_on_resolved_edge():
+    urn = "cap:in=media:textable;op=t;out=media:textable"
+    cap = _simple_cap(urn, "media:textable", "media:textable")
+    reg = _registry_with([cap])
+    notation = (
+        f"[t {urn}]"
+        "[a -> LOOP t -> b]"
+    )
+    machine = parse_machine(notation, reg)
+    assert machine.strand_count() == 1
+    strand = machine.strands()[0]
+    assert len(strand.edges()) == 1
+    assert strand.edges()[0].is_loop, "LOOP marker must propagate to MachineEdge.is_loop"
+
+
+# TEST1170: Parsing and then serializing machine notation round-trips to the canonical form.
+def test_1170_parse_then_serialize_round_trips_to_canonical_form():
+    import capdag.machine.serializer  # ensure methods are attached
+    reg = _pdf_extract_embed_registry()
+    user_input = (
+        f"[user_extract {_URN_EXTRACT}]"
+        f"[user_embed {_URN_EMBED}]"
+        "[doc -> user_extract -> txt]"
+        "[txt -> user_embed -> vec]"
+    )
+    m1 = parse_machine(user_input, reg)
+    canonical = m1.to_machine_notation()
+    # Canonical form should NOT contain user aliases
+    assert "user_extract" not in canonical
+    assert "user_embed" not in canonical
+    assert "edge_0" in canonical
+    m2 = Machine.from_string(canonical, reg)
+    assert m1.is_equivalent(m2)
+    canonical2 = m2.to_machine_notation()
+    assert canonical == canonical2
+
+
+# =============================================================================
+# Tests ported from Rust serializer.rs (1172-1177, minus 1176/1177 which need render_payload_json)
+# =============================================================================
+
+# TEST1172: Serializing a two-step strand emits global edge_N aliases and nN node names.
+def test_1172_serialize_two_step_strand_emits_global_aliases_and_node_names():
+    import capdag.machine.serializer  # ensure methods are attached
+    reg = _pdf_extract_embed_registry()
+    strand = _strand_with_cap_steps([
+        (_URN_EXTRACT, "media:pdf", "media:txt;textable"),
+        (_URN_EMBED, "media:textable", "media:vec;record"),
+    ])
+    machine = Machine.from_strand(strand, reg)
+    notation = machine.to_machine_notation()
+    assert "[edge_0 cap:" in notation and "[edge_1 cap:" in notation, \
+        f"headers must use edge_0 / edge_1 aliases, got: {notation}"
+    assert "[n0 -> edge_0 -> n1]" in notation, \
+        f"first wiring should be n0 -> edge_0 -> n1, got: {notation}"
+    assert "[n1 -> edge_1 -> n2]" in notation, \
+        f"second wiring should be n1 -> edge_1 -> n2, got: {notation}"
+
+
+# TEST1173: Serializing and reparsing a machine preserves strict machine equivalence.
+def test_1173_serialize_then_parse_round_trip_preserves_strict_equivalence():
+    import capdag.machine.serializer  # ensure methods are attached
+    reg = _pdf_extract_embed_registry()
+    strand = _strand_with_cap_steps([
+        (_URN_EXTRACT, "media:pdf", "media:txt;textable"),
+        (_URN_EMBED, "media:textable", "media:vec;record"),
+    ])
+    m1 = Machine.from_strand(strand, reg)
+    notation = m1.to_machine_notation()
+    m2 = Machine.from_string(notation, reg)
+    assert m1.is_equivalent(m2), "machine and its serialize-reparse must be strictly equivalent"
+    # Canonical form is a fixed point
+    notation2 = m2.to_machine_notation()
+    assert notation == notation2, "canonical notation must be a fixed point of parse-then-serialize"
+
+
+# TEST1174: The line-based notation format round-trips back to the same machine.
+def test_1174_line_based_format_round_trips_to_same_machine():
+    import capdag.machine.serializer  # ensure methods are attached
+    reg = _pdf_extract_embed_registry()
+    strand = _strand_with_cap_steps([
+        (_URN_EXTRACT, "media:pdf", "media:txt;textable"),
+        (_URN_EMBED, "media:textable", "media:vec;record"),
+    ])
+    m1 = Machine.from_strand(strand, reg)
+    line_based = m1.to_machine_notation_formatted("line-based")
+    # Line-based form must not contain brackets
+    assert "[" not in line_based, f"line-based form must not contain brackets, got: {line_based}"
+    m2 = Machine.from_string(line_based, reg)
+    assert m1.is_equivalent(m2)
+
+
+# TEST1175: Serializing an empty machine produces an empty string.
+def test_1175_empty_machine_serializes_to_empty_string():
+    import capdag.machine.serializer  # ensure methods are attached
+    machine = Machine.from_resolved_strands([])
+    notation = machine.to_machine_notation()
+    assert notation == ""
+
+
+# =============================================================================
+# Tests ported from Rust resolve.rs (1181, 1183, 1189, 1190)
+# =============================================================================
+
+# TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
+def test_1181_match_two_sources_disambiguated_by_specificity():
+    urn = "cap:in=\"media:image;png\";op=describe;out=\"media:image-description;textable\""
+    sources = [_media("media:image;png"), _media("media:model-spec;textable")]
+    args = [_media("media:image;png"), _media("media:textable")]
+    cap_urn = _cap_urn(urn)
+    pairs = match_sources_to_args(sources, args, cap_urn, 0)
+    assert len(pairs) == 2
+    found_image = False
+    found_text = False
+    for arg, src in pairs:
+        if arg.is_equivalent(_media("media:image;png")):
+            assert src.is_equivalent(_media("media:image;png"))
+            found_image = True
+        elif arg.is_equivalent(_media("media:textable")):
+            assert src.is_equivalent(_media("media:model-spec;textable"))
+            found_text = True
+    assert found_image and found_text, "both arg slots must be assigned"
+
+
+# TEST1183: Matching fails when more sources are provided than the cap has input arguments.
+def test_1183_match_more_sources_than_args_fails_hard():
+    sources = [_media("media:pdf"), _media("media:pdf"), _media("media:pdf")]
+    args = [_media("media:pdf"), _media("media:pdf")]
+    cap_urn = _cap_urn("cap:in=media:pdf;op=t;out=media:pdf")
+    with pytest.raises(UnmatchedSourceInCapArgsError):
+        match_sources_to_args(sources, args, cap_urn, 0)
+
+
+# TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs.
+def test_1189_resolve_strand_canonical_anchor_order_is_stable():
+    urn = 'cap:in=media:pdf;op=extract;out="media:txt;textable"'
+    cap = _simple_cap(urn, "media:pdf", "media:txt;textable")
+    reg = _registry_with([cap])
+    strand = _strand_with_cap_steps([(urn, "media:pdf", "media:txt;textable")])
+    r1 = resolve_strand(strand, reg, 0)
+    r2 = resolve_strand(strand, reg, 0)
+    i1 = r1.input_anchors()
+    i2 = r2.input_anchors()
+    assert len(i1) == len(i2)
+    for a, b in zip(i1, i2):
+        assert a.is_equivalent(b)
+
+
+# TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph.
+def test_1190_resolve_strand_inverse_format_converters_no_cycle():
+    urn_to_int = 'cap:in="media:numeric;textable";op=coerce_int;out="media:integer;numeric;textable"'
+    urn_to_num = 'cap:in="media:integer;numeric;textable";op=coerce_num;out="media:numeric;textable"'
+    cap_to_int = _simple_cap(urn_to_int, "media:numeric;textable", "media:integer;numeric;textable")
+    cap_to_num = _simple_cap(urn_to_num, "media:integer;numeric;textable", "media:numeric;textable")
+    reg = _registry_with([cap_to_int, cap_to_num])
+    strand = _strand_with_cap_steps([
+        (urn_to_int, "media:numeric;textable", "media:integer;numeric;textable"),
+        (urn_to_num, "media:integer;numeric;textable", "media:numeric;textable"),
+    ])
+    resolved = resolve_strand(strand, reg, 0)
+    # Three distinct positional nodes: input (numeric), intermediate (integer;numeric), output (numeric again but new NodeId)
+    assert resolved.nodes() is not None
+    assert len(resolved.edges()) == 2
+    # Intermediate node is shared between the two edges
+    int_target = resolved.edges()[0].target
+    num_source = resolved.edges()[1].assignment[0].source
+    assert int_target == num_source

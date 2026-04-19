@@ -3,23 +3,21 @@
 Converts a strand-based Machine to its machine notation string representation.
 The output is deterministic: the same machine always produces the same string.
 
-Serialization walks strands in order. Within each strand, edges are already in
-canonical topological order (as produced by the resolver). Node names are
-assigned per strand (scoped — two strands have disjoint NodeId spaces).
-Global node names across strands are deduplicated with a strand prefix.
+This matches the Rust serializer's canonical form exactly:
 
 Alias Generation:
-    Aliases are derived from the cap URN's op= tag value. If no op= tag
-    exists, aliases are generated as edge_N. Duplicate aliases from identical
-    op tags are disambiguated with numeric suffixes (machine-global).
+    Aliases are generated as edge_0, edge_1, ... in the global order they
+    appear across all strands (strand order, then edge order within strand).
+    This matches Rust's GlobalAliasCounter.
 
 Node Name Generation:
-    Node names are generated deterministically from first-appearance order
-    within each strand, prefixed by strand index: s0n0, s0n1, ..., s1n0, ...
+    Node names are n0, n1, ... assigned globally across all strands in
+    first-appearance order (strand order, then NodeId appearance order within
+    each strand's edges). This matches Rust's GlobalNodeCounter.
 
 Canonical Ordering:
-    Headers are emitted sorted by alias. Wirings follow in strand order,
-    then canonical edge order within each strand.
+    Headers are emitted sorted by alias (edge_0 < edge_1 < ...).
+    Wirings follow in global emission order (strand 0 edges, then strand 1, ...).
 """
 
 from __future__ import annotations
@@ -40,25 +38,36 @@ def _build_serialization_maps(
     - emit_order: list of (strand_idx, edge_idx_in_strand) in emission order
     """
     aliases: Dict[str, Tuple[int, int, str]] = {}
-    alias_counts: Dict[str, int] = {}
     node_names: Dict[Tuple[int, int], str] = {}
     emit_order: List[Tuple[int, int]] = []
 
+    global_edge_counter = 0
+    global_node_counter = 0
+
     for s_idx, strand in enumerate(graph.strands()):
-        # Assign node names for this strand: sXnY
-        for node_id in range(len(strand.nodes())):
-            node_names[(s_idx, node_id)] = f"s{s_idx}n{node_id}"
+        # Assign node names globally in first-appearance order across all strands.
+        # Walk edges in order; each new NodeId (source or target) gets the next nN name.
+        seen_nodes: Dict[int, str] = {}
 
         for e_idx, edge in enumerate(strand.edges()):
-            # Derive alias from op= tag or fallback.
-            base_alias = edge.cap_urn.get_tag("op")
-            if base_alias is None:
-                base_alias = f"edge_{s_idx}_{e_idx}"
+            # Sources first (sorted by NodeId for determinism), then target.
+            source_ids = sorted(b.source for b in edge.assignment)
+            for nid in source_ids:
+                if nid not in seen_nodes:
+                    name = f"n{global_node_counter}"
+                    global_node_counter += 1
+                    seen_nodes[nid] = name
+                    node_names[(s_idx, nid)] = name
+            target_nid = edge.target
+            if target_nid not in seen_nodes:
+                name = f"n{global_node_counter}"
+                global_node_counter += 1
+                seen_nodes[target_nid] = name
+                node_names[(s_idx, target_nid)] = name
 
-            count = alias_counts.get(base_alias, 0)
-            alias = base_alias if count == 0 else f"{base_alias}_{count}"
-            alias_counts[base_alias] = count + 1
-
+            # Assign global edge alias.
+            alias = f"edge_{global_edge_counter}"
+            global_edge_counter += 1
             cap_str = str(edge.cap_urn)
             aliases[alias] = (s_idx, e_idx, cap_str)
             emit_order.append((s_idx, e_idx))
@@ -70,6 +79,7 @@ def to_machine_notation(graph: Machine) -> str:
     """Serialize to canonical one-line machine notation.
 
     The output is deterministic: same machine -> same string.
+    Matches Rust's MachineSerializer canonical form.
     """
     if graph.is_empty():
         return ""
@@ -77,7 +87,7 @@ def to_machine_notation(graph: Machine) -> str:
     aliases, node_names, emit_order = _build_serialization_maps(graph)
     output_parts: List[str] = []
 
-    # Emit headers in alias-sorted order.
+    # Emit headers in alias-sorted order (edge_0, edge_1, ...).
     sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
     for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
         edge = graph.strands()[s_idx].edges()[e_idx]
@@ -86,7 +96,6 @@ def to_machine_notation(graph: Machine) -> str:
     # Emit wirings in emission order (strand order, then edge order within strand).
     for s_idx, e_idx in emit_order:
         edge = graph.strands()[s_idx].edges()[e_idx]
-        # Find alias for this edge.
         alias = _alias_for(aliases, s_idx, e_idx)
 
         # Source node names from assignment bindings, sorted by source NodeId.
