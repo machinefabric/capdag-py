@@ -362,3 +362,106 @@ def test_1293_roundtrip_requires_cap_steps():
     source = _media("media:a")
     paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
     assert paths == []
+
+
+# =============================================================================
+# Tests ported from Rust planner/live_cap_graph.rs (1150-1154)
+# =============================================================================
+
+# TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output.
+def test_1150_add_cap_and_basic_traversal():
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_text", "Extract Text"))
+
+    assert len(graph._edges) == 1
+    assert len(graph._nodes) == 2
+
+    source = _media("media:pdf")
+    targets = graph.get_reachable_targets(source, False, 5)
+
+    extracted_text = _media("media:extracted-text")
+    cap_target = next(
+        (t for t in targets if t.media_spec.is_equivalent(extracted_text)),
+        None
+    )
+    assert cap_target is not None, "extracted-text should be reachable"
+    assert cap_target.min_path_length == 1
+
+
+# TEST1151: Exact target lookup prefers the direct singular path over indirect paths with more steps.
+def test_1151_exact_vs_conformance_matching():
+    singular = _media("media:analysis-result")
+    lst = _media("media:analysis-result;list")
+    assert not singular.is_equivalent(lst)
+    assert not lst.is_equivalent(singular)
+
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result", "analyze", "Analyze PDF"))
+    graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result;list", "analyze_multi", "Analyze PDF Multi"))
+
+    source = _media("media:pdf")
+
+    paths_singular = graph.find_paths_to_exact_target(source, singular, False, 5, 10)
+    assert len(paths_singular) >= 1
+    assert paths_singular[0].steps[0].title() == "Analyze PDF", \
+        "First path should be the direct cap (fewer total steps)"
+
+    paths_plural = graph.find_paths_to_exact_target(source, lst, False, 5, 10)
+    assert len(paths_plural) >= 1
+    assert paths_plural[0].steps[0].title() == "Analyze PDF Multi", \
+        "First path should be the direct cap (fewer total steps)"
+
+
+# TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
+def test_1152_multi_step_path():
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract", "Extract"))
+    graph.add_cap(_make_test_cap("media:extracted-text", "media:summary-text", "summarize", "Summarize"))
+
+    source = _media("media:pdf")
+    target = _media("media:summary-text")
+    paths = graph.find_paths_to_exact_target(source, target, False, 5, 10)
+
+    assert len(paths) == 1
+    assert paths[0].total_steps == 2
+    assert paths[0].steps[0].title() == "Extract"
+    assert paths[0].steps[1].title() == "Summarize"
+
+
+# TEST1153: Repeated path searches return the same path order for the same graph and target.
+def test_1153_deterministic_ordering():
+    graph = LiveCapGraph()
+    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_a", "Extract A"))
+    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_b", "Extract B"))
+
+    source = _media("media:pdf")
+    target = _media("media:extracted-text")
+
+    paths1 = graph.find_paths_to_exact_target(source, target, False, 5, 10)
+    paths2 = graph.find_paths_to_exact_target(source, target, False, 5, 10)
+
+    assert len(paths1) == len(paths2)
+    for p1, p2 in zip(paths1, paths2):
+        u1 = p1.steps[0].cap_urn
+        u2 = p2.steps[0].cap_urn
+        assert u1.is_equivalent(u2), \
+            f"determinism: first cap URN differs across runs: {u1} vs {u2}"
+
+
+# TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
+def test_1154_sync_from_caps():
+    graph = LiveCapGraph()
+    caps = [
+        _make_test_cap("media:pdf", "media:extracted-text", "op1", "Op1"),
+        _make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),
+    ]
+    graph.sync_from_caps(caps)
+
+    assert len(graph._edges) == 2
+    assert len(graph._nodes) == 3
+
+    new_caps = [_make_test_cap("media:image", "media:extracted-text", "ocr", "OCR")]
+    graph.sync_from_caps(new_caps)
+
+    assert len(graph._edges) == 1
+    assert len(graph._nodes) == 2

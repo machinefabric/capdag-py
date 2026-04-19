@@ -523,3 +523,86 @@ async def test_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Pa
     resolved = await resolve_inputs_confirmed([InputItem.file(path)], registry, _MockInvoker(["media:json;record;textable"]))
     assert len(resolved.files) == 1
     assert resolved.files[0].media_urn == "media:json;record;textable"
+
+
+# =============================================================================
+# Tests ported from Rust input_resolver/types.rs (1143-1146)
+# =============================================================================
+
+# TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path.
+def test_1143_input_item_from_string_distinguishes_glob_directory_and_file(tmp_path: Path):
+    # Existing directory -> InputItem.directory
+    dir_item = InputItem.from_string(str(tmp_path))
+    assert dir_item.kind == "directory"
+    assert dir_item.value == tmp_path
+
+    # Non-existing path (no glob chars) -> InputItem.file
+    file_path = tmp_path / "missing.txt"
+    file_item = InputItem.from_string(str(file_path))
+    assert file_item.kind == "file"
+
+    # Glob pattern (contains *) -> InputItem.glob
+    glob_item = InputItem.from_string("fixtures/**/*.pdf")
+    assert glob_item.kind == "glob"
+    assert glob_item.value == "fixtures/**/*.pdf"
+
+
+# TEST1144: ContentStructure is_list/is_record helpers and string values are correct.
+def test_1144_content_structure_helpers_and_display():
+    assert not ContentStructure.is_list(ContentStructure.SCALAR_OPAQUE)
+    assert not ContentStructure.is_record(ContentStructure.SCALAR_OPAQUE)
+    assert ContentStructure.SCALAR_OPAQUE == "scalar/opaque"
+
+    assert ContentStructure.is_list(ContentStructure.LIST_RECORD)
+    assert ContentStructure.is_record(ContentStructure.LIST_RECORD)
+    assert ContentStructure.LIST_RECORD == "list/record"
+
+
+# TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence.
+def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality():
+    from capdag.input_resolver.types import ResolvedFile, ResolvedInputSet
+
+    single_list_file = ResolvedInputSet.new([ResolvedFile(
+        path=Path("/tmp/items.json"),
+        media_urn="media:application;json;list;record",
+        size_bytes=42,
+        content_structure=ContentStructure.LIST_RECORD,
+    )])
+    assert not single_list_file.is_sequence
+    assert single_list_file.is_homogeneous()
+    assert single_list_file.common_media == "media:application;json;list;record"
+
+    # Two files with tag-equivalent URNs (different tag order) → homogeneous, is_sequence
+    equivalent_ordering = ResolvedInputSet.new([
+        ResolvedFile(
+            path=Path("/tmp/a.json"),
+            media_urn="media:application;json;record;textable",
+            size_bytes=10,
+            content_structure=ContentStructure.SCALAR_RECORD,
+        ),
+        ResolvedFile(
+            path=Path("/tmp/b.json"),
+            media_urn="media:application;record;textable;json",
+            size_bytes=11,
+            content_structure=ContentStructure.SCALAR_RECORD,
+        ),
+    ])
+    assert equivalent_ordering.is_sequence
+    assert equivalent_ordering.is_homogeneous()
+    assert equivalent_ordering.common_media == "media:application;json;record;textable"
+
+
+# TEST1146: InputResolverError subclass display messages and exception hierarchy are correct.
+def test_1146_input_resolver_error_display_and_source():
+    from capdag.input_resolver.types import IoError, InvalidGlobError, InputResolverError
+
+    io_error = IoError(Path("/tmp/data.bin"), Exception("no access"))
+    assert "IO error at /tmp/data.bin" in str(io_error)
+    assert "no access" in str(io_error)
+    assert isinstance(io_error, InputResolverError)
+
+    invalid_glob = InvalidGlobError("[", "unclosed character class")
+    assert "Invalid glob pattern" in str(invalid_glob)
+    assert "[" in str(invalid_glob)
+    assert "unclosed character class" in str(invalid_glob)
+    assert isinstance(invalid_glob, InputResolverError)

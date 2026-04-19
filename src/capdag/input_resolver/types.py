@@ -95,6 +95,14 @@ class ContentStructure:
     LIST_OPAQUE = "list/opaque"
     LIST_RECORD = "list/record"
 
+    @staticmethod
+    def is_list(value: str) -> bool:
+        return value in (ContentStructure.LIST_OPAQUE, ContentStructure.LIST_RECORD)
+
+    @staticmethod
+    def is_record(value: str) -> bool:
+        return value in (ContentStructure.SCALAR_RECORD, ContentStructure.LIST_RECORD)
+
 
 @dataclass
 class ResolvedFile:
@@ -119,3 +127,7 @@ class ResolvedInputSet:
             if all(first.is_equivalent(MediaUrn.from_string(f.media_urn)) for f in files[1:]):
                 common_media = files[0].media_urn
         return cls(files=files, is_sequence=is_sequence, common_media=common_media)
+
+    def is_homogeneous(self) -> bool:
+        """Returns True if all files share the same (equivalent) media URN."""
+        return self.common_media is not None

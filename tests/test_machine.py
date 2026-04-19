@@ -679,6 +679,37 @@ def test_assignment_bindings_sorted_by_slot_urn():
 # Tests ported from Rust parser.rs (1166-1170)
 # =============================================================================
 
+# =============================================================================
+# Tests ported from Rust machine/error.rs (1147-1149)
+# =============================================================================
+
+# TEST1147: InvalidWiringError display message is human-readable and specific.
+def test_1147_machine_syntax_error_display_is_specific():
+    from capdag.machine.error import InvalidWiringError
+    err = InvalidWiringError(7, "expected source -> cap -> target")
+    assert str(err) == "invalid wiring at statement 7: expected source -> cap -> target"
+
+
+# TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause.
+def test_1148_machine_parse_error_from_syntax_preserves_variant():
+    from capdag.machine.error import UndefinedAliasError
+    syntax_err = UndefinedAliasError("extract")
+    parse_err = MachineParseError(syntax_err)
+    assert parse_err.is_syntax_error
+    assert isinstance(parse_err.cause, MachineSyntaxError)
+    assert "extract" in str(parse_err.cause)
+
+
+# TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause.
+def test_1149_machine_parse_error_from_resolution_preserves_variant():
+    ambiguous = AmbiguousMachineNotationError(2, "cap:in=media:pdf;out=media:text")
+    parse_err = MachineParseError(ambiguous)
+    assert not parse_err.is_syntax_error
+    assert isinstance(parse_err.cause, MachineAbstractionError)
+    assert parse_err.cause.strand_index == 2
+    assert parse_err.cause.cap_urn == "cap:in=media:pdf;out=media:text"
+
+
 _URN_EXTRACT = 'cap:in=media:pdf;op=extract;out="media:txt;textable"'
 _URN_EMBED = 'cap:in=media:textable;op=embed;out="media:vec;record"'
 

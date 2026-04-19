@@ -80,13 +80,13 @@ def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
     wirings: List[_WiringInfo] = []
 
     for pair in parse_tree:
-        if pair.rule != "stmt":
+        if pair.rule.name != "stmt":
             continue
 
         inner = _first_child(pair)
         content = _first_child(inner)
 
-        if content.rule != "wiring":
+        if content.rule.name != "wiring":
             continue  # Skip headers — we only need wiring node names
 
         children = list(content)
@@ -116,9 +116,9 @@ def _first_child(pair):
 def _parse_source_names(pair) -> List[str]:
     """Extract source node names from a source pair."""
     inner = _first_child(pair)
-    if inner.rule == "group":
-        return [p.text for p in inner if p.rule == "alias"]
-    elif inner.rule == "alias":
+    if inner.rule.name == "group":
+        return [p.text for p in inner if p.rule.name == "alias"]
+    elif inner.rule.name == "alias":
         return [inner.text]
     else:
         raise MachineSyntaxParseFailedError(f"unexpected source rule: {inner.rule}")
