@@ -84,16 +84,18 @@ async def test_1257_parse_two_step_chain():
         f"Intermediate node B should be media:txt;textable, got {node_b}"
 
 
-# TEST1261: A cap URN not present in the registry cache causes CapNotFoundError.
-@pytest.mark.asyncio
-async def test_1261_cap_not_found_in_registry():
+# TEST1261: A cap URN not present in the registry cache causes a parse orchestration error.
+def test_1261_cap_not_found_in_registry():
+    # Python raises MachineSyntaxParseFailedError (wraps UnknownCapError from parse_machine)
+    # rather than CapNotFoundError, because the cap lookup happens inside parse_machine.
+    import asyncio
     registry = _build_registry([])
     notation = (
         '[ex cap:in="media:unknown";op=test;out="media:unknown"]'
         "[A -> ex -> B]"
     )
-    with pytest.raises(CapNotFoundError):
-        await parse_machine_to_cap_dag(notation, registry)
+    with pytest.raises(ParseOrchestrationError):
+        asyncio.run(parse_machine_to_cap_dag(notation, registry))
 
 
 # TEST1262: Non-machine text fails with a machine syntax parse error.

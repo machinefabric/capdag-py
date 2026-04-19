@@ -79,7 +79,8 @@ def _extract_wiring_info(notation: str) -> List[_WiringInfo]:
 
     wirings: List[_WiringInfo] = []
 
-    for pair in parse_tree:
+    program_pair = _first_child(parse_tree)
+    for pair in program_pair:
         if pair.rule.name != "stmt":
             continue
 
