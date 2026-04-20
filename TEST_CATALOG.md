@@ -1,8 +1,8 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 999
+**Total Tests:** 1003
 
-**Numbered Tests:** 973
+**Numbered Tests:** 977
 
 **Unnumbered Tests:** 26
 
@@ -66,12 +66,12 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test048 | `test_048_matching_semantics_wildcard_direction` | TEST048: Matching semantics - wildcard direction matches anything | tests/test_cap_urn.py:636 |
 | test049 | `test_049_matching_semantics_cross_dimension` | TEST049: Non-overlapping tags — neither direction accepts | tests/test_cap_urn.py:643 |
 | test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:652 |
-| test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:30 |
-| test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:44 |
-| test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:98 |
-| test054 | `test_054_xv5_inline_spec_redefinition_detected` | TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected | tests/test_validation.py:120 |
-| test055 | `test_055_xv5_new_inline_spec_allowed` | TEST055: XV5 - Test new inline media spec (not in registry) is allowed | tests/test_validation.py:142 |
-| test056 | `test_056_xv5_empty_media_specs_allowed` | TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation | tests/test_validation.py:162 |
+| test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:35 |
+| test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:49 |
+| test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:103 |
+| test054 | `test_054_xv5_inline_spec_redefinition_detected` | TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected | tests/test_validation.py:125 |
+| test055 | `test_055_xv5_new_inline_spec_allowed` | TEST055: XV5 - Test new inline media spec (not in registry) is allowed | tests/test_validation.py:147 |
+| test056 | `test_056_xv5_empty_media_specs_allowed` | TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation | tests/test_validation.py:167 |
 | test060 | `test_060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | tests/test_media_urn.py:40 |
 | test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | tests/test_media_urn.py:46 |
 | test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:59 |
@@ -518,19 +518,19 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test575 | `test_575_cap_block_get_registry` | TEST575: CapBlock::get_registry returns Arc clone by name | tests/test_cap_matrix.py:634 |
 | test576 | `test_576_cap_matrix_get_host_names` | TEST576: CapBlock::get_registry_names returns names in insertion order | tests/test_cap_matrix.py:284 |
 | test577 | `test_577_cap_graph_input_output_specs` | TEST577: CapGraph::get_input_specs and get_output_specs return correct sets | tests/test_cap_matrix.py:710 |
-| test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:169 |
-| test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:182 |
-| test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:194 |
-| test581 | `test_581_rule3_same_stdin_urns_ok` | TEST581: RULE3 - multiple stdin sources with same URN is OK | tests/test_validation.py:207 |
-| test582 | `test_582_rule4_duplicate_source_type` | TEST582: RULE4 - duplicate source type in single arg rejected | tests/test_validation.py:218 |
-| test583 | `test_583_rule5_duplicate_position` | TEST583: RULE5 - duplicate position across args rejected | tests/test_validation.py:230 |
-| test584 | `test_584_rule6_position_gap` | TEST584: RULE6 - position gap rejected (0, 2 without 1) | tests/test_validation.py:243 |
-| test585 | `test_585_rule6_sequential_ok` | TEST585: RULE6 - sequential positions (0, 1, 2) pass | tests/test_validation.py:256 |
-| test586 | `test_586_rule7_position_and_cli_flag` | TEST586: RULE7 - arg with both position and cli_flag rejected | tests/test_validation.py:267 |
-| test587 | `test_587_rule9_duplicate_cli_flag` | TEST587: RULE9 - duplicate cli_flag across args rejected | tests/test_validation.py:279 |
-| test588 | `test_588_rule10_reserved_cli_flags` | TEST588: RULE10 - reserved cli_flags rejected | tests/test_validation.py:292 |
-| test589 | `test_589_all_rules_pass` | TEST589: valid cap args with mixed sources pass all rules | tests/test_validation.py:306 |
-| test590 | `test_590_cli_flag_only_args` | TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions) | tests/test_validation.py:317 |
+| test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:174 |
+| test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:187 |
+| test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:199 |
+| test581 | `test_581_rule3_same_stdin_urns_ok` | TEST581: RULE3 - multiple stdin sources with same URN is OK | tests/test_validation.py:212 |
+| test582 | `test_582_rule4_duplicate_source_type` | TEST582: RULE4 - duplicate source type in single arg rejected | tests/test_validation.py:223 |
+| test583 | `test_583_rule5_duplicate_position` | TEST583: RULE5 - duplicate position across args rejected | tests/test_validation.py:235 |
+| test584 | `test_584_rule6_position_gap` | TEST584: RULE6 - position gap rejected (0, 2 without 1) | tests/test_validation.py:248 |
+| test585 | `test_585_rule6_sequential_ok` | TEST585: RULE6 - sequential positions (0, 1, 2) pass | tests/test_validation.py:261 |
+| test586 | `test_586_rule7_position_and_cli_flag` | TEST586: RULE7 - arg with both position and cli_flag rejected | tests/test_validation.py:272 |
+| test587 | `test_587_rule9_duplicate_cli_flag` | TEST587: RULE9 - duplicate cli_flag across args rejected | tests/test_validation.py:284 |
+| test588 | `test_588_rule10_reserved_cli_flags` | TEST588: RULE10 - reserved cli_flags rejected | tests/test_validation.py:297 |
+| test589 | `test_589_all_rules_pass` | TEST589: valid cap args with mixed sources pass all rules | tests/test_validation.py:311 |
+| test590 | `test_590_cli_flag_only_args` | TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions) | tests/test_validation.py:322 |
 | test591 | `test_591_is_more_specific_than` | TEST591: is_more_specific_than returns true when self has more tags for same request | tests/test_cap.py:195 |
 | test592 | `test_592_remove_metadata` | TEST592: remove_metadata adds then removes metadata correctly | tests/test_cap.py:224 |
 | test593 | `test_593_registered_by_lifecycle` | TEST593: registered_by lifecycle — set, get, clear | tests/test_cap.py:243 |
@@ -985,6 +985,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_graph.py:316 |
 | test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_graph.py:341 |
 | test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_graph.py:358 |
+| test1294 | `test_1294_rule11_void_input_with_stdin` | TEST1294: RULE11 - void-input cap with stdin source rejected | tests/test_validation.py:333 |
+| test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:345 |
+| test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:357 |
+| test1297 | `test_1297_rule11_non_void_input_with_stdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | tests/test_validation.py:367 |
 | test1308 | `test_1308_cyclic_strand_fails_hard` | TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError. | tests/test_machine.py:307 |
 | test1309 | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:363 |
 | test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
@@ -1001,8 +1005,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | unnumbered | `test_concatenated_vs_final_payload_divergence` | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk | tests/test_cartridge_host_runtime.py:265 |
 | unnumbered | `test_exact_max_chunk_stream_chunked` | Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END | tests/test_cbor_io.py:781 |
 | unnumbered | `test_extract_effective_payload_invalid_cap_urn` | Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error | tests/test_cartridge_runtime.py:392 |
-| unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:61 |
-| unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:75 |
+| unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:66 |
+| unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:80 |
 | unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:63 |
 | unnumbered | `test_max_chunk_plus_one_splits_into_two_chunks` | Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END | tests/test_cbor_io.py:812 |
 | unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
@@ -1033,8 +1037,8 @@ The following tests are cataloged but do not currently participate in numeric te
 - `test_concatenated_vs_final_payload_divergence` — tests/test_cartridge_host_runtime.py:265
 - `test_exact_max_chunk_stream_chunked` — tests/test_cbor_io.py:781
 - `test_extract_effective_payload_invalid_cap_urn` — tests/test_cartridge_runtime.py:392
-- `test_input_validation_optional_arg` — tests/test_validation.py:61
-- `test_input_validation_too_many_args` — tests/test_validation.py:75
+- `test_input_validation_optional_arg` — tests/test_validation.py:66
+- `test_input_validation_too_many_args` — tests/test_validation.py:80
 - `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:63
 - `test_max_chunk_plus_one_splits_into_two_chunks` — tests/test_cbor_io.py:812
 - `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
@@ -1060,8 +1064,8 @@ These tests still participate in numeric indexing, but the cataloger did not fin
 ---
 
 *Generated from CapDag-Py source tree*
-*Total tests: 999*
-*Total numbered tests: 973*
+*Total tests: 1003*
+*Total numbered tests: 977*
 *Total unnumbered tests: 26*
 *Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 0*

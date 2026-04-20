@@ -93,6 +93,7 @@ def validate_cap_args(cap) -> None:
     - RULE7: No arg may have both position and cli_flag
     - RULE9: No two args may have same cli_flag
     - RULE10: Reserved cli_flags cannot be used
+    - RULE11: Stdin source consistency with in= spec
     """
     from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
 
@@ -164,6 +165,22 @@ def validate_cap_args(cap) -> None:
                     cap_urn,
                     f"RULE3: Multiple args have different stdin media_urns: '{first_stdin}' vs '{stdin}'"
                 )
+
+    # RULE11: Stdin source consistency with in= spec
+    from capdag.urn.media_urn import MediaUrn, MEDIA_VOID
+    in_media = MediaUrn.from_string(cap.urn.in_spec())
+    void_media = MediaUrn.from_string(MEDIA_VOID)
+    is_void_input = in_media.is_equivalent(void_media)
+    if is_void_input and len(stdin_urns) > 0:
+        raise InvalidCapSchemaError(
+            cap_urn,
+            "RULE11: Cap has in=\"media:void\" but args have stdin sources"
+        )
+    if not is_void_input and len(stdin_urns) == 0:
+        raise InvalidCapSchemaError(
+            cap_urn,
+            "RULE11: Cap has non-void in= spec but no args have stdin sources"
+        )
 
     # RULE5: No two args may have same position
     position_set = set()

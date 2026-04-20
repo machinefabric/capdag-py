@@ -22,8 +22,13 @@ from capdag.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_
 
 
 def _test_urn(tags: str) -> str:
-    """Helper to build cap URN with standard in/out for testing"""
+    """Helper to build cap URN with standard in/out for testing (void input)"""
     return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
+
+
+def _test_urn_with_input(tags: str) -> str:
+    """Helper to build cap URN with non-void in= spec for testing stdin sources"""
+    return f'cap:in="{MEDIA_STRING}";out="{MEDIA_OBJECT}";{tags}'
 
 
 # TEST051: Test input validation succeeds with valid positional argument
@@ -192,7 +197,7 @@ def test_579_rule2_empty_sources():
 
 # TEST580: RULE3 - multiple stdin sources with different URNs rejected
 def test_580_rule3_different_stdin_urns():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:")]))
@@ -205,7 +210,7 @@ def test_580_rule3_different_stdin_urns():
 
 # TEST581: RULE3 - multiple stdin sources with same URN is OK
 def test_581_rule3_same_stdin_urns_ok():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:txt;textable")]))
@@ -304,7 +309,7 @@ def test_588_rule10_reserved_cli_flags():
 
 # TEST589: valid cap args with mixed sources pass all rules
 def test_589_all_rules_pass():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, False, [PositionSource(1)]))
@@ -321,4 +326,48 @@ def test_590_cli_flag_only_args():
     cap.add_arg(CapArg(MEDIA_INTEGER, False, [CliFlagSource("--count")]))
 
     # Should succeed
+    validate_cap_args(cap)
+
+
+# TEST1294: RULE11 - void-input cap with stdin source rejected
+def test_1294_rule11_void_input_with_stdin():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
+
+    with pytest.raises(InvalidCapSchemaError) as exc_info:
+        validate_cap_args(cap)
+
+    assert "RULE11" in exc_info.value.issue
+
+
+# TEST1295: RULE11 - non-void-input cap without stdin source rejected
+def test_1295_rule11_non_void_input_without_stdin():
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
+
+    with pytest.raises(InvalidCapSchemaError) as exc_info:
+        validate_cap_args(cap)
+
+    assert "RULE11" in exc_info.value.issue
+
+
+# TEST1296: RULE11 - void-input cap with only cli_flag sources passes
+def test_1296_rule11_void_input_cli_flag_only():
+    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--input")]))
+
+    # Should succeed - void input, no stdin sources
+    validate_cap_args(cap)
+
+
+# TEST1297: RULE11 - non-void-input cap with stdin source passes
+def test_1297_rule11_non_void_input_with_stdin():
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    cap = Cap(urn, "Test Capability", "test-command")
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
+
+    # Should succeed - non-void input with stdin source
     validate_cap_args(cap)
