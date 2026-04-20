@@ -675,9 +675,13 @@ def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
     stream_id = "identity-verify"
     nonce = os.urandom(32)
 
+    # CBOR-encode nonce (protocol v2: CHUNK payload = CBOR-encoded data)
+    import cbor2
+    cbor_nonce = cbor2.dumps(nonce)
+
     writer.write(Frame.req(request_id, CAP_IDENTITY, b"", "application/cbor"))
     writer.write(Frame.stream_start(request_id, stream_id, "media:"))
-    writer.write(Frame.chunk(request_id, stream_id, 0, nonce, 0, compute_checksum(nonce)))
+    writer.write(Frame.chunk(request_id, stream_id, 0, cbor_nonce, 0, compute_checksum(cbor_nonce)))
     writer.write(Frame.stream_end(request_id, stream_id, 1))
     writer.write(Frame.end(request_id, None))
 
@@ -695,7 +699,15 @@ def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
             continue
         if frame.frame_type == FrameType.CHUNK:
             verify_chunk_checksum(frame)
-            echoed.extend(frame.payload or b"")
+            # Decode CBOR wrapper to extract raw bytes
+            payload = frame.payload or b""
+            decoded = cbor2.loads(payload)
+            if isinstance(decoded, bytes):
+                echoed.extend(decoded)
+            else:
+                raise HandshakeError(
+                    f"identity verification failed: expected bytes chunk, got {type(decoded)}"
+                )
             continue
         if frame.frame_type == FrameType.STREAM_END:
             saw_stream_end = True
