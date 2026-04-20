@@ -141,8 +141,6 @@ PROFILE_CAPDAG_STATUS_OUTPUT = "https://capdag.com/schema/status-output"
 PROFILE_CAPDAG_CONTENTS_OUTPUT = "https://capdag.com/schema/contents-output"
 # Profile URL for embeddings generate output
 PROFILE_CAPDAG_GENERATE_OUTPUT = "https://capdag.com/schema/embeddings"
-# Profile URL for structured query output
-PROFILE_CAPDAG_STRUCTURED_QUERY_OUTPUT = "https://capdag.com/schema/structured-query-output"
 # Profile URL for questions array
 PROFILE_CAPDAG_QUESTIONS_ARRAY = "https://capdag.com/schema/questions-array"
 

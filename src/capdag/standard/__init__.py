@@ -18,7 +18,7 @@ from capdag.standard.caps import (
     render_page_image_urn,
     format_conversion_urn,
     disbind_urn,
-    structured_query_urn,
+    generate_json_urn,
     make_decision_urn,
     make_multiple_decisions_urn,
 )
@@ -41,7 +41,7 @@ __all__ = [
     "render_page_image_urn",
     "format_conversion_urn",
     "disbind_urn",
-    "structured_query_urn",
+    "generate_json_urn",
     "make_decision_urn",
     "make_multiple_decisions_urn",
 ]

@@ -521,14 +521,20 @@ def all_format_conversion_paths() -> List[FormatConversionPath]:
 # -----------------------------------------------------------------------------
 
 
-def structured_query_urn(lang_code: str) -> CapUrn:
-    """Build URN for structured-query capability"""
+def generate_json_urn(lang_code: str) -> CapUrn:
+    """Build URN for generate-json capability.
+
+    Takes text content as its data-flow input and a caller-supplied JSON
+    Schema (via ``--schema``), runs schema-constrained LLM generation, and
+    returns a JSON object guaranteed to validate against the schema. See
+    ``capgraph/src/caps/generate-json-en.toml`` for the full contract.
+    """
     return (
         CapUrnBuilder()
-        .tag("op", "query_structured")
+        .tag("op", "generate_json")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_JSON_SCHEMA)
+        .in_spec(MEDIA_STRING)
         .out_spec(MEDIA_JSON)
         .build()
     )

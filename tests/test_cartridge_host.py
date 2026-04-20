@@ -117,7 +117,7 @@ IDENTITY_CAP_JSON = '{"urn":"cap:","title":"Identity","command":"identity","args
 
 # TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY
 def test_480_parse_caps_rejects_manifest_without_identity():
-    manifest = b'{"name":"Broken","version":"1.0","caps":[{"urn":"cap:op=test"}]}'
+    manifest = b'{"name":"Broken","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test"}]}]}'
 
     with pytest.raises(ValueError) as exc_info:
         _parse_caps_from_manifest(manifest)
@@ -127,7 +127,7 @@ def test_480_parse_caps_rejects_manifest_without_identity():
 
 # TEST485: attach_cartridge completes identity verification with working cartridge
 def test_485_attach_cartridge_identity_verification_succeeds():
-    manifest = '{"name":"IdentityTest","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}'
+    manifest = '{"name":"IdentityTest","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     t = threading.Thread(target=lambda: simulate_cartridge(pr, pw, manifest), daemon=True)
@@ -148,7 +148,7 @@ def test_485_attach_cartridge_identity_verification_succeeds():
 
 # TEST486: attach_cartridge rejects cartridge that fails identity verification
 def test_486_attach_cartridge_identity_verification_fails():
-    manifest = '{"name":"BrokenIdentity","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ']}'
+    manifest = '{"name":"BrokenIdentity","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ']}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def broken_cartridge():
@@ -175,7 +175,7 @@ def test_486_attach_cartridge_identity_verification_fails():
 
 # TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge
 def test_489_full_path_identity_verification():
-    manifest = '{"name":"IdentityE2E","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}'
+    manifest = '{"name":"IdentityE2E","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}]}'
 
     cartridge_host_read, cartridge_host_write, cartridge_read, cartridge_write, cartridge_host_socks, cartridge_socks = make_conn()
     relay_host_read, relay_host_write, engine_read, engine_write, relay_host_socks, engine_socks = make_conn()
@@ -226,8 +226,8 @@ def test_489_full_path_identity_verification():
 
 # TEST490: Identity verification with multiple cartridges through single relay
 def test_490_identity_verification_multiple_cartridges():
-    manifest_a = '{"name":"CartridgeA","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}'
-    manifest_b = '{"name":"CartridgeB","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}'
+    manifest_a = '{"name":"CartridgeA","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}]}'
+    manifest_b = '{"name":"CartridgeB","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}]}'
 
     ha_r, ha_w, ca_r, ca_w, ha_socks, ca_socks = make_conn()
     hb_r, hb_w, cb_r, cb_w, hb_socks, cb_socks = make_conn()
@@ -359,7 +359,7 @@ def test_415_req_triggers_spawn():
 
 # TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities
 def test_416_attach_cartridge_handshake():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ']}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ']}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge():
@@ -386,8 +386,8 @@ def test_416_attach_cartridge_handshake():
 
 # TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)
 def test_417_route_req_by_cap_urn():
-    manifest_a = '{"name":"A","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=convert"}]}'
-    manifest_b = '{"name":"B","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=analyze"}]}'
+    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=convert"}]}]}'
+    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=analyze"}]}]}'
 
     hr_a, hw_a, pr_a, pw_a, hs_a, ps_a = make_conn()
     hr_b, hw_b, pr_b, pw_b, hs_b, ps_b = make_conn()
@@ -447,7 +447,7 @@ def test_417_route_req_by_cap_urn():
 
 # TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames.
 def test_418_route_continuation_by_req_id():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=cont"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=cont"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -506,7 +506,7 @@ def test_418_route_continuation_by_req_id():
 
 # TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)
 def test_419_heartbeat_local_handling():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=hb"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=hb"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     cartridge_done = threading.Event()
@@ -568,7 +568,7 @@ def test_419_heartbeat_local_handling():
 
 # TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)
 def test_420_cartridge_frames_forwarded_to_relay():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=fwd"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=fwd"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -626,7 +626,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
 
 # TEST421: Cartridge death updates capability list (caps removed)
 def test_421_cartridge_death_updates_caps():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -667,7 +667,7 @@ def test_421_cartridge_death_updates_caps():
 
 # TEST422: Cartridge death sends ERR for all pending requests via relay
 def test_422_cartridge_death_sends_err():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -715,8 +715,8 @@ def test_422_cartridge_death_sends_err():
 
 # TEST423: Multiple cartridges registered with distinct caps route independently
 def test_423_multi_cartridge_distinct_caps():
-    manifest_a = '{"name":"A","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}'
-    manifest_b = '{"name":"B","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}'
+    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}]}'
+    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}]}'
 
     hr_a, hw_a, pr_a, pw_a, hs_a, ps_a = make_conn()
     hr_b, hw_b, pr_b, pw_b, hs_b, ps_b = make_conn()
@@ -796,7 +796,7 @@ def test_423_multi_cartridge_distinct_caps():
 
 # TEST424: Concurrent requests to the same cartridge are handled independently
 def test_424_concurrent_requests_same_cartridge():
-    manifest = '{"name":"Test","version":"1.0","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=conc"}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=conc"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
