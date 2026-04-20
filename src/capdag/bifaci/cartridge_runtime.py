@@ -62,7 +62,7 @@ from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
 from capdag.urn.cap_urn import CapUrn
 from capdag.bifaci.manifest import CapManifest
-from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY
+from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH
 
 
 class RuntimeError(Exception):
@@ -2272,106 +2272,80 @@ class CartridgeRuntime:
 
         return cbor2.dumps(cbor_args)
 
-    def _read_file_path_to_bytes(self, path_value: str, is_array: bool) -> bytes:
-        """Read file(s) for file-path arguments and return bytes.
+    def _read_file_path_to_bytes(self, path_value: str, is_sequence: bool) -> bytes:
+        """Read file(s) for a file-path argument and return CLI-wire bytes.
 
-        This method implements automatic file-path to bytes conversion when:
-        - arg.media_urn is "media:file-path" or "media:file-path-array"
-        - arg has a stdin source (indicating bytes are the canonical type)
+        The single `media:file-path;textable` URN covers both shapes;
+        cardinality is driven by the arg definition's `is_sequence` flag:
 
-        Args:
-            path_value: File path string (single path or JSON array of path patterns)
-            is_array: True if media:file-path-array (read multiple files with glob expansion)
-
-        Returns:
-            - For single file: bytes containing raw file bytes
-            - For array: CBOR-encoded array of file bytes (each element is one file's contents)
-
-        Raises:
-            RuntimeError: If file cannot be read with clear error message
+        - `is_sequence = False` — treat `path_value` as exactly one file path.
+          Return the file's raw bytes. Any glob metacharacter is an error
+          here because CLI dispatch is responsible for iterating the handler
+          per-file when the declared arg is scalar.
+        - `is_sequence = True` — treat `path_value` as a newline-separated
+          list of paths and/or globs. Expand, read every resolved file, and
+          return a CBOR array of bytes (one entry per file).
         """
-        if is_array:
-            # Parse JSON array of path patterns
+        def expand(raw: str) -> List[Path]:
+            is_glob = '*' in raw or '?' in raw or '[' in raw
+            if not is_glob:
+                p = Path(raw)
+                if not p.exists():
+                    raise IoRuntimeError(f"File not found: '{raw}'")
+                if not p.is_file():
+                    raise IoRuntimeError(f"Path is not a regular file: '{raw}'")
+                return [p]
+            # Validate bracket balance; Python's glob accepts unbalanced
+            # brackets silently, which we want to surface as a hard error.
+            bracket_count = 0
+            for char in raw:
+                if char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count < 0:
+                        raise CliError(f"Invalid glob pattern '{raw}': unmatched ']'")
+            if bracket_count != 0:
+                raise CliError(f"Invalid glob pattern '{raw}': unclosed '['")
             try:
-                path_patterns = json.loads(path_value)
-            except json.JSONDecodeError as e:
-                raise CliError(
-                    f"Failed to parse file-path-array: expected JSON array of path patterns, "
-                    f"got '{path_value}': {e}"
-                )
-
-            if not isinstance(path_patterns, list):
-                raise CliError(
-                    f"Failed to parse file-path-array: expected JSON array of path patterns, "
-                    f"got '{path_value}'"
-                )
-
-            # Expand globs and collect all file paths
-            all_files = []
-            for pattern in path_patterns:
-                # Check if this is a literal path (no glob metacharacters) or a glob pattern
-                is_glob = '*' in pattern or '?' in pattern or '[' in pattern
-
-                if not is_glob:
-                    # Literal path - verify it exists and is a file
-                    path = Path(pattern)
-                    if not path.exists():
-                        raise IoRuntimeError(
-                            f"Failed to read file '{pattern}' from file-path-array: "
-                            f"No such file or directory"
-                        )
-                    if path.is_file():
-                        all_files.append(path)
-                    # Skip directories silently for consistency with glob behavior
-                else:
-                    # Glob pattern - expand it
-                    # Python's glob doesn't validate patterns, but we can check for common errors
-                    # Check for unclosed brackets
-                    bracket_count = 0
-                    for char in pattern:
-                        if char == '[':
-                            bracket_count += 1
-                        elif char == ']':
-                            bracket_count -= 1
-                            if bracket_count < 0:
-                                raise CliError(f"Invalid glob pattern '{pattern}': unmatched ']'")
-                    if bracket_count != 0:
-                        raise CliError(f"Invalid glob pattern '{pattern}': unclosed '['")
-
-                    try:
-                        paths = glob.glob(pattern)
-                    except Exception as e:
-                        raise CliError(f"Invalid glob pattern '{pattern}': {e}")
-
-                    for path_str in paths:
-                        path = Path(path_str)
-                        # Only include files (skip directories)
-                        if path.is_file():
-                            all_files.append(path)
-
-            # Read each file sequentially
-            files_data = []
-            for path in all_files:
-                try:
-                    file_bytes = path.read_bytes()
-                    files_data.append(file_bytes)
-                except IOError as e:
-                    raise IoRuntimeError(
-                        f"Failed to read file '{path}' from file-path-array: {e}"
-                    )
-
-            # Encode as CBOR array
-            try:
-                return cbor2.dumps(files_data)
+                paths = glob.glob(raw)
             except Exception as e:
-                raise SerializeError(f"Failed to encode CBOR array: {e}")
-        else:
-            # Single file path - read and return raw bytes
+                raise CliError(f"Invalid glob pattern '{raw}': {e}")
+            files = [Path(s) for s in paths if Path(s).is_file()]
+            if not files:
+                raise IoRuntimeError(f"No files matched glob pattern '{raw}'")
+            return files
+
+        if not is_sequence:
+            files = expand(path_value)
+            if len(files) != 1:
+                raise IoRuntimeError(
+                    f"File-path arg declared is_sequence=False resolved to "
+                    f"{len(files)} files; expected exactly 1. CLI dispatch "
+                    f"must iterate the handler across the expanded files."
+                )
             try:
-                path = Path(path_value)
-                return path.read_bytes()
+                return files[0].read_bytes()
             except IOError as e:
-                raise IoRuntimeError(f"Failed to read file '{path_value}': {e}")
+                raise IoRuntimeError(f"Failed to read file '{files[0]}': {e}")
+
+        # Sequence: newline-separated list of paths or globs.
+        patterns = [line.strip() for line in path_value.splitlines() if line.strip()]
+        all_files: List[Path] = []
+        for pattern in patterns:
+            all_files.extend(expand(pattern))
+
+        files_data: List[bytes] = []
+        for path in all_files:
+            try:
+                files_data.append(path.read_bytes())
+            except IOError as e:
+                raise IoRuntimeError(f"Failed to read file '{path}': {e}")
+
+        try:
+            return cbor2.dumps(files_data)
+        except Exception as e:
+            raise SerializeError(f"Failed to encode CBOR array: {e}")
 
     def build_arguments_from_cli(self, cap: Cap, cli_args: List[str]) -> List[CapArgumentValue]:
         """Build CapArgumentValue list from CLI arguments based on cap's arg definitions."""
@@ -2405,11 +2379,10 @@ class CartridgeRuntime:
             from capdag.cap.definition import StdinSource
 
             file_path_pattern = MediaUrn.from_string(MEDIA_FILE_PATH)
-            file_path_array_pattern = MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY)
 
-            # Pattern matching: check if patterns accept this instance
-            is_array = file_path_array_pattern.accepts(arg_media_urn)
-            is_file_path = is_array or file_path_pattern.accepts(arg_media_urn)
+            # Pattern matching: a single file-path base pattern covers both
+            # shapes; the arg-def's `is_sequence` flag drives cardinality.
+            is_file_path = file_path_pattern.accepts(arg_media_urn)
 
             # Get stdin source media URN if it exists (tells us target type)
             has_stdin_source = any(
@@ -2468,11 +2441,10 @@ class CartridgeRuntime:
             raise CliError(f"Invalid media URN '{arg_def.media_urn}': {e}")
 
         file_path_pattern = MediaUrn.from_string(MEDIA_FILE_PATH)
-        file_path_array_pattern = MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY)
 
-        # Pattern matching: check if patterns accept this instance (array first, more specific)
-        is_array = file_path_array_pattern.accepts(arg_media_urn)
-        is_file_path = is_array or file_path_pattern.accepts(arg_media_urn)
+        # Single pattern covers file-path args; cardinality is driven by the
+        # arg definition's `is_sequence` flag, not by URN tags.
+        is_file_path = file_path_pattern.accepts(arg_media_urn)
 
         # Get stdin source media URN if it exists (tells us target type)
         has_stdin_source = any(
@@ -2487,7 +2459,7 @@ class CartridgeRuntime:
                 if value is not None:
                     # If file-path type with stdin source, read file(s)
                     if is_file_path and has_stdin_source:
-                        return self._read_file_path_to_bytes(value, is_array)
+                        return self._read_file_path_to_bytes(value, arg_def.is_sequence)
                     return value.encode('utf-8')
             elif isinstance(source, PositionSource):
                 # Positional args: filter out flags and their values
@@ -2497,7 +2469,7 @@ class CartridgeRuntime:
                     value = positional[pos]
                     # If file-path type with stdin source, read file(s)
                     if is_file_path and has_stdin_source:
-                        return self._read_file_path_to_bytes(value, is_array)
+                        return self._read_file_path_to_bytes(value, arg_def.is_sequence)
                     return value.encode('utf-8')
             elif isinstance(source, StdinSource):
                 if stdin_data is not None:

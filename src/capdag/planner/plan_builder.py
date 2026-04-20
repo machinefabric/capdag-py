@@ -202,7 +202,7 @@ class MachinePlanBuilder:
         for arg in cap.get_args():
             try:
                 media_urn = MediaUrn.from_string(arg.media_urn)
-                if media_urn.is_any_file_path():
+                if media_urn.is_file_path():
                     return arg.media_urn
             except Exception:
                 continue
@@ -215,7 +215,7 @@ class MachinePlanBuilder:
         for arg in cap.get_args():
             try:
                 media_urn = MediaUrn.from_string(arg.media_urn)
-                if not media_urn.is_any_file_path():
+                if not media_urn.is_file_path():
                     continue
             except Exception:
                 continue
@@ -298,7 +298,7 @@ class MachinePlanBuilder:
                             continue
                         try:
                             mu = MediaUrn.from_string(arg.media_urn)
-                            if mu.is_any_file_path():
+                            if mu.is_file_path():
                                 continue
                         except Exception:
                             pass
@@ -555,7 +555,7 @@ class MachinePlanBuilder:
         # 3. File-path type
         try:
             mu = MediaUrn.from_string(media_urn)
-            if mu.is_any_file_path():
+            if mu.is_file_path():
                 if step_index == 0:
                     return ArgumentResolution.FROM_INPUT_FILE
                 return ArgumentResolution.FROM_PREVIOUS_OUTPUT

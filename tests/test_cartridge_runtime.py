@@ -699,8 +699,9 @@ def test_339_file_path_array_glob_expansion(tmp_path):
         "Batch",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -711,20 +712,16 @@ def test_339_file_path_array_glob_expansion(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Pass glob pattern as JSON array
+    # Under the new regime a sequence-declared file-path arg takes a
+    # newline-separated list of path/glob patterns. The runtime expands each
+    # and returns a CBOR array of file bytes.
     pattern = f"{test_dir}/*.txt"
-    paths_json = json.dumps([pattern])
-
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
+    cli_args = [pattern]
     result = runtime._extract_arg_value(cap.args[0], cli_args, None)
 
-    # Decode CBOR array
     files_array = cbor2.loads(result)
-
     assert len(files_array) == 2, "Should find 2 files"
 
-    # Verify contents (order may vary, so sort)
     bytes_vec = sorted(files_array)
     assert bytes_vec == [b"content1", b"content2"]
 
@@ -759,7 +756,9 @@ def test_340_file_not_found_clear_error():
 
     err_msg = str(exc_info.value)
     assert "/nonexistent/file.pdf" in err_msg, "Error should mention file path"
-    assert "Failed to read file" in err_msg, "Error should be clear"
+    assert (
+        "File not found" in err_msg or "Failed to read file" in err_msg
+    ), f"Error should be clear; got: {err_msg}"
 
 
 # TEST341: stdin takes precedence over file-path in source order
@@ -860,17 +859,19 @@ def test_343_non_file_path_args_unaffected():
     assert value_str == "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
-# TEST344: file-path-array with nonexistent path fails clearly
+# TEST344: A scalar file-path arg receiving a nonexistent path fails hard
+# with a clear error that names the path. The runtime refuses to silently
+# swallow user mistakes like typos or wrong directories.
 def test_344_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import CliError
+    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -882,19 +883,20 @@ def test_344_file_path_array_invalid_json_fails():
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Pass invalid JSON (not an array)
-    cli_args = ["not a json array"]
-    # cap is already defined above with correct URN and args
-
-    with pytest.raises(CliError) as exc_info:
+    cli_args = ["/nonexistent/path/to/nothing"]
+    with pytest.raises(IoRuntimeError) as exc_info:
         runtime._extract_arg_value(cap.args[0], cli_args, None)
 
     err = str(exc_info.value)
-    assert "Failed to parse file-path-array" in err, "Error should mention file-path-array"
-    assert "expected JSON array" in err, "Error should explain expected format"
+    assert "/nonexistent/path/to/nothing" in err, f"Error should mention the path; got: {err}"
+    assert (
+        "File not found" in err or "Failed to read file" in err
+    ), f"Error should be clear; got: {err}"
 
 
-# TEST345: file-path-array with literal nonexistent path fails hard
+# TEST345: sequence file-path arg with a literal nonexistent path fails hard.
+# The runtime reads every resolved path; any missing file aborts the batch
+# rather than silently dropping an entry.
 def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
     from capdag.bifaci.cartridge_runtime import IoRuntimeError
@@ -908,8 +910,9 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -920,21 +923,17 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Explicitly list both files (one exists, one doesn't)
-    paths_json = json.dumps([
-        str(file1),
-        str(file2_path),  # Doesn't exist!
-    ])
-
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
+    # Sequence arg takes newline-separated paths; one missing → hard fail.
+    cli_args = ["\n".join([str(file1), str(file2_path)])]
 
     with pytest.raises(IoRuntimeError) as exc_info:
         runtime._extract_arg_value(cap.args[0], cli_args, None)
 
     err = str(exc_info.value)
     assert "test345_missing.txt" in err, "Error should mention the missing file"
-    assert "Failed to read file" in err, "Error should be clear about read failure"
+    assert (
+        "File not found" in err or "Failed to read file" in err
+    ), f"Error should be clear; got: {err}"
 
 
 # TEST346: Large file (1MB) reads successfully
@@ -1143,7 +1142,8 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     assert received_payload[0] == test_content, "Handler should receive file bytes, not path"
 
 
-# TEST351: file-path array with empty CBOR array returns empty (CBOR mode)
+# TEST351: sequence-declared file-path arg with an empty newline-separated
+# value returns an empty CBOR array — no spurious error.
 def test_351_file_path_array_empty_array():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1152,8 +1152,9 @@ def test_351_file_path_array_empty_array():
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
-            required=False,  # Not required
+            media_urn="media:file-path;textable",
+            required=False,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -1164,14 +1165,11 @@ def test_351_file_path_array_empty_array():
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    cli_args = ["[]"]
-    # cap is already defined above with correct URN and args
+    cli_args = [""]
     result = runtime._extract_arg_value(cap.args[0], cli_args, None)
 
-    # Decode CBOR array
     files_array = cbor2.loads(result)
-
-    assert len(files_array) == 0, "Empty array should produce empty result"
+    assert len(files_array) == 0, "Empty pattern list should produce empty result"
 
 
 # TEST352: file permission denied error is clear (Unix-specific)
@@ -1252,17 +1250,21 @@ def test_353_cbor_payload_format_consistency():
     assert arg.value == b"test value"
 
 
-# TEST354: Glob pattern with no matches fails hard (NO FALLBACK)
-def test_354_glob_pattern_no_matches_empty_array(tmp_path):
+# TEST354: A glob pattern with no matches fails hard. Silent empty results
+# mask real user mistakes (typo'd path, wrong directory), so the runtime
+# surfaces them rather than returning an empty array.
+def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
+    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -1273,18 +1275,14 @@ def test_354_glob_pattern_no_matches_empty_array(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Glob pattern that matches nothing
     pattern = f"{tmp_path}/nonexistent_*.xyz"
-    paths_json = json.dumps([pattern])
+    cli_args = [pattern]
 
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
+    with pytest.raises(IoRuntimeError) as exc_info:
+        runtime._extract_arg_value(cap.args[0], cli_args, None)
 
-    # Decode CBOR array
-    files_array = cbor2.loads(result)
-
-    assert len(files_array) == 0, "No matches should produce empty array"
+    err = str(exc_info.value)
+    assert "No files matched" in err, f"Error should say no files matched; got: {err}"
 
 
 # TEST355: Glob pattern skips directories
@@ -1305,8 +1303,9 @@ def test_355_glob_pattern_skips_directories(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -1317,23 +1316,16 @@ def test_355_glob_pattern_skips_directories(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Glob that matches both file and directory
     pattern = f"{test_dir}/*"
-    paths_json = json.dumps([pattern])
-
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
+    cli_args = [pattern]
     result = runtime._extract_arg_value(cap.args[0], cli_args, None)
 
-    # Decode CBOR array
     files_array = cbor2.loads(result)
-
-    # Should only include the file, not the directory
     assert len(files_array) == 1, "Should only include files, not directories"
     assert files_array[0] == b"content1"
 
 
-# TEST356: Multiple glob patterns combined
+# TEST356: Multiple glob patterns combined via newline separation.
 def test_356_multiple_glob_patterns_combined(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1350,8 +1342,9 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -1362,21 +1355,14 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Multiple patterns
     pattern1 = f"{test_dir}/*.txt"
     pattern2 = f"{test_dir}/*.json"
-    paths_json = json.dumps([pattern1, pattern2])
-
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
+    cli_args = ["\n".join([pattern1, pattern2])]
     result = runtime._extract_arg_value(cap.args[0], cli_args, None)
 
-    # Decode CBOR array
     files_array = cbor2.loads(result)
-
     assert len(files_array) == 2, "Should find both files from different patterns"
 
-    # Collect contents (order may vary)
     contents = sorted(files_array)
     assert contents == [b"json", b"text"]
 

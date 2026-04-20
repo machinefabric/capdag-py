@@ -105,11 +105,10 @@ MEDIA_YAML_LIST_RECORD = "media:list;record;textable;yaml"
 MEDIA_CSV = "media:csv;list;record;textable"
 MEDIA_CSV_LIST = "media:csv;list;textable"
 
-# File path types - for arguments that represent filesystem paths
-# Media URN for a single file path - textable, scalar, and marked as a file-path for special handling
+# File path type — for arguments that represent filesystem paths.
+# There is a single media URN; cardinality (single file vs many) lives on
+# `is_sequence`, not on URN tags.
 MEDIA_FILE_PATH = "media:file-path;textable"
-# Media URN for an array of file paths - textable, list (per file-path.toml)
-MEDIA_FILE_PATH_ARRAY = "media:file-path;list;textable"
 
 # Media URN for extracted page text
 MEDIA_TEXTABLE_PAGE = "media:textable;page"
@@ -444,20 +443,12 @@ class MediaUrn:
         return "void" in self._urn.tags
 
     def is_file_path(self) -> bool:
-        """Check if this represents a single file path type (not array).
-        Returns true if the "file-path" marker tag is present AND NOT list.
-        """
-        return self.has_marker_tag("file-path") and self.is_scalar()
+        """True if this URN specializes `media:file-path`.
 
-    def is_file_path_array(self) -> bool:
-        """Check if this represents a file path array type.
-        Returns true if the "file-path" marker tag is present AND list.
-        """
-        return self.has_marker_tag("file-path") and self.is_list()
-
-    def is_any_file_path(self) -> bool:
-        """Check if this represents any file path type (single or array).
-        Returns true if the "file-path" marker tag is present.
+        There is a single file-path media URN; cardinality (single file vs
+        many files) is carried on the wire via `is_sequence`, not via URN
+        tags. Callers deciding scalar-vs-sequence must look at the arg
+        definition's `is_sequence` flag instead.
         """
         return self.has_marker_tag("file-path")
 

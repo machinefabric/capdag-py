@@ -27,7 +27,6 @@ from capdag import (
     MEDIA_VIDEO,
     MEDIA_AUDIO_SPEECH,
     MEDIA_FILE_PATH,
-    MEDIA_FILE_PATH_ARRAY,
     MEDIA_DECISION,
     binary_media_urn_for_ext,
     text_media_urn_for_ext,
@@ -333,32 +332,13 @@ def test_550_is_bool():
     assert not MediaUrn.from_string(MEDIA_IDENTITY).is_bool()
 
 
-# TEST551: is_file_path returns true for scalar file-path, false for array
+# TEST551: is_file_path returns true for the single file-path media URN,
+# false for everything else. There is no "array" variant — cardinality is
+# carried by is_sequence on the wire, not by URN tags.
 def test_551_is_file_path():
     assert MediaUrn.from_string(MEDIA_FILE_PATH).is_file_path()
-    # Array file-path is NOT is_file_path (it's is_file_path_array)
-    assert not MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY).is_file_path()
-    # Non-file-path types
     assert not MediaUrn.from_string(MEDIA_STRING).is_file_path()
     assert not MediaUrn.from_string(MEDIA_IDENTITY).is_file_path()
-
-
-# TEST552: is_file_path_array returns true for list file-path, false for scalar
-def test_552_is_file_path_array():
-    assert MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY).is_file_path_array()
-    # Scalar file-path is NOT is_file_path_array
-    assert not MediaUrn.from_string(MEDIA_FILE_PATH).is_file_path_array()
-    # Non-file-path types
-    assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_file_path_array()
-
-
-# TEST553: is_any_file_path returns true for both scalar and array file-path
-def test_553_is_any_file_path():
-    assert MediaUrn.from_string(MEDIA_FILE_PATH).is_any_file_path()
-    assert MediaUrn.from_string(MEDIA_FILE_PATH_ARRAY).is_any_file_path()
-    # Non-file-path types
-    assert not MediaUrn.from_string(MEDIA_STRING).is_any_file_path()
-    assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_any_file_path()
 
 
 # TEST555: with_tag adds a tag and without_tag removes it

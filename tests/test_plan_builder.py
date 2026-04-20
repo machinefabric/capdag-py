@@ -2,7 +2,7 @@
 
 import json
 
-from capdag import MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY
+from capdag import MEDIA_FILE_PATH
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.cap.registry import CapRegistry
 from capdag.media.spec import MediaValidation
@@ -274,28 +274,6 @@ def test_998_file_path_type_fallback_subsequent_cap():
     assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
 
 
-# TEST999: Tests MEDIA_FILE_PATH_ARRAY argument type resolution for first and subsequent caps Verifies that file-path array arguments follow the same resolution pattern as single file paths
-def test_999_file_path_array_fallback():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        MEDIA_FILE_PATH_ARRAY,
-        "media:pdf",
-        "media:png",
-        0,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_INPUT_FILE
-
-    resolution = builder.determine_resolution_with_io_check(
-        MEDIA_FILE_PATH_ARRAY,
-        "media:pdf",
-        "media:png",
-        1,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
 
 
 # TEST1009: Tests required non-IO arguments with default values are marked as HasDefault Verifies that arguments like integers with defaults don't require user input
