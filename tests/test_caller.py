@@ -9,8 +9,6 @@ from capdag.cap.caller import (
     StdinSourceData,
     StdinSourceFileReference,
     CapArgumentValue,
-    CapCaller,
-    CapSet,
 )
 from capdag.bifaci.frame import FrameType, MessageId
 from capdag.bifaci.cartridge_runtime import find_stream
@@ -322,95 +320,3 @@ def test_677_base_urn_does_not_match_full_urn_in_find_stream():
 
     assert find_stream(streams, full_urn) is None
 
-
-# ============================================================================
-# CapCaller Tests
-# ============================================================================
-
-
-class MockCapSet(CapSet):
-    """Mock CapSet for testing"""
-
-    def __init__(self, response_binary=None, response_text=None):
-        self.response_binary = response_binary
-        self.response_text = response_text
-        self.last_cap_urn = None
-        self.last_arguments = None
-
-    async def execute_cap(self, cap_urn, arguments):
-        self.last_cap_urn = cap_urn
-        self.last_arguments = arguments
-        return (self.response_binary, self.response_text)
-
-
-def test_cap_caller_validate_arguments_success():
-    """Test CapCaller validates arguments correctly"""
-    urn = CapUrn.from_string(_test_urn("op=test"))
-    cap = Cap(urn, "Test", "test")
-
-    # Add required argument
-    arg_def = CapArg(MEDIA_STRING, required=True, sources=[PositionSource(0)])
-    cap.add_arg(arg_def)
-
-    cap_set = MockCapSet(response_text='{"result": "success"}')
-    caller = CapCaller("cap:in=\"media:void\";op=test;out=\"media:record;textable\"", cap_set, cap)
-
-    # Valid arguments
-    arguments = [CapArgumentValue.from_str(MEDIA_STRING, "test value")]
-    caller.validate_arguments(arguments)  # Should not raise
-
-
-def test_cap_caller_validate_arguments_missing_required():
-    """Test CapCaller rejects missing required arguments"""
-    urn = CapUrn.from_string(_test_urn("op=test"))
-    cap = Cap(urn, "Test", "test")
-
-    # Add required argument
-    arg_def = CapArg(MEDIA_STRING, required=True, sources=[PositionSource(0)])
-    cap.add_arg(arg_def)
-
-    cap_set = MockCapSet()
-    caller = CapCaller("cap:in=\"media:void\";op=test;out=\"media:record;textable\"", cap_set, cap)
-
-    # Missing required argument
-    with pytest.raises(ValueError, match="Missing required argument"):
-        caller.validate_arguments([])
-
-
-def test_cap_caller_validate_arguments_unknown():
-    """Test CapCaller rejects unknown arguments"""
-    urn = CapUrn.from_string(_test_urn("op=test"))
-    cap = Cap(urn, "Test", "test")
-
-    # Add one known argument
-    arg_def = CapArg(MEDIA_STRING, required=False, sources=[PositionSource(0)])
-    cap.add_arg(arg_def)
-
-    cap_set = MockCapSet()
-    caller = CapCaller("cap:in=\"media:void\";op=test;out=\"media:record;textable\"", cap_set, cap)
-
-    # Unknown argument
-    unknown_arg = CapArgumentValue.from_str("media:unknown", "value")
-    with pytest.raises(ValueError, match="Unknown argument"):
-        caller.validate_arguments([unknown_arg])
-
-
-def test_cap_caller_get_positional_arg_positions():
-    """Test CapCaller returns correct positional argument positions"""
-    urn = CapUrn.from_string(_test_urn("op=test"))
-    cap = Cap(urn, "Test", "test")
-
-    # Add positional arguments
-    arg1 = CapArg("media:arg1", required=True, sources=[PositionSource(0)])
-    arg2 = CapArg("media:arg2", required=True, sources=[PositionSource(1)])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
-
-    cap_set = MockCapSet()
-    caller = CapCaller("cap:in=\"media:void\";op=test;out=\"media:record;textable\"", cap_set, cap)
-
-    positions = caller.get_positional_arg_positions()
-    assert positions == {
-        "media:arg1": 0,
-        "media:arg2": 1,
-    }

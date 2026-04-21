@@ -89,18 +89,6 @@ from capdag.urn.cap_urn import (
     CapMatcher,
 )
 
-from capdag.urn.cap_matrix import (
-    CapGraph,
-    CapGraphEdge,
-    CapMatrix,
-    CapBlock,
-    BestCapSetMatch,
-    CompositeCapSet,
-    CapMatrixError,
-    NoSetsFoundError,
-    InvalidUrnError,
-)
-
 # Cap module
 from capdag.cap.response import ResponseWrapper
 from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
@@ -127,8 +115,6 @@ from capdag.cap.caller import (
     StdinSourceData,
     StdinSourceFileReference,
     CapArgumentValue,
-    CapSet,
-    CapCaller,
     CapResult,
     CapResultKind,
 )
@@ -365,8 +351,6 @@ __all__ = [
     "StdinSourceData",
     "StdinSourceFileReference",
     "CapArgumentValue",
-    "CapSet",
-    "CapCaller",
     "CapResult",
     "CapResultKind",
     # Registry
@@ -428,16 +412,6 @@ __all__ = [
     "PROFILE_CAPDAG_QUESTIONS_ARRAY",
     "get_schema_base",
     "get_profile_url",
-    # CapMatrix
-    "CapGraph",
-    "CapGraphEdge",
-    "CapMatrix",
-    "CapBlock",
-    "BestCapSetMatch",
-    "CompositeCapSet",
-    "CapMatrixError",
-    "NoSetsFoundError",
-    "InvalidUrnError",
     # Standard caps
     "CAP_IDENTITY",
     "CAP_DISCARD",
