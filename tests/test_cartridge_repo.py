@@ -1,8 +1,9 @@
 """Tests for bifaci cartridge repository models."""
 
+import pytest
+
 from capdag.bifaci.cartridge_repo import (
     CartridgeBuild,
-    CartridgeCapSummary,
     CartridgeDistributionInfo,
     CartridgeInfo,
     CartridgeRegistry,
@@ -12,104 +13,70 @@ from capdag.bifaci.cartridge_repo import (
     CartridgeRepoError,
     CartridgeRepoServer,
     CartridgeVersionData,
+    RegistryArgSource,
+    RegistryCap,
+    RegistryCapArg,
+    RegistryCapGroup,
+    RegistryCapOutput,
 )
+from capdag.urn.cap_urn import CapUrn
 
 
-# TEST320: Construct CartridgeInfo and verify fields
-def test_320_construct_cartridge_info_and_verify_fields():
-    cartridge = CartridgeInfo(
-        id="testcartridge",
-        name="Test Cartridge",
+# ---------------------------------------------------------------------------
+# Fixture builders
+# ---------------------------------------------------------------------------
+
+
+def _make_version_data(pkg_name: str = "test-1.0.0.pkg") -> CartridgeVersionData:
+    return CartridgeVersionData(
+        release_date="2026-02-07",
+        changelog=[],
+        min_app_version="",
+        builds=[
+            CartridgeBuild(
+                platform="darwin-arm64",
+                package=CartridgeDistributionInfo(
+                    name=pkg_name,
+                    sha256="abc123",
+                    size=1000,
+                ),
+            )
+        ],
+    )
+
+
+def _make_cap(urn: str, title: str = "Test Cap", command: str = "test") -> RegistryCap:
+    return RegistryCap(urn=urn, title=title, command=command)
+
+
+def _make_cap_group(name: str, caps=None, adapter_urns=None) -> RegistryCapGroup:
+    return RegistryCapGroup(
+        name=name,
+        caps=list(caps or []),
+        adapter_urns=list(adapter_urns or []),
+    )
+
+
+def _make_cartridge_info(
+    *,
+    id: str = "testcartridge",
+    name: str = "Test Cartridge",
+    cap_groups=None,
+    page_url: str = "",
+    description: str = "",
+) -> CartridgeInfo:
+    return CartridgeInfo(
+        id=id,
+        name=name,
         version="1.0.0",
-        description="A test cartridge",
-        author="Test Author",
-        homepage="https://example.com",
+        description=description,
         team_id="TEAM123",
         signed_at="2026-02-07T00:00:00Z",
-        min_app_version="1.0.0",
-        page_url="https://example.com/cartridge",
-        categories=["test"],
-        tags=["testing"],
-        caps=[],
-        versions={
-            "1.0.0": CartridgeVersionData(
-                release_date="2026-02-07",
-                changelog=[],
-                min_app_version="1.0.0",
-                builds=[
-                    CartridgeBuild(
-                        platform="darwin-arm64",
-                        package=CartridgeDistributionInfo(
-                            name="test-1.0.0.pkg",
-                            sha256="abc123",
-                            size=1000,
-                        ),
-                    )
-                ],
-            )
-        },
+        page_url=page_url,
+        cap_groups=list(cap_groups or []),
+        versions={"1.0.0": _make_version_data(f"{id}-1.0.0.pkg")},
         available_versions=["1.0.0"],
     )
-
-    assert cartridge.id == "testcartridge"
-    assert cartridge.name == "Test Cartridge"
-    assert cartridge.version == "1.0.0"
-
-
-# TEST321: Verify is_signed() method
-def test_321_cartridge_info_is_signed():
-    cartridge = CartridgeInfo(
-        id="testcartridge",
-        name="Test",
-        version="1.0.0",
-        team_id="TEAM123",
-        signed_at="2026-02-07T00:00:00Z",
-    )
-
-    assert cartridge.is_signed()
-
-    cartridge.team_id = ""
-    assert not cartridge.is_signed()
-
-    cartridge.team_id = "TEAM123"
-    cartridge.signed_at = ""
-    assert not cartridge.is_signed()
-
-
-# TEST322: Verify build_for_platform() method
-def test_322_cartridge_info_build_for_platform():
-    cartridge = CartridgeInfo(
-        id="testcartridge",
-        name="Test",
-        version="1.0.0",
-        versions={
-            "1.0.0": CartridgeVersionData(
-                release_date="2026-02-07",
-                changelog=[],
-                min_app_version="",
-                builds=[
-                    CartridgeBuild(
-                        platform="darwin-arm64",
-                        package=CartridgeDistributionInfo(
-                            name="test-1.0.0.pkg",
-                            sha256="abc123",
-                            size=1000,
-                        ),
-                    )
-                ],
-            )
-        },
-        available_versions=["1.0.0"],
-    )
-
-    build = cartridge.build_for_platform("darwin-arm64")
-    assert build is not None
-    assert build.package.name == "test-1.0.0.pkg"
-
-    assert cartridge.build_for_platform("linux-x86_64") is None
-
-    empty_cartridge = CartridgeInfo(id="empty", name="Empty", version="1.0.0")
-    assert empty_cartridge.build_for_platform("darwin-arm64") is None
 
 
 def _make_registry_entry(
@@ -120,36 +87,20 @@ def _make_registry_entry(
     page_url: str = "",
     team_id: str = "TEAM123",
     min_app_version: str = "",
-    caps=None,
+    cap_groups=None,
     categories=None,
     tags=None,
     latest_version: str = "1.0.0",
     versions=None,
 ):
-    if caps is None:
-        caps = []
+    if cap_groups is None:
+        cap_groups = []
     if categories is None:
         categories = []
     if tags is None:
         tags = []
     if versions is None:
-        versions = {
-            "1.0.0": CartridgeVersionData(
-                release_date="2026-02-07",
-                changelog=[],
-                min_app_version="",
-                builds=[
-                    CartridgeBuild(
-                        platform="darwin-arm64",
-                        package=CartridgeDistributionInfo(
-                            name="test-1.0.0.pkg",
-                            sha256="abc123",
-                            size=1000,
-                        ),
-                    )
-                ],
-            )
-        }
+        versions = {"1.0.0": _make_version_data()}
     return CartridgeRegistryEntry(
         name=name,
         description=description,
@@ -157,7 +108,7 @@ def _make_registry_entry(
         page_url=page_url,
         team_id=team_id,
         min_app_version=min_app_version,
-        caps=caps,
+        cap_groups=cap_groups,
         categories=categories,
         tags=tags,
         latest_version=latest_version,
@@ -165,28 +116,62 @@ def _make_registry_entry(
     )
 
 
-# TEST323: Validate registry schema version
+# ---------------------------------------------------------------------------
+# CartridgeInfo behaviour
+# ---------------------------------------------------------------------------
+
+
+# TEST320: Construct CartridgeInfo and verify field round-trip.
+def test_320_construct_cartridge_info_and_verify_fields():
+    cartridge = _make_cartridge_info(
+        cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+    )
+    assert cartridge.id == "testcartridge"
+    assert cartridge.name == "Test Cartridge"
+    assert cartridge.version == "1.0.0"
+    assert len(cartridge.cap_groups) == 1
+    assert sum(1 for _ in cartridge.iter_caps()) == 1
+
+
+# TEST321: is_signed() requires both team_id and signed_at to be non-empty.
+def test_321_cartridge_info_is_signed():
+    cartridge = _make_cartridge_info()
+    assert cartridge.is_signed()
+
+    cartridge.team_id = ""
+    assert not cartridge.is_signed()
+
+    cartridge.team_id = "TEAM123"
+    cartridge.signed_at = ""
+    assert not cartridge.is_signed()
+
+
+# TEST322: build_for_platform returns the matching build for the latest
+# version, None for an unknown platform.
+def test_322_cartridge_info_build_for_platform():
+    cartridge = _make_cartridge_info()
+    build = cartridge.build_for_platform("darwin-arm64")
+    assert build is not None
+    assert build.package.name == "testcartridge-1.0.0.pkg"
+    assert cartridge.build_for_platform("linux-amd64") is None
+
+
+# ---------------------------------------------------------------------------
+# CartridgeRepoServer
+# ---------------------------------------------------------------------------
+
+
+# TEST323: Server requires schema 4.0 and rejects 2.0.
 def test_323_cartridge_repo_server_validate_registry():
-    registry = CartridgeRegistry(
-        schema_version="4.0",
-        last_updated="2026-02-07",
-        cartridges={},
-    )
-    CartridgeRepoServer(registry)
+    CartridgeRepoServer(CartridgeRegistry(schema_version="4.0", last_updated="x", cartridges={}))
 
-    old_registry = CartridgeRegistry(
-        schema_version="2.0",
-        last_updated="2026-02-07",
-        cartridges={},
-    )
-    try:
-        CartridgeRepoServer(old_registry)
-        assert False, "expected schema validation failure"
-    except CartridgeRepoError as exc:
-        assert "4.0" in str(exc)
+    with pytest.raises(CartridgeRepoError) as exc_info:
+        CartridgeRepoServer(CartridgeRegistry(schema_version="2.0", last_updated="x", cartridges={}))
+    assert "4.0" in str(exc_info.value)
 
 
-# TEST324: Transform v3 registry to flat cartridge array
+# TEST324: Server transforms a v4.0 entry into a flat CartridgeInfo,
+# preserving cap_groups verbatim.
 def test_324_cartridge_repo_server_transform_to_array():
     server = CartridgeRepoServer(
         CartridgeRegistry(
@@ -194,26 +179,15 @@ def test_324_cartridge_repo_server_transform_to_array():
             last_updated="2026-02-07",
             cartridges={
                 "testcartridge": _make_registry_entry(
+                    cap_groups=[
+                        _make_cap_group(
+                            "g1",
+                            caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")],
+                            adapter_urns=["media:test"],
+                        )
+                    ],
                     categories=["test"],
                     tags=["testing"],
-                    min_app_version="1.0.0",
-                    versions={
-                        "1.0.0": CartridgeVersionData(
-                            release_date="2026-02-07",
-                            changelog=["Initial release"],
-                            min_app_version="1.0.0",
-                            builds=[
-                                CartridgeBuild(
-                                    platform="darwin-arm64",
-                                    package=CartridgeDistributionInfo(
-                                        name="test-1.0.0.pkg",
-                                        sha256="abc123",
-                                        size=1000,
-                                    ),
-                                )
-                            ],
-                        )
-                    },
                 )
             },
         )
@@ -222,17 +196,23 @@ def test_324_cartridge_repo_server_transform_to_array():
     cartridges = server.transform_to_cartridge_array()
     assert len(cartridges) == 1
     assert cartridges[0].id == "testcartridge"
-    assert cartridges[0].name == "Test Cartridge"
-    assert cartridges[0].version == "1.0.0"
+    assert len(cartridges[0].cap_groups) == 1
+    assert cartridges[0].cap_groups[0].adapter_urns == ["media:test"]
+    assert sum(1 for _ in cartridges[0].iter_caps()) == 1
 
 
-# TEST325: Get all cartridges via get_cartridges()
+# TEST325: get_cartridges() wraps the transformed array in the response
+# envelope.
 def test_325_cartridge_repo_server_get_cartridges():
     server = CartridgeRepoServer(
         CartridgeRegistry(
             schema_version="4.0",
             last_updated="2026-02-07",
-            cartridges={"testcartridge": _make_registry_entry()},
+            cartridges={
+                "testcartridge": _make_registry_entry(
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+                )
+            },
         )
     )
     response = server.get_cartridges()
@@ -240,23 +220,26 @@ def test_325_cartridge_repo_server_get_cartridges():
     assert response.cartridges[0].id == "testcartridge"
 
 
-# TEST326: Get cartridge by ID
+# TEST326: get_cartridge_by_id returns the entry for a known id, None
+# for an unknown one.
 def test_326_cartridge_repo_server_get_cartridge_by_id():
     server = CartridgeRepoServer(
         CartridgeRegistry(
             schema_version="4.0",
             last_updated="2026-02-07",
-            cartridges={"testcartridge": _make_registry_entry()},
+            cartridges={
+                "testcartridge": _make_registry_entry(
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+                )
+            },
         )
     )
-
-    result = server.get_cartridge_by_id("testcartridge")
-    assert result is not None
-    assert result.id == "testcartridge"
+    assert server.get_cartridge_by_id("testcartridge") is not None
     assert server.get_cartridge_by_id("nonexistent") is None
 
 
-# TEST327: Search cartridges by text query
+# TEST327: search_cartridges matches name/description/tags and cap
+# titles, but never substring on cap URNs.
 def test_327_cartridge_repo_server_search_cartridges():
     server = CartridgeRepoServer(
         CartridgeRegistry(
@@ -267,18 +250,28 @@ def test_327_cartridge_repo_server_search_cartridges():
                     name="PDF Cartridge",
                     description="Process PDF documents",
                     tags=["document"],
+                    cap_groups=[
+                        _make_cap_group(
+                            "pdf",
+                            caps=[
+                                _make_cap(
+                                    'cap:in=media:pdf;op=disbind;out="media:page;textable"',
+                                    title="Disbind PDF",
+                                    command="disbind",
+                                )
+                            ],
+                        )
+                    ],
                 )
             },
         )
     )
-
-    results = server.search_cartridges("pdf")
-    assert len(results) == 1
-    assert results[0].id == "pdfcartridge"
+    assert len(server.search_cartridges("pdf")) == 1
+    assert len(server.search_cartridges("disbind")) == 1
     assert server.search_cartridges("nonexistent") == []
 
 
-# TEST328: Filter cartridges by category
+# TEST328: get_cartridges_by_category filters by string-equal categories.
 def test_328_cartridge_repo_server_get_by_category():
     server = CartridgeRepoServer(
         CartridgeRegistry(
@@ -288,21 +281,24 @@ def test_328_cartridge_repo_server_get_by_category():
                 "doccartridge": _make_registry_entry(
                     name="Doc Cartridge",
                     description="Process documents",
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
                     categories=["document"],
                 )
             },
         )
     )
-
-    results = server.get_cartridges_by_category("document")
-    assert len(results) == 1
-    assert results[0].id == "doccartridge"
+    assert len(server.get_cartridges_by_category("document")) == 1
     assert server.get_cartridges_by_category("nonexistent") == []
 
 
-# TEST329: Find cartridges by cap URN
+# TEST329: get_cartridges_by_cap parses the request URN and matches
+# each cartridge cap via tagged-URN equivalence — not string equality.
+# A request URN whose tags appear in different declared order than the
+# cap's still resolves.
 def test_329_cartridge_repo_server_get_by_cap():
-    cap_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
+    declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
+    request_urn = 'cap:in="media:pdf";op=disbind;out="media:list;disbound-page;textable"'
+
     server = CartridgeRepoServer(
         CartridgeRegistry(
             schema_version="4.0",
@@ -311,11 +307,10 @@ def test_329_cartridge_repo_server_get_by_cap():
                 "pdfcartridge": _make_registry_entry(
                     name="PDF Cartridge",
                     description="Process PDFs",
-                    caps=[
-                        CartridgeCapSummary(
-                            urn=cap_urn,
-                            title="Disbind PDF",
-                            description="Extract pages",
+                    cap_groups=[
+                        _make_cap_group(
+                            "pdf",
+                            caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")],
                         )
                     ],
                 )
@@ -323,84 +318,77 @@ def test_329_cartridge_repo_server_get_by_cap():
         )
     )
 
-    results = server.get_cartridges_by_cap(cap_urn)
-    assert len(results) == 1
-    assert results[0].id == "pdfcartridge"
-    assert server.get_cartridges_by_cap("cap:nonexistent") == []
+    assert len(server.get_cartridges_by_cap(declared_urn)) == 1
+    assert len(server.get_cartridges_by_cap(request_urn)) == 1, "tagged-URN equivalence must resolve"
+    assert server.get_cartridges_by_cap('cap:in="media:bogus";op=nope;out="media:nonexistent"') == []
 
 
-# TEST330: CartridgeRepoClient cache update
+# ---------------------------------------------------------------------------
+# CartridgeRepo (cache)
+# ---------------------------------------------------------------------------
+
+
+# TEST330: update_cache populates the cartridge map and the cap-to-
+# cartridges index keyed by normalized URNs.
 def test_330_cartridge_repo_client_update_cache():
     repo = CartridgeRepo(3600)
     registry = CartridgeRegistryResponse(
         cartridges=[
-            CartridgeInfo(
-                id="testcartridge",
-                name="Test Cartridge",
-                version="1.0.0",
-                team_id="TEAM123",
-                signed_at="2026-02-07",
+            _make_cartridge_info(
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
             )
         ]
     )
-
     repo.update_cache("https://example.com/cartridges", registry)
-
-    cartridge = repo.get_cartridge("testcartridge")
-    assert cartridge is not None
-    assert cartridge.id == "testcartridge"
+    assert repo.get_cartridge("testcartridge") is not None
 
 
-# TEST331: Get suggestions for missing cap
+# TEST331: get_suggestions_for_cap returns a suggestion when the cache
+# has a cartridge with a tagged-URN-equivalent cap, even if declared
+# with different tag order.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
-    cap_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
-    registry = CartridgeRegistryResponse(
-        cartridges=[
-            CartridgeInfo(
-                id="pdfcartridge",
-                name="PDF Cartridge",
-                version="1.0.0",
-                description="Process PDFs",
-                team_id="TEAM123",
-                signed_at="2026-02-07",
-                page_url="https://example.com/pdf",
-                caps=[
-                    CartridgeCapSummary(
-                        urn=cap_urn,
-                        title="Disbind PDF",
-                        description="Extract pages",
-                    )
-                ],
-            )
-        ]
+    declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
+    request_urn = 'cap:in="media:pdf";op=disbind;out="media:list;disbound-page;textable"'
+
+    info = _make_cartridge_info(
+        id="pdfcartridge",
+        name="PDF Cartridge",
+        description="Process PDFs",
+        page_url="https://example.com/pdf",
+        cap_groups=[_make_cap_group("pdf", caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")])],
     )
+    repo.update_cache("https://example.com/cartridges", CartridgeRegistryResponse(cartridges=[info]))
 
-    repo.update_cache("https://example.com/cartridges", registry)
-
-    suggestions = repo.get_suggestions_for_cap(cap_urn)
+    suggestions = repo.get_suggestions_for_cap(request_urn)
     assert len(suggestions) == 1
     assert suggestions[0].cartridge_id == "pdfcartridge"
-    assert suggestions[0].cap_urn == cap_urn
+    assert suggestions[0].cap_title == "Disbind PDF"
+    requested = CapUrn.from_string(request_urn)
+    returned = CapUrn.from_string(suggestions[0].cap_urn)
+    assert returned.is_equivalent(requested), "returned cap URN must be tagged-URN equivalent"
 
 
-# TEST332: Get cartridge by ID from client
+# TEST332: get_cartridge returns the cached entry by id and None for
+# an unknown id.
 def test_332_cartridge_repo_client_get_cartridge():
     repo = CartridgeRepo(3600)
     repo.update_cache(
         "https://example.com/cartridges",
         CartridgeRegistryResponse(
-            cartridges=[CartridgeInfo(id="testcartridge", name="Test Cartridge", version="1.0.0")]
+            cartridges=[
+                _make_cartridge_info(
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+                )
+            ]
         ),
     )
-
-    cartridge = repo.get_cartridge("testcartridge")
-    assert cartridge is not None
-    assert cartridge.id == "testcartridge"
+    assert repo.get_cartridge("testcartridge") is not None
     assert repo.get_cartridge("nonexistent") is None
 
 
-# TEST333: Get all available caps
+# TEST333: get_all_available_caps returns the deduplicated set of
+# normalized URNs across cartridges.
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
     cap1 = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
@@ -409,40 +397,37 @@ def test_333_cartridge_repo_client_get_all_caps():
         "https://example.com/cartridges",
         CartridgeRegistryResponse(
             cartridges=[
-                CartridgeInfo(
+                _make_cartridge_info(
                     id="cartridge1",
                     name="Cartridge 1",
-                    version="1.0.0",
-                    caps=[CartridgeCapSummary(urn=cap1, title="Cap 1")],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap1, "Cap 1", "x")])],
                 ),
-                CartridgeInfo(
+                _make_cartridge_info(
                     id="cartridge2",
                     name="Cartridge 2",
-                    version="1.0.0",
-                    caps=[CartridgeCapSummary(urn=cap2, title="Cap 2")],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap2, "Cap 2", "x")])],
                 ),
             ]
         ),
     )
-
     caps = repo.get_all_available_caps()
-    assert len(caps) == 2
-    assert cap1 in caps
-    assert cap2 in caps
+    assert len(caps) == 2, f"expected two distinct caps, got {caps!r}"
 
 
-# TEST334: Check if client needs sync
+# TEST334: needs_sync is true on an empty cache and false right after
+# a successful update.
 def test_334_cartridge_repo_client_needs_sync():
     repo = CartridgeRepo(3600)
     urls = ["https://example.com/cartridges"]
-
     assert repo.needs_sync(urls)
 
     repo.update_cache("https://example.com/cartridges", CartridgeRegistryResponse(cartridges=[]))
     assert not repo.needs_sync(urls)
 
 
-# TEST335: Server creates response, client consumes it
+# TEST335: A v4.0 nested registry round-trips through Server →
+# CartridgeInfo, preserving the cap_groups structure and the signed
+# flag.
 def test_335_cartridge_repo_server_client_integration():
     cap_urn = 'cap:in="media:test";op=test;out="media:result"'
     server = CartridgeRepoServer(
@@ -452,11 +437,11 @@ def test_335_cartridge_repo_server_client_integration():
             cartridges={
                 "testcartridge": _make_registry_entry(
                     page_url="https://example.com",
-                    caps=[
-                        CartridgeCapSummary(
-                            urn=cap_urn,
-                            title="Test Cap",
-                            description="Test capability",
+                    cap_groups=[
+                        _make_cap_group(
+                            "test-group",
+                            caps=[_make_cap(cap_urn, title="Test Cap", command="test")],
+                            adapter_urns=["media:test"],
                         )
                     ],
                     categories=["test"],
@@ -469,64 +454,166 @@ def test_335_cartridge_repo_server_client_integration():
     assert len(response.cartridges) == 1
     cartridge = response.cartridges[0]
     assert cartridge.id == "testcartridge"
-    assert cartridge.name == "Test Cartridge"
     assert cartridge.is_signed()
     assert cartridge.versions
-    assert len(cartridge.caps) == 1
-    assert cartridge.caps[0].urn == cap_urn
+    assert len(cartridge.cap_groups) == 1
+    assert cartridge.cap_groups[0].adapter_urns == ["media:test"]
+    assert sum(1 for _ in cartridge.iter_caps()) == 1
 
 
-# TEST630: Verify CartridgeRepo creation starts with empty cartridge list
+# TEST336: A registry response with a malformed cap URN inside
+# cap_groups must propagate as ParseError when indexed into the cache,
+# not silently disappear.
+def test_336_update_cache_rejects_malformed_cap_urn():
+    repo = CartridgeRepo(3600)
+    registry = CartridgeRegistryResponse(
+        cartridges=[
+            _make_cartridge_info(
+                id="broken",
+                name="Broken",
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("not a valid urn at all", "Bad", "x")])],
+            )
+        ]
+    )
+    with pytest.raises(CartridgeRepoError):
+        repo.update_cache("https://x", registry)
+
+
+# ---------------------------------------------------------------------------
+# Empty-state and wire-shape deserialization
+# ---------------------------------------------------------------------------
+
+
+# TEST630: CartridgeRepo creation starts with an empty cartridge list.
 def test_630_cartridge_repo_creation():
     repo = CartridgeRepo(3600)
     assert repo.get_all_cartridges() == []
 
 
-# TEST631: Verify needs_sync returns true with empty cache and non-empty URLs
+# TEST631: needs_sync returns true with an empty cache and non-empty
+# URLs.
 def test_631_needs_sync_empty_cache():
     repo = CartridgeRepo(3600)
     assert repo.needs_sync(["https://example.com/cartridges"])
 
 
-# TEST632: Verify CartridgeCapSummary deserializes null description as empty string
-def test_632_deserialize_cap_summary_with_null_description():
-    cap = CartridgeCapSummary.from_dict(
+# TEST632: A registry cap with only the three required fields parses.
+def test_632_deserialize_minimal_registry_cap():
+    cap = RegistryCap.from_dict(
         {
-            "urn": "media:text;llm;gen",
-            "title": "Generate Text",
-            "description": None,
+            "urn": "cap:in=media:;out=media:",
+            "title": "Identity",
+            "command": "identity",
         }
     )
-    assert cap.urn == "media:text;llm;gen"
-    assert cap.title == "Generate Text"
-    assert cap.description == ""
+    assert cap.urn == "cap:in=media:;out=media:"
+    assert cap.title == "Identity"
+    assert cap.command == "identity"
+    assert cap.cap_description is None
+    assert cap.args is None
+    assert cap.output is None
 
 
-# TEST633: Verify CartridgeCapSummary deserializes missing description as empty string
-def test_633_deserialize_cap_summary_with_missing_description():
-    cap = CartridgeCapSummary.from_dict(
+# TEST633: A registry cap with cap_description / args / output parses.
+def test_633_deserialize_rich_registry_cap():
+    cap = RegistryCap.from_dict(
         {
-            "urn": "media:text;llm;gen",
-            "title": "Generate Text",
+            "urn": 'cap:in="media:pdf";op=disbind;out="media:page;textable"',
+            "title": "Disbind PDF",
+            "command": "disbind",
+            "cap_description": "Extract each PDF page as plain page text.",
+            "args": [
+                {
+                    "media_urn": "media:file-path;textable",
+                    "required": True,
+                    "is_sequence": False,
+                    "sources": [
+                        {"stdin": "media:pdf"},
+                        {"position": 0},
+                    ],
+                    "arg_description": "Path to the PDF file to process",
+                }
+            ],
+            "output": {
+                "media_urn": "media:page;textable",
+                "is_sequence": True,
+                "output_description": "One page text per PDF page",
+            },
         }
     )
-    assert cap.description == ""
+    assert cap.command == "disbind"
+    assert cap.cap_description == "Extract each PDF page as plain page text."
+    assert cap.args is not None
+    assert len(cap.args) == 1
+    assert cap.args[0].media_urn == "media:file-path;textable"
+    assert cap.args[0].sources[0].stdin == "media:pdf"
+    assert cap.args[0].sources[1].position == 0
+    assert cap.output is not None
+    assert cap.output.media_urn == "media:page;textable"
+    assert cap.output.is_sequence is True
 
 
-# TEST634: Verify CartridgeCapSummary deserializes present description correctly
-def test_634_deserialize_cap_summary_with_present_description():
-    cap = CartridgeCapSummary.from_dict(
+# TEST634: A cap_group parses with caps + adapter_urns.
+def test_634_deserialize_cap_group():
+    group = RegistryCapGroup.from_dict(
         {
-            "urn": "media:text;llm;gen",
-            "title": "Generate Text",
-            "description": "A real description",
+            "name": "pdf-formats",
+            "caps": [
+                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+            ],
+            "adapter_urns": ["media:pdf"],
         }
     )
-    assert cap.description == "A real description"
+    assert group.name == "pdf-formats"
+    assert len(group.caps) == 1
+    assert group.adapter_urns == ["media:pdf"]
 
 
-# TEST635: Verify CartridgeInfo deserializes null version/description/author as empty strings
-def test_635_deserialize_cartridge_info_with_null_fields():
+# TEST635: CartridgeInfo deserializes the wire shape exactly as
+# returned by /api/cartridges (camelCase top-level + snake_case
+# cap_groups). Null camelCase string fields become empty strings.
+def test_635_deserialize_cartridge_info_wire_shape():
+    cartridge = CartridgeInfo.from_dict(
+        {
+            "id": "pdfcartridge",
+            "name": "pdfcartridge",
+            "version": "0.179.441",
+            "description": "PDF page renderer",
+            "author": "https://github.com/machinefabric",
+            "pageUrl": "https://github.com/machinefabric/pdfcartridge",
+            "teamId": "P336JK947M",
+            "signedAt": "2026-04-25T14:53:55Z",
+            "minAppVersion": "1.0.0",
+            "cap_groups": [
+                {
+                    "name": "pdf-formats",
+                    "caps": [
+                        {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"},
+                        {
+                            "urn": 'cap:in=media:pdf;op=disbind;out="media:page;textable"',
+                            "title": "Disbind PDF Into Page Text",
+                            "command": "disbind",
+                        },
+                    ],
+                    "adapter_urns": ["media:pdf"],
+                }
+            ],
+            "categories": [],
+            "tags": [],
+            "versions": {},
+            "availableVersions": [],
+        }
+    )
+    assert cartridge.id == "pdfcartridge"
+    assert cartridge.team_id == "P336JK947M"
+    assert len(cartridge.cap_groups) == 1
+    assert sum(1 for _ in cartridge.iter_caps()) == 2
+
+
+# TEST636: CartridgeInfo with null version/description/author still
+# deserializes cleanly (the null_as_empty_string deserializer is the
+# only tolerated coercion).
+def test_636_deserialize_cartridge_info_with_null_strings():
     cartridge = CartridgeInfo.from_dict(
         {
             "id": "mlxcartridge",
@@ -534,93 +621,88 @@ def test_635_deserialize_cartridge_info_with_null_fields():
             "version": None,
             "description": None,
             "author": None,
-            "caps": [
-                {"urn": "media:text;llm;gen", "title": "Generate Text", "description": None}
-            ],
+            "cap_groups": [],
             "versions": {},
         }
     )
-    assert cartridge.id == "mlxcartridge"
-    assert cartridge.name == "MLX Cartridge"
     assert cartridge.version == ""
     assert cartridge.description == ""
     assert cartridge.author == ""
-    assert len(cartridge.caps) == 1
-    assert cartridge.caps[0].description == ""
+    assert cartridge.cap_groups == []
 
 
-# TEST636: Verify CartridgeRegistryResponse deserializes with mixed null/present descriptions
-def test_636_deserialize_registry_with_null_descriptions():
-    registry = CartridgeRegistryResponse.from_dict(
+# TEST637: A full /api/cartridges-shaped response with two cartridges
+# and nested cap_groups round-trips through the response wrapper.
+def test_637_deserialize_full_registry_response():
+    response = CartridgeRegistryResponse.from_dict(
         {
             "cartridges": [
                 {
-                    "id": "test-cartridge",
-                    "name": "Test Cartridge",
-                    "description": "A test cartridge",
-                    "caps": [
-                        {"urn": "media:text;llm;gen", "title": "Gen Text", "description": None},
+                    "id": "pdfcartridge",
+                    "name": "pdfcartridge",
+                    "version": "0.179.441",
+                    "description": "PDF",
+                    "author": "https://github.com/machinefabric",
+                    "pageUrl": "",
+                    "teamId": "P336JK947M",
+                    "signedAt": "2026-04-25T14:53:55Z",
+                    "minAppVersion": "1.0.0",
+                    "cap_groups": [
                         {
-                            "urn": "media:image;vision",
-                            "title": "Vision",
-                            "description": "Analyze images",
-                        },
-                    ],
-                    "versions": {},
-                }
-            ],
-            "total": 1,
-            "registryVersion": "4.0",
-        }
-    )
-    assert len(registry.cartridges) == 1
-    assert registry.cartridges[0].caps[0].description == ""
-    assert registry.cartridges[0].caps[1].description == "Analyze images"
-
-
-# TEST637: Verify full CartridgeInfo deserialization with signature and package fields
-def test_637_deserialize_full_cartridge_with_signature():
-    cartridge = CartridgeInfo.from_dict(
-        {
-            "id": "pdfcartridge",
-            "name": "pdfcartridge",
-            "version": "0.81.5325",
-            "description": "PDF document processor",
-            "author": "https://github.com/machinefabric",
-            "pageUrl": "https://github.com/machinefabric/pdfcartridge",
-            "teamId": "P336JK947M",
-            "signedAt": "2026-02-07T16:40:28Z",
-            "minAppVersion": "1.0.0",
-            "caps": [
-                {
-                    "urn": 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"',
-                    "title": "Disbind PDF",
-                    "description": "Extract pages from PDF",
-                }
-            ],
-            "categories": [],
-            "tags": [],
-            "versions": {
-                "0.81.5325": {
-                    "releaseDate": "2026-02-07T16:40:28Z",
-                    "changelog": [],
-                    "builds": [
-                        {
-                            "platform": "darwin-arm64",
-                            "package": {
-                                "name": "pdfcartridge-0.81.5325.pkg",
-                                "sha256": "9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0",
-                                "size": 5187485,
-                            },
+                            "name": "pdf-formats",
+                            "caps": [
+                                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+                            ],
+                            "adapter_urns": ["media:pdf"],
                         }
                     ],
-                }
-            },
-            "availableVersions": ["0.81.5325"],
+                    "categories": [],
+                    "tags": [],
+                    "versions": {},
+                    "availableVersions": [],
+                },
+                {
+                    "id": "imagecartridge",
+                    "name": "imagecartridge",
+                    "version": "0.1.6",
+                    "description": "image",
+                    "author": "",
+                    "teamId": "P336JK947M",
+                    "signedAt": "2026-04-25T21:53:45Z",
+                    "minAppVersion": "1.0.0",
+                    "cap_groups": [
+                        {
+                            "name": "image-formats",
+                            "caps": [
+                                {
+                                    "urn": 'cap:in="media:image;jpeg";op=convert_image;out="media:image;png"',
+                                    "title": "Convert JPEG to PNG",
+                                    "command": "convert-image",
+                                }
+                            ],
+                            "adapter_urns": [
+                                "media:bmp;image",
+                                "media:image;jpeg",
+                                "media:image;png",
+                                "media:image;tiff",
+                                "media:image;webp",
+                                "media:gif;image",
+                            ],
+                        }
+                    ],
+                    "categories": [],
+                    "tags": [],
+                    "versions": {},
+                    "availableVersions": [],
+                },
+            ],
+            "total": 2,
+            "page": 1,
+            "limit": 20,
+            "totalPages": 1,
         }
     )
-
-    assert cartridge.id == "pdfcartridge"
-    assert cartridge.team_id == "P336JK947M"
-    assert cartridge.signed_at == "2026-02-07T16:40:28Z"
-    assert cartridge.is_signed()
+    assert len(response.cartridges) == 2
+    img = next(c for c in response.cartridges if c.id == "imagecartridge")
+    assert len(img.cap_groups) == 1
+    assert len(img.cap_groups[0].adapter_urns) == 6
