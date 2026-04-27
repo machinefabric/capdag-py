@@ -84,8 +84,14 @@ class SocketPair:
 
 @dataclass
 class InstalledCartridgeIdentity:
-    """Identity of an installed cartridge"""
+    """Identity of an installed cartridge.
+
+    `(id, channel, version)` is the install's full identity. Channel
+    is part of every cartridge's identity — release v1.0.0 and
+    nightly v1.0.0 of the same cartridge id are different artifacts.
+    """
     id: str
+    channel: str
     version: str
     sha256: str
 
@@ -630,8 +636,19 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
         if not isinstance(ic_raw, list):
             raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
         for item in ic_raw:
+            # Channel is part of every install's identity. Reject
+            # entries that omit it (an upstream that ships an
+            # InstalledCartridgeIdentity without `channel` is broken
+            # — never silently default to one).
+            channel = item.get("channel")
+            if channel not in ("release", "nightly"):
+                raise ProtocolError(
+                    f"installed_cartridges entry missing or invalid 'channel' "
+                    f"(got {channel!r}); expected 'release' or 'nightly'"
+                )
             installed_cartridges.append(InstalledCartridgeIdentity(
                 id=str(item.get("id", "")),
+                channel=str(channel),
                 version=str(item.get("version", "")),
                 sha256=str(item.get("sha256", "")),
             ))

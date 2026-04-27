@@ -44,6 +44,7 @@ from capdag.bifaci.cartridge_runtime import (
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
 from capdag.bifaci.manifest import CapManifest
+from capdag.urn.media_urn import MediaUrn
 from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, FrameType, MessageId
 from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
@@ -52,10 +53,10 @@ from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTIO
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
 
 # Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
 
 
 # =============================================================================
@@ -81,6 +82,64 @@ def invoke_op(factory: OpFactory, frames: queue.Queue, emitter) -> None:
     op = factory()
     peer = NoPeerInvoker()
     dispatch_op(op, frames, emitter, peer)
+
+
+def create_test_cap(urn_str: str, title: str, command: str, args: list):
+    """Helper function to create a Cap for tests"""
+    from capdag.urn.cap_urn import CapUrn
+    from capdag.cap.definition import Cap
+    urn = CapUrn.from_string(urn_str)
+    cap = Cap(urn, title, command)
+    cap.args = args
+    return cap
+
+
+def cli_extract_value(runtime, cap, cli_args, stdin_data=None):
+    """Drive the full CLI flow (build_payload_from_cli → extract_effective_payload)
+    and return the first argument's `value` field. Returns the raw value (bytes
+    for scalar, list for sequence) so tests can assert on file contents directly.
+    """
+    from capdag.bifaci.cartridge_runtime import (
+        build_cli_foreach_iterations,
+        extract_effective_payload,
+    )
+    # Manually mirror build_payload_from_cli when stdin_data provided so tests
+    # don't rely on the runtime's non-blocking stdin probe.
+    if stdin_data is not None:
+        from capdag.cap.caller import CapArgumentValue
+        from capdag.cap.definition import StdinSource as _StdinSource
+        arguments = []
+        for arg_def in cap.get_args():
+            value, came_from_stdin = runtime._extract_arg_value(arg_def, cli_args, stdin_data)
+            if value is not None:
+                media_urn = arg_def.media_urn
+                if came_from_stdin:
+                    for s in arg_def.sources:
+                        if isinstance(s, _StdinSource):
+                            media_urn = s.stdin
+                            break
+                arguments.append(CapArgumentValue(media_urn=media_urn, value=value))
+        cbor_args = [{"media_urn": a.media_urn, "value": a.value} for a in arguments]
+        raw_payload = cbor2.dumps(cbor_args)
+    else:
+        raw_payload = runtime.build_payload_from_cli(cap, cli_args)
+    iterations = build_cli_foreach_iterations(raw_payload, cap)
+    # For non-foreach (single iteration) tests, return the first arg's value.
+    payload = extract_effective_payload(iterations[0], "application/cbor", cap, True)
+    arr = cbor2.loads(payload)
+    return arr[0]["value"]
+
+
+def cli_extract_all_iterations(runtime, cap, cli_args):
+    """Drive build_payload_from_cli + build_cli_foreach_iterations and return
+    a list of effective payloads (one per CLI foreach iteration)."""
+    from capdag.bifaci.cartridge_runtime import (
+        build_cli_foreach_iterations,
+        extract_effective_payload,
+    )
+    raw_payload = runtime.build_payload_from_cli(cap, cli_args)
+    iterations = build_cli_foreach_iterations(raw_payload, cap)
+    return [extract_effective_payload(it, "application/cbor", cap, True) for it in iterations]
 
 
 # TEST248: Test register_op and find_handler by exact cap URN
@@ -301,102 +360,55 @@ def test_258_with_manifest_struct():
 
 # TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged
 def test_259_extract_effective_payload_non_cbor():
-    # Single stream with data matching the cap's input spec
-    streams = [
-        ("stream-0", PendingStream(media_urn="media:", chunks=[b"raw data"], complete=True))
-    ]
-    result = extract_effective_payload(streams, "cap:in=media:;op=test;out=*")
-    assert result == b"raw data", "Should extract matching stream"
+    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    payload = b"raw data"
+    result = extract_effective_payload(payload, "application/json", cap, True)
+    assert result == payload
 
 
-# TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged
+# TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
 def test_260_extract_effective_payload_no_content_type():
-    streams = [
-        ("stream-0", PendingStream(media_urn="media:", chunks=[b"raw data"], complete=True))
-    ]
-    result = extract_effective_payload(streams, "cap:in=*;op=test;out=*")
-    assert result == b"raw data", "Wildcard should accept any stream"
+    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    payload = b"raw data"
+    result = extract_effective_payload(payload, "", cap, True)
+    assert result == payload
 
 
 # TEST261: Test extract_effective_payload with CBOR content extracts matching argument value
 def test_261_extract_effective_payload_cbor_match():
-    # Stream with media URN that matches cap's input spec
-    streams = [
-        ("stream-0", PendingStream(
-            media_urn="media:string;textable",
-            chunks=[b"hello"],
-            complete=True
-        ))
-    ]
-    result = extract_effective_payload(
-        streams,
-        "cap:in=media:string;textable;op=test;out=*"
-    )
-    assert result == b"hello"
+    args = [{"media_urn": "media:string;textable", "value": b"hello"}]
+    payload = cbor2.dumps(args)
+    cap = create_test_cap('cap:in="media:string;textable";op=test;out="media:void"', "Test", "test", [])
+    result = extract_effective_payload(payload, "application/cbor", cap, False)
+    # NEW REGIME: result is full CBOR array; extract value from matching arg
+    result_arr = cbor2.loads(result)
+    assert isinstance(result_arr, list) and len(result_arr) == 1
+    assert result_arr[0]["value"] == b"hello"
 
 
 # TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input
 def test_262_extract_effective_payload_cbor_no_match():
-    # Multiple streams, none match cap's specific input spec
-    streams = [
-        ("stream-0", PendingStream(
-            media_urn="media:other-type",
-            chunks=[b"wrong1"],
-            complete=True
-        )),
-        ("stream-1", PendingStream(
-            media_urn="media:different-type",
-            chunks=[b"wrong2"],
-            complete=True
-        ))
-    ]
-
+    args = [{"media_urn": "media:other-type", "value": b"data"}]
+    payload = cbor2.dumps(args)
+    cap = create_test_cap('cap:in="media:string;textable";op=test;out="media:void"', "Test", "test", [])
     with pytest.raises(DeserializeError) as exc_info:
-        extract_effective_payload(
-            streams,
-            "cap:in=media:string;textable;op=test;out=*"
-        )
-
-    assert "No stream found matching" in str(exc_info.value)
+        extract_effective_payload(payload, "application/cbor", cap, False)
+    assert "No argument found matching" in str(exc_info.value)
 
 
 # TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error
 def test_263_extract_effective_payload_invalid_cbor():
-    # No streams provided
-    streams = []
-    with pytest.raises(DeserializeError) as exc_info:
-        extract_effective_payload(
-            streams,
-            "cap:in=media:;op=test;out=*"
-        )
-    assert "No stream found matching" in str(exc_info.value)
+    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    with pytest.raises(DeserializeError):
+        extract_effective_payload(b"not cbor", "application/cbor", cap, False)
 
 
 # TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error
 def test_264_extract_effective_payload_cbor_not_array():
-    # Stream that's not complete
-    streams = [
-        ("stream-0", PendingStream(media_urn="media:", chunks=[b"data"], complete=False))
-    ]
-
-    with pytest.raises(DeserializeError) as exc_info:
-        extract_effective_payload(
-            streams,
-            "cap:in=media:;op=test;out=*"
-        )
-
-    assert "No stream found matching" in str(exc_info.value)
-
-
-# Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error
-def test_extract_effective_payload_invalid_cap_urn():
-    streams = []
-
-    with pytest.raises(CapUrnError):
-        extract_effective_payload(
-            streams,
-            "not-a-cap-urn"
-        )
+    payload = cbor2.dumps({})  # CBOR map, not array
+    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    with pytest.raises(DeserializeError):
+        extract_effective_payload(payload, "application/cbor", cap, False)
 
 
 # TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction)
@@ -489,65 +501,47 @@ def test_271_handler_replacement():
 
 # TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one
 def test_272_extract_effective_payload_multiple_args():
-    # Multiple streams, only one matches the cap's input spec
-    streams = [
-        ("stream-0", PendingStream(
-            media_urn="media:other-type;textable",
-            chunks=[b"wrong"],
-            complete=True
-        )),
-        ("stream-1", PendingStream(
-            media_urn="media:model-spec;textable",
-            chunks=[b"correct"],
-            complete=True
-        ))
+    args = [
+        {"media_urn": "media:other-type;textable", "value": b"wrong"},
+        {"media_urn": "media:model-spec;textable", "value": b"correct"},
     ]
-
-    result = extract_effective_payload(
-        streams,
-        "cap:in=media:model-spec;textable;op=infer;out=*"
-    )
-    assert result == b"correct"
+    payload = cbor2.dumps(args)
+    cap = create_test_cap('cap:in="media:model-spec;textable";op=infer;out="media:void"', "Test", "infer", [])
+    result = extract_effective_payload(payload, "application/cbor", cap, False)
+    # NEW REGIME: handler receives full CBOR array; matches against in_spec.
+    result_arr = cbor2.loads(result)
+    assert len(result_arr) == 2
+    in_spec = MediaUrn.from_string("media:model-spec;textable")
+    found = None
+    for arg in result_arr:
+        arg_urn = MediaUrn.from_string(arg["media_urn"])
+        if in_spec.is_comparable(arg_urn):
+            found = arg["value"]
+            break
+    assert found == b"correct"
 
 
 # TEST273: Test extract_effective_payload with binary data in CBOR value (not just text)
 def test_273_extract_effective_payload_binary_value():
     binary_data = bytes(range(256))
-    streams = [
-        ("stream-0", PendingStream(
-            media_urn="media:pdf",
-            chunks=[binary_data],
-            complete=True
-        ))
-    ]
-
-    result = extract_effective_payload(
-        streams,
-        "cap:in=media:pdf;op=process;out=*"
-    )
-    assert result == binary_data, "binary values must roundtrip through stream extraction"
+    args = [{"media_urn": "media:pdf", "value": binary_data}]
+    payload = cbor2.dumps(args)
+    cap = create_test_cap('cap:in="media:pdf";op=process;out="media:void"', "Test", "process", [])
+    result = extract_effective_payload(payload, "application/cbor", cap, False)
+    result_arr = cbor2.loads(result)
+    assert result_arr[0]["value"] == binary_data
 
 
 # =============================================================================
 # File-path to bytes conversion tests (TEST336-TEST360)
 # =============================================================================
 
-def create_test_cap(urn_str: str, title: str, command: str, args: list) -> 'Cap':
-    """Helper function to create a Cap for tests"""
-    from capdag.urn.cap_urn import CapUrn
-    from capdag.cap.definition import Cap
-    urn = CapUrn.from_string(urn_str)
-    cap = Cap(urn, title, command)
-    cap.args = args
-    return cap
-
-
 def create_test_manifest(name: str, version: str, description: str, caps: list) -> CapManifest:
     """Helper function to create a CapManifest for tests"""
     from capdag.bifaci.manifest import default_group
     return CapManifest(
         name=name,
-        version=version,
+        version=version, channel="release",
         description=description,
         cap_groups=[default_group(caps)],
     )
@@ -595,19 +589,21 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
 
     runtime.register_op('cap:in="media:pdf";op=process;out="media:void"', CollectBytesOp)
 
-    # Simulate CLI invocation: cartridge process /path/to/file.pdf
+    # Simulate CLI invocation through the full runtime CLI flow.
     cli_args = [str(test_file)]
     cap = runtime.find_cap_by_command(runtime.manifest, 'process')
     assert cap is not None, "Process cap not found in manifest"
-    arguments = runtime.build_arguments_from_cli(cap, cli_args)
+    payloads = cli_extract_all_iterations(runtime, cap, cli_args)
+    assert len(payloads) == 1, "scalar file-path must produce a single iteration"
 
-    # Build frame queue like run_cli_mode does
+    # Build frame queue like dispatch_cli_payload does.
     request_id = MessageId(0)
     frames = queue.Queue()
-    for i, arg in enumerate(arguments):
+    arr = cbor2.loads(payloads[0])
+    for i, arg in enumerate(arr):
         stream_id = f"arg-{i}"
-        frames.put(Frame.stream_start(request_id, stream_id, arg.media_urn))
-        encoded = cbor2.dumps(arg.value)
+        frames.put(Frame.stream_start(request_id, stream_id, arg["media_urn"]))
+        encoded = cbor2.dumps(arg["value"])
         frames.put(Frame.chunk(request_id, stream_id, 0, encoded, 0, compute_checksum(encoded)))
         frames.put(Frame.stream_end(request_id, stream_id, 1))
     frames.put(Frame.end(request_id, None))
@@ -643,10 +639,8 @@ def test_337_file_path_without_stdin_passes_string(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    # Should get file PATH as string, not file CONTENTS
+    # No stdin source → no file-path conversion → arg value stays as raw path bytes.
+    result, _ = runtime._extract_arg_value(cap.args[0], cli_args, None)
     value_str = result.decode('utf-8')
     assert "test337_input.txt" in value_str, "Should receive file path string when no stdin source"
 
@@ -676,9 +670,7 @@ def test_338_file_path_via_cli_flag(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["--file", str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == b"PDF via flag 338", "Should read file from --file flag"
 
 
@@ -712,24 +704,19 @@ def test_339_file_path_array_glob_expansion(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Under the new regime a sequence-declared file-path arg takes a
-    # newline-separated list of path/glob patterns. The runtime expands each
-    # and returns a CBOR array of file bytes.
+    # CLI: bare glob pattern for sequence-declared file-path arg.
     pattern = f"{test_dir}/*.txt"
     cli_args = [pattern]
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    files_array = cbor2.loads(result)
-    assert len(files_array) == 2, "Should find 2 files"
-
-    bytes_vec = sorted(files_array)
-    assert bytes_vec == [b"content1", b"content2"]
+    result = cli_extract_value(runtime, cap, cli_args)
+    # Sequence args produce a list of file bytes.
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert sorted(result) == [b"content1", b"content2"]
 
 
 # TEST340: File not found error provides clear message
 def test_340_file_not_found_clear_error():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:pdf";op=test;out="media:void"',
@@ -749,16 +736,12 @@ def test_340_file_not_found_clear_error():
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["/nonexistent/file.pdf"]
-    # cap is already defined above with correct URN and args
-
-    with pytest.raises(IoRuntimeError) as exc_info:
-        runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
+    with pytest.raises(_Rt) as exc_info:
+        cli_extract_value(runtime, cap, cli_args)
     err_msg = str(exc_info.value)
     assert "/nonexistent/file.pdf" in err_msg, "Error should mention file path"
-    assert (
-        "File not found" in err_msg or "Failed to read file" in err_msg
-    ), f"Error should be clear; got: {err_msg}"
+    assert "File not found" in err_msg, f"Error should be clear; got: {err_msg}"
 
 
 # TEST341: stdin takes precedence over file-path in source order
@@ -788,11 +771,9 @@ def test_341_stdin_precedence_over_file_path(tmp_path):
 
     cli_args = [str(test_file)]
     stdin_data = b"stdin content 341"
-    # cap is already defined above with correct URN and args
-
-    result = runtime._extract_arg_value(cap.args[0], cli_args, stdin_data)
-
-    # Should get stdin data, not file content (stdin source tried first)
+    # Stdin source comes first → its data is selected (no file conversion needed).
+    result, came_from_stdin = runtime._extract_arg_value(cap.args[0], cli_args, stdin_data)
+    assert came_from_stdin is True
     assert result == b"stdin content 341", "stdin source should take precedence"
 
 
@@ -820,11 +801,8 @@ def test_342_file_path_position_zero_reads_first_arg(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # CLI: cartridge test /path/to/file (position 0 after subcommand)
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == b"binary data 342", "Should read file at position 0"
 
 
@@ -851,12 +829,9 @@ def test_343_non_file_path_args_unaffected():
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["mlx-community/Llama-3.2-3B-Instruct-4bit"]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    # Should get the string value, not attempt file read
-    value_str = result.decode('utf-8')
-    assert value_str == "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    # Non-file-path arg → no conversion; raw cli string returned as bytes.
+    result, _ = runtime._extract_arg_value(cap.args[0], cli_args, None)
+    assert result.decode('utf-8') == "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
 # TEST344: A scalar file-path arg receiving a nonexistent path fails hard
@@ -864,7 +839,6 @@ def test_343_non_file_path_args_unaffected():
 # swallow user mistakes like typos or wrong directories.
 def test_344_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -884,26 +858,20 @@ def test_344_file_path_array_invalid_json_fails():
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["/nonexistent/path/to/nothing"]
-    with pytest.raises(IoRuntimeError) as exc_info:
-        runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
+    with pytest.raises(_Rt) as exc_info:
+        cli_extract_value(runtime, cap, cli_args)
     err = str(exc_info.value)
     assert "/nonexistent/path/to/nothing" in err, f"Error should mention the path; got: {err}"
-    assert (
-        "File not found" in err or "Failed to read file" in err
-    ), f"Error should be clear; got: {err}"
+    assert "File not found" in err, f"Error should be clear; got: {err}"
 
 
-# TEST345: sequence file-path arg with a literal nonexistent path fails hard.
-# The runtime reads every resolved path; any missing file aborts the batch
-# rather than silently dropping an entry.
+# TEST345: file-path arg with literal nonexistent path fails hard.
+# Mirrors Rust test345_file_path_array_one_file_missing_fails_hard.
 def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
-    file1 = tmp_path / "test345_exists.txt"
-    file1.write_bytes(b"exists")
-    file2_path = tmp_path / "test345_missing.txt"
+    missing_path = tmp_path / "test345_missing.txt"
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -912,7 +880,6 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
         [CapArg(
             media_urn="media:file-path;textable",
             required=True,
-            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -923,17 +890,13 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Sequence arg takes newline-separated paths; one missing → hard fail.
-    cli_args = ["\n".join([str(file1), str(file2_path)])]
-
-    with pytest.raises(IoRuntimeError) as exc_info:
-        runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    cli_args = [str(missing_path)]
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
+    with pytest.raises(_Rt) as exc_info:
+        cli_extract_value(runtime, cap, cli_args)
     err = str(exc_info.value)
     assert "test345_missing.txt" in err, "Error should mention the missing file"
-    assert (
-        "File not found" in err or "Failed to read file" in err
-    ), f"Error should be clear; got: {err}"
+    assert "File not found" in err, f"Error should be clear; got: {err}"
 
 
 # TEST346: Large file (1MB) reads successfully
@@ -964,9 +927,7 @@ def test_346_large_file_reads_successfully(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert len(result) == 1_000_000, "Should read entire 1MB file"
     assert result == large_data, "Content should match exactly"
 
@@ -996,9 +957,7 @@ def test_347_empty_file_reads_as_empty_bytes(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == b"", "Empty file should produce empty bytes"
 
 
@@ -1029,11 +988,8 @@ def test_348_file_path_conversion_respects_source_order(tmp_path):
 
     cli_args = [str(test_file)]
     stdin_data = b"stdin content 348"
-    # cap is already defined above with correct URN and args
-
-    result = runtime._extract_arg_value(cap.args[0], cli_args, stdin_data)
-
-    # Position source tried first, so file is read
+    # Position source comes first → path is selected and the file is read.
+    result = cli_extract_value(runtime, cap, cli_args, stdin_data=stdin_data)
     assert result == b"file content 348", "Position source tried first, file read"
 
 
@@ -1062,11 +1018,9 @@ def test_349_file_path_multiple_sources_fallback(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Only provide position arg, no --file flag
+    # Only provide position arg, no --file flag → falls back to position.
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == b"content 349", "Should fall back to position source and read file"
 
 
@@ -1116,19 +1070,20 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         CollectBytesOp,
     )
 
-    # Simulate full CLI invocation
+    # Simulate full CLI invocation through the new flow.
     cli_args = [str(test_file)]
     cap = runtime.find_cap_by_command(runtime.manifest, 'process')
     assert cap is not None, "Process cap not found in manifest"
-    arguments = runtime.build_arguments_from_cli(cap, cli_args)
+    payloads = cli_extract_all_iterations(runtime, cap, cli_args)
+    assert len(payloads) == 1
 
-    # Build frame queue like run_cli_mode does
     request_id = MessageId(0)
     frames = queue.Queue()
-    for i, arg in enumerate(arguments):
+    arr = cbor2.loads(payloads[0])
+    for i, arg in enumerate(arr):
         stream_id = f"arg-{i}"
-        frames.put(Frame.stream_start(request_id, stream_id, arg.media_urn))
-        encoded = cbor2.dumps(arg.value)
+        frames.put(Frame.stream_start(request_id, stream_id, arg["media_urn"]))
+        encoded = cbor2.dumps(arg["value"])
         frames.put(Frame.chunk(request_id, stream_id, 0, encoded, 0, compute_checksum(encoded)))
         frames.put(Frame.stream_end(request_id, stream_id, 1))
     frames.put(Frame.end(request_id, None))
@@ -1138,14 +1093,14 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     emitter = CliStreamEmitter()
     invoke_op(factory, frames, emitter)
 
-    # Verify handler received file bytes
     assert received_payload[0] == test_content, "Handler should receive file bytes, not path"
 
 
-# TEST351: sequence-declared file-path arg with an empty newline-separated
-# value returns an empty CBOR array — no spurious error.
+# TEST351: file-path arg in CBOR mode with empty Array returns empty.
+# CBOR Array (not JSON-encoded) is the multi-input wire form for sequence
+# args. Mirrors Rust test351_file_path_array_empty_array.
 def test_351_file_path_array_empty_array():
-    from capdag.cap.definition import CapArg, StdinSource, PositionSource
+    from capdag.cap.definition import CapArg, StdinSource
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -1155,28 +1110,26 @@ def test_351_file_path_array_empty_array():
             media_urn="media:file-path;textable",
             required=False,
             is_sequence=True,
-            sources=[
-                StdinSource("media:"),
-                PositionSource(0),
-            ]
+            sources=[StdinSource("media:")]
         )]
     )
 
-    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
-    runtime = CartridgeRuntime.with_manifest(manifest)
+    # CBOR-mode payload: value is an empty Array.
+    args = [{"media_urn": "media:file-path;textable", "value": []}]
+    payload = cbor2.dumps(args)
+    result = extract_effective_payload(payload, "application/cbor", cap, False)
 
-    cli_args = [""]
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    files_array = cbor2.loads(result)
-    assert len(files_array) == 0, "Empty pattern list should produce empty result"
+    result_arr = cbor2.loads(result)
+    assert len(result_arr) == 1
+    val = result_arr[0]["value"]
+    assert isinstance(val, list)
+    assert len(val) == 0
 
 
 # TEST352: file permission denied error is clear (Unix-specific)
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix permissions only")
 def test_352_file_permission_denied_clear_error(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import IoRuntimeError
     import os
 
     test_file = tmp_path / "test352_noperm.txt"
@@ -1203,16 +1156,13 @@ def test_352_file_permission_denied_clear_error(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
     try:
-        with pytest.raises(IoRuntimeError) as exc_info:
-            runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+        with pytest.raises(_Rt) as exc_info:
+            cli_extract_value(runtime, cap, cli_args)
         err = str(exc_info.value)
         assert "test352_noperm.txt" in err, "Error should mention the file"
     finally:
-        # Cleanup: restore permissions then delete
         os.chmod(test_file, 0o644)
 
 
@@ -1238,16 +1188,11 @@ def test_353_cbor_payload_format_consistency():
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = ["test value"]
-    # cap is already defined above with correct URN and args
-    arguments = runtime.build_arguments_from_cli(cap, cli_args)
-
-    # Verify structure of CapArgumentValue list
-    assert len(arguments) == 1, "Should have 1 argument"
-
-    # Check the CapArgumentValue object
-    arg = arguments[0]
-    assert arg.media_urn == "media:text;textable"
-    assert arg.value == b"test value"
+    payload = runtime.build_payload_from_cli(cap, cli_args)
+    arr = cbor2.loads(payload)
+    assert len(arr) == 1
+    assert arr[0]["media_urn"] == "media:text;textable"
+    assert arr[0]["value"] == b"test value"
 
 
 # TEST354: A glob pattern with no matches fails hard. Silent empty results
@@ -1255,7 +1200,6 @@ def test_353_cbor_payload_format_consistency():
 # surfaces them rather than returning an empty array.
 def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import IoRuntimeError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
@@ -1277,10 +1221,9 @@ def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
 
     pattern = f"{tmp_path}/nonexistent_*.xyz"
     cli_args = [pattern]
-
-    with pytest.raises(IoRuntimeError) as exc_info:
-        runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
+    with pytest.raises(_Rt) as exc_info:
+        cli_extract_value(runtime, cap, cli_args)
     err = str(exc_info.value)
     assert "No files matched" in err, f"Error should say no files matched; got: {err}"
 
@@ -1318,11 +1261,10 @@ def test_355_glob_pattern_skips_directories(tmp_path):
 
     pattern = f"{test_dir}/*"
     cli_args = [pattern]
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    files_array = cbor2.loads(result)
-    assert len(files_array) == 1, "Should only include files, not directories"
-    assert files_array[0] == b"content1"
+    result = cli_extract_value(runtime, cap, cli_args)
+    assert isinstance(result, list)
+    assert len(result) == 1, "Should only include files, not directories"
+    assert result[0] == b"content1"
 
 
 # TEST356: Multiple glob patterns combined via newline separation.
@@ -1355,16 +1297,17 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
+    # CBOR mode allows arrays of patterns. Mirrors Rust test356.
     pattern1 = f"{test_dir}/*.txt"
     pattern2 = f"{test_dir}/*.json"
-    cli_args = ["\n".join([pattern1, pattern2])]
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
-    files_array = cbor2.loads(result)
-    assert len(files_array) == 2, "Should find both files from different patterns"
-
-    contents = sorted(files_array)
-    assert contents == [b"json", b"text"]
+    args = [{"media_urn": "media:file-path;textable", "value": [pattern1, pattern2]}]
+    payload = cbor2.dumps(args)
+    result = extract_effective_payload(payload, "application/cbor", cap, False)
+    result_arr = cbor2.loads(result)
+    val = result_arr[0]["value"]
+    assert isinstance(val, list)
+    assert len(val) == 2
+    assert sorted(val) == [b"json", b"text"]
 
 
 # TEST357: Symlinks are followed when reading files
@@ -1399,9 +1342,7 @@ def test_357_symlinks_followed(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(link_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == b"real content", "Should follow symlink and read real file"
 
 
@@ -1433,24 +1374,23 @@ def test_358_binary_file_non_utf8(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-    result = runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    result = cli_extract_value(runtime, cap, cli_args)
     assert result == binary_data, "Binary data should read correctly"
 
 
-# TEST359: Invalid glob pattern fails with clear error
+# TEST359: Invalid glob pattern fails with clear error.
+# Mirrors Rust test359_invalid_glob_pattern_fails.
 def test_359_invalid_glob_pattern_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
-    from capdag.bifaci.cartridge_runtime import CliError
 
     cap = create_test_cap(
         'cap:in="media:";op=batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:file-path;textable;list",
+            media_urn="media:file-path;textable",
             required=True,
+            is_sequence=True,
             sources=[
                 StdinSource("media:"),
                 PositionSource(0),
@@ -1461,16 +1401,13 @@ def test_359_invalid_glob_pattern_fails():
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # Invalid glob pattern (unclosed bracket)
-    pattern = "[invalid"
-    paths_json = json.dumps([pattern])
+    # Invalid glob pattern (unclosed bracket) sent in CBOR mode.
+    args = [{"media_urn": "media:file-path;textable", "value": "[invalid"}]
+    payload = cbor2.dumps(args)
 
-    cli_args = [paths_json]
-    # cap is already defined above with correct URN and args
-
-    with pytest.raises(CliError) as exc_info:
-        runtime._extract_arg_value(cap.args[0], cli_args, None)
-
+    from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
+    with pytest.raises(_Rt) as exc_info:
+        extract_effective_payload(payload, "application/cbor", cap, False)
     err = str(exc_info.value)
     assert "Invalid glob pattern" in err, "Error should mention invalid glob"
 
@@ -1501,20 +1438,14 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     cli_args = [str(test_file)]
-    # cap is already defined above with correct URN and args
-
-    # Build arguments (what build_arguments_from_cli does)
-    arguments = runtime.build_arguments_from_cli(cap, cli_args)
-
-    # Extract effective payload (what run_cli_mode does)
-    streams = [
-        (f"arg-{i}", PendingStream(media_urn=arg.media_urn, chunks=[arg.value], complete=True))
-        for i, arg in enumerate(arguments)
-    ]
-    effective = extract_effective_payload(streams, cap.urn_string())
-
-    # The effective payload should be the raw PDF bytes
-    assert effective == pdf_content, "extract_effective_payload should extract file bytes"
+    # The full CLI flow (build_payload_from_cli + extract_effective_payload)
+    # delivers a CBOR args array with the file bytes inlined into the matching
+    # arg's value.
+    payload = runtime.build_payload_from_cli(cap, cli_args)
+    effective = extract_effective_payload(payload, "application/cbor", cap, True)
+    arr = cbor2.loads(effective)
+    assert len(arr) == 1
+    assert arr[0]["value"] == pdf_content
 
 
 # TEST361: CLI mode with file path - pass file path as command-line argument
@@ -1542,16 +1473,16 @@ def test_361_cli_mode_file_path(tmp_path):
     manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [cap])
     runtime = CartridgeRuntime.with_manifest(manifest)
 
-    # CLI mode: pass file path as positional argument
+    # CLI mode: pass file path as positional argument; runtime reads the file
+    # in extract_effective_payload and relabels media_urn to the stdin source.
     cli_args = [str(test_file)]
     cap = runtime.find_cap_by_command(runtime.manifest, cap.command)
-    arguments = runtime.build_arguments_from_cli(cap, cli_args)
-
-    # Verify arguments contain file-path URN (before conversion)
-    assert len(arguments) == 1
-    # The argument should have the stdin source URN (after conversion)
-    assert arguments[0].media_urn == "media:pdf"
-    assert arguments[0].value == pdf_content
+    payload = runtime.build_payload_from_cli(cap, cli_args)
+    effective = extract_effective_payload(payload, "application/cbor", cap, True)
+    arr = cbor2.loads(effective)
+    assert len(arr) == 1
+    assert arr[0]["media_urn"] == "media:pdf"
+    assert arr[0]["value"] == pdf_content
 
 
 # TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload

@@ -33,12 +33,18 @@ class CartridgeInstallSource(str, Enum):
 class CartridgeJson:
     """Install-context metadata stored in ``cartridge.json`` inside each cartridge
     version directory.
+
+    `(name, version, channel)` is the install's full identity.
+    Channels (release/nightly) are independent namespaces; the .pkg
+    installer writes ``channel`` based on which channel was published.
     """
 
     #: Cartridge name (e.g., ``"pdfcartridge"``).
     name: str
     #: Version string (e.g., ``"0.168.411"``).
     version: str
+    #: Distribution channel ("release" or "nightly"). Required.
+    channel: str
     #: Relative path from the version directory to the executable entry point.
     #: For single-binary cartridges this is just the binary filename.
     #: For directory cartridges it may be a nested path.
@@ -54,11 +60,18 @@ class CartridgeJson:
     #: Size in bytes of the original package.
     package_size: int = field(default=0)
 
+    def __post_init__(self) -> None:
+        if self.channel not in ("release", "nightly"):
+            raise ValueError(
+                f"CartridgeJson channel must be 'release' or 'nightly', got {self.channel!r}"
+            )
+
     def to_dict(self) -> dict:
         """Serialize to a JSON-compatible dict, omitting empty optional fields."""
         d: dict = {
             "name": self.name,
             "version": self.version,
+            "channel": self.channel,
             "entry": self.entry,
             "installed_at": self.installed_at,
             "installed_from": self.installed_from.value,
@@ -73,10 +86,11 @@ class CartridgeJson:
 
     @classmethod
     def from_dict(cls, d: dict) -> "CartridgeJson":
-        """Deserialize from a dict."""
+        """Deserialize from a dict. Channel is required — there is no default."""
         return cls(
             name=d["name"],
             version=d["version"],
+            channel=d["channel"],
             entry=d["entry"],
             installed_at=d["installed_at"],
             installed_from=CartridgeInstallSource(d["installed_from"]),

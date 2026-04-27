@@ -30,7 +30,7 @@ from capdag.bifaci.io import (
 )
 
 # Test manifest JSON - cartridges MUST include manifest in HELLO response
-TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","description":"Test cartridge","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}'
+TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
 
 
 def create_socket_pair():

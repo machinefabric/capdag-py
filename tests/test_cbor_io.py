@@ -379,7 +379,7 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert received is not None
     assert received.hello_max_reorder_buffer() == 64
 
-    manifest = b'{"name":"test","version":"1.0.0","description":"test","caps":[{"urn":"cap:in=media:;out=media:"}]}'
+    manifest = b'{"name":"test","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:"}]}]}'
     cartridge_writer.write(
         Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 32)
     )
@@ -398,7 +398,7 @@ def test_481_verify_identity_succeeds():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
@@ -436,7 +436,7 @@ def test_482_verify_identity_fails_on_err():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
@@ -465,7 +465,7 @@ def test_483_verify_identity_fails_on_close():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","description":"test","caps":[{"urn":"cap:"}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
@@ -495,7 +495,7 @@ def test_224_handshake_negotiates_to_minimum_limits():
     host_reader = FrameReader.new(cartridge_to_host)
 
     # Cartridge with smaller limits
-    manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
+    manifest = b'{"identifier": "test", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
     # Host sends HELLO
     host_hello = Frame.hello(10000, 5000)
@@ -528,7 +528,7 @@ def test_225_handshake_function_full_handshake():
     cartridge_to_host = io.BytesIO()
 
     # Prepare manifest
-    manifest = b'{"identifier": "test-cartridge", "version": "1.0.0", "caps": []}'
+    manifest = b'{"identifier": "test-cartridge", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
     # Cartridge side accepts handshake in background (simulate)
     cartridge_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
@@ -566,7 +566,7 @@ def test_226_handshake_accept_receives_first():
     cartridge_reader = FrameReader.new(host_to_cartridge)
     cartridge_writer = FrameWriter.new(cartridge_to_host)
 
-    manifest = b'{"identifier": "test", "version": "1.0.0", "caps": []}'
+    manifest = b'{"identifier": "test", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
     limits = handshake_accept(cartridge_reader, cartridge_writer, manifest)
 
@@ -911,7 +911,7 @@ def test_390_stream_end_roundtrip():
 
 # TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits
 def test_848_relay_notify_roundtrip():
-    manifest = b'{"caps":["cap:op=relay-test"]}'
+    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:op=relay-test"]}]}'
     max_frame = 2_000_000
     max_chunk = 128_000
 

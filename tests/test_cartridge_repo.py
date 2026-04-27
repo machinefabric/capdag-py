@@ -1,12 +1,15 @@
-"""Tests for bifaci cartridge repository models."""
+"""Tests for bifaci cartridge repository models (v5.0 channel-partitioned)."""
 
 import pytest
 
 from capdag.bifaci.cartridge_repo import (
     CartridgeBuild,
+    CartridgeChannel,
+    CartridgeChannelEntries,
     CartridgeDistributionInfo,
     CartridgeInfo,
     CartridgeRegistry,
+    CartridgeRegistryChannels,
     CartridgeRegistryEntry,
     CartridgeRegistryResponse,
     CartridgeRepo,
@@ -39,6 +42,7 @@ def _make_version_data(pkg_name: str = "test-1.0.0.pkg") -> CartridgeVersionData
                     name=pkg_name,
                     sha256="abc123",
                     size=1000,
+                    url=f"https://cartridges.machinefabric.com/{pkg_name}",
                 ),
             )
         ],
@@ -64,10 +68,12 @@ def _make_cartridge_info(
     cap_groups=None,
     page_url: str = "",
     description: str = "",
+    channel: CartridgeChannel = CartridgeChannel.RELEASE,
 ) -> CartridgeInfo:
     return CartridgeInfo(
         id=id,
         name=name,
+        channel=channel,
         version="1.0.0",
         description=description,
         team_id="TEAM123",
@@ -116,6 +122,23 @@ def _make_registry_entry(
     )
 
 
+def _make_registry(
+    *,
+    release_entries=None,
+    nightly_entries=None,
+) -> CartridgeRegistry:
+    """Build a v5.0 channel-partitioned registry. Either map can be
+    omitted to leave that channel empty."""
+    return CartridgeRegistry(
+        schema_version="5.0",
+        last_updated="2026-02-07",
+        channels=CartridgeRegistryChannels(
+            release=CartridgeChannelEntries(cartridges=dict(release_entries or {})),
+            nightly=CartridgeChannelEntries(cartridges=dict(nightly_entries or {})),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # CartridgeInfo behaviour
 # ---------------------------------------------------------------------------
@@ -161,111 +184,133 @@ def test_322_cartridge_info_build_for_platform():
 # ---------------------------------------------------------------------------
 
 
-# TEST323: Server requires schema 4.0 and rejects 2.0.
+# TEST323: Server requires schema 5.0 and rejects older.
 def test_323_cartridge_repo_server_validate_registry():
-    CartridgeRepoServer(CartridgeRegistry(schema_version="4.0", last_updated="x", cartridges={}))
+    CartridgeRepoServer(_make_registry())
 
     with pytest.raises(CartridgeRepoError) as exc_info:
-        CartridgeRepoServer(CartridgeRegistry(schema_version="2.0", last_updated="x", cartridges={}))
-    assert "4.0" in str(exc_info.value)
+        CartridgeRepoServer(
+            CartridgeRegistry(
+                schema_version="4.0",
+                last_updated="x",
+                channels=CartridgeRegistryChannels(
+                    release=CartridgeChannelEntries(),
+                    nightly=CartridgeChannelEntries(),
+                ),
+            )
+        )
+    assert "5.0" in str(exc_info.value)
 
 
-# TEST324: Server transforms a v4.0 entry into a flat CartridgeInfo,
-# preserving cap_groups verbatim.
+# TEST324: Server transforms each channel-entry into a flat CartridgeInfo
+# with channel set, preserving cap_groups verbatim.
 def test_324_cartridge_repo_server_transform_to_array():
     server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "testcartridge": _make_registry_entry(
-                    cap_groups=[
-                        _make_cap_group(
-                            "g1",
-                            caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")],
-                            adapter_urns=["media:test"],
-                        )
-                    ],
-                    categories=["test"],
-                    tags=["testing"],
-                )
-            },
-        )
+        _make_registry(release_entries={
+            "testcartridge": _make_registry_entry(
+                cap_groups=[
+                    _make_cap_group(
+                        "g1",
+                        caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")],
+                        adapter_urns=["media:test"],
+                    )
+                ],
+                categories=["test"],
+                tags=["testing"],
+            )
+        })
     )
 
     cartridges = server.transform_to_cartridge_array()
     assert len(cartridges) == 1
     assert cartridges[0].id == "testcartridge"
+    assert cartridges[0].channel is CartridgeChannel.RELEASE
     assert len(cartridges[0].cap_groups) == 1
     assert cartridges[0].cap_groups[0].adapter_urns == ["media:test"]
     assert sum(1 for _ in cartridges[0].iter_caps()) == 1
 
 
+# TEST324b: Walking both channels produces release entries first.
+def test_324b_transform_walks_both_channels_release_first():
+    entry_release = _make_registry_entry(name="R")
+    entry_nightly = _make_registry_entry(name="N")
+    server = CartridgeRepoServer(_make_registry(
+        release_entries={"foo": entry_release},
+        nightly_entries={"bar": entry_nightly},
+    ))
+    cartridges = server.transform_to_cartridge_array()
+    assert [c.channel for c in cartridges] == [CartridgeChannel.RELEASE, CartridgeChannel.NIGHTLY]
+
+
 # TEST325: get_cartridges() wraps the transformed array in the response
-# envelope.
+# envelope, including both channels.
 def test_325_cartridge_repo_server_get_cartridges():
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "testcartridge": _make_registry_entry(
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
-                )
-            },
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "testcartridge": _make_registry_entry(
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
         )
-    )
+    }))
     response = server.get_cartridges()
     assert len(response.cartridges) == 1
     assert response.cartridges[0].id == "testcartridge"
+    assert response.cartridges[0].channel is CartridgeChannel.RELEASE
 
 
-# TEST326: get_cartridge_by_id returns the entry for a known id, None
-# for an unknown one.
+# TEST326: get_cartridge_by_id requires a (channel, id). Same id in
+# the wrong channel must miss — channels are independent namespaces.
 def test_326_cartridge_repo_server_get_cartridge_by_id():
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "testcartridge": _make_registry_entry(
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
-                )
-            },
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "testcartridge": _make_registry_entry(
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
         )
+    }))
+    assert server.get_cartridge_by_id(CartridgeChannel.RELEASE, "testcartridge") is not None
+    assert server.get_cartridge_by_id(CartridgeChannel.RELEASE, "nonexistent") is None
+    # Wrong channel — id exists only in release.
+    assert server.get_cartridge_by_id(CartridgeChannel.NIGHTLY, "testcartridge") is None
+
+
+# TEST326b: A cartridge with the same id can independently coexist in
+# both channels with separate metadata/versions.
+def test_326b_get_cartridge_by_id_channel_isolation():
+    release_entry = _make_registry_entry(name="Foo (release)")
+    nightly_entry = _make_registry_entry(
+        name="Foo (nightly)",
+        latest_version="2.0.0",
+        versions={"2.0.0": _make_version_data("foo-2.0.0.pkg")},
     )
-    assert server.get_cartridge_by_id("testcartridge") is not None
-    assert server.get_cartridge_by_id("nonexistent") is None
+    server = CartridgeRepoServer(_make_registry(
+        release_entries={"foocartridge": release_entry},
+        nightly_entries={"foocartridge": nightly_entry},
+    ))
+    r = server.get_cartridge_by_id(CartridgeChannel.RELEASE, "foocartridge")
+    assert r is not None and r.name == "Foo (release)" and r.version == "1.0.0"
+    n = server.get_cartridge_by_id(CartridgeChannel.NIGHTLY, "foocartridge")
+    assert n is not None and n.name == "Foo (nightly)" and n.version == "2.0.0"
 
 
 # TEST327: search_cartridges matches name/description/tags and cap
-# titles, but never substring on cap URNs.
+# titles across both channels, but never substring on cap URNs.
 def test_327_cartridge_repo_server_search_cartridges():
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "pdfcartridge": _make_registry_entry(
-                    name="PDF Cartridge",
-                    description="Process PDF documents",
-                    tags=["document"],
-                    cap_groups=[
-                        _make_cap_group(
-                            "pdf",
-                            caps=[
-                                _make_cap(
-                                    'cap:in=media:pdf;op=disbind;out="media:page;textable"',
-                                    title="Disbind PDF",
-                                    command="disbind",
-                                )
-                            ],
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "pdfcartridge": _make_registry_entry(
+            name="PDF Cartridge",
+            description="Process PDF documents",
+            tags=["document"],
+            cap_groups=[
+                _make_cap_group(
+                    "pdf",
+                    caps=[
+                        _make_cap(
+                            'cap:in=media:pdf;op=disbind;out="media:page;textable"',
+                            title="Disbind PDF",
+                            command="disbind",
                         )
                     ],
                 )
-            },
+            ],
         )
-    )
+    }))
     assert len(server.search_cartridges("pdf")) == 1
     assert len(server.search_cartridges("disbind")) == 1
     assert server.search_cartridges("nonexistent") == []
@@ -273,50 +318,39 @@ def test_327_cartridge_repo_server_search_cartridges():
 
 # TEST328: get_cartridges_by_category filters by string-equal categories.
 def test_328_cartridge_repo_server_get_by_category():
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "doccartridge": _make_registry_entry(
-                    name="Doc Cartridge",
-                    description="Process documents",
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
-                    categories=["document"],
-                )
-            },
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "doccartridge": _make_registry_entry(
+            name="Doc Cartridge",
+            description="Process documents",
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
+            categories=["document"],
         )
-    )
+    }))
     assert len(server.get_cartridges_by_category("document")) == 1
     assert server.get_cartridges_by_category("nonexistent") == []
 
 
 # TEST329: get_cartridges_by_cap parses the request URN and matches
-# each cartridge cap via tagged-URN equivalence — not string equality.
-# A request URN whose tags appear in different declared order than the
-# cap's still resolves.
+# each cartridge cap via the conforms_to predicate — not string
+# equality, and the `op` tag has no functional role. A request URN
+# whose tags appear in different declared order than the cap's still
+# resolves because the predicate is order-independent.
 def test_329_cartridge_repo_server_get_by_cap():
     declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
     request_urn = 'cap:in="media:pdf";op=disbind;out="media:list;disbound-page;textable"'
 
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "pdfcartridge": _make_registry_entry(
-                    name="PDF Cartridge",
-                    description="Process PDFs",
-                    cap_groups=[
-                        _make_cap_group(
-                            "pdf",
-                            caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")],
-                        )
-                    ],
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "pdfcartridge": _make_registry_entry(
+            name="PDF Cartridge",
+            description="Process PDFs",
+            cap_groups=[
+                _make_cap_group(
+                    "pdf",
+                    caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")],
                 )
-            },
+            ],
         )
-    )
+    }))
 
     assert len(server.get_cartridges_by_cap(declared_urn)) == 1
     assert len(server.get_cartridges_by_cap(request_urn)) == 1, "tagged-URN equivalence must resolve"
@@ -328,24 +362,27 @@ def test_329_cartridge_repo_server_get_by_cap():
 # ---------------------------------------------------------------------------
 
 
-# TEST330: update_cache populates the cartridge map and the cap-to-
-# cartridges index keyed by normalized URNs.
+# TEST330: update_cache populates the cartridge map keyed by
+# (channel, id) and the cap-to-cartridges index keyed by normalized
+# URNs.
 def test_330_cartridge_repo_client_update_cache():
     repo = CartridgeRepo(3600)
     registry = CartridgeRegistryResponse(
         cartridges=[
             _make_cartridge_info(
-                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+                channel=CartridgeChannel.RELEASE,
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
             )
         ]
     )
     repo.update_cache("https://example.com/cartridges", registry)
-    assert repo.get_cartridge("testcartridge") is not None
+    assert repo.get_cartridge(CartridgeChannel.RELEASE, "testcartridge") is not None
+    # Same id in the wrong channel must miss — channels are independent.
+    assert repo.get_cartridge(CartridgeChannel.NIGHTLY, "testcartridge") is None
 
 
-# TEST331: get_suggestions_for_cap returns a suggestion when the cache
-# has a cartridge with a tagged-URN-equivalent cap, even if declared
-# with different tag order.
+# TEST331: get_suggestions_for_cap returns a suggestion with channel
+# propagated from the source cartridge.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
     declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
@@ -357,6 +394,7 @@ def test_331_cartridge_repo_client_get_suggestions():
         description="Process PDFs",
         page_url="https://example.com/pdf",
         cap_groups=[_make_cap_group("pdf", caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")])],
+        channel=CartridgeChannel.NIGHTLY,
     )
     repo.update_cache("https://example.com/cartridges", CartridgeRegistryResponse(cartridges=[info]))
 
@@ -364,13 +402,14 @@ def test_331_cartridge_repo_client_get_suggestions():
     assert len(suggestions) == 1
     assert suggestions[0].cartridge_id == "pdfcartridge"
     assert suggestions[0].cap_title == "Disbind PDF"
+    assert suggestions[0].channel is CartridgeChannel.NIGHTLY
     requested = CapUrn.from_string(request_urn)
     returned = CapUrn.from_string(suggestions[0].cap_urn)
     assert returned.is_equivalent(requested), "returned cap URN must be tagged-URN equivalent"
 
 
-# TEST332: get_cartridge returns the cached entry by id and None for
-# an unknown id.
+# TEST332: get_cartridge requires a (channel, id) and returns None for
+# an unknown pair.
 def test_332_cartridge_repo_client_get_cartridge():
     repo = CartridgeRepo(3600)
     repo.update_cache(
@@ -378,13 +417,15 @@ def test_332_cartridge_repo_client_get_cartridge():
         CartridgeRegistryResponse(
             cartridges=[
                 _make_cartridge_info(
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+                    channel=CartridgeChannel.RELEASE,
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
                 )
             ]
         ),
     )
-    assert repo.get_cartridge("testcartridge") is not None
-    assert repo.get_cartridge("nonexistent") is None
+    assert repo.get_cartridge(CartridgeChannel.RELEASE, "testcartridge") is not None
+    assert repo.get_cartridge(CartridgeChannel.RELEASE, "nonexistent") is None
+    assert repo.get_cartridge(CartridgeChannel.NIGHTLY, "testcartridge") is None
 
 
 # TEST333: get_all_available_caps returns the deduplicated set of
@@ -401,11 +442,13 @@ def test_333_cartridge_repo_client_get_all_caps():
                     id="cartridge1",
                     name="Cartridge 1",
                     cap_groups=[_make_cap_group("g", caps=[_make_cap(cap1, "Cap 1", "x")])],
+                    channel=CartridgeChannel.RELEASE,
                 ),
                 _make_cartridge_info(
                     id="cartridge2",
                     name="Cartridge 2",
                     cap_groups=[_make_cap_group("g", caps=[_make_cap(cap2, "Cap 2", "x")])],
+                    channel=CartridgeChannel.NIGHTLY,
                 ),
             ]
         ),
@@ -425,35 +468,30 @@ def test_334_cartridge_repo_client_needs_sync():
     assert not repo.needs_sync(urls)
 
 
-# TEST335: A v4.0 nested registry round-trips through Server →
-# CartridgeInfo, preserving the cap_groups structure and the signed
-# flag.
+# TEST335: A v5.0 channel-partitioned registry round-trips through
+# Server → CartridgeInfo, preserving the cap_groups structure, signed
+# flag, and channel provenance.
 def test_335_cartridge_repo_server_client_integration():
     cap_urn = 'cap:in="media:test";op=test;out="media:result"'
-    server = CartridgeRepoServer(
-        CartridgeRegistry(
-            schema_version="4.0",
-            last_updated="2026-02-07",
-            cartridges={
-                "testcartridge": _make_registry_entry(
-                    page_url="https://example.com",
-                    cap_groups=[
-                        _make_cap_group(
-                            "test-group",
-                            caps=[_make_cap(cap_urn, title="Test Cap", command="test")],
-                            adapter_urns=["media:test"],
-                        )
-                    ],
-                    categories=["test"],
+    server = CartridgeRepoServer(_make_registry(release_entries={
+        "testcartridge": _make_registry_entry(
+            page_url="https://example.com",
+            cap_groups=[
+                _make_cap_group(
+                    "test-group",
+                    caps=[_make_cap(cap_urn, title="Test Cap", command="test")],
+                    adapter_urns=["media:test"],
                 )
-            },
+            ],
+            categories=["test"],
         )
-    )
+    }))
 
     response = server.get_cartridges()
     assert len(response.cartridges) == 1
     cartridge = response.cartridges[0]
     assert cartridge.id == "testcartridge"
+    assert cartridge.channel is CartridgeChannel.RELEASE
     assert cartridge.is_signed()
     assert cartridge.versions
     assert len(cartridge.cap_groups) == 1
@@ -471,6 +509,7 @@ def test_336_update_cache_rejects_malformed_cap_urn():
             _make_cartridge_info(
                 id="broken",
                 name="Broken",
+                channel=CartridgeChannel.RELEASE,
                 cap_groups=[_make_cap_group("g", caps=[_make_cap("not a valid urn at all", "Bad", "x")])],
             )
         ]
@@ -577,6 +616,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
         {
             "id": "pdfcartridge",
             "name": "pdfcartridge",
+            "channel": "release",
             "version": "0.179.441",
             "description": "PDF page renderer",
             "author": "https://github.com/machinefabric",
@@ -618,6 +658,7 @@ def test_636_deserialize_cartridge_info_with_null_strings():
         {
             "id": "mlxcartridge",
             "name": "MLX Cartridge",
+            "channel": "nightly",
             "version": None,
             "description": None,
             "author": None,
@@ -640,6 +681,7 @@ def test_637_deserialize_full_registry_response():
                 {
                     "id": "pdfcartridge",
                     "name": "pdfcartridge",
+                    "channel": "release",
                     "version": "0.179.441",
                     "description": "PDF",
                     "author": "https://github.com/machinefabric",
@@ -664,6 +706,7 @@ def test_637_deserialize_full_registry_response():
                 {
                     "id": "imagecartridge",
                     "name": "imagecartridge",
+                    "channel": "release",
                     "version": "0.1.6",
                     "description": "image",
                     "author": "",

@@ -55,15 +55,33 @@ def default_group(caps: List[Cap]) -> CapGroup:
 class CapManifest:
     """Unified cap manifest for component output
 
+    `(name, version, channel)` is the cartridge's full identity.
+    Channel is part of the cartridge's identity and is baked in at
+    compile/package time (Python cartridges read it from the
+    `MFR_CARTRIDGE_CHANNEL` env var at packaging time, mirroring the
+    Rust SDK's `env!()` pattern).
+
     A manifest includes:
-    - Component metadata (name, version, description)
+    - Component metadata (name, version, channel, description)
     - Cap groups (bundles of caps + adapter URNs)
     - Optional author and page URL
     """
 
-    def __init__(self, name: str, version: str, description: str, cap_groups: List[CapGroup]):
+    def __init__(
+        self,
+        name: str,
+        version: str,
+        channel: str,
+        description: str,
+        cap_groups: List[CapGroup],
+    ):
+        if channel not in ("release", "nightly"):
+            raise ValueError(
+                f"CapManifest channel must be 'release' or 'nightly', got '{channel}'"
+            )
         self.name = name
         self.version = version
+        self.channel = channel
         self.description = description
         self.cap_groups = cap_groups
         self.author: Optional[str] = None
@@ -91,6 +109,7 @@ class CapManifest:
         result: Dict[str, Any] = {
             "name": self.name,
             "version": self.version,
+            "channel": self.channel,
             "description": self.description,
             "cap_groups": [g.to_dict() for g in self.cap_groups],
         }
@@ -109,10 +128,13 @@ class CapManifest:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CapManifest":
-        """Parse from dict"""
+        """Parse from dict. Channel is required — there is no default;
+        a manifest without `channel` is a build/publish-pipeline bug
+        we want to surface immediately."""
         manifest = cls(
             name=data["name"],
             version=data["version"],
+            channel=data["channel"],
             description=data["description"],
             cap_groups=[CapGroup.from_dict(g) for g in data["cap_groups"]],
         )

@@ -4,22 +4,36 @@ Fetches and caches cartridge registry data from configured cartridge repositorie
 Provides cartridge suggestions when a cap is unavailable but a cartridge exists
 that could provide it.
 
-Wire schema is v4.0: each cartridge advertises its caps in `cap_groups`
-(snake_case key on the wire). There is no flat `caps` field. URN matching
-goes through `CapUrn.from_string` and `is_equivalent`; raw string equality
-on URNs is forbidden.
+Wire schema is v5.0: cartridges are partitioned by channel under
+`channels.<channel>.cartridges.<id>`. Each cartridge advertises its caps
+in `cap_groups` (snake_case key on the wire). There is no flat `caps`
+field. URN matching goes through `CapUrn.from_string` and the predicate
+methods (`is_equivalent`, `conforms_to`); raw string equality on URNs is
+forbidden.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from enum import Enum
 from functools import cmp_to_key
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from capdag.urn.cap_urn import CapUrn
+
+
+class CartridgeChannel(str, Enum):
+    """Distribution channel for a cartridge entry. Mirrors capdag's
+    `CartridgeChannel` and the registry's `channels.<channel>` keys.
+
+    `RELEASE` is the user-facing channel; `NIGHTLY` is the in-flight
+    channel. The value is the lowercase string used in the wire format.
+    """
+    RELEASE = "release"
+    NIGHTLY = "nightly"
 
 
 def _null_as_empty_string(value) -> str:
@@ -126,9 +140,14 @@ class RegistryCapGroup:
 
 @dataclass
 class CartridgeDistributionInfo:
+    """Distribution file info (package). `url` is the absolute R2 URL of
+    the package — every consumer downloads from that URL directly.
+    There is no derived URL pattern any more."""
+
     name: str
     sha256: str
     size: int
+    url: str
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeDistributionInfo":
@@ -136,6 +155,7 @@ class CartridgeDistributionInfo:
             name=raw["name"],
             sha256=raw["sha256"],
             size=int(raw["size"]),
+            url=raw["url"],
         )
 
 
@@ -154,10 +174,18 @@ class CartridgeBuild:
 
 @dataclass
 class CartridgeVersionData:
+    """A cartridge version's data (v5.0 schema).
+
+    `notes_url` is the absolute R2 URL of the version's release-notes
+    Markdown file, when one was uploaded at publish time. Optional —
+    cartridges historically did not ship per-version notes.
+    """
+
     release_date: str
     changelog: List[str] = field(default_factory=list)
     min_app_version: str = ""
     builds: List[CartridgeBuild] = field(default_factory=list)
+    notes_url: Optional[str] = None
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeVersionData":
@@ -166,6 +194,7 @@ class CartridgeVersionData:
             changelog=list(raw.get("changelog", [])),
             min_app_version=_null_as_empty_string(raw.get("minAppVersion")),
             builds=[CartridgeBuild.from_dict(item) for item in raw.get("builds", [])],
+            notes_url=raw.get("notesUrl"),
         )
 
 
@@ -176,9 +205,13 @@ class CartridgeInfo:
     The cartridge's capability surface lives in `cap_groups`. There is no
     flat `caps` list and no `homepage` field. `iter_caps()` walks every
     cap across every group in declaration order.
+
+    `channel` is set by the transformer when flattening the channel-
+    partitioned registry — every entry knows which channel it lives in.
     """
     id: str
     name: str
+    channel: CartridgeChannel
     version: str = ""
     description: str = ""
     author: str = ""
@@ -195,9 +228,15 @@ class CartridgeInfo:
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeInfo":
         versions_raw = raw.get("versions", {})
+        channel_raw = raw.get("channel")
+        if channel_raw not in ("release", "nightly"):
+            raise ValueError(
+                f"CartridgeInfo {raw.get('id', '?')}: invalid or missing channel {channel_raw!r}"
+            )
         return cls(
             id=raw["id"],
             name=raw["name"],
+            channel=CartridgeChannel(channel_raw),
             version=_null_as_empty_string(raw.get("version")),
             description=_null_as_empty_string(raw.get("description")),
             author=_null_as_empty_string(raw.get("author")),
@@ -270,6 +309,7 @@ class CartridgeSuggestion:
     latest_version: str
     repo_url: str
     page_url: str
+    channel: CartridgeChannel
 
 
 @dataclass
@@ -311,20 +351,52 @@ class CartridgeRegistryEntry:
 
 
 @dataclass
+class CartridgeChannelEntries:
+    """One channel's cartridges map. Always present in the parent
+    registry, possibly empty."""
+    cartridges: Dict[str, CartridgeRegistryEntry] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "CartridgeChannelEntries":
+        cartridges_raw = raw.get("cartridges", {})
+        if not isinstance(cartridges_raw, dict):
+            raise ValueError("CartridgeChannelEntries.cartridges must be an object")
+        return cls(cartridges={
+            key: CartridgeRegistryEntry.from_dict(value)
+            for key, value in cartridges_raw.items()
+        })
+
+
+@dataclass
+class CartridgeRegistryChannels:
+    """Per-channel partitioning of the registry. Both channels are
+    always present (possibly empty)."""
+    release: CartridgeChannelEntries
+    nightly: CartridgeChannelEntries
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "CartridgeRegistryChannels":
+        if "release" not in raw or "nightly" not in raw:
+            raise ValueError("Registry channels must contain both 'release' and 'nightly'")
+        return cls(
+            release=CartridgeChannelEntries.from_dict(raw["release"]),
+            nightly=CartridgeChannelEntries.from_dict(raw["nightly"]),
+        )
+
+
+@dataclass
 class CartridgeRegistry:
+    """The v5.0 cartridge registry (channel-partitioned schema)."""
     schema_version: str
     last_updated: str
-    cartridges: Dict[str, CartridgeRegistryEntry]
+    channels: CartridgeRegistryChannels
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeRegistry":
         return cls(
             schema_version=raw["schemaVersion"],
             last_updated=raw["lastUpdated"],
-            cartridges={
-                key: CartridgeRegistryEntry.from_dict(value)
-                for key, value in raw["cartridges"].items()
-            },
+            channels=CartridgeRegistryChannels.from_dict(raw["channels"]),
         )
 
     @classmethod
@@ -334,8 +406,10 @@ class CartridgeRegistry:
 
 @dataclass
 class _CartridgeRepoCache:
-    cartridges: Dict[str, CartridgeInfo]
-    cap_to_cartridges: Dict[str, List[str]]
+    """Cached cartridge data keyed by `(channel, id)` so the same id can
+    independently coexist in both channels with different metadata."""
+    cartridges: Dict[Tuple[CartridgeChannel, str], CartridgeInfo]
+    cap_to_cartridges: Dict[str, List[Tuple[CartridgeChannel, str]]]
     last_updated: float
     repo_url: str
 
@@ -345,31 +419,35 @@ class CartridgeRepoError(ValueError):
 
 
 class CartridgeRepoServer:
-    """Transforms validated nested registry data into flat API responses."""
+    """Transforms a validated v5.0 channel-partitioned registry into
+    flat API responses, preserving channel provenance."""
 
     def __init__(self, registry: CartridgeRegistry):
-        if registry.schema_version != "4.0":
+        if registry.schema_version != "5.0":
             raise CartridgeRepoError(
-                f"Unsupported registry schema version: {registry.schema_version}. Required: 4.0"
+                f"Unsupported registry schema version: {registry.schema_version}. Required: 5.0"
             )
         self.registry = registry
 
     @staticmethod
     def _validate_version_data(
         cartridge_id: str,
+        channel: CartridgeChannel,
         version: str,
         version_data: CartridgeVersionData,
     ) -> None:
         if not version_data.builds:
-            raise CartridgeRepoError(f"Cartridge {cartridge_id} v{version}: no builds")
+            raise CartridgeRepoError(
+                f"Cartridge {cartridge_id} ({channel.value}) v{version}: no builds"
+            )
         for index, build in enumerate(version_data.builds):
             if not build.platform:
                 raise CartridgeRepoError(
-                    f"Cartridge {cartridge_id} v{version}: build[{index}] missing platform"
+                    f"Cartridge {cartridge_id} ({channel.value}) v{version}: build[{index}] missing platform"
                 )
             if not build.package.name:
                 raise CartridgeRepoError(
-                    f"Cartridge {cartridge_id} v{version}: build[{index}] ({build.platform}) missing package.name"
+                    f"Cartridge {cartridge_id} ({channel.value}) v{version}: build[{index}] ({build.platform}) missing package.name"
                 )
 
     @staticmethod
@@ -386,56 +464,78 @@ class CartridgeRepoServer:
                 return 1
         return 0
 
+    def _channel_entries(self, channel: CartridgeChannel) -> Dict[str, CartridgeRegistryEntry]:
+        if channel is CartridgeChannel.RELEASE:
+            return self.registry.channels.release.cartridges
+        if channel is CartridgeChannel.NIGHTLY:
+            return self.registry.channels.nightly.cartridges
+        raise CartridgeRepoError(f"Invalid channel {channel!r}")
+
+    def _entry_to_cartridge_info(
+        self,
+        channel: CartridgeChannel,
+        cartridge_id: str,
+        entry: CartridgeRegistryEntry,
+    ) -> CartridgeInfo:
+        latest_version = entry.latest_version
+        version_data = entry.versions.get(latest_version)
+        if version_data is None:
+            raise CartridgeRepoError(
+                f"Cartridge {cartridge_id} ({channel.value}): latestVersion {latest_version} not found in versions"
+            )
+        self._validate_version_data(cartridge_id, channel, latest_version, version_data)
+        available_versions = sorted(
+            entry.versions.keys(),
+            key=cmp_to_key(lambda a, b: self._compare_versions(b, a)),
+        )
+        return CartridgeInfo(
+            id=cartridge_id,
+            name=entry.name,
+            channel=channel,
+            version=latest_version,
+            description=entry.description,
+            author=entry.author,
+            team_id=entry.team_id,
+            signed_at=version_data.release_date,
+            min_app_version=version_data.min_app_version or entry.min_app_version,
+            page_url=entry.page_url,
+            categories=list(entry.categories),
+            tags=list(entry.tags),
+            cap_groups=list(entry.cap_groups),
+            versions=dict(entry.versions),
+            available_versions=available_versions,
+        )
+
     def transform_to_cartridge_array(self) -> List[CartridgeInfo]:
-        cartridges: List[CartridgeInfo] = []
-        for cartridge_id, entry in self.registry.cartridges.items():
-            latest_version = entry.latest_version
-            version_data = entry.versions.get(latest_version)
-            if version_data is None:
-                raise CartridgeRepoError(
-                    f"Cartridge {cartridge_id}: latest version {latest_version} not found in versions"
-                )
-
-            self._validate_version_data(cartridge_id, latest_version, version_data)
-            available_versions = sorted(
-                entry.versions.keys(),
-                key=cmp_to_key(lambda a, b: self._compare_versions(b, a)),
-            )
-
-            cartridges.append(
-                CartridgeInfo(
-                    id=cartridge_id,
-                    name=entry.name,
-                    version=latest_version,
-                    description=entry.description,
-                    author=entry.author,
-                    team_id=entry.team_id,
-                    signed_at=version_data.release_date,
-                    min_app_version=version_data.min_app_version or entry.min_app_version,
-                    page_url=entry.page_url,
-                    categories=list(entry.categories),
-                    tags=list(entry.tags),
-                    cap_groups=list(entry.cap_groups),
-                    versions=dict(entry.versions),
-                    available_versions=available_versions,
-                )
-            )
-        return cartridges
+        """Walk both channels and emit a flat list of CartridgeInfo —
+        release entries first, then nightly."""
+        out: List[CartridgeInfo] = []
+        for channel in (CartridgeChannel.RELEASE, CartridgeChannel.NIGHTLY):
+            for cartridge_id, entry in self._channel_entries(channel).items():
+                out.append(self._entry_to_cartridge_info(channel, cartridge_id, entry))
+        return out
 
     def get_cartridges(self) -> CartridgeRegistryResponse:
         return CartridgeRegistryResponse(cartridges=self.transform_to_cartridge_array())
 
-    def get_cartridge_by_id(self, cartridge_id: str) -> Optional[CartridgeInfo]:
-        for cartridge in self.transform_to_cartridge_array():
-            if cartridge.id == cartridge_id:
-                return cartridge
-        return None
+    def get_cartridge_by_id(
+        self,
+        channel: CartridgeChannel,
+        cartridge_id: str,
+    ) -> Optional[CartridgeInfo]:
+        """Get a cartridge by `(channel, id)`. Channel is required —
+        the same id can independently exist in both channels."""
+        entries = self._channel_entries(channel)
+        entry = entries.get(cartridge_id)
+        if entry is None:
+            return None
+        return self._entry_to_cartridge_info(channel, cartridge_id, entry)
 
     def search_cartridges(self, query: str) -> List[CartridgeInfo]:
         """Match query against cartridge name/description/tags and cap
-        titles. Cap URN strings are NOT substring-matched: a cap URN is a
-        tagged identifier, not free-form text. Use get_cartridges_by_cap
-        for cap lookups."""
+        titles across both channels. Cap URN strings are NOT
+        substring-matched: a cap URN is a tagged identifier, not
+        free-form text. Use get_cartridges_by_cap for cap lookups."""
         lower_query = query.lower()
         return [
             cartridge
@@ -457,22 +557,23 @@ class CartridgeRepoServer:
         ]
 
     def get_cartridges_by_cap(self, cap_urn: str) -> List[CartridgeInfo]:
-        """Return cartridges that provide a cap equivalent to `cap_urn`.
+        """Return cartridges that provide a cap conforming to the
+        requested URN.
 
-        Both the request URN and each candidate cap URN are parsed via
-        CapUrn.from_string and matched with `is_equivalent` so caps
-        declared in any tag order resolve. A malformed input URN raises
-        — there is no fallback that compares the raw strings.
+        The request URN is parsed via CapUrn.from_string. Each declared
+        cartridge cap is parsed and matched with `conforms_to`: cap
+        dispatch is the partial-order question "does the declared cap
+        conform to the requested pattern?". Only `in` and `out` tags
+        are functionally meaningful — the `op` tag has no role. A
+        malformed input URN raises; a malformed declared URN raises
+        too (registry corruption is not a fallback condition).
         """
         requested = CapUrn.from_string(cap_urn)
         result: List[CartridgeInfo] = []
         for cartridge in self.transform_to_cartridge_array():
             for cap in cartridge.iter_caps():
-                try:
-                    parsed = CapUrn.from_string(cap.urn)
-                except Exception:
-                    continue
-                if parsed.is_equivalent(requested):
+                declared = CapUrn.from_string(cap.urn)
+                if declared.conforms_to(requested):
                     result.append(cartridge)
                     break
         return result
@@ -493,29 +594,32 @@ class CartridgeRepo:
         return (time.time() - cache.last_updated) > self.cache_ttl_seconds
 
     def update_cache(self, repo_url: str, registry: CartridgeRegistryResponse) -> None:
-        """Index the registry response into the cache.
+        """Index the registry response into the cache, keyed by
+        `(channel, id)`.
 
         The cap-to-cartridges index keys on the *normalized* tagged-URN
         form of each cap URN (parse via CapUrn.from_string, then take
-        str()). A cap URN that fails to parse is a registry corruption:
-        we raise CartridgeRepoError rather than silently keep the
-        malformed string in the index.
+        str()), with `(channel, id)` references so suggestions preserve
+        channel provenance. A cap URN that fails to parse is a registry
+        corruption: we raise CartridgeRepoError rather than silently
+        keep the malformed string in the index.
         """
-        cartridges: Dict[str, CartridgeInfo] = {}
-        cap_to_cartridges: Dict[str, List[str]] = {}
+        cartridges: Dict[Tuple[CartridgeChannel, str], CartridgeInfo] = {}
+        cap_to_cartridges: Dict[str, List[Tuple[CartridgeChannel, str]]] = {}
 
         for cartridge_info in registry.cartridges:
-            cartridge_id = cartridge_info.id
+            key = (cartridge_info.channel, cartridge_info.id)
             for cap in cartridge_info.iter_caps():
                 try:
                     parsed = CapUrn.from_string(cap.urn)
                 except Exception as exc:
                     raise CartridgeRepoError(
-                        f"cartridge {cartridge_id}: invalid cap URN {cap.urn!r}: {exc}"
+                        f"cartridge {cartridge_info.id} ({cartridge_info.channel.value}): "
+                        f"invalid cap URN {cap.urn!r}: {exc}"
                     ) from exc
                 normalized = str(parsed)
-                cap_to_cartridges.setdefault(normalized, []).append(cartridge_id)
-            cartridges[cartridge_id] = cartridge_info
+                cap_to_cartridges.setdefault(normalized, []).append(key)
+            cartridges[key] = cartridge_info
 
         self._caches[repo_url] = _CartridgeRepoCache(
             cartridges=cartridges,
@@ -524,11 +628,14 @@ class CartridgeRepo:
             repo_url=repo_url,
         )
 
-    def get_all_cartridges(self) -> List[tuple[str, CartridgeInfo]]:
-        result: List[tuple[str, CartridgeInfo]] = []
+    def get_all_cartridges(self) -> List[Tuple[CartridgeChannel, str, CartridgeInfo]]:
+        """Return every cached cartridge as a `(channel, id, info)`
+        tuple. Channel is first-class so consumers don't have to look
+        it up separately."""
+        result: List[Tuple[CartridgeChannel, str, CartridgeInfo]] = []
         for cache in self._caches.values():
-            for cartridge_id, cartridge in cache.cartridges.items():
-                result.append((cartridge_id, cartridge))
+            for (channel, cartridge_id), cartridge in cache.cartridges.items():
+                result.append((channel, cartridge_id, cartridge))
         return result
 
     def get_all_available_caps(self) -> List[str]:
@@ -546,10 +653,18 @@ class CartridgeRepo:
                 return True
         return False
 
-    def get_cartridge(self, cartridge_id: str) -> Optional[CartridgeInfo]:
+    def get_cartridge(
+        self,
+        channel: CartridgeChannel,
+        cartridge_id: str,
+    ) -> Optional[CartridgeInfo]:
+        """Get a cartridge by `(channel, id)`. Channel is required —
+        the same id can independently exist in both channels with
+        separate metadata/versions."""
+        key = (channel, cartridge_id)
         for cache in self._caches.values():
-            if cartridge_id in cache.cartridges:
-                return cache.cartridges[cartridge_id]
+            if key in cache.cartridges:
+                return cache.cartridges[key]
         return None
 
     def get_suggestions_for_cap(self, cap_urn: str) -> List[CartridgeSuggestion]:
@@ -558,10 +673,10 @@ class CartridgeRepo:
 
         `cap_urn` is parsed via CapUrn.from_string; the parsed-and-
         re-serialized form is the canonical key into the cap-to-
-        cartridges index. Inside each candidate cartridge we walk caps
-        via iter_caps() and match each on is_equivalent. A malformed
-        input URN logs to stderr and returns no suggestions rather than
-        masking the error.
+        cartridges index. Each candidate's caps are matched on
+        `is_equivalent` (suggestion lookup is exact-match URN). A
+        malformed input URN logs to stderr and returns no suggestions
+        rather than masking the error.
         """
         try:
             requested = CapUrn.from_string(cap_urn)
@@ -575,8 +690,8 @@ class CartridgeRepo:
 
         suggestions: List[CartridgeSuggestion] = []
         for cache in self._caches.values():
-            for cartridge_id in cache.cap_to_cartridges.get(normalized, []):
-                cartridge = cache.cartridges[cartridge_id]
+            for key in cache.cap_to_cartridges.get(normalized, []):
+                cartridge = cache.cartridges[key]
                 cap_info: Optional[RegistryCap] = None
                 for cap in cartridge.iter_caps():
                     try:
@@ -589,6 +704,7 @@ class CartridgeRepo:
                 if cap_info is None:
                     continue
                 page_url = cartridge.page_url or cache.repo_url
+                channel, cartridge_id = key
                 suggestions.append(
                     CartridgeSuggestion(
                         cartridge_id=cartridge_id,
@@ -599,6 +715,7 @@ class CartridgeRepo:
                         latest_version=cartridge.version,
                         repo_url=cache.repo_url,
                         page_url=page_url,
+                        channel=channel,
                     )
                 )
         return suggestions

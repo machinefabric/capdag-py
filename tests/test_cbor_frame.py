@@ -147,7 +147,7 @@ def test_180_hello_frame():
 # TEST181: Test Frame::hello_with_manifest produces HELLO with manifest bytes for cartridge side
 def test_181_hello_frame_with_manifest():
     """Test HELLO frame with manifest (cartridge side)"""
-    manifest_json = b'{"name":"TestCartridge","version":"1.0.0","description":"Test","caps":[]}'
+    manifest_json = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[]}]}'
     frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json)
     assert frame.frame_type == FrameType.HELLO
     assert frame.hello_max_frame() == 1_000_000
@@ -492,7 +492,7 @@ def test_400_relay_state_discriminant_roundtrip():
 # TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them
 def test_401_relay_notify_factory_and_accessors():
     """Test relay_notify factory and accessor methods"""
-    manifest = b'{"caps":["cap:op=test"]}'
+    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:op=test"]}]}'
     max_frame = 2_000_000
     max_chunk = 128_000
 
@@ -1491,7 +1491,7 @@ def test_526_relay_state_empty_payload():
 # TEST527: RelayNotify with large manifest roundtrips correctly
 def test_527_relay_notify_large_manifest():
     parts = [f'"cap:in=\\"media:void\\";op=op{i};out=\\"media:void\\""' for i in range(100)]
-    large_manifest = ('{"caps":[' + ",".join(parts) + "]}").encode()
+    large_manifest = ('{"cap_groups":[{"name":"default","caps":[' + ",".join(parts) + "]}]}").encode()
 
     frame = Frame.relay_notify(large_manifest, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)
 

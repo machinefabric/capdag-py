@@ -1387,55 +1387,344 @@ def require_stream_str(streams: List[Tuple[str, bytes]], media_urn: str) -> str:
 
 
 def extract_effective_payload(
-    streams: list,
-    cap_urn: str
+    payload: bytes,
+    content_type: Optional[str],
+    cap: Cap,
+    is_cli_mode: bool,
 ) -> bytes:
-    """Extract the effective payload from accumulated request streams.
+    """Extract the effective payload from a REQ frame.
 
-    Each stream is a (stream_id, PendingStream) tuple where PendingStream has
-    media_urn and chunks. The function finds the stream whose media_urn matches
-    the cap's expected input type using semantic URN matching.
+    Mirrors capdag/src/bifaci/cartridge_runtime.rs::extract_effective_payload.
 
-    This matches the Rust cartridge runtime's behavior exactly.
+    When `content_type` is "application/cbor", decode the CBOR arguments,
+    perform file-path auto-conversion (reading file bytes and relabeling
+    the arg's media_urn to the stdin source's target URN), validate that
+    at least one argument matches the cap's declared in= spec (unless the
+    cap takes media:void), and return the re-serialized CBOR array.
     """
-    # Parse the cap URN to get the expected input media URN
-    try:
-        cap = CapUrn.from_string(cap_urn)
-    except Exception as e:
-        raise CapUrnError(f"Failed to parse cap URN '{cap_urn}': {e}")
+    # Not CBOR arguments - return raw payload
+    if content_type != "application/cbor":
+        return payload
 
-    expected_input = cap.in_spec()
+    # Parse cap URN to get expected input media URN
+    try:
+        cap_urn = CapUrn.from_string(cap.urn_string())
+    except Exception as e:
+        raise CapUrnError(f"Invalid cap URN: {e}")
+    expected_input = cap_urn.in_spec()
     try:
         expected_media_urn = MediaUrn.from_string(expected_input)
     except Exception:
         expected_media_urn = None
 
-    # Find the stream whose media_urn matches the expected input
-    for _stream_id, stream in streams:
-        if not stream.complete:
+    # Build arg-definition lookup: parsed MediaUrn -> (stdin_target, is_sequence).
+    arg_defs: List[Tuple[MediaUrn, Optional[str], bool]] = []
+    for a in cap.get_args():
+        try:
+            parsed = MediaUrn.from_string(a.media_urn)
+        except Exception:
+            continue
+        stdin_target = None
+        from capdag.cap.definition import StdinSource as _StdinSource
+        for s in a.sources:
+            if isinstance(s, _StdinSource):
+                stdin_target = s.stdin
+                break
+        arg_defs.append((parsed, stdin_target, a.is_sequence))
+
+    # Parse the CBOR payload as an array of argument maps
+    try:
+        arguments = cbor2.loads(payload)
+    except Exception as e:
+        raise DeserializeError(f"Failed to parse CBOR arguments: {e}")
+    if not isinstance(arguments, list):
+        raise DeserializeError("CBOR arguments must be an array")
+
+    # File-path auto-conversion.
+    file_path_base = MediaUrn.from_string("media:file-path")
+
+    for arg in arguments:
+        if not isinstance(arg, dict):
+            continue
+        urn_str = arg.get("media_urn")
+        value = arg.get("value")
+        if not isinstance(urn_str, str) or value is None:
+            continue
+        try:
+            arg_urn = MediaUrn.from_string(urn_str)
+        except Exception as e:
+            raise RuntimeError(f"Invalid argument media URN '{urn_str}': {e}")
+
+        if not file_path_base.accepts(arg_urn):
             continue
 
-        stream_data = b''.join(stream.chunks)
+        # Look up the cap's arg definition by URN equivalence (NOT string compare).
+        matched = None
+        for parsed, stdin_target, is_seq in arg_defs:
+            if parsed.is_equivalent(arg_urn):
+                matched = (stdin_target, is_seq)
+                break
+        if matched is None:
+            continue
+        stdin_target, is_sequence = matched
+        if stdin_target is None:
+            continue
 
-        if expected_media_urn is not None:
+        paths = expand_file_path_value(value, urn_str, is_cli_mode)
+
+        if not is_sequence:
+            if len(paths) != 1:
+                raise RuntimeError(
+                    f"File-path arg '{urn_str}' declared is_sequence=False resolved to "
+                    f"{len(paths)} files; expected exactly 1. CLI-mode dispatch should "
+                    f"have iterated the handler across the expanded files before "
+                    f"calling the runtime."
+                )
             try:
-                arg_urn = MediaUrn.from_string(stream.media_urn)
-                # Use is_comparable for discovery: are they on the same chain?
-                if arg_urn.is_comparable(expected_media_urn):
-                    return stream_data
+                file_bytes = paths[0].read_bytes()
+            except IOError as e:
+                raise RuntimeError(f"Failed to read file '{paths[0]}': {e}")
+            replace_arg_value(arg, file_bytes, stdin_target)
+        else:
+            items: List[bytes] = []
+            for p in paths:
+                try:
+                    items.append(p.read_bytes())
+                except IOError as e:
+                    raise RuntimeError(f"Failed to read file '{p}': {e}")
+            replace_arg_value(arg, items, stdin_target)
+
+    # Validate: at least ONE argument must match the cap's declared in=spec,
+    # unless the cap takes no input (in=media:void).
+    void_urn = MediaUrn.from_string("media:void")
+    is_void_input = (
+        expected_media_urn is not None and expected_media_urn.is_equivalent(void_urn)
+    )
+
+    if not is_void_input:
+        valid_targets: List[MediaUrn] = []
+        if expected_media_urn is not None:
+            valid_targets.append(expected_media_urn)
+        for _parsed, stdin_target, _is_seq in arg_defs:
+            if stdin_target is not None:
+                try:
+                    valid_targets.append(MediaUrn.from_string(stdin_target))
+                except Exception:
+                    continue
+
+        found_matching_arg = False
+        for arg in arguments:
+            if not isinstance(arg, dict):
+                continue
+            urn_str = arg.get("media_urn")
+            if not isinstance(urn_str, str):
+                continue
+            try:
+                arg_urn = MediaUrn.from_string(urn_str)
             except Exception:
                 continue
+            for target in valid_targets:
+                # Use is_comparable for discovery: are they on the same chain?
+                if arg_urn.is_comparable(target):
+                    found_matching_arg = True
+                    break
+            if found_matching_arg:
+                break
 
-    # If only one stream, return it (single-argument case)
-    complete_streams = [(sid, s) for sid, s in streams if s.complete]
-    if len(complete_streams) == 1:
-        return b''.join(complete_streams[0][1].chunks)
+        if not found_matching_arg:
+            raise DeserializeError(
+                f"No argument found matching expected input media type "
+                f"'{expected_input}' in CBOR arguments"
+            )
 
-    # No matching stream found
-    raise DeserializeError(
-        f"No stream found matching expected input media type '{expected_input}' "
-        f"(streams: {[s.media_urn for _, s in streams]})"
-    )
+    # After file-path conversion and validation, return the full CBOR array.
+    try:
+        return cbor2.dumps(arguments)
+    except Exception as e:
+        raise SerializeError(f"Failed to serialize modified CBOR: {e}")
+
+
+def replace_arg_value(arg_map: dict, new_value, new_urn: str) -> None:
+    """Replace an argument map's "value" and "media_urn" entries in place.
+
+    Mirrors capdag/src/bifaci/cartridge_runtime.rs::replace_arg_value.
+    """
+    arg_map["value"] = new_value
+    arg_map["media_urn"] = new_urn
+
+
+def expand_file_path_value(value, urn_str: str, is_cli_mode: bool) -> List["Path"]:
+    """Expand a file-path arg value into a concrete list of filesystem paths.
+
+    Mirrors capdag/src/bifaci/cartridge_runtime.rs::expand_file_path_value.
+
+    The incoming value may be:
+      - bytes/str containing a single path or a single glob pattern
+      - list of bytes/str items, each a path or a glob (CBOR mode only)
+
+    Globs (detected via `*`, `?`, or `[`) are expanded and the results filtered
+    to regular files. Literal paths must exist and point at a regular file.
+    Returns at least one path on success; empty matches fail hard so the caller
+    never has to guard against a silently-empty list.
+    """
+    raw_paths: List[str] = []
+    if isinstance(value, bytes):
+        raw_paths = [value.decode('utf-8', errors='replace')]
+    elif isinstance(value, str):
+        raw_paths = [value]
+    elif isinstance(value, list):
+        if is_cli_mode:
+            raise RuntimeError(
+                f"File-path arg '{urn_str}' received a CBOR Array value in CLI mode; "
+                f"CLI dispatch must expand globs before calling into the runtime"
+            )
+        for item in value:
+            if isinstance(item, str):
+                raw_paths.append(item)
+            elif isinstance(item, bytes):
+                raw_paths.append(item.decode('utf-8', errors='replace'))
+            else:
+                raise RuntimeError(
+                    f"File-path arg '{urn_str}' array contained an unsupported "
+                    f"CBOR item: {type(item).__name__}"
+                )
+    else:
+        raise RuntimeError(
+            f"File-path arg '{urn_str}' value must be Bytes, Text, or (CBOR mode) "
+            f"Array — got {type(value).__name__}"
+        )
+
+    resolved: List[Path] = []
+    for raw in raw_paths:
+        is_glob = ('*' in raw) or ('?' in raw) or ('[' in raw)
+        if is_glob:
+            # Validate bracket balance; Python's glob accepts unbalanced
+            # brackets silently, which we want to surface as a hard error.
+            bracket_count = 0
+            for char in raw:
+                if char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count < 0:
+                        raise RuntimeError(f"Invalid glob pattern '{raw}': unmatched ']'")
+            if bracket_count != 0:
+                raise RuntimeError(f"Invalid glob pattern '{raw}': unclosed '['")
+            try:
+                matches = glob.glob(raw)
+            except Exception as e:
+                raise RuntimeError(f"Invalid glob pattern '{raw}': {e}")
+            before = len(resolved)
+            for p in matches:
+                pth = Path(p)
+                try:
+                    if pth.is_file():
+                        resolved.append(pth)
+                except OSError:
+                    continue
+            if len(resolved) == before:
+                raise RuntimeError(f"No files matched glob pattern '{raw}'")
+        else:
+            pth = Path(raw)
+            if not pth.exists():
+                raise RuntimeError(f"File not found: '{raw}'")
+            if not pth.is_file():
+                raise RuntimeError(f"Path is not a regular file: '{raw}'")
+            resolved.append(pth)
+
+    return resolved
+
+
+def build_cli_foreach_iterations(raw_payload: bytes, cap: Cap) -> List[bytes]:
+    """Compute per-iteration CBOR argument payloads for a CLI invocation.
+
+    Mirrors capdag/src/bifaci/cartridge_runtime.rs::build_cli_foreach_iterations.
+
+    The input is the raw payload produced by build_payload_from_cli — a CBOR
+    array of {media_urn, value} maps where file-path values are still raw
+    path or glob strings.
+
+    Rules:
+    - An arg whose media URN specializes `media:file-path` is iterable iff
+      its arg-definition declares `is_sequence = False` AND its raw value
+      expands to more than one concrete file.
+    - Zero iterable args -> return the payload unchanged (single iteration).
+    - One iterable arg -> return one payload per expanded file, each with
+      the iterable arg's value replaced by that single path as a string
+      value. extract_effective_payload then reads the single file and emits
+      bytes.
+    - Two or more iterable args -> hard error: the ForEach axis is ambiguous.
+    """
+    file_path_base = MediaUrn.from_string("media:file-path")
+
+    try:
+        arguments = cbor2.loads(raw_payload)
+    except Exception as e:
+        raise DeserializeError(f"Failed to parse CBOR arguments: {e}")
+    if not isinstance(arguments, list):
+        raise DeserializeError("CBOR arguments must be an array")
+
+    arg_defs: List[Tuple[MediaUrn, bool]] = []
+    for a in cap.get_args():
+        try:
+            parsed = MediaUrn.from_string(a.media_urn)
+        except Exception:
+            continue
+        arg_defs.append((parsed, a.is_sequence))
+
+    iterable: Optional[Tuple[int, List[Path]]] = None
+    for idx, arg in enumerate(arguments):
+        if not isinstance(arg, dict):
+            continue
+        urn_str = arg.get("media_urn")
+        value = arg.get("value")
+        if not isinstance(urn_str, str) or value is None:
+            continue
+        try:
+            arg_urn = MediaUrn.from_string(urn_str)
+        except Exception as e:
+            raise RuntimeError(f"Invalid argument media URN '{urn_str}': {e}")
+        if not file_path_base.accepts(arg_urn):
+            continue
+        is_seq = False
+        for parsed, seq in arg_defs:
+            if parsed.is_equivalent(arg_urn):
+                is_seq = seq
+                break
+        if is_seq:
+            continue
+        paths = expand_file_path_value(value, urn_str, True)
+        if len(paths) <= 1:
+            continue
+        if iterable is not None:
+            raise RuntimeError(
+                "Multiple file-path arguments with is_sequence=False each "
+                "resolved to more than one file; the ForEach axis is "
+                "ambiguous. Declare at most one such arg as scalar, or mark "
+                "additional args as is_sequence=True."
+            )
+        iterable = (idx, paths)
+
+    if iterable is None:
+        return [raw_payload]
+
+    idx, paths = iterable
+    out: List[bytes] = []
+    for path in paths:
+        # Deep-clone the arguments list and replace value at idx.
+        args_for_iter = []
+        for i, a in enumerate(arguments):
+            if i == idx and isinstance(a, dict):
+                new_map = dict(a)
+                new_map["value"] = str(path)
+                args_for_iter.append(new_map)
+            else:
+                args_for_iter.append(a)
+        try:
+            out.append(cbor2.dumps(args_for_iter))
+        except Exception as e:
+            raise SerializeError(f"Failed to re-encode iter payload: {e}")
+    return out
 
 
 class CartridgeRuntime:
@@ -1663,44 +1952,56 @@ class CartridgeRuntime:
         if factory is None:
             raise NoHandlerError(f"No handler registered for cap '{cap.urn_string()}'")
 
-        # Build arguments from CLI
+        # Build raw CBOR arguments payload (file-path values still raw strings).
         cli_args = args[2:]
-        arguments = self.build_arguments_from_cli(cap, cli_args)
+        raw_payload = self.build_payload_from_cli(cap, cli_args)
 
-        # Create Frame sequence for handler: STREAM_START → CHUNK → STREAM_END → END
-        request_id = MessageId(0)  # CLI mode uses ID 0
-        frames = queue.Queue()
+        # CLI-mode foreach iteration. If any file-path arg with is_sequence=False
+        # resolved to multiple files, this returns one per-iteration payload per
+        # resolved file. Otherwise it returns the single original payload.
+        iterations = build_cli_foreach_iterations(raw_payload, cap)
+        for per_iter in iterations:
+            payload = extract_effective_payload(per_iter, "application/cbor", cap, True)
+            self._dispatch_cli_payload(cap, factory, payload)
+
+    def _dispatch_cli_payload(self, cap: Cap, factory: 'OpFactory', payload: bytes) -> None:
+        """Dispatch one CLI-mode invocation: take the (already file-path-resolved)
+        CBOR arguments payload, build input frames, and run the handler.
+
+        Mirrors capdag/src/bifaci/cartridge_runtime.rs::dispatch_cli_payload.
+        """
+        request_id = MessageId(0)
+        frames: queue.Queue = queue.Queue()
+
+        try:
+            arguments = cbor2.loads(payload) if payload else []
+        except Exception as e:
+            print(f"Failed to decode CBOR arguments: {e}", file=sys.stderr)
+            return
 
         for i, arg in enumerate(arguments):
+            if not isinstance(arg, dict):
+                continue
+            media_urn = arg.get("media_urn")
+            value = arg.get("value")
+            if not isinstance(media_urn, str) or value is None:
+                continue
             stream_id = f"arg-{i}"
-            # STREAM_START
-            frames.put(Frame.stream_start(request_id, stream_id, arg.media_urn))
-
-            # CHUNK: ALL values must be CBOR-encoded before sending as CHUNK payloads
-            # Protocol: CHUNK payloads contain CBOR-encoded data (encode once, no double-wrapping)
-            cbor_encoded = cbor2.dumps(arg.value)
+            frames.put(Frame.stream_start(request_id, stream_id, media_urn))
+            cbor_encoded = cbor2.dumps(value)
             frames.put(Frame.chunk(request_id, stream_id, 0, cbor_encoded, 0, compute_checksum(cbor_encoded)))
-
-            # STREAM_END
             frames.put(Frame.stream_end(request_id, stream_id, 1))
 
-        # END
         frames.put(Frame.end(request_id, None))
         frames.put(None)  # Signal end of stream
 
-        # Create CLI-mode emitter and no-op peer invoker
         emitter = CliStreamEmitter()
         peer = NoPeerInvoker()
 
-        # Invoke Op handler
         try:
             dispatch_op(factory(), frames, emitter, peer)
         except Exception as e:
-            # Output error as JSON to stderr
-            error_json = {
-                "error": str(e),
-                "code": "HANDLER_ERROR"
-            }
+            error_json = {"error": str(e), "code": "HANDLER_ERROR"}
             print(json.dumps(error_json), file=sys.stderr)
             raise
 
@@ -2272,217 +2573,94 @@ class CartridgeRuntime:
 
         return cbor2.dumps(cbor_args)
 
-    def _read_file_path_to_bytes(self, path_value: str, is_sequence: bool) -> bytes:
-        """Read file(s) for a file-path argument and return CLI-wire bytes.
 
-        The single `media:file-path;textable` URN covers both shapes;
-        cardinality is driven by the arg definition's `is_sequence` flag:
+    def build_payload_from_cli(self, cap: Cap, cli_args: List[str]) -> bytes:
+        """Build the raw CBOR arguments payload from CLI args.
 
-        - `is_sequence = False` — treat `path_value` as exactly one file path.
-          Return the file's raw bytes. Any glob metacharacter is an error
-          here because CLI dispatch is responsible for iterating the handler
-          per-file when the declared arg is scalar.
-        - `is_sequence = True` — treat `path_value` as a newline-separated
-          list of paths and/or globs. Expand, read every resolved file, and
-          return a CBOR array of bytes (one entry per file).
+        Mirrors capdag/src/bifaci/cartridge_runtime.rs::build_payload_from_cli.
+
+        File-path values stay as raw path/glob strings here — file reading
+        and glob expansion happen later in extract_effective_payload (after
+        CLI-mode foreach iteration via build_cli_foreach_iterations).
         """
-        def expand(raw: str) -> List[Path]:
-            is_glob = '*' in raw or '?' in raw or '[' in raw
-            if not is_glob:
-                p = Path(raw)
-                if not p.exists():
-                    raise IoRuntimeError(f"File not found: '{raw}'")
-                if not p.is_file():
-                    raise IoRuntimeError(f"Path is not a regular file: '{raw}'")
-                return [p]
-            # Validate bracket balance; Python's glob accepts unbalanced
-            # brackets silently, which we want to surface as a hard error.
-            bracket_count = 0
-            for char in raw:
-                if char == '[':
-                    bracket_count += 1
-                elif char == ']':
-                    bracket_count -= 1
-                    if bracket_count < 0:
-                        raise CliError(f"Invalid glob pattern '{raw}': unmatched ']'")
-            if bracket_count != 0:
-                raise CliError(f"Invalid glob pattern '{raw}': unclosed '['")
-            try:
-                paths = glob.glob(raw)
-            except Exception as e:
-                raise CliError(f"Invalid glob pattern '{raw}': {e}")
-            files = [Path(s) for s in paths if Path(s).is_file()]
-            if not files:
-                raise IoRuntimeError(f"No files matched glob pattern '{raw}'")
-            return files
-
-        if not is_sequence:
-            files = expand(path_value)
-            if len(files) != 1:
-                raise IoRuntimeError(
-                    f"File-path arg declared is_sequence=False resolved to "
-                    f"{len(files)} files; expected exactly 1. CLI dispatch "
-                    f"must iterate the handler across the expanded files."
-                )
-            try:
-                return files[0].read_bytes()
-            except IOError as e:
-                raise IoRuntimeError(f"Failed to read file '{files[0]}': {e}")
-
-        # Sequence: newline-separated list of paths or globs.
-        patterns = [line.strip() for line in path_value.splitlines() if line.strip()]
-        all_files: List[Path] = []
-        for pattern in patterns:
-            all_files.extend(expand(pattern))
-
-        files_data: List[bytes] = []
-        for path in all_files:
-            try:
-                files_data.append(path.read_bytes())
-            except IOError as e:
-                raise IoRuntimeError(f"Failed to read file '{path}': {e}")
-
-        try:
-            return cbor2.dumps(files_data)
-        except Exception as e:
-            raise SerializeError(f"Failed to encode CBOR array: {e}")
-
-    def build_arguments_from_cli(self, cap: Cap, cli_args: List[str]) -> List[CapArgumentValue]:
-        """Build CapArgumentValue list from CLI arguments based on cap's arg definitions."""
-        # Check for stdin data if cap accepts stdin
-        stdin_data = None
+        # Check for stdin data if cap accepts stdin (non-blocking).
+        stdin_data: Optional[bytes] = None
         if cap.accepts_stdin():
             stdin_data = self._read_stdin_if_available()
 
-        # If no arguments are defined but stdin data exists, wrap as single argument
-        if not cap.get_args() and stdin_data is not None:
-            return [CapArgumentValue(cap.in_spec(), stdin_data)]
-
-        # Build list of CapArgumentValue objects
         arguments: List[CapArgumentValue] = []
-
         for arg_def in cap.get_args():
-            value = self._extract_arg_value(arg_def, cli_args, stdin_data)
+            value, came_from_stdin = self._extract_arg_value(arg_def, cli_args, stdin_data)
+            if value is not None:
+                # Determine media_urn: if value came from stdin source, use stdin's media_urn.
+                # Otherwise use arg's media_urn as-is (file-path conversion happens later).
+                media_urn = arg_def.media_urn
+                if came_from_stdin:
+                    from capdag.cap.definition import StdinSource as _StdinSource
+                    for s in arg_def.sources:
+                        if isinstance(s, _StdinSource):
+                            media_urn = s.stdin
+                            break
+                arguments.append(CapArgumentValue(media_urn=media_urn, value=value))
+            elif arg_def.required:
+                raise MissingArgumentError(f"Required argument '{arg_def.media_urn}' not provided")
 
-            if value is None:
-                if arg_def.required:
-                    raise MissingArgumentError(f"Required argument '{arg_def.media_urn}' not provided")
-                continue
+        # If no arguments are defined but stdin data exists, use it as raw payload.
+        if not cap.get_args():
+            if stdin_data is not None:
+                return stdin_data
+            return b''
 
-            # Validate media URN
+        if arguments:
+            cbor_args = [
+                {"media_urn": arg.media_urn, "value": arg.value}
+                for arg in arguments
+            ]
             try:
-                arg_media_urn = MediaUrn.from_string(arg_def.media_urn)
-            except MediaUrnError as e:
-                raise CliError(f"Invalid media URN '{arg_def.media_urn}': {e}")
+                return cbor2.dumps(cbor_args)
+            except Exception as e:
+                raise SerializeError(f"Failed to encode CBOR payload: {e}")
 
-            # Check if this arg requires file-path to bytes conversion using pattern matching
-            from capdag.cap.definition import StdinSource
-
-            file_path_pattern = MediaUrn.from_string(MEDIA_FILE_PATH)
-
-            # Pattern matching: a single file-path base pattern covers both
-            # shapes; the arg-def's `is_sequence` flag drives cardinality.
-            is_file_path = file_path_pattern.accepts(arg_media_urn)
-
-            # Get stdin source media URN if it exists (tells us target type)
-            has_stdin_source = any(
-                isinstance(s, StdinSource)
-                for s in arg_def.sources
-            )
-
-            # If file-path type with stdin source, use stdin's media URN instead
-            if is_file_path and has_stdin_source:
-                # Find the stdin source to get its media URN
-                stdin_media_urn = None
-                for source in arg_def.sources:
-                    if isinstance(source, StdinSource):
-                        stdin_media_urn = source.stdin
-                        break
-
-                if stdin_media_urn:
-                    # Use stdin's media URN as the argument media URN (bytes, not file-path)
-                    arguments.append(CapArgumentValue(
-                        media_urn=stdin_media_urn,
-                        value=value
-                    ))
-                else:
-                    # Fallback to arg's media URN
-                    arguments.append(CapArgumentValue(
-                        media_urn=arg_def.media_urn,
-                        value=value
-                    ))
-            else:
-                # Not a file-path type, use arg's media URN
-                arguments.append(CapArgumentValue(
-                    media_urn=arg_def.media_urn,
-                    value=value
-                ))
-
-        return arguments
+        return b''
 
     def _extract_arg_value(
         self,
         arg_def: CapArg,
         cli_args: List[str],
-        stdin_data: Optional[bytes]
-    ) -> Optional[bytes]:
+        stdin_data: Optional[bytes],
+    ) -> Tuple[Optional[bytes], bool]:
         """Extract a single argument value from CLI args or stdin.
 
-        This method implements automatic file-path to bytes conversion when:
-        - arg.media_urn is "media:file-path" or "media:file-path-array"
-        - arg has a stdin source (indicating bytes are the canonical type)
+        Mirrors capdag/src/bifaci/cartridge_runtime.rs::extract_arg_value.
+
+        Returns (value, came_from_stdin). RAW values only — file-path
+        auto-conversion happens later in extract_effective_payload, after
+        CLI-mode foreach iteration.
         """
         from capdag.cap.definition import StdinSource, PositionSource, CliFlagSource
 
-        # Check if this arg requires file-path to bytes conversion using pattern matching
-        try:
-            arg_media_urn = MediaUrn.from_string(arg_def.media_urn)
-        except MediaUrnError as e:
-            raise CliError(f"Invalid media URN '{arg_def.media_urn}': {e}")
-
-        file_path_pattern = MediaUrn.from_string(MEDIA_FILE_PATH)
-
-        # Single pattern covers file-path args; cardinality is driven by the
-        # arg definition's `is_sequence` flag, not by URN tags.
-        is_file_path = file_path_pattern.accepts(arg_media_urn)
-
-        # Get stdin source media URN if it exists (tells us target type)
-        has_stdin_source = any(
-            isinstance(s, StdinSource)
-            for s in arg_def.sources
-        )
-
-        # Try each source in order
         for source in arg_def.sources:
             if isinstance(source, CliFlagSource):
                 value = self._get_cli_flag_value(cli_args, source.cli_flag)
                 if value is not None:
-                    # If file-path type with stdin source, read file(s)
-                    if is_file_path and has_stdin_source:
-                        return self._read_file_path_to_bytes(value, arg_def.is_sequence)
-                    return value.encode('utf-8')
+                    return value.encode('utf-8'), False
             elif isinstance(source, PositionSource):
-                # Positional args: filter out flags and their values
                 positional = self._get_positional_args(cli_args)
                 pos = source.position
                 if pos < len(positional):
-                    value = positional[pos]
-                    # If file-path type with stdin source, read file(s)
-                    if is_file_path and has_stdin_source:
-                        return self._read_file_path_to_bytes(value, arg_def.is_sequence)
-                    return value.encode('utf-8')
+                    return positional[pos].encode('utf-8'), False
             elif isinstance(source, StdinSource):
                 if stdin_data is not None:
-                    return stdin_data
+                    return stdin_data, True
 
         # Try default value
         if arg_def.default_value is not None:
             try:
-                return json.dumps(arg_def.default_value).encode('utf-8')
+                return json.dumps(arg_def.default_value).encode('utf-8'), False
             except Exception as e:
                 raise SerializeError(str(e))
 
-        return None
+        return None, False
 
 
     def print_help(self, manifest: CapManifest) -> None:

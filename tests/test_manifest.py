@@ -23,17 +23,42 @@ def test_148_cap_manifest_creation():
 
     manifest = CapManifest(
         name="TestComponent",
-        version="0.1.0",
+        version="0.1.0", channel="release",
         description="A test component for validation",
         cap_groups=[default_group([cap])],
     )
 
     assert manifest.name == "TestComponent"
     assert manifest.version == "0.1.0"
+    assert manifest.channel == "release"
     assert manifest.description == "A test component for validation"
     assert len(manifest.cap_groups) == 1
     assert len(manifest.all_caps()) == 1
     assert manifest.author is None
+
+
+# TEST148b: CapManifest rejects unknown channel values. The closed
+# enum is {release, nightly} — anything else is a publish-pipeline bug
+# we want to surface immediately, not coerce.
+def test_148b_cap_manifest_rejects_unknown_channel():
+    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    with pytest.raises(ValueError, match="release.*nightly"):
+        CapManifest(
+            name="TestComponent",
+            version="0.1.0",
+            channel="staging",
+            description="bogus channel",
+            cap_groups=[default_group([cap])],
+        )
+
+
+# TEST148c: from_dict refuses to parse a manifest without `channel`.
+# Channel is part of the cartridge's identity — there is no default.
+def test_148c_cap_manifest_missing_channel_field_fails_to_parse():
+    no_channel = '{"name":"X","version":"1.0.0","description":"x","cap_groups":[]}'
+    with pytest.raises(KeyError):
+        CapManifest.from_json(no_channel)
 
 
 # TEST149: Author field
@@ -43,7 +68,7 @@ def test_149_cap_manifest_with_author():
 
     manifest = CapManifest(
         name="TestComponent",
-        version="0.1.0",
+        version="0.1.0", channel="release",
         description="A test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author")
@@ -64,7 +89,7 @@ def test_150_cap_manifest_json_serialization():
 
     manifest = CapManifest(
         name="TestComponent",
-        version="0.1.0",
+        version="0.1.0", channel="release",
         description="A test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author")
@@ -97,7 +122,7 @@ def test_152_cap_manifest_with_multiple_caps():
 
     manifest = CapManifest(
         name="MultiCapComponent",
-        version="1.0.0",
+        version="1.0.0", channel="release",
         description="Component with multiple caps",
         cap_groups=[default_group([cap1, cap2])],
     )
@@ -113,7 +138,7 @@ def test_152_cap_manifest_with_multiple_caps():
 def test_153_cap_manifest_empty_cap_groups():
     manifest = CapManifest(
         name="EmptyComponent",
-        version="1.0.0",
+        version="1.0.0", channel="release",
         description="Component with no caps",
         cap_groups=[],
     )
@@ -132,7 +157,7 @@ def test_154_cap_manifest_optional_fields():
 
     manifest = CapManifest(
         name="TestComponent",
-        version="1.0.0",
+        version="1.0.0", channel="release",
         description="Test",
         cap_groups=[default_group([cap])],
     )
@@ -158,7 +183,7 @@ def test_155_cap_manifest_complex_roundtrip():
 
     manifest = CapManifest(
         name="ComplexComponent",
-        version="2.0.0",
+        version="2.0.0", channel="release",
         description="Complex test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author").with_page_url("https://example.com")
@@ -183,7 +208,7 @@ def test_475_validate_passes_with_identity():
 
     identity_urn = CapUrn.from_string(CAP_IDENTITY)
     identity_cap = Cap(identity_urn, "Identity", "identity")
-    manifest = CapManifest("TestCartridge", "1.0.0", "Test", [default_group([identity_cap])])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [default_group([identity_cap])])
     # Should succeed without raising
     manifest.validate()
 
@@ -192,7 +217,7 @@ def test_475_validate_passes_with_identity():
 def test_476_validate_fails_without_identity():
     specific_urn = CapUrn.from_string(_test_urn("op=convert"))
     specific_cap = Cap(specific_urn, "Convert", "convert")
-    manifest = CapManifest("TestCartridge", "1.0.0", "Test", [default_group([specific_cap])])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [default_group([specific_cap])])
 
     with pytest.raises(ValueError) as exc_info:
         manifest.validate()
@@ -211,7 +236,7 @@ def test_1284_cap_group_with_adapter_urns():
         adapter_urns=["media:json", "media:csv"],
     )
 
-    manifest = CapManifest("TestCartridge", "1.0.0", "Test", [group])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [group])
 
     json_str = manifest.to_json()
     assert '"adapter_urns"' in json_str
