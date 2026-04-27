@@ -53,10 +53,10 @@ from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTIO
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
 
 # Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
 
 
 # =============================================================================
@@ -542,7 +542,8 @@ def create_test_manifest(name: str, version: str, description: str, caps: list) 
     return CapManifest(
         name=name,
         version=version, channel="release",
-        description=description,
+            registry_url=None,
+            description=description,
         cap_groups=[default_group(caps)],
     )
 

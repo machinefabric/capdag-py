@@ -72,6 +72,7 @@ class CapManifest:
         name: str,
         version: str,
         channel: str,
+        registry_url: Optional[str],
         description: str,
         cap_groups: List[CapGroup],
     ):
@@ -82,6 +83,10 @@ class CapManifest:
         self.name = name
         self.version = version
         self.channel = channel
+        # Verbatim registry URL the cartridge was built for. ``None``
+        # ⇔ dev build (cartridge.sh was invoked without ``--registry``;
+        # MFR_REGISTRY_URL env var was unset at compile time).
+        self.registry_url = registry_url
         self.description = description
         self.cap_groups = cap_groups
         self.author: Optional[str] = None
@@ -105,11 +110,17 @@ class CapManifest:
         return self
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to JSON-serializable dict"""
+        """Convert to JSON-serializable dict.
+
+        ``registry_url`` is always emitted (as JSON null for dev
+        builds), never elided — the consumer's required-but-nullable
+        check would reject an absent key.
+        """
         result: Dict[str, Any] = {
             "name": self.name,
             "version": self.version,
             "channel": self.channel,
+            "registry_url": self.registry_url,
             "description": self.description,
             "cap_groups": [g.to_dict() for g in self.cap_groups],
         }
@@ -128,13 +139,22 @@ class CapManifest:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CapManifest":
-        """Parse from dict. Channel is required — there is no default;
-        a manifest without `channel` is a build/publish-pipeline bug
-        we want to surface immediately."""
+        """Parse from dict. ``channel`` and ``registry_url`` are both
+        required (``registry_url`` may be null) — a manifest without
+        either key is a build/publish-pipeline bug we surface
+        immediately. Old-schema cartridge SDKs that omit
+        ``registry_url`` get rejected here."""
+        if "registry_url" not in data:
+            raise ValueError(
+                "CapManifest is missing required `registry_url` field. "
+                "It must be present, with value null for dev builds or "
+                "a URL string for registry builds."
+            )
         manifest = cls(
             name=data["name"],
             version=data["version"],
             channel=data["channel"],
+            registry_url=data["registry_url"],
             description=data["description"],
             cap_groups=[CapGroup.from_dict(g) for g in data["cap_groups"]],
         )

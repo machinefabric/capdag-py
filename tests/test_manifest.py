@@ -24,7 +24,8 @@ def test_148_cap_manifest_creation():
     manifest = CapManifest(
         name="TestComponent",
         version="0.1.0", channel="release",
-        description="A test component for validation",
+            registry_url=None,
+            description="A test component for validation",
         cap_groups=[default_group([cap])],
     )
 
@@ -48,6 +49,7 @@ def test_148b_cap_manifest_rejects_unknown_channel():
             name="TestComponent",
             version="0.1.0",
             channel="staging",
+            registry_url=None,
             description="bogus channel",
             cap_groups=[default_group([cap])],
         )
@@ -56,9 +58,18 @@ def test_148b_cap_manifest_rejects_unknown_channel():
 # TEST148c: from_dict refuses to parse a manifest without `channel`.
 # Channel is part of the cartridge's identity — there is no default.
 def test_148c_cap_manifest_missing_channel_field_fails_to_parse():
-    no_channel = '{"name":"X","version":"1.0.0","description":"x","cap_groups":[]}'
+    no_channel = '{"name":"X","version":"1.0.0","registry_url":null,"description":"x","cap_groups":[]}'
     with pytest.raises(KeyError):
         CapManifest.from_json(no_channel)
+
+
+# TEST148d: from_dict refuses to parse a manifest without
+# `registry_url`. Registry URL is part of the cartridge's identity
+# — present-but-null means dev build, missing means old SDK.
+def test_148d_cap_manifest_missing_registry_url_field_fails_to_parse():
+    no_registry = '{"name":"X","version":"1.0.0","channel":"release","description":"x","cap_groups":[]}'
+    with pytest.raises(ValueError, match="registry_url"):
+        CapManifest.from_json(no_registry)
 
 
 # TEST149: Author field
@@ -69,7 +80,8 @@ def test_149_cap_manifest_with_author():
     manifest = CapManifest(
         name="TestComponent",
         version="0.1.0", channel="release",
-        description="A test component",
+            registry_url=None,
+            description="A test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author")
 
@@ -90,7 +102,8 @@ def test_150_cap_manifest_json_serialization():
     manifest = CapManifest(
         name="TestComponent",
         version="0.1.0", channel="release",
-        description="A test component",
+            registry_url=None,
+            description="A test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author")
 
@@ -107,7 +120,7 @@ def test_150_cap_manifest_json_serialization():
 # TEST151: Missing required fields fail
 def test_151_cap_manifest_required_fields():
     invalid_json = '{"name": "TestComponent"}'
-    with pytest.raises((KeyError, json.JSONDecodeError, TypeError)):
+    with pytest.raises((KeyError, json.JSONDecodeError, TypeError, ValueError)):
         CapManifest.from_json(invalid_json)
 
 
@@ -123,7 +136,8 @@ def test_152_cap_manifest_with_multiple_caps():
     manifest = CapManifest(
         name="MultiCapComponent",
         version="1.0.0", channel="release",
-        description="Component with multiple caps",
+            registry_url=None,
+            description="Component with multiple caps",
         cap_groups=[default_group([cap1, cap2])],
     )
 
@@ -139,7 +153,8 @@ def test_153_cap_manifest_empty_cap_groups():
     manifest = CapManifest(
         name="EmptyComponent",
         version="1.0.0", channel="release",
-        description="Component with no caps",
+            registry_url=None,
+            description="Component with no caps",
         cap_groups=[],
     )
 
@@ -158,7 +173,8 @@ def test_154_cap_manifest_optional_fields():
     manifest = CapManifest(
         name="TestComponent",
         version="1.0.0", channel="release",
-        description="Test",
+            registry_url=None,
+            description="Test",
         cap_groups=[default_group([cap])],
     )
 
@@ -184,7 +200,8 @@ def test_155_cap_manifest_complex_roundtrip():
     manifest = CapManifest(
         name="ComplexComponent",
         version="2.0.0", channel="release",
-        description="Complex test component",
+            registry_url=None,
+            description="Complex test component",
         cap_groups=[default_group([cap])],
     ).with_author("Test Author").with_page_url("https://example.com")
 
@@ -208,7 +225,7 @@ def test_475_validate_passes_with_identity():
 
     identity_urn = CapUrn.from_string(CAP_IDENTITY)
     identity_cap = Cap(identity_urn, "Identity", "identity")
-    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [default_group([identity_cap])])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([identity_cap])])
     # Should succeed without raising
     manifest.validate()
 
@@ -217,7 +234,7 @@ def test_475_validate_passes_with_identity():
 def test_476_validate_fails_without_identity():
     specific_urn = CapUrn.from_string(_test_urn("op=convert"))
     specific_cap = Cap(specific_urn, "Convert", "convert")
-    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [default_group([specific_cap])])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([specific_cap])])
 
     with pytest.raises(ValueError) as exc_info:
         manifest.validate()
@@ -236,7 +253,7 @@ def test_1284_cap_group_with_adapter_urns():
         adapter_urns=["media:json", "media:csv"],
     )
 
-    manifest = CapManifest("TestCartridge", "1.0.0", "release", "Test", [group])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [group])
 
     json_str = manifest.to_json()
     assert '"adapter_urns"' in json_str

@@ -86,14 +86,29 @@ class SocketPair:
 class InstalledCartridgeIdentity:
     """Identity of an installed cartridge.
 
-    `(id, channel, version)` is the install's full identity. Channel
-    is part of every cartridge's identity — release v1.0.0 and
-    nightly v1.0.0 of the same cartridge id are different artifacts.
+    `(registry_url, channel, id, version)` is the install's full
+    identity. Each ``(registry, channel)`` is an independent
+    namespace; installs of the same id+version from different
+    registries × channels coexist on disk under different top-level
+    slug folders.
+
+    ``registry_url`` is ``Optional[str]``: ``None`` ⇔ dev install
+    (cartridge built locally without ``MFR_REGISTRY_URL``); non-None
+    ⇔ verbatim URL the cartridge was published from. Compared
+    byte-wise; never normalized.
     """
+    registry_url: Optional[str]
     id: str
     channel: str
     version: str
     sha256: str
+
+    def registry_slug(self) -> str:
+        """On-disk slug derived from ``registry_url``. ``None`` →
+        ``DEV_SLUG``; non-None → first 16 hex chars of SHA-256 of
+        the URL bytes."""
+        from capdag.bifaci.cartridge_slug import slug_for
+        return slug_for(self.registry_url)
 
 
 @dataclass
@@ -636,17 +651,30 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
         if not isinstance(ic_raw, list):
             raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
         for item in ic_raw:
-            # Channel is part of every install's identity. Reject
-            # entries that omit it (an upstream that ships an
-            # InstalledCartridgeIdentity without `channel` is broken
-            # — never silently default to one).
+            # (registry_url, channel) are both part of every
+            # install's identity. Reject entries that omit either
+            # — an upstream that ships an InstalledCartridgeIdentity
+            # without these fields is using an old schema.
             channel = item.get("channel")
             if channel not in ("release", "nightly"):
                 raise ProtocolError(
                     f"installed_cartridges entry missing or invalid 'channel' "
                     f"(got {channel!r}); expected 'release' or 'nightly'"
                 )
+            if "registry_url" not in item:
+                raise ProtocolError(
+                    "installed_cartridges entry missing required `registry_url` field. "
+                    "It must be present, with value null for dev installs or "
+                    "a URL string for registry installs."
+                )
+            registry_url_raw = item["registry_url"]
+            if registry_url_raw is not None and not isinstance(registry_url_raw, str):
+                raise ProtocolError(
+                    f"installed_cartridges entry `registry_url` must be null or string, "
+                    f"got {type(registry_url_raw)}"
+                )
             installed_cartridges.append(InstalledCartridgeIdentity(
+                registry_url=registry_url_raw,
                 id=str(item.get("id", "")),
                 channel=str(channel),
                 version=str(item.get("version", "")),

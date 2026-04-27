@@ -34,9 +34,13 @@ class CartridgeJson:
     """Install-context metadata stored in ``cartridge.json`` inside each cartridge
     version directory.
 
-    `(name, version, channel)` is the install's full identity.
-    Channels (release/nightly) are independent namespaces; the .pkg
-    installer writes ``channel`` based on which channel was published.
+    `(registry_url, channel, name, version)` is the install's full
+    identity. ``registry_url`` is the verbatim URL the cartridge was
+    published from, or ``None`` for dev installs (the cartridge was
+    built locally without ``MFR_REGISTRY_URL``). Each
+    ``(registry, channel)`` is an independent namespace; installs
+    of the same id+version from different registries × channels
+    coexist on disk under different top-level slug folders.
     """
 
     #: Cartridge name (e.g., ``"pdfcartridge"``).
@@ -45,6 +49,10 @@ class CartridgeJson:
     version: str
     #: Distribution channel ("release" or "nightly"). Required.
     channel: str
+    #: Verbatim registry URL the cartridge was published from. ``None``
+    #: ⇔ dev install. The JSON field is required-but-nullable: missing
+    #: key ⇔ parse error; explicit null ⇔ dev install.
+    registry_url: Optional[str]
     #: Relative path from the version directory to the executable entry point.
     #: For single-binary cartridges this is just the binary filename.
     #: For directory cartridges it may be a nested path.
@@ -67,11 +75,17 @@ class CartridgeJson:
             )
 
     def to_dict(self) -> dict:
-        """Serialize to a JSON-compatible dict, omitting empty optional fields."""
+        """Serialize to a JSON-compatible dict.
+
+        ``registry_url`` is always emitted (as JSON null for dev
+        installs), never elided — the consumer's required-but-nullable
+        check would reject an absent key.
+        """
         d: dict = {
             "name": self.name,
             "version": self.version,
             "channel": self.channel,
+            "registry_url": self.registry_url,
             "entry": self.entry,
             "installed_at": self.installed_at,
             "installed_from": self.installed_from.value,
@@ -86,11 +100,21 @@ class CartridgeJson:
 
     @classmethod
     def from_dict(cls, d: dict) -> "CartridgeJson":
-        """Deserialize from a dict. Channel is required — there is no default."""
+        """Deserialize from a dict. ``channel`` and ``registry_url``
+        are both required-but-``registry_url``-may-be-null. Missing
+        either key surfaces as a hard error so old-schema files are
+        rejected immediately."""
+        if "registry_url" not in d:
+            raise ValueError(
+                "CartridgeJson is missing required `registry_url` field. "
+                "It must be present, with value null for dev installs or "
+                "a URL string for registry installs."
+            )
         return cls(
             name=d["name"],
             version=d["version"],
             channel=d["channel"],
+            registry_url=d["registry_url"],
             entry=d["entry"],
             installed_at=d["installed_at"],
             installed_from=CartridgeInstallSource(d["installed_from"]),
@@ -170,16 +194,49 @@ class CartridgeJsonWriteError(CartridgeJsonError):
         self.cause = cause
 
 
-def read_cartridge_json_from_dir(version_dir: Path) -> CartridgeJson:
+class CartridgeJsonRegistrySlugMismatch(CartridgeJsonError):
+    """Three-place rule violation: the on-disk slug folder doesn't
+    match the slug derived from cartridge.json:registry_url. Either
+    the cartridge was hand-copied between slugs or the installer is
+    buggy — either way the host refuses to attach it."""
+    def __init__(
+        self,
+        path: Path,
+        registry_url: Optional[str],
+        expected_slug: str,
+        actual_slug: str,
+    ):
+        super().__init__(
+            f"cartridge.json at {path}: registry_url={registry_url!r} "
+            f"hashes to slug='{expected_slug}' but the directory tree placed it under '{actual_slug}'"
+        )
+        self.path = path
+        self.registry_url = registry_url
+        self.expected_slug = expected_slug
+        self.actual_slug = actual_slug
+
+
+def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> CartridgeJson:
     """Read and validate a ``cartridge.json`` from a version directory.
+
+    ``expected_slug`` is the on-disk registry slug folder the host
+    reached the version directory through (the second-to-top-level
+    folder name in the canonical
+    ``{root}/{slug}/{channel}/{name}/{version}/`` layout). Passing it
+    in lets the parser enforce the three-place rule (folder slug ⇔
+    provenance ``registry_url``) without leaving it to every caller
+    to remember.
 
     Validates:
     - File exists and is valid JSON
+    - cartridge.json includes required ``registry_url`` field
+    - ``slug_for(registry_url) == expected_slug``
     - Entry point path does not escape the version directory
     - Entry point binary exists and is executable
 
     Args:
         version_dir: Path to the cartridge version directory.
+        expected_slug: The on-disk slug the version dir is under.
 
     Returns:
         Parsed :class:`CartridgeJson`.
@@ -187,6 +244,8 @@ def read_cartridge_json_from_dir(version_dir: Path) -> CartridgeJson:
     Raises:
         CartridgeJsonError: On any validation failure.
     """
+    from capdag.bifaci.cartridge_slug import slug_for
+
     json_path = version_dir / "cartridge.json"
 
     if not json_path.exists():
@@ -202,6 +261,17 @@ def read_cartridge_json_from_dir(version_dir: Path) -> CartridgeJson:
         cj = CartridgeJson.from_dict(raw)
     except (json.JSONDecodeError, KeyError, ValueError) as e:
         raise CartridgeJsonInvalidJson(json_path, e) from e
+
+    # Three-place rule (places 1+2): the folder slug must match the
+    # slug derived from the provenance's registry_url.
+    derived_slug = slug_for(cj.registry_url)
+    if derived_slug != expected_slug:
+        raise CartridgeJsonRegistrySlugMismatch(
+            path=json_path,
+            registry_url=cj.registry_url,
+            expected_slug=derived_slug,
+            actual_slug=expected_slug,
+        )
 
     # Validate entry path does not escape version directory
     entry_path = (version_dir / cj.entry).resolve()
