@@ -1,18 +1,19 @@
-# CapDag-Py Test Catalog
+# Python Test Catalog
 
-**Total Tests:** 1000
+**Total Tests:** 972
 
-**Numbered Tests:** 974
+**Numbered Tests:** 947
 
-**Unnumbered Tests:** 26
+**Unnumbered Tests:** 25
 
 **Numbered Tests Missing Descriptions:** 1
 
 **Numbering Mismatches:** 0
 
-All numbered test numbers are unique.
+**⚠ Duplicate test numbers detected: 1 number(s) used more than once.**
+Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
 
-This catalog lists all tests in the CapDag-Py codebase.
+This catalog lists all tests in the Python codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -118,24 +119,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test114 | `test_114_cap_json_serialization` | TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors | tests/test_cap.py:110 |
 | test115 | `test_115_cap_json_roundtrip` | TEST115: Test CapArg serialization and deserialization with multiple sources | tests/test_cap.py:143 |
 | test116 | `test_116_cap_arg_multiple_sources` | TEST116: Test CapArg constructor methods basic and with_description create args correctly | tests/test_cap.py:168 |
-| test117 | `test_117_register_and_find_cap_set` | TEST117: Test registering cap set and finding by exact and subset matching | tests/test_cap_matrix.py:39 |
-| test118 | `test_118_best_cap_set_selection` | TEST118: Test selecting best cap set based on specificity ranking With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints) | tests/test_cap_matrix.py:62 |
-| test119 | `test_119_invalid_urn_handling` | TEST119: Test invalid URN returns InvalidUrn error | tests/test_cap_matrix.py:89 |
-| test120 | `test_120_accepts_request` | TEST120: Test accepts_request checks if registry can handle a capability request | tests/test_cap_matrix.py:97 |
-| test121 | `test_121_cap_block_more_specific_wins` | TEST121: Test CapBlock selects more specific cap over less specific regardless of registry order | tests/test_cap_matrix.py:380 |
-| test122 | `test_122_cap_block_tie_goes_to_first` | TEST122: Test CapBlock breaks specificity ties by first registered registry | tests/test_cap_matrix.py:421 |
-| test123 | `test_123_cap_block_polls_all` | TEST123: Test CapBlock polls all registries to find most specific match | tests/test_cap_matrix.py:448 |
-| test124 | `test_124_cap_block_no_match` | TEST124: Test CapBlock returns error when no registries match the request | tests/test_cap_matrix.py:482 |
-| test125 | `test_125_cap_block_fallback_scenario` | TEST125: Test CapBlock prefers specific cartridge over generic provider fallback | tests/test_cap_matrix.py:496 |
-| test126 | `test_126_cap_block_accepts_request` | TEST126: Test composite can method returns CapCaller for capability execution | tests/test_cap_matrix.py:536 |
-| test127 | `test_127_cap_graph_adds_nodes_and_edges` | TEST127: Test CapGraph adds nodes and edges from capability definitions | tests/test_cap_matrix.py:120 |
-| test128 | `test_128_cap_graph_tracks_outgoing_and_incoming` | TEST128: Test CapGraph tracks outgoing and incoming edges for spec conversions | tests/test_cap_matrix.py:145 |
-| test129 | `test_129_cap_graph_detects_conversion_paths` | TEST129: Test CapGraph detects direct and indirect conversion paths between specs | tests/test_cap_matrix.py:166 |
-| test130 | `test_130_cap_graph_finds_shortest_path` | TEST130: Test CapGraph finds shortest path for spec conversion chain | tests/test_cap_matrix.py:193 |
-| test131 | `test_131_cap_graph_finds_all_paths` | TEST131: Test CapGraph finds all conversion paths sorted by length | tests/test_cap_matrix.py:215 |
-| test132 | `test_132_cap_graph_direct_edges_sorted_by_specificity` | TEST132: Test CapGraph returns direct edges sorted by specificity | tests/test_cap_matrix.py:239 |
-| test133 | `test_133_cap_block_graph_integration` | TEST133: Test CapBlock graph integration with multiple registries and conversion paths | tests/test_cap_matrix.py:557 |
-| test134 | `test_134_cap_graph_stats` | TEST134: Test CapGraph stats provides counts of nodes and edges | tests/test_cap_matrix.py:261 |
 | test135 | `test_135_registry_creation` | TEST135: Test registry creation with temporary cache directory succeeds | tests/test_registry.py:32 |
 | test136 | `test_136_cache_key_generation` | TEST136: Test cache key generation produces consistent hashes for same URN | tests/test_registry.py:44 |
 | test137 | `test_137_parse_registry_json` | TEST137: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:69 |
@@ -150,20 +133,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:270 |
 | test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:282 |
 | test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:20 |
-| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:40 |
-| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:55 |
-| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:83 |
-| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:90 |
-| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:113 |
-| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:129 |
-| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:146 |
-| test156 | `test_156_stdin_source_data_creation` | TEST156: Test creating StdinSource Data variant with byte vector | tests/test_caller.py:33 |
-| test157 | `test_157_stdin_source_file_reference_creation` | TEST157: Test creating StdinSource FileReference variant with all required fields | tests/test_caller.py:42 |
-| test158 | `test_158_stdin_source_data_empty` | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly | tests/test_caller.py:62 |
-| test159 | `test_159_stdin_source_data_binary` | TEST159: Test StdinSource Data with binary content like PNG header bytes | tests/test_caller.py:69 |
-| test160 | `test_160_stdin_source_data_clone` | TEST160: Test StdinSource Data clone creates independent copy with same data | tests/test_caller.py:80 |
-| test161 | `test_161_stdin_source_file_reference_clone` | TEST161: Test StdinSource FileReference clone creates independent copy with same fields | tests/test_caller.py:98 |
-| test162 | `test_162_stdin_source_debug_format` | TEST162: Test StdinSource Debug format displays variant type and relevant fields | tests/test_caller.py:118 |
+| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:65 |
+| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:80 |
+| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:108 |
+| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:115 |
+| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:138 |
+| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:154 |
+| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:171 |
+| test156 | `test_156_stdin_source_data_creation` | TEST156: Test creating StdinSource Data variant with byte vector | tests/test_caller.py:31 |
+| test157 | `test_157_stdin_source_file_reference_creation` | TEST157: Test creating StdinSource FileReference variant with all required fields | tests/test_caller.py:40 |
+| test158 | `test_158_stdin_source_data_empty` | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly | tests/test_caller.py:60 |
+| test159 | `test_159_stdin_source_data_binary` | TEST159: Test StdinSource Data with binary content like PNG header bytes | tests/test_caller.py:67 |
+| test160 | `test_160_stdin_source_data_clone` | TEST160: Test StdinSource Data clone creates independent copy with same data | tests/test_caller.py:78 |
+| test161 | `test_161_stdin_source_file_reference_clone` | TEST161: Test StdinSource FileReference clone creates independent copy with same fields | tests/test_caller.py:96 |
+| test162 | `test_162_stdin_source_debug_format` | TEST162: Test StdinSource Debug format displays variant type and relevant fields | tests/test_caller.py:116 |
 | test163 | `test_163_argument_schema_validation_success` | TEST163: Test argument schema validation succeeds with valid JSON matching schema | tests/test_schema_validation.py:25 |
 | test164 | `test_164_argument_schema_validation_failure` | TEST164: Test argument schema validation fails with JSON missing required fields | tests/test_schema_validation.py:56 |
 | test165 | `test_165_output_schema_validation_success` | TEST165: Test output schema validation succeeds with valid JSON matching schema | tests/test_schema_validation.py:89 |
@@ -247,39 +230,39 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test245 | `test_245_async_host_error_from_io` | TEST245: Test AsyncHostError::from converts io::Error to Io variant | tests/test_cartridge_host_runtime.py:222 |
 | test246 | `test_246_async_host_error_equality` | TEST246: Test AsyncHostError Clone implementation produces equal values | tests/test_cartridge_host_runtime.py:229 |
 | test247 | `test_247_response_chunk_copy` | TEST247: Test ResponseChunk Clone produces independent copy with same data | tests/test_cartridge_host_runtime.py:240 |
-| test248 | `test_248_register_and_find_handler` | TEST248: Test register_op and find_handler by exact cap URN | tests/test_cartridge_runtime.py:87 |
-| test249 | `test_249_raw_handler` | TEST249: Test register_op handler echoes bytes directly | tests/test_cartridge_runtime.py:101 |
-| test250 | `test_250_typed_handler_deserialization` | TEST250: Test Op handler collects input and processes it | tests/test_cartridge_runtime.py:132 |
-| test251 | `test_251_typed_handler_rejects_invalid_json` | TEST251: Test Op handler propagates errors through RuntimeError::Handler | tests/test_cartridge_runtime.py:165 |
-| test252 | `test_252_find_handler_unknown_cap` | TEST252: Test find_handler returns None for unregistered cap URNs | tests/test_cartridge_runtime.py:195 |
-| test253 | `test_253_handler_is_send_sync` | TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync) | tests/test_cartridge_runtime.py:226 |
-| test254 | `test_254_no_peer_invoker` | TEST254: Test NoPeerInvoker always returns PeerRequest error | tests/test_cartridge_runtime.py:257 |
-| test255 | `test_255_no_peer_invoker_with_arguments` | TEST255: Test NoPeerInvoker call_with_bytes also returns error | tests/test_cartridge_runtime.py:267 |
-| test256 | `test_256_with_manifest_json` | TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid | tests/test_cartridge_runtime.py:276 |
-| test257 | `test_257_new_with_invalid_json` | TEST257: Test CartridgeRuntime::new with invalid JSON still creates runtime (manifest is None) | tests/test_cartridge_runtime.py:287 |
-| test258 | `test_258_with_manifest_struct` | TEST258: Test CartridgeRuntime::with_manifest creates runtime with valid manifest data | tests/test_cartridge_runtime.py:294 |
-| test259 | `test_259_extract_effective_payload_non_cbor` | TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:303 |
-| test260 | `test_260_extract_effective_payload_no_content_type` | TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:313 |
-| test261 | `test_261_extract_effective_payload_cbor_match` | TEST261: Test extract_effective_payload with CBOR content extracts matching argument value | tests/test_cartridge_runtime.py:322 |
-| test262 | `test_262_extract_effective_payload_cbor_no_match` | TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input | tests/test_cartridge_runtime.py:339 |
-| test263 | `test_263_extract_effective_payload_invalid_cbor` | TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error | tests/test_cartridge_runtime.py:364 |
-| test264 | `test_264_extract_effective_payload_cbor_not_array` | TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error | tests/test_cartridge_runtime.py:376 |
-| test266 | `test_266_cli_stream_emitter_construction` | TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction) | tests/test_cartridge_runtime.py:403 |
-| test268 | `test_268_runtime_error_display` | TEST268: Test RuntimeError variants display correct messages | tests/test_cartridge_runtime.py:412 |
-| test270 | `test_270_multiple_handlers` | TEST270: Test registering multiple Op handlers for different caps and finding each independently | tests/test_cartridge_runtime.py:433 |
-| test271 | `test_271_handler_replacement` | TEST271: Test Op handler replacing an existing registration for the same cap URN | tests/test_cartridge_runtime.py:460 |
-| test272 | `test_272_extract_effective_payload_multiple_args` | TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one | tests/test_cartridge_runtime.py:491 |
-| test273 | `test_273_extract_effective_payload_binary_value` | TEST273: Test extract_effective_payload with binary data in CBOR value (not just text) | tests/test_cartridge_runtime.py:514 |
-| test274 | `test_274_cap_argument_value_new` | TEST274: Test CapArgumentValue::new stores media_urn and raw byte value | tests/test_caller.py:145 |
-| test275 | `test_275_cap_argument_value_from_str` | TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes | tests/test_caller.py:156 |
-| test276 | `test_276_cap_argument_value_as_str_success` | TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data | tests/test_caller.py:168 |
-| test277 | `test_277_cap_argument_value_as_str_fails_binary` | TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data | tests/test_caller.py:174 |
-| test278 | `test_278_cap_argument_value_empty` | TEST278: Test CapArgumentValue::new with empty value stores empty vec | tests/test_caller.py:184 |
-| test279 | `test_279_cap_argument_value_clone` | TEST279: Test CapArgumentValue Clone produces independent copy with same data | tests/test_caller.py:192 |
-| test280 | `test_280_cap_argument_value_debug` | TEST280: Test CapArgumentValue Debug format includes media_urn and value | tests/test_caller.py:207 |
-| test281 | `test_281_cap_argument_value_media_urn_types` | TEST281: Test CapArgumentValue::new accepts Into<String> for media_urn (String and &str) | tests/test_caller.py:225 |
-| test282 | `test_282_cap_argument_value_unicode` | TEST282: Test CapArgumentValue::from_str with Unicode string preserves all characters | tests/test_caller.py:238 |
-| test283 | `test_283_cap_argument_value_large_binary` | TEST283: Test CapArgumentValue with large binary payload preserves all bytes | tests/test_caller.py:248 |
+| test248 | `test_248_register_and_find_handler` | TEST248: Test register_op and find_handler by exact cap URN | tests/test_cartridge_runtime.py:146 |
+| test249 | `test_249_raw_handler` | TEST249: Test register_op handler echoes bytes directly | tests/test_cartridge_runtime.py:160 |
+| test250 | `test_250_typed_handler_deserialization` | TEST250: Test Op handler collects input and processes it | tests/test_cartridge_runtime.py:191 |
+| test251 | `test_251_typed_handler_rejects_invalid_json` | TEST251: Test Op handler propagates errors through RuntimeError::Handler | tests/test_cartridge_runtime.py:224 |
+| test252 | `test_252_find_handler_unknown_cap` | TEST252: Test find_handler returns None for unregistered cap URNs | tests/test_cartridge_runtime.py:254 |
+| test253 | `test_253_handler_is_send_sync` | TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync) | tests/test_cartridge_runtime.py:285 |
+| test254 | `test_254_no_peer_invoker` | TEST254: Test NoPeerInvoker always returns PeerRequest error | tests/test_cartridge_runtime.py:316 |
+| test255 | `test_255_no_peer_invoker_with_arguments` | TEST255: Test NoPeerInvoker call_with_bytes also returns error | tests/test_cartridge_runtime.py:326 |
+| test256 | `test_256_with_manifest_json` | TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid | tests/test_cartridge_runtime.py:335 |
+| test257 | `test_257_new_with_invalid_json` | TEST257: Test CartridgeRuntime::new with invalid JSON still creates runtime (manifest is None) | tests/test_cartridge_runtime.py:346 |
+| test258 | `test_258_with_manifest_struct` | TEST258: Test CartridgeRuntime::with_manifest creates runtime with valid manifest data | tests/test_cartridge_runtime.py:353 |
+| test259 | `test_259_extract_effective_payload_non_cbor` | TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:362 |
+| test260 | `test_260_extract_effective_payload_no_content_type` | TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:370 |
+| test261 | `test_261_extract_effective_payload_cbor_match` | TEST261: Test extract_effective_payload with CBOR content extracts matching argument value | tests/test_cartridge_runtime.py:378 |
+| test262 | `test_262_extract_effective_payload_cbor_no_match` | TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input | tests/test_cartridge_runtime.py:390 |
+| test263 | `test_263_extract_effective_payload_invalid_cbor` | TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error | tests/test_cartridge_runtime.py:400 |
+| test264 | `test_264_extract_effective_payload_cbor_not_array` | TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error | tests/test_cartridge_runtime.py:407 |
+| test266 | `test_266_cli_stream_emitter_construction` | TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction) | tests/test_cartridge_runtime.py:415 |
+| test268 | `test_268_runtime_error_display` | TEST268: Test RuntimeError variants display correct messages | tests/test_cartridge_runtime.py:424 |
+| test270 | `test_270_multiple_handlers` | TEST270: Test registering multiple Op handlers for different caps and finding each independently | tests/test_cartridge_runtime.py:445 |
+| test271 | `test_271_handler_replacement` | TEST271: Test Op handler replacing an existing registration for the same cap URN | tests/test_cartridge_runtime.py:472 |
+| test272 | `test_272_extract_effective_payload_multiple_args` | TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one | tests/test_cartridge_runtime.py:503 |
+| test273 | `test_273_extract_effective_payload_binary_value` | TEST273: Test extract_effective_payload with binary data in CBOR value (not just text) | tests/test_cartridge_runtime.py:525 |
+| test274 | `test_274_cap_argument_value_new` | TEST274: Test CapArgumentValue::new stores media_urn and raw byte value | tests/test_caller.py:143 |
+| test275 | `test_275_cap_argument_value_from_str` | TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes | tests/test_caller.py:154 |
+| test276 | `test_276_cap_argument_value_as_str_success` | TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data | tests/test_caller.py:166 |
+| test277 | `test_277_cap_argument_value_as_str_fails_binary` | TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data | tests/test_caller.py:172 |
+| test278 | `test_278_cap_argument_value_empty` | TEST278: Test CapArgumentValue::new with empty value stores empty vec | tests/test_caller.py:182 |
+| test279 | `test_279_cap_argument_value_clone` | TEST279: Test CapArgumentValue Clone produces independent copy with same data | tests/test_caller.py:190 |
+| test280 | `test_280_cap_argument_value_debug` | TEST280: Test CapArgumentValue Debug format includes media_urn and value | tests/test_caller.py:205 |
+| test281 | `test_281_cap_argument_value_media_urn_types` | TEST281: Test CapArgumentValue::new accepts Into<String> for media_urn (String and &str) | tests/test_caller.py:223 |
+| test282 | `test_282_cap_argument_value_unicode` | TEST282: Test CapArgumentValue::from_str with Unicode string preserves all characters | tests/test_caller.py:236 |
+| test283 | `test_283_cap_argument_value_large_binary` | TEST283: Test CapArgumentValue with large binary payload preserves all bytes | tests/test_caller.py:246 |
 | test284 | `test_284_handshake_host_cartridge` | TEST284: Handshake exchanges HELLO frames, negotiates limits | tests/test_cbor_integration.py:52 |
 | test285 | `test_285_request_response_simple` | TEST285: Simple request-response flow (REQ → END with payload) | tests/test_cbor_integration.py:87 |
 | test286 | `test_286_streaming_chunks` | TEST286: Streaming response with multiple CHUNK frames | tests/test_cbor_integration.py:127 |
@@ -287,7 +270,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test290 | `test_290_limits_negotiation` | TEST290: Limit negotiation picks minimum | tests/test_cbor_integration.py:217 |
 | test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:249 |
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:294 |
-| test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:201 |
+| test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:260 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:335 |
 | test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:256 |
 | test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:264 |
@@ -297,61 +280,60 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:47 |
 | test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | tests/test_standard_caps.py:54 |
 | test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:77 |
-| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify fields | tests/test_cartridge_repo.py:19 |
-| test321 | `test_321_cartridge_info_is_signed` | TEST321: Verify is_signed() method | tests/test_cartridge_repo.py:60 |
-| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: Verify build_for_platform() method | tests/test_cartridge_repo.py:80 |
-| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: Validate registry schema version | tests/test_cartridge_repo.py:169 |
-| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: Transform v3 registry to flat cartridge array | tests/test_cartridge_repo.py:190 |
-| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: Get all cartridges via get_cartridges() | tests/test_cartridge_repo.py:230 |
-| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: Get cartridge by ID | tests/test_cartridge_repo.py:244 |
-| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: Search cartridges by text query | tests/test_cartridge_repo.py:260 |
-| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: Filter cartridges by category | tests/test_cartridge_repo.py:282 |
-| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: Find cartridges by cap URN | tests/test_cartridge_repo.py:304 |
-| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: CartridgeRepoClient cache update | tests/test_cartridge_repo.py:333 |
-| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: Get suggestions for missing cap | tests/test_cartridge_repo.py:355 |
-| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: Get cartridge by ID from client | tests/test_cartridge_repo.py:388 |
-| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: Get all available caps | tests/test_cartridge_repo.py:404 |
-| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: Check if client needs sync | tests/test_cartridge_repo.py:435 |
-| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: Server creates response, client consumes it | tests/test_cartridge_repo.py:446 |
-| test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:557 |
-| test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:625 |
-| test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:655 |
-| test339 | `test_339_file_path_array_glob_expansion` | TEST339: file-path-array reads multiple files with glob pattern | tests/test_cartridge_runtime.py:686 |
-| test340 | `test_340_file_not_found_clear_error` | TEST340: File not found error provides clear message | tests/test_cartridge_runtime.py:730 |
-| test341 | `test_341_stdin_precedence_over_file_path` | TEST341: stdin takes precedence over file-path in source order | tests/test_cartridge_runtime.py:765 |
-| test342 | `test_342_file_path_position_zero_reads_first_arg` | TEST342: file-path with position 0 reads first positional arg as file | tests/test_cartridge_runtime.py:800 |
-| test343 | `test_343_non_file_path_args_unaffected` | TEST343: Non-file-path args are not affected by file reading | tests/test_cartridge_runtime.py:832 |
-| test344 | `test_344_file_path_array_invalid_json_fails` | TEST344: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:865 |
-| test345 | `test_345_file_path_array_one_file_missing_fails_hard` | TEST345: sequence file-path arg with a literal nonexistent path fails hard. The runtime reads every resolved path; any missing file aborts the batch rather than silently dropping an entry. | tests/test_cartridge_runtime.py:900 |
-| test346 | `test_346_large_file_reads_successfully` | TEST346: Large file (1MB) reads successfully | tests/test_cartridge_runtime.py:940 |
-| test347 | `test_347_empty_file_reads_as_empty_bytes` | TEST347: Empty file reads as empty bytes | tests/test_cartridge_runtime.py:975 |
-| test348 | `test_348_file_path_conversion_respects_source_order` | TEST348: file-path conversion respects source order | tests/test_cartridge_runtime.py:1006 |
-| test349 | `test_349_file_path_multiple_sources_fallback` | TEST349: file-path arg with multiple sources tries all in order | tests/test_cartridge_runtime.py:1041 |
-| test350 | `test_350_full_cli_mode_with_file_path_integration` | TEST350: Integration test - full CLI mode invocation with file-path | tests/test_cartridge_runtime.py:1074 |
-| test351 | `test_351_file_path_array_empty_array` | TEST351: sequence-declared file-path arg with an empty newline-separated value returns an empty CBOR array — no spurious error. | tests/test_cartridge_runtime.py:1147 |
-| test352 | `test_352_file_permission_denied_clear_error` | TEST352: file permission denied error is clear (Unix-specific) | tests/test_cartridge_runtime.py:1177 |
-| test353 | `test_353_cbor_payload_format_consistency` | TEST353: CBOR payload format matches between CLI and CBOR mode | tests/test_cartridge_runtime.py:1220 |
-| test354 | `test_354_glob_pattern_no_matches_fails_hard` | TEST354: A glob pattern with no matches fails hard. Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1256 |
-| test355 | `test_355_glob_pattern_skips_directories` | TEST355: Glob pattern skips directories | tests/test_cartridge_runtime.py:1289 |
-| test356 | `test_356_multiple_glob_patterns_combined` | TEST356: Multiple glob patterns combined via newline separation. | tests/test_cartridge_runtime.py:1329 |
-| test357 | `test_357_symlinks_followed` | TEST357: Symlinks are followed when reading files | tests/test_cartridge_runtime.py:1372 |
-| test358 | `test_358_binary_file_non_utf8` | TEST358: Binary file with non-UTF8 data reads correctly | tests/test_cartridge_runtime.py:1409 |
-| test359 | `test_359_invalid_glob_pattern_fails` | TEST359: Invalid glob pattern fails with clear error | tests/test_cartridge_runtime.py:1443 |
-| test360 | `test_360_extract_effective_payload_with_file_data` | TEST360: Extract effective payload handles file-path data correctly | tests/test_cartridge_runtime.py:1479 |
-| test361 | `test_361_cli_mode_file_path` | TEST361: CLI mode with file path - pass file path as command-line argument | tests/test_cartridge_runtime.py:1521 |
-| test362 | `test_362_cli_mode_piped_binary` | TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload | tests/test_cartridge_runtime.py:1565 |
-| test363 | `test_363_cbor_mode_chunked_content` | TEST363: CBOR mode with chunked content - send file content streaming as chunks | tests/test_cartridge_runtime.py:1612 |
-| test364 | `test_364_cbor_mode_file_path` | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) | tests/test_cartridge_runtime.py:1698 |
+| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify field round-trip. | tests/test_cartridge_repo.py:148 |
+| test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:160 |
+| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:174 |
+| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: Server requires schema 5.0 and rejects older. | tests/test_cartridge_repo.py:188 |
+| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: Server transforms each channel-entry into a flat CartridgeInfo with channel set, preserving cap_groups verbatim. | tests/test_cartridge_repo.py:207 |
+| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope, including both channels. | tests/test_cartridge_repo.py:247 |
+| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces. | tests/test_cartridge_repo.py:261 |
+| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches name/description/tags and cap titles across both channels, but never substring on cap URNs. | tests/test_cartridge_repo.py:294 |
+| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters by string-equal categories. | tests/test_cartridge_repo.py:320 |
+| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent. | tests/test_cartridge_repo.py:338 |
+| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridges index keyed by normalized URNs. | tests/test_cartridge_repo.py:368 |
+| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge. | tests/test_cartridge_repo.py:386 |
+| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) and returns None for an unknown pair. | tests/test_cartridge_repo.py:413 |
+| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:433 |
+| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync is true on an empty cache and false right after a successful update. | tests/test_cartridge_repo.py:462 |
+| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance. | tests/test_cartridge_repo.py:474 |
+| test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:621 |
+| test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:649 |
+| test339 | `test_339_file_path_array_glob_expansion` | TEST339: file-path-array reads multiple files with glob pattern | tests/test_cartridge_runtime.py:678 |
+| test340 | `test_340_file_not_found_clear_error` | TEST340: File not found error provides clear message | tests/test_cartridge_runtime.py:718 |
+| test341 | `test_341_stdin_precedence_over_file_path` | TEST341: stdin takes precedence over file-path in source order | tests/test_cartridge_runtime.py:748 |
+| test342 | `test_342_file_path_position_zero_reads_first_arg` | TEST342: file-path with position 0 reads first positional arg as file | tests/test_cartridge_runtime.py:781 |
+| test343 | `test_343_non_file_path_args_unaffected` | TEST343: Non-file-path args are not affected by file reading | tests/test_cartridge_runtime.py:810 |
+| test344 | `test_344_file_path_array_invalid_json_fails` | TEST344: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:840 |
+| test345 | `test_345_file_path_array_one_file_missing_fails_hard` | TEST345: file-path arg with literal nonexistent path fails hard. Mirrors Rust test345_file_path_array_one_file_missing_fails_hard. | tests/test_cartridge_runtime.py:871 |
+| test346 | `test_346_large_file_reads_successfully` | TEST346: Large file (1MB) reads successfully | tests/test_cartridge_runtime.py:903 |
+| test347 | `test_347_empty_file_reads_as_empty_bytes` | TEST347: Empty file reads as empty bytes | tests/test_cartridge_runtime.py:936 |
+| test348 | `test_348_file_path_conversion_respects_source_order` | TEST348: file-path conversion respects source order | tests/test_cartridge_runtime.py:965 |
+| test349 | `test_349_file_path_multiple_sources_fallback` | TEST349: file-path arg with multiple sources tries all in order | tests/test_cartridge_runtime.py:997 |
+| test350 | `test_350_full_cli_mode_with_file_path_integration` | TEST350: Integration test - full CLI mode invocation with file-path | tests/test_cartridge_runtime.py:1028 |
+| test351 | `test_351_file_path_array_empty_array` | TEST351: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array. | tests/test_cartridge_runtime.py:1102 |
+| test352 | `test_352_file_permission_denied_clear_error` | TEST352: file permission denied error is clear (Unix-specific) | tests/test_cartridge_runtime.py:1131 |
+| test353 | `test_353_cbor_payload_format_consistency` | TEST353: CBOR payload format matches between CLI and CBOR mode | tests/test_cartridge_runtime.py:1170 |
+| test354 | `test_354_glob_pattern_no_matches_fails_hard` | TEST354: A glob pattern with no matches fails hard. Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1201 |
+| test355 | `test_355_glob_pattern_skips_directories` | TEST355: Glob pattern skips directories | tests/test_cartridge_runtime.py:1232 |
+| test356 | `test_356_multiple_glob_patterns_combined` | TEST356: Multiple glob patterns combined via newline separation. | tests/test_cartridge_runtime.py:1271 |
+| test357 | `test_357_symlinks_followed` | TEST357: Symlinks are followed when reading files | tests/test_cartridge_runtime.py:1315 |
+| test358 | `test_358_binary_file_non_utf8` | TEST358: Binary file with non-UTF8 data reads correctly | tests/test_cartridge_runtime.py:1350 |
+| test359 | `test_359_invalid_glob_pattern_fails` | TEST359: Invalid glob pattern fails with clear error. Mirrors Rust test359_invalid_glob_pattern_fails. | tests/test_cartridge_runtime.py:1383 |
+| test360 | `test_360_extract_effective_payload_with_file_data` | TEST360: Extract effective payload handles file-path data correctly | tests/test_cartridge_runtime.py:1416 |
+| test361 | `test_361_cli_mode_file_path` | TEST361: CLI mode with file path - pass file path as command-line argument | tests/test_cartridge_runtime.py:1452 |
+| test362 | `test_362_cli_mode_piped_binary` | TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload | tests/test_cartridge_runtime.py:1496 |
+| test363 | `test_363_cbor_mode_chunked_content` | TEST363: CBOR mode with chunked content - send file content streaming as chunks | tests/test_cartridge_runtime.py:1543 |
+| test364 | `test_364_cbor_mode_file_path` | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) | tests/test_cartridge_runtime.py:1629 |
 | test365 | `test_365_stream_start_frame` | TEST365: Frame::stream_start stores request_id, stream_id, and media_urn | tests/test_cbor_frame.py:422 |
 | test366 | `test_366_stream_end_frame` | TEST366: Frame::stream_end stores request_id and stream_id | tests/test_cbor_frame.py:437 |
 | test367 | `test_367_stream_start_with_empty_stream_id` | TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:453 |
 | test368 | `test_368_stream_start_with_empty_media_urn` | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:464 |
 | test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:882 |
 | test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:898 |
-| test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1733 |
-| test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1765 |
-| test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1792 |
-| test398 | `test_398_build_payload_io_error` | TEST398: IO error from reader propagates as RuntimeError::Io | tests/test_cartridge_runtime.py:1823 |
+| test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1664 |
+| test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1696 |
+| test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1723 |
+| test398 | `test_398_build_payload_io_error` | TEST398: IO error from reader propagates as RuntimeError::Io | tests/test_cartridge_runtime.py:1754 |
 | test399 | `test_399_relay_notify_discriminant_roundtrip` | TEST399: Verify RelayNotify frame type discriminant roundtrips through u8 (value 10) | tests/test_cbor_frame.py:475 |
 | test400 | `test_400_relay_state_discriminant_roundtrip` | TEST400: Verify RelayState frame type discriminant roundtrips through u8 (value 11) | tests/test_cbor_frame.py:484 |
 | test401 | `test_401_relay_notify_factory_and_accessors` | TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them | tests/test_cbor_frame.py:493 |
@@ -418,10 +400,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:367 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:97 |
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:104 |
-| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:181 |
-| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:192 |
-| test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1844 |
-| test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1853 |
+| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:206 |
+| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:217 |
+| test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1775 |
+| test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1784 |
 | test480 | `test_480_parse_caps_rejects_manifest_without_identity` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | tests/test_cartridge_host.py:119 |
 | test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:395 |
 | test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:433 |
@@ -470,23 +452,23 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test526 | `test_526_relay_state_empty_payload` | TEST526: RelayState with empty payload is valid | tests/test_cbor_frame.py:1485 |
 | test527 | `test_527_relay_notify_large_manifest` | TEST527: RelayNotify with large manifest roundtrips correctly | tests/test_cbor_frame.py:1492 |
 | test528 | `test_528_relay_frames_use_uint_zero_id` | TEST528: RelayNotify and RelayState use MessageId::Uint(0) | tests/test_cbor_frame.py:1505 |
-| test529 | `test_529_input_stream_recv_order` | TEST529: InputStream recv yields chunks in order | tests/test_cartridge_runtime.py:1935 |
-| test530 | `test_530_input_stream_collect_bytes` | TEST530: InputStream::collect_bytes concatenates byte chunks | tests/test_cartridge_runtime.py:1949 |
-| test531 | `test_531_input_stream_collect_bytes_text` | TEST531: InputStream::collect_bytes handles text chunks | tests/test_cartridge_runtime.py:1955 |
-| test532 | `test_532_input_stream_empty` | TEST532: InputStream empty stream produces empty bytes | tests/test_cartridge_runtime.py:1961 |
-| test533 | `test_533_input_stream_error_propagation` | TEST533: InputStream propagates errors | tests/test_cartridge_runtime.py:1967 |
-| test534 | `test_534_input_stream_media_urn` | TEST534: InputStream::media_urn returns correct URN | tests/test_cartridge_runtime.py:1975 |
-| test535 | `test_535_input_package_iteration` | TEST535: InputPackage recv yields streams | tests/test_cartridge_runtime.py:1981 |
-| test536 | `test_536_input_package_collect_all_bytes` | TEST536: InputPackage::collect_all_bytes aggregates all streams | tests/test_cartridge_runtime.py:2006 |
-| test537 | `test_537_input_package_empty` | TEST537: InputPackage empty package produces empty bytes | tests/test_cartridge_runtime.py:2017 |
-| test538 | `test_538_input_package_error_propagation` | TEST538: InputPackage propagates stream errors | tests/test_cartridge_runtime.py:2023 |
-| test539 | `test_539_output_stream_sends_stream_start` | TEST539: OutputStream sends STREAM_START on first write | tests/test_cartridge_runtime.py:2040 |
-| test540 | `test_540_output_stream_close_sends_stream_end` | TEST540: OutputStream::close sends STREAM_END with correct chunk_count | tests/test_cartridge_runtime.py:2060 |
-| test541 | `test_541_output_stream_chunks_large_data` | TEST541: OutputStream chunks large data correctly | tests/test_cartridge_runtime.py:2082 |
-| test542 | `test_542_output_stream_empty` | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only | tests/test_cartridge_runtime.py:2102 |
-| test543 | `test_543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | tests/test_cartridge_runtime.py:2122 |
-| test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall::finish sends END frame | tests/test_cartridge_runtime.py:2137 |
-| test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall::finish returns PeerResponse with data | tests/test_cartridge_runtime.py:2162 |
+| test529 | `test_529_input_stream_recv_order` | TEST529: InputStream recv yields chunks in order | tests/test_cartridge_runtime.py:1866 |
+| test530 | `test_530_input_stream_collect_bytes` | TEST530: InputStream::collect_bytes concatenates byte chunks | tests/test_cartridge_runtime.py:1880 |
+| test531 | `test_531_input_stream_collect_bytes_text` | TEST531: InputStream::collect_bytes handles text chunks | tests/test_cartridge_runtime.py:1886 |
+| test532 | `test_532_input_stream_empty` | TEST532: InputStream empty stream produces empty bytes | tests/test_cartridge_runtime.py:1892 |
+| test533 | `test_533_input_stream_error_propagation` | TEST533: InputStream propagates errors | tests/test_cartridge_runtime.py:1898 |
+| test534 | `test_534_input_stream_media_urn` | TEST534: InputStream::media_urn returns correct URN | tests/test_cartridge_runtime.py:1906 |
+| test535 | `test_535_input_package_iteration` | TEST535: InputPackage recv yields streams | tests/test_cartridge_runtime.py:1912 |
+| test536 | `test_536_input_package_collect_all_bytes` | TEST536: InputPackage::collect_all_bytes aggregates all streams | tests/test_cartridge_runtime.py:1937 |
+| test537 | `test_537_input_package_empty` | TEST537: InputPackage empty package produces empty bytes | tests/test_cartridge_runtime.py:1948 |
+| test538 | `test_538_input_package_error_propagation` | TEST538: InputPackage propagates stream errors | tests/test_cartridge_runtime.py:1954 |
+| test539 | `test_539_output_stream_sends_stream_start` | TEST539: OutputStream sends STREAM_START on first write | tests/test_cartridge_runtime.py:1971 |
+| test540 | `test_540_output_stream_close_sends_stream_end` | TEST540: OutputStream::close sends STREAM_END with correct chunk_count | tests/test_cartridge_runtime.py:1991 |
+| test541 | `test_541_output_stream_chunks_large_data` | TEST541: OutputStream chunks large data correctly | tests/test_cartridge_runtime.py:2013 |
+| test542 | `test_542_output_stream_empty` | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only | tests/test_cartridge_runtime.py:2033 |
+| test543 | `test_543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | tests/test_cartridge_runtime.py:2053 |
+| test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall::finish sends END frame | tests/test_cartridge_runtime.py:2068 |
+| test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall::finish returns PeerResponse with data | tests/test_cartridge_runtime.py:2093 |
 | test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:280 |
 | test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:291 |
 | test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:302 |
@@ -507,15 +489,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:821 |
 | test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:834 |
 | test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | tests/test_cap_urn.py:750 |
-| test569 | `test_569_cap_matrix_unregister_cap_set` | TEST569: unregister_cap_set removes a host and returns true, false if not found | tests/test_cap_matrix.py:338 |
-| test570 | `test_570_cap_matrix_clear` | TEST570: clear removes all registered sets | tests/test_cap_matrix.py:355 |
-| test571 | `test_571_cap_matrix_get_all_capabilities` | TEST571: get_all_capabilities returns caps from all hosts | tests/test_cap_matrix.py:303 |
-| test572 | `test_572_cap_matrix_get_capabilities_for_host` | TEST572: get_capabilities_for_host returns caps for specific host, None for unknown | tests/test_cap_matrix.py:318 |
-| test573 | `test_573_cap_matrix_iter_hosts_and_caps` | TEST573: iter_hosts_and_caps iterates all hosts with their capabilities | tests/test_cap_matrix.py:691 |
-| test574 | `test_574_cap_block_remove_registry` | TEST574: CapBlock::remove_registry removes by name, returns Arc | tests/test_cap_matrix.py:609 |
-| test575 | `test_575_cap_block_get_registry` | TEST575: CapBlock::get_registry returns Arc clone by name | tests/test_cap_matrix.py:634 |
-| test576 | `test_576_cap_matrix_get_host_names` | TEST576: CapBlock::get_registry_names returns names in insertion order | tests/test_cap_matrix.py:284 |
-| test577 | `test_577_cap_graph_input_output_specs` | TEST577: CapGraph::get_input_specs and get_output_specs return correct sets | tests/test_cap_matrix.py:710 |
 | test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:174 |
 | test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:187 |
 | test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:199 |
@@ -567,14 +540,14 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test627 | `test_627_is_embedded_profile` | TEST627: Verify is_embedded_profile recognizes standard and rejects custom URLs | tests/test_media_profile.py:148 |
 | test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:487 |
 | test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:495 |
-| test630 | `test_630_cartridge_repo_creation` | TEST630: Verify CartridgeRepo creation starts with empty cartridge list | tests/test_cartridge_repo.py:480 |
-| test631 | `test_631_needs_sync_empty_cache` | TEST631: Verify needs_sync returns true with empty cache and non-empty URLs | tests/test_cartridge_repo.py:486 |
-| test632 | `test_632_deserialize_cap_summary_with_null_description` | TEST632: Verify CartridgeCapSummary deserializes null description as empty string | tests/test_cartridge_repo.py:492 |
-| test633 | `test_633_deserialize_cap_summary_with_missing_description` | TEST633: Verify CartridgeCapSummary deserializes missing description as empty string | tests/test_cartridge_repo.py:506 |
-| test634 | `test_634_deserialize_cap_summary_with_present_description` | TEST634: Verify CartridgeCapSummary deserializes present description correctly | tests/test_cartridge_repo.py:517 |
-| test635 | `test_635_deserialize_cartridge_info_with_null_fields` | TEST635: Verify CartridgeInfo deserializes null version/description/author as empty strings | tests/test_cartridge_repo.py:529 |
-| test636 | `test_636_deserialize_registry_with_null_descriptions` | TEST636: Verify CartridgeRegistryResponse deserializes with mixed null/present descriptions | tests/test_cartridge_repo.py:553 |
-| test637 | `test_637_deserialize_full_cartridge_with_signature` | TEST637: Verify full CartridgeInfo deserialization with signature and package fields | tests/test_cartridge_repo.py:582 |
+| test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with an empty cartridge list. | tests/test_cartridge_repo.py:527 |
+| test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with an empty cache and non-empty URLs. | tests/test_cartridge_repo.py:534 |
+| test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:540 |
+| test633 | `test_633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description / args / output parses. | tests/test_cartridge_repo.py:557 |
+| test634 | `test_634_deserialize_cap_group` | TEST634: A cap_group parses with caps + adapter_urns. | tests/test_cartridge_repo.py:596 |
+| test635 | `test_635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields become empty strings. | tests/test_cartridge_repo.py:614 |
+| test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes cleanly (the null_as_empty_string deserializer is the only tolerated coercion). | tests/test_cartridge_repo.py:656 |
+| test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:677 |
 | test638 | `test_638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
 | test639 | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) defaults to in=media:;out=media: | tests/test_cap_urn.py:859 |
 | test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults out to media: | tests/test_cap_urn.py:867 |
@@ -602,15 +575,15 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test669 | `test_669_resolve_slot_falls_back_to_default` | TEST669: resolve_slot_falls_back_to_default | tests/test_planner_argument_binding.py:54 |
 | test670 | `test_670_resolve_required_slot_no_value_returns_err` | TEST670: resolve_required_slot_no_value_returns_err | tests/test_planner_argument_binding.py:63 |
 | test671 | `test_671_resolve_optional_slot_no_value_returns_none` | TEST671: resolve_optional_slot_no_value_returns_none | tests/test_planner_argument_binding.py:71 |
-| test675 | `test_675_build_request_frames_preserves_media_urn_in_stream_start` | TEST675: build_request_frames with full media URN preserves it in STREAM_START frame | tests/test_caller.py:288 |
-| test676 | `test_676_build_request_frames_round_trip_find_stream_succeeds` | TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds | tests/test_caller.py:300 |
-| test677 | `test_677_base_urn_does_not_match_full_urn_in_find_stream` | TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:llm-generation-request;json;record" (full). is_equivalent requires exact tag set match, so base != full. | tests/test_caller.py:314 |
-| test678 | `test_678_find_stream_equivalent_urn` | TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds | tests/test_cartridge_runtime.py:2299 |
-| test679 | `test_679_find_stream_base_vs_full_fails` | TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record". | tests/test_cartridge_runtime.py:2308 |
-| test680 | `test_680_require_stream_missing_fails` | TEST680: require_stream with missing URN returns hard StreamError | tests/test_cartridge_runtime.py:2317 |
-| test681 | `test_681_find_stream_multiple` | TEST681: find_stream with multiple streams returns the correct one | tests/test_cartridge_runtime.py:2327 |
-| test682 | `test_682_require_stream_returns_data` | TEST682: require_stream_str returns UTF-8 string for text data | tests/test_cartridge_runtime.py:2339 |
-| test683 | `test_683_find_stream_invalid_urn_returns_none` | TEST683: find_stream returns None for invalid media URN string (not a parse error — just None) | tests/test_cartridge_runtime.py:2348 |
+| test675 | `test_675_build_request_frames_preserves_media_urn_in_stream_start` | TEST675: build_request_frames with full media URN preserves it in STREAM_START frame | tests/test_caller.py:286 |
+| test676 | `test_676_build_request_frames_round_trip_find_stream_succeeds` | TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds | tests/test_caller.py:298 |
+| test677 | `test_677_base_urn_does_not_match_full_urn_in_find_stream` | TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:llm-generation-request;json;record" (full). is_equivalent requires exact tag set match, so base != full. | tests/test_caller.py:312 |
+| test678 | `test_678_find_stream_equivalent_urn` | TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds | tests/test_cartridge_runtime.py:2230 |
+| test679 | `test_679_find_stream_base_vs_full_fails` | TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record". | tests/test_cartridge_runtime.py:2239 |
+| test680 | `test_680_require_stream_missing_fails` | TEST680: require_stream with missing URN returns hard StreamError | tests/test_cartridge_runtime.py:2248 |
+| test681 | `test_681_find_stream_multiple` | TEST681: find_stream with multiple streams returns the correct one | tests/test_cartridge_runtime.py:2258 |
+| test682 | `test_682_require_stream_returns_data` | TEST682: require_stream_str returns UTF-8 string for text data | tests/test_cartridge_runtime.py:2270 |
+| test683 | `test_683_find_stream_invalid_urn_returns_none` | TEST683: find_stream returns None for invalid media URN string (not a parse error — just None) | tests/test_cartridge_runtime.py:2279 |
 | test688 | `test_688_is_multiple` | TEST688: Tests is_multiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true | tests/test_cardinality.py:19 |
 | test689 | `test_689_accepts_single` | TEST689: Tests accepts_single method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not | tests/test_cardinality.py:26 |
 | test690 | `test_690_compatibility_single_to_single` | TEST690: Tests cardinality compatibility for single-to-single data flow Verifies Direct compatibility when both input and output are Single | tests/test_cardinality.py:33 |
@@ -748,13 +721,13 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | tests/test_cap_urn.py:1152 |
 | test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | tests/test_cap_urn.py:1164 |
 | test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any provider output | tests/test_cap_urn.py:1175 |
-| test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | tests/test_cartridge_runtime.py:2187 |
-| test840 | `test_840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse::collect_bytes discards LOG frames | tests/test_cartridge_runtime.py:2238 |
-| test841 | `test_841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse::collect_value discards LOG frames | tests/test_cartridge_runtime.py:2268 |
-| test842 | `test_842_progress_sender_emits_frames` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames) | tests/test_cartridge_runtime.py:2361 |
-| test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2378 |
-| test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2401 |
-| test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2426 |
+| test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | tests/test_cartridge_runtime.py:2118 |
+| test840 | `test_840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse::collect_bytes discards LOG frames | tests/test_cartridge_runtime.py:2169 |
+| test841 | `test_841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse::collect_value discards LOG frames | tests/test_cartridge_runtime.py:2199 |
+| test842 | `test_842_progress_sender_emits_frames` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames) | tests/test_cartridge_runtime.py:2292 |
+| test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2309 |
+| test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2332 |
+| test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2357 |
 | test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:1003 |
 | test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:1036 |
 | test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:913 |
@@ -827,7 +800,6 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test973 | `test_973_assemble_sequence_empty` | TEST973: assemble_cbor_sequence with empty items list produces empty bytes | tests/test_cbor_util.py:180 |
 | test974 | `test_974_sequence_is_not_array` | TEST974: CBOR sequence is NOT a CBOR array — split_cbor_array rejects a sequence | tests/test_cbor_util.py:185 |
 | test975 | `test_975_single_value_sequence` | TEST975: split_cbor_sequence works on data that is also a valid CBOR array (single top-level value) | tests/test_cbor_util.py:192 |
-| test976 | `test_976_cap_graph_find_best_path` | TEST976: CapGraph::find_best_path returns highest-specificity path over shortest | tests/test_cap_matrix.py:647 |
 | test977 | `test_977_os_files_excluded_integration` | TEST977: OS files excluded in resolve_paths | tests/test_input_resolver.py:222 |
 | test991 | `test_991_detects_duplicate_cap_urns` | TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn | tests/test_plan_builder.py:150 |
 | test992 | `test_992_different_ops_same_types_not_duplicates` | TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection | tests/test_plan_builder.py:178 |
@@ -970,9 +942,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1279 | `test_1279_intra_group_conflict` | TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected | tests/test_input_resolver.py:456 |
 | test1280 | `test_1280_find_adapters_for_extension` | TEST1280: find_adapters_for_extension returns correct cartridge IDs | tests/test_input_resolver.py:463 |
 | test1281 | `test_1281_no_adapter_for_unknown` | TEST1281: has_adapter_for_extension returns false for unregistered extension | tests/test_input_resolver.py:472 |
-| test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2444 |
-| test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2451 |
-| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:204 |
+| test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2375 |
+| test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2382 |
+| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:229 |
 | test1285 | `test_1285_confirmed_no_adapters_fails` | TEST1285: detect_file_confirmed fails when no adapters are registered for the extension | tests/test_input_resolver.py:479 |
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:489 |
 | test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:506 |
@@ -991,17 +963,19 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
 | test1311 | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:533 |
 | | | | |
+| test336 ⚠ | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:551 |
+| test336 ⚠ | `test_336_update_cache_rejects_malformed_cap_urn` | TEST336: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:505 |
+| | | | |
+| unnumbered | `test_148b_cap_manifest_rejects_unknown_channel` | TEST148b: CapManifest rejects unknown channel values. The closed enum is {release, nightly} — anything else is a publish-pipeline bug we want to surface immediately, not coerce. | tests/test_manifest.py:43 |
+| unnumbered | `test_148c_cap_manifest_missing_channel_field_fails_to_parse` | TEST148c: from_dict refuses to parse a manifest without `channel`. Channel is part of the cartridge's identity — there is no default. | tests/test_manifest.py:58 |
+| unnumbered | `test_324b_transform_walks_both_channels_release_first` | TEST324b: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:234 |
+| unnumbered | `test_326b_get_cartridge_by_id_channel_isolation` | TEST326b: A cartridge with the same id can independently coexist in both channels with separate metadata/versions. | tests/test_cartridge_repo.py:275 |
 | unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
 | unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
-| unnumbered | `test_cap_caller_get_positional_arg_positions` |  | tests/test_caller.py:398 |
-| unnumbered | `test_cap_caller_validate_arguments_missing_required` |  | tests/test_caller.py:363 |
-| unnumbered | `test_cap_caller_validate_arguments_success` |  | tests/test_caller.py:346 |
-| unnumbered | `test_cap_caller_validate_arguments_unknown` |  | tests/test_caller.py:380 |
 | unnumbered | `test_chunk_corrupted_payload_rejected` | Mirror-specific coverage: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum) | tests/test_cbor_frame.py:1035 |
 | unnumbered | `test_chunking_data_integrity_3x` | Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:848 |
 | unnumbered | `test_concatenated_vs_final_payload_divergence` | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk | tests/test_cartridge_host_runtime.py:265 |
 | unnumbered | `test_exact_max_chunk_stream_chunked` | Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END | tests/test_cbor_io.py:781 |
-| unnumbered | `test_extract_effective_payload_invalid_cap_urn` | Mirror-specific coverage: Test extract_effective_payload with invalid cap URN returns CapUrn error | tests/test_cartridge_runtime.py:392 |
 | unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:66 |
 | unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:80 |
 | unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:63 |
@@ -1017,23 +991,36 @@ This catalog lists all tests in the CapDag-Py codebase.
 | unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
 | unnumbered | `test_write_frame_writes_length_prefixed` | Mirror-specific coverage: Test write_frame writes length-prefixed frame | tests/test_cbor_io.py:81 |
 | unnumbered | `test_write_stream_chunked_reassembly` | Mirror-specific coverage: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk, CHUNK frames + END frame, and reading them back reassembles the full original data | tests/test_cbor_io.py:739 |
+
+---
+
+## ⚠ Duplicate Test Numbers
+
+The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
+
+### test336 (2 occurrences)
+
+- `test_336_file_path_reads_file_passes_bytes` — tests/test_cartridge_runtime.py:551
+- `test_336_update_cache_rejects_malformed_cap_urn` — tests/test_cartridge_repo.py:505
+
+**Suggested free number(s):** test319
+
 ---
 
 ## Unnumbered Tests
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
+- `test_148b_cap_manifest_rejects_unknown_channel` — tests/test_manifest.py:43
+- `test_148c_cap_manifest_missing_channel_field_fails_to_parse` — tests/test_manifest.py:58
+- `test_324b_transform_walks_both_channels_release_first` — tests/test_cartridge_repo.py:234
+- `test_326b_get_cartridge_by_id_channel_isolation` — tests/test_cartridge_repo.py:275
 - `test_array_schema_validation` — tests/test_schema_validation.py:207
 - `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:631
-- `test_cap_caller_get_positional_arg_positions` — tests/test_caller.py:398
-- `test_cap_caller_validate_arguments_missing_required` — tests/test_caller.py:363
-- `test_cap_caller_validate_arguments_success` — tests/test_caller.py:346
-- `test_cap_caller_validate_arguments_unknown` — tests/test_caller.py:380
 - `test_chunk_corrupted_payload_rejected` — tests/test_cbor_frame.py:1035
 - `test_chunking_data_integrity_3x` — tests/test_cbor_io.py:848
 - `test_concatenated_vs_final_payload_divergence` — tests/test_cartridge_host_runtime.py:265
 - `test_exact_max_chunk_stream_chunked` — tests/test_cbor_io.py:781
-- `test_extract_effective_payload_invalid_cap_urn` — tests/test_cartridge_runtime.py:392
 - `test_input_validation_optional_arg` — tests/test_validation.py:66
 - `test_input_validation_too_many_args` — tests/test_validation.py:80
 - `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:63
@@ -1060,9 +1047,9 @@ These tests still participate in numeric indexing, but the cataloger did not fin
 
 ---
 
-*Generated from CapDag-Py source tree*
-*Total tests: 1000*
-*Total numbered tests: 974*
-*Total unnumbered tests: 26*
+*Generated from Python source tree*
+*Total tests: 972*
+*Total numbered tests: 947*
+*Total unnumbered tests: 25*
 *Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 0*
