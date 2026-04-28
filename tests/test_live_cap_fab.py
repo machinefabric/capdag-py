@@ -1,4 +1,4 @@
-"""Parity tests for planner.live_cap_graph."""
+"""Parity tests for planner.live_cap_fab."""
 
 import json
 
@@ -6,7 +6,7 @@ import pytest
 
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.cap.registry import CapRegistry
-from capdag.planner.live_cap_graph import LiveCapFab, StrandStepType
+from capdag.planner.live_cap_fab import LiveCapFab, StrandStepType
 from capdag.standard.caps import identity_urn
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
@@ -365,7 +365,7 @@ def test_1293_roundtrip_requires_cap_steps():
 
 
 # =============================================================================
-# Tests ported from Rust planner/live_cap_graph.rs (1150-1154)
+# Tests ported from Rust planner/live_cap_fab.rs (1150-1154)
 # =============================================================================
 
 # TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output.

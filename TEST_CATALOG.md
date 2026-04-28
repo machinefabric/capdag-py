@@ -656,24 +656,24 @@ This catalog lists all tests in the Python codebase.
 | test769 | `test_769_path_with_required_slot` | TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false | tests/test_plan_builder.py:106 |
 | test770 | `test_770_rejects_foreach` | TEST770: plan_to_resolved_graph rejects plans containing ForEach nodes | tests/test_orchestrator_plan_converter.py:40 |
 | test771 | `test_771_rejects_collect` | TEST771: plan_to_resolved_graph rejects plans containing Collect nodes | tests/test_orchestrator_plan_converter.py:106 |
-| test772 | `test_772_find_paths_finds_multi_step_paths` | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly | tests/test_live_cap_graph.py:49 |
-| test773 | `test_773_find_paths_returns_empty_when_no_path` | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable | tests/test_live_cap_graph.py:63 |
-| test774 | `test_774_get_reachable_targets_finds_all_targets` | TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect) | tests/test_live_cap_graph.py:73 |
-| test777 | `test_777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding | tests/test_live_cap_graph.py:84 |
-| test778 | `test_778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding | tests/test_live_cap_graph.py:100 |
-| test779 | `test_779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's) | tests/test_live_cap_graph.py:116 |
+| test772 | `test_772_find_paths_finds_multi_step_paths` | TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly | tests/test_live_cap_fab.py:49 |
+| test773 | `test_773_find_paths_returns_empty_when_no_path` | TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable | tests/test_live_cap_fab.py:63 |
+| test774 | `test_774_get_reachable_targets_finds_all_targets` | TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect) | tests/test_live_cap_fab.py:73 |
+| test777 | `test_777_type_mismatch_pdf_cap_does_not_match_png_input` | TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding | tests/test_live_cap_fab.py:84 |
+| test778 | `test_778_type_mismatch_png_cap_does_not_match_pdf_input` | TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding | tests/test_live_cap_fab.py:100 |
+| test779 | `test_779_get_reachable_targets_respects_type_matching` | TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's) | tests/test_live_cap_fab.py:116 |
 | test780 | `test_780_split_integer_array` | TEST780: split_cbor_array splits a simple array of integers | tests/test_cbor_util.py:18 |
-| test781 | `test_781_find_paths_respects_type_chain` | TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | tests/test_live_cap_graph.py:131 |
+| test781 | `test_781_find_paths_respects_type_chain` | TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible | tests/test_live_cap_fab.py:131 |
 | test782 | `test_782_split_non_array` | TEST782: split_cbor_array rejects non-array input | tests/test_cbor_util.py:27 |
 | test783 | `test_783_split_empty_array` | TEST783: split_cbor_array rejects empty array | tests/test_cbor_util.py:34 |
 | test784 | `test_784_split_invalid_cbor` | TEST784: split_cbor_array rejects invalid CBOR bytes | tests/test_cbor_util.py:41 |
 | test785 | `test_785_assemble_integer_array` | TEST785: assemble_cbor_array creates array from individual items | tests/test_cbor_util.py:47 |
 | test786 | `test_786_roundtrip_split_assemble` | TEST786: split then assemble roundtrip preserves data | tests/test_cbor_util.py:54 |
-| test787 | `test_787_find_paths_sorting_prefers_shorter` | TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first | tests/test_live_cap_graph.py:157 |
-| test788 | `test_788_foreach_only_with_sequence_input` | TEST788: ForEach is only synthesized when is_sequence=true | tests/test_live_cap_graph.py:177 |
-| test789 | `test_789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | tests/test_live_cap_graph.py:209 |
-| test790 | `test_790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | tests/test_live_cap_graph.py:231 |
-| test791 | `test_791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | tests/test_live_cap_graph.py:244 |
+| test787 | `test_787_find_paths_sorting_prefers_shorter` | TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first | tests/test_live_cap_fab.py:157 |
+| test788 | `test_788_foreach_only_with_sequence_input` | TEST788: ForEach is only synthesized when is_sequence=true | tests/test_live_cap_fab.py:177 |
+| test789 | `test_789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | tests/test_live_cap_fab.py:209 |
+| test790 | `test_790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | tests/test_live_cap_fab.py:231 |
+| test791 | `test_791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | tests/test_live_cap_fab.py:244 |
 | test792 | `test_792_argument_binding_requires_input` | TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false | tests/test_planner_argument_binding.py:203 |
 | test793 | `test_793_argument_binding_serialization` | TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values | tests/test_planner_argument_binding.py:209 |
 | test794 | `test_794_argument_bindings_add_file_path` | TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant | tests/test_planner_argument_binding.py:221 |
@@ -864,11 +864,11 @@ This catalog lists all tests in the Python codebase.
 | test1147 | `test_1147_machine_syntax_error_display_is_specific` | TEST1147: InvalidWiringError display message is human-readable and specific. | tests/test_machine.py:687 |
 | test1148 | `test_1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause. | tests/test_machine.py:694 |
 | test1149 | `test_1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause. | tests/test_machine.py:704 |
-| test1150 | `test_1150_add_cap_and_basic_traversal` | TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output. | tests/test_live_cap_graph.py:372 |
-| test1151 | `test_1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular path over indirect paths with more steps. | tests/test_live_cap_graph.py:392 |
-| test1152 | `test_1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | tests/test_live_cap_graph.py:416 |
-| test1153 | `test_1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | tests/test_live_cap_graph.py:432 |
-| test1154 | `test_1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | tests/test_live_cap_graph.py:452 |
+| test1150 | `test_1150_add_cap_and_basic_traversal` | TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output. | tests/test_live_cap_fab.py:372 |
+| test1151 | `test_1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular path over indirect paths with more steps. | tests/test_live_cap_fab.py:392 |
+| test1152 | `test_1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | tests/test_live_cap_fab.py:416 |
+| test1153 | `test_1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | tests/test_live_cap_fab.py:432 |
+| test1154 | `test_1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | tests/test_live_cap_fab.py:452 |
 | test1155 | `test_1155_from_strand_produces_single_strand_machine` | TEST1155: Building a machine from one strand produces one strand with one resolved edge. | tests/test_machine.py:180 |
 | test1156 | `test_1156_from_strands_keeps_strands_disjoint` | TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order. | tests/test_machine.py:194 |
 | test1157 | `test_1157_from_strands_empty_raises_no_capability_steps` | TEST1157: Building from zero strands fails with NoCapabilitySteps. | tests/test_machine.py:215 |
@@ -949,11 +949,11 @@ This catalog lists all tests in the Python codebase.
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:489 |
 | test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:506 |
 | test1288 | `test_1288_structure_from_marker_tags` | TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure | tests/test_input_resolver.py:275 |
-| test1289 | `test_1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | tests/test_live_cap_graph.py:264 |
-| test1290 | `test_1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. | tests/test_live_cap_graph.py:289 |
-| test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_graph.py:316 |
-| test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_graph.py:341 |
-| test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_graph.py:358 |
+| test1289 | `test_1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | tests/test_live_cap_fab.py:264 |
+| test1290 | `test_1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. | tests/test_live_cap_fab.py:289 |
+| test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_fab.py:316 |
+| test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_fab.py:341 |
+| test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_fab.py:358 |
 | test1294 | `test_1294_rule11_void_input_with_stdin` | TEST1294: RULE11 - void-input cap with stdin source rejected | tests/test_validation.py:333 |
 | test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:345 |
 | test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:357 |

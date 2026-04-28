@@ -33,7 +33,7 @@ from capdag.machine.error import (
 
 if TYPE_CHECKING:
     from capdag.cap.registry import CapRegistry
-    from capdag.planner.live_cap_graph import Strand
+    from capdag.planner.live_cap_fab import Strand
 
 
 class PreInternedWiring:
@@ -77,7 +77,7 @@ def resolve_strand(
 
     Raises MachineAbstractionError on resolution failure.
     """
-    from capdag.planner.live_cap_graph import StrandStepType
+    from capdag.planner.live_cap_fab import StrandStepType
 
     nodes: List[MediaUrn] = []
     pre_interned: List[PreInternedWiring] = []

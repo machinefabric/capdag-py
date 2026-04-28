@@ -33,7 +33,7 @@ from capdag.planner.cardinality import (
     StrandShapeAnalysis,
 )
 
-from capdag.planner.live_cap_graph import (
+from capdag.planner.live_cap_fab import (
     LiveMachinePlanEdgeType,
     LiveMachinePlanEdge,
     LiveCapFab,

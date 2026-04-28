@@ -33,7 +33,7 @@ from capdag.urn.media_urn import MediaUrn
 
 if TYPE_CHECKING:
     from capdag.cap.registry import CapRegistry
-    from capdag.planner.live_cap_graph import Strand
+    from capdag.planner.live_cap_fab import Strand
 
 # NodeId is a dense integer index into a MachineStrand's nodes list.
 # Scoped to a single strand — two strands in the same Machine use disjoint spaces.

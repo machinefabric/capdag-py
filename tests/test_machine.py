@@ -37,7 +37,7 @@ from capdag.machine.error import (
     MachineSyntaxError,
 )
 from capdag.machine.parser import parse_machine
-from capdag.planner.live_cap_graph import Strand, StrandStep, StrandStepType
+from capdag.planner.live_cap_fab import Strand, StrandStep, StrandStepType
 
 
 # =============================================================================
