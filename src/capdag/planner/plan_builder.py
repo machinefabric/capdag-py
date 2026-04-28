@@ -1,7 +1,7 @@
 """Plan builder — constructs execution plans from resolved paths.
 
 This module provides MachinePlanBuilder which takes a Strand
-(from the live cap graph) and builds a MachinePlan DAG.
+(from the live capfab) and builds a MachinePlan DAG.
 Mirrors Rust's planner/plan_builder.rs exactly.
 
 Key types:
@@ -30,7 +30,7 @@ from capdag.planner.cardinality import InputCardinality
 from capdag.planner.error import (
     InternalError, InvalidPathError, NotFoundError, RegistryError,
 )
-from capdag.planner.live_cap_graph import Strand, StrandStep, StrandStepType
+from capdag.planner.live_cap_fab import Strand, StrandStep, StrandStepType
 from capdag.planner.plan import MachinePlanEdge, MachinePlan, MachineNode
 
 
@@ -156,7 +156,7 @@ class PathArgumentRequirements:
 class MachinePlanBuilder:
     """Builds execution plans from resolved paths.
 
-    Takes a Strand (from live cap graph) and constructs
+    Takes a Strand (from live capfab) and constructs
     a MachinePlan DAG ready for execution.
     """
 

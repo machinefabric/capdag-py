@@ -110,7 +110,7 @@ __all__ = [
     "CapShapeInfo",
     "CardinalityPattern",
     "StrandShapeAnalysis",
-    # Live Cap Graph
+    # Live CapFab
     "LiveMachinePlanEdgeType",
     "LiveMachinePlanEdge",
     "LiveCapFab",
