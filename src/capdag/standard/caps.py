@@ -527,7 +527,7 @@ def generate_json_urn(lang_code: str) -> CapUrn:
     Takes text content as its data-flow input and a caller-supplied JSON
     Schema (via ``--schema``), runs schema-constrained LLM generation, and
     returns a JSON object guaranteed to validate against the schema. See
-    ``capgraph/src/caps/generate-json-en.toml`` for the full contract.
+    ``capfab/src/caps/generate-json-en.toml`` for the full contract.
     """
     return (
         CapUrnBuilder()

@@ -36,7 +36,7 @@ from capdag.planner.cardinality import (
 from capdag.planner.live_cap_graph import (
     LiveMachinePlanEdgeType,
     LiveMachinePlanEdge,
-    LiveCapGraph,
+    LiveCapFab,
     StrandStepType,
     StrandStep,
     Strand,
@@ -113,7 +113,7 @@ __all__ = [
     # Live Cap Graph
     "LiveMachinePlanEdgeType",
     "LiveMachinePlanEdge",
-    "LiveCapGraph",
+    "LiveCapFab",
     "StrandStepType",
     "StrandStep",
     "Strand",

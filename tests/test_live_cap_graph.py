@@ -6,7 +6,7 @@ import pytest
 
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.cap.registry import CapRegistry
-from capdag.planner.live_cap_graph import LiveCapGraph, StrandStepType
+from capdag.planner.live_cap_graph import LiveCapFab, StrandStepType
 from capdag.standard.caps import identity_urn
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
@@ -47,7 +47,7 @@ def _make_test_cap(
 
 # TEST772: Tests find_paths_to_exact_target() finds multi-step paths Verifies that paths through intermediate nodes are found correctly
 def test_772_find_paths_finds_multi_step_paths():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:a", "media:b", "step1", "A to B"))
     graph.add_cap(_make_test_cap("media:b", "media:c", "step2", "B to C"))
 
@@ -61,7 +61,7 @@ def test_772_find_paths_finds_multi_step_paths():
 
 # TEST773: Tests find_paths_to_exact_target() returns empty when no path exists Verifies that pathfinding returns no paths when target is unreachable
 def test_773_find_paths_returns_empty_when_no_path():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:a", "media:b", "step1", "A to B"))
 
     paths = graph.find_paths_to_exact_target(_media("media:a"), _media("media:c"), False, 5, 10)
@@ -71,7 +71,7 @@ def test_773_find_paths_returns_empty_when_no_path():
 
 # TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect)
 def test_774_get_reachable_targets_finds_all_targets():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:a", "media:b", "step1", "A to B"))
     graph.add_cap(_make_test_cap("media:a", "media:d", "step3", "A to D"))
 
@@ -82,7 +82,7 @@ def test_774_get_reachable_targets_finds_all_targets():
 
 # TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
 def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
 
     paths = graph.find_paths_to_exact_target(
@@ -98,7 +98,7 @@ def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
 
 # TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding
 def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     paths = graph.find_paths_to_exact_target(
@@ -114,7 +114,7 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 
 # TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
 def test_779_get_reachable_targets_respects_type_matching():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
     graph.add_cap(_make_test_cap("media:png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
@@ -129,7 +129,7 @@ def test_779_get_reachable_targets_respects_type_matching():
 
 # TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
 def test_781_find_paths_respects_type_chain():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:png", "media:resized-png", "resize", "Resize PNG"))
     graph.add_cap(_make_test_cap("media:resized-png", "media:thumbnail", "thumb", "To Thumbnail"))
 
@@ -155,7 +155,7 @@ def test_781_find_paths_respects_type_chain():
 
 # TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first
 def test_787_find_paths_sorting_prefers_shorter():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:format-a", "media:format-c", "direct", "Direct"))
     graph.add_cap(_make_test_cap("media:format-a", "media:format-b", "step1", "Step 1"))
     graph.add_cap(_make_test_cap("media:format-b", "media:format-c", "step2", "Step 2"))
@@ -175,7 +175,7 @@ def test_787_find_paths_sorting_prefers_shorter():
 
 # TEST788: ForEach is only synthesized when is_sequence=true
 def test_788_foreach_only_with_sequence_input():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.sync_from_caps(
         [
             _make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF"),
@@ -252,7 +252,7 @@ async def test_791_sync_from_cap_urns_adds_edges():
     )
     registry.add_caps_to_cache([disbind, choose])
 
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     await graph.sync_from_cap_urns([str(disbind.urn), str(choose.urn)], registry)
 
     node_count, edge_count = graph.stats()
@@ -262,7 +262,7 @@ async def test_791_sync_from_cap_urns_adds_edges():
 
 # TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A).
 def test_1289_bfs_reachable_includes_source_roundtrip():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
             "media:textable",
@@ -287,7 +287,7 @@ def test_1289_bfs_reachable_includes_source_roundtrip():
 
 # TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target.
 def test_1290_iddfs_finds_roundtrip_paths():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
             "media:textable",
@@ -314,7 +314,7 @@ def test_1290_iddfs_finds_roundtrip_paths():
 
 # TEST1291: IDDFS round-trip paths are also found with is_sequence=true.
 def test_1291_iddfs_roundtrip_with_sequence():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
             "media:textable",
@@ -339,7 +339,7 @@ def test_1291_iddfs_roundtrip_with_sequence():
 
 # TEST1292: BFS and IDDFS agree that round-trip targets exist.
 def test_1292_bfs_iddfs_roundtrip_consistency():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
     graph.add_cap(_make_test_cap("media:b", "media:c", "b_to_c", "B to C"))
     graph.add_cap(_make_test_cap("media:c", "media:a", "c_to_a", "C to A"))
@@ -356,7 +356,7 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
 
 # TEST1293: IDDFS round-trip does not produce paths with 0 cap steps.
 def test_1293_roundtrip_requires_cap_steps():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
 
     source = _media("media:a")
@@ -370,7 +370,7 @@ def test_1293_roundtrip_requires_cap_steps():
 
 # TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output.
 def test_1150_add_cap_and_basic_traversal():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_text", "Extract Text"))
 
     assert len(graph._edges) == 1
@@ -395,7 +395,7 @@ def test_1151_exact_vs_conformance_matching():
     assert not singular.is_equivalent(lst)
     assert not lst.is_equivalent(singular)
 
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result", "analyze", "Analyze PDF"))
     graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result;list", "analyze_multi", "Analyze PDF Multi"))
 
@@ -414,7 +414,7 @@ def test_1151_exact_vs_conformance_matching():
 
 # TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
 def test_1152_multi_step_path():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract", "Extract"))
     graph.add_cap(_make_test_cap("media:extracted-text", "media:summary-text", "summarize", "Summarize"))
 
@@ -430,7 +430,7 @@ def test_1152_multi_step_path():
 
 # TEST1153: Repeated path searches return the same path order for the same graph and target.
 def test_1153_deterministic_ordering():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_a", "Extract A"))
     graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_b", "Extract B"))
 
@@ -450,7 +450,7 @@ def test_1153_deterministic_ordering():
 
 # TEST1154: Syncing from caps replaces the existing graph contents with the new cap set.
 def test_1154_sync_from_caps():
-    graph = LiveCapGraph()
+    graph = LiveCapFab()
     caps = [
         _make_test_cap("media:pdf", "media:extracted-text", "op1", "Op1"),
         _make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),

@@ -1,4 +1,4 @@
-"""LiveCapGraph — Precomputed capability graph for path finding
+"""LiveCapFab — Precomputed capability graph for path finding
 
 This module provides a live, incrementally-updated graph of capabilities
 for efficient path finding and reachability queries.
@@ -238,7 +238,7 @@ PathFindingEvent = (
 )
 
 
-class LiveCapGraph:
+class LiveCapFab:
     """Precomputed graph of capabilities for path finding.
 
     Only Cap edges are stored in the graph.  ForEach edges are synthesized

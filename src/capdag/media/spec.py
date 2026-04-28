@@ -614,7 +614,7 @@ async def resolve_media_urn(
         # Log and continue to error
         print(
             f"[WARN] Media URN '{media_urn}' not found in registry: {e} - "
-            f"ensure it's defined in capgraph/src/media/"
+            f"ensure it's defined in capfab/src/media/"
         )
 
     # Fail - not found in any source

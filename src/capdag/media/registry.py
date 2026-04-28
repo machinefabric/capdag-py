@@ -461,7 +461,7 @@ class MediaUrnRegistry:
             if ext_lower not in self.extension_index:
                 raise ExtensionNotFoundError(
                     f"No media spec registered for extension '{extension}'. "
-                    f"Ensure the media spec is defined in capgraph/src/media/ with an 'extension' field."
+                    f"Ensure the media spec is defined in capfab/src/media/ with an 'extension' field."
                 )
             return self.extension_index[ext_lower].copy()
 
