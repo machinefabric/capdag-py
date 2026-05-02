@@ -150,8 +150,8 @@ def test_167_unresolved_media_urn_skips_validation():
 # Additional comprehensive schema validation tests
 
 
-# TEST: Schema validation with nested object schemas
-def test_nested_object_schema_validation():
+# TEST126: Schema validation with nested object schemas
+def test_126_nested_object_schema_validation():
     validator = SchemaValidator()
 
     schema = {
@@ -203,8 +203,8 @@ def test_nested_object_schema_validation():
         validator.validate_argument(cap, arg, invalid_value)
 
 
-# TEST: Schema validation with array schemas
-def test_array_schema_validation():
+# TEST127: Schema validation with array schemas including minItems and item constraints
+def test_127_array_schema_validation():
     validator = SchemaValidator()
 
     schema = {
@@ -247,8 +247,8 @@ def test_array_schema_validation():
         validator.validate_argument(cap, arg, [{"name": "Item 1"}])
 
 
-# TEST: Schema validation with type constraints
-def test_type_constraint_validation():
+# TEST128: Schema validation with type constraints (integer, number, boolean)
+def test_128_type_constraint_validation():
     validator = SchemaValidator()
 
     schema = {
@@ -282,8 +282,8 @@ def test_type_constraint_validation():
         validator.validate_argument(cap, arg, invalid_value)
 
 
-# TEST: Schema validation with multiple arguments
-def test_validate_multiple_arguments():
+# TEST129: Schema validation with multiple arguments validates each independently
+def test_129_validate_multiple_arguments():
     validator = SchemaValidator()
 
     schema1 = {
@@ -331,8 +331,8 @@ def test_validate_multiple_arguments():
         validator.validate_arguments(cap, ["John", 150])  # Exceeds maximum
 
 
-# TEST: Output validation with error details
-def test_output_validation_with_details():
+# TEST130: Output validation surfaces schema violation details
+def test_130_output_validation_with_details():
     validator = SchemaValidator()
 
     schema = {

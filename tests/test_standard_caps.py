@@ -59,19 +59,6 @@ def test_310_llm_generate_text_urn_shape():
     assert MediaUrn.from_string(urn.out_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
 
 
-# Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically
-def test_llm_generate_text_urn_specs():
-    urn = CapUrn.from_string(llm_generate_text_urn())
-
-    # Compare semantically via MediaUrn matching (tag order may differ)
-    in_spec = MediaUrn.from_string(urn.in_spec())
-    expected_in = MediaUrn.from_string(MEDIA_STRING)
-    assert in_spec.conforms_to(expected_in), f"in_spec '{urn.in_spec()}' must conform to MEDIA_STRING '{MEDIA_STRING}'"
-
-    out_spec = MediaUrn.from_string(urn.out_spec())
-    expected_out = MediaUrn.from_string(MEDIA_STRING)
-    assert out_spec.conforms_to(expected_out), f"out_spec '{urn.out_spec()}' must conform to MEDIA_STRING '{MEDIA_STRING}'"
-
 
 # TEST312: Test all URN builders produce parseable cap URNs
 def test_312_all_urn_builders_produce_valid_urns():

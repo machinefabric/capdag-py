@@ -77,22 +77,6 @@ def test_208_decode_frame_fails_on_non_map():
         decode_frame(data)
 
 
-# Mirror-specific coverage: Test write_frame writes length-prefixed frame
-def test_write_frame_writes_length_prefixed():
-    output = io.BytesIO()
-    frame = Frame.hello(1024, 512)
-    limits = Limits(10000, 5000)
-
-    write_frame(output, frame, limits)
-
-    data = output.getvalue()
-    assert len(data) > 4  # Has length prefix
-
-    # First 4 bytes are length
-    length = int.from_bytes(data[:4], byteorder='big')
-    assert length == len(data) - 4
-
-
 # TEST210: Test END frame encode/decode roundtrip preserves eof marker and optional payload
 def test_210_read_frame_reads_length_prefixed():
     output = io.BytesIO()
@@ -734,9 +718,8 @@ def test_234_handshake_with_very_small_limits():
     assert received.hello_max_frame() == 256
 
 
-# Mirror-specific coverage: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk,
-# CHUNK frames + END frame, and reading them back reassembles the full original data
-def test_write_stream_chunked_reassembly():
+# TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END
+def test_1140_write_stream_chunked_reassembly():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -777,8 +760,8 @@ def test_write_stream_chunked_reassembly():
     assert reassembled == data, "concatenated chunks must match original data"
 
 
-# Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END
-def test_exact_max_chunk_stream_chunked():
+# TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK
+def test_1141_exact_max_chunk_stream_chunked():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -808,8 +791,8 @@ def test_exact_max_chunk_stream_chunked():
     assert frames[3].frame_type == FrameType.END
 
 
-# Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END
-def test_max_chunk_plus_one_splits_into_two_chunks():
+# TEST121: Test payload of max_chunk + 1 bytes produces exactly two chunks
+def test_121_max_chunk_plus_one_splits_into_two_chunks():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -844,8 +827,8 @@ def test_max_chunk_plus_one_splits_into_two_chunks():
     assert reassembled == data
 
 
-# Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
-def test_chunking_data_integrity_3x():
+# TEST122: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
+def test_122_chunking_data_integrity_3x():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -976,27 +959,6 @@ def test_441_stream_end_chunk_count_roundtrip():
     assert decoded.id == rid
     assert decoded.stream_id == "test-stream"
     assert decoded.chunk_count == 42, "chunk_count must roundtrip"
-
-
-# TEST497: Verify CHUNK frame with corrupted payload is rejected by checksum
-def test_497_chunk_corrupted_payload_rejected():
-    rid = MessageId.random()
-    payload = b"original data"
-    cs = compute_checksum(payload)
-
-    frame = Frame.chunk(rid, "stream-test", 0, payload, 0, cs)
-
-    encoded = encode_frame(frame)
-    decoded = decode_frame(encoded)
-
-    assert decoded.checksum == cs
-
-    # Corrupt the payload but keep the checksum
-    decoded.payload = b"corrupted data"
-
-    corrupted_cs = compute_checksum(decoded.payload)
-    assert corrupted_cs != cs, "Checksums should differ for corrupted data"
-    assert decoded.checksum == cs, "Frame still has original checksum"
 
 
 # TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float

@@ -628,7 +628,7 @@ def test_1137_two_strand_machine_serializes_to_notation():
 # Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form
 # =============================================================================
 
-def test_assignment_bindings_sorted_by_slot_urn():
+def test_1138_assignment_bindings_sorted_by_slot_urn():
     """TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn, enabling
     canonical comparison across different creation orders.
 

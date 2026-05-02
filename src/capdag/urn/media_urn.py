@@ -58,10 +58,44 @@ MEDIA_OBJECT_LIST = "media:list;record"
 # Semantic media types for specialized content
 # Media URN for PNG image data
 MEDIA_PNG = "media:image;png"
+# Media URN for JPEG image data
+MEDIA_JPEG = "media:jpeg;image"
+# Media URN for GIF image data
+MEDIA_GIF = "media:gif;image"
+# Media URN for BMP image data
+MEDIA_BMP = "media:bmp;image"
+# Media URN for TIFF image data
+MEDIA_TIFF = "media:tiff;image"
+# Media URN for WebP image data
+MEDIA_WEBP = "media:webp;image"
 # Media URN for audio data (wav, mp3, flac, etc.)
 MEDIA_AUDIO = "media:wav;audio"
+# Media URN for WAV audio data
+MEDIA_WAV = "media:wav;audio"
+# Media URN for MP3 audio data
+MEDIA_MP3 = "media:mp3;audio"
+# Media URN for FLAC audio data
+MEDIA_FLAC = "media:flac;audio"
+# Media URN for OGG audio data
+MEDIA_OGG = "media:ogg;audio"
+# Media URN for AAC audio data
+MEDIA_AAC = "media:aac;audio"
+# Media URN for M4A audio data
+MEDIA_M4A = "media:m4a;audio"
+# Media URN for AIFF audio data
+MEDIA_AIFF = "media:aiff;audio"
+# Media URN for Opus audio data
+MEDIA_OPUS = "media:opus;audio"
 # Media URN for video data (mp4, webm, mov, etc.)
 MEDIA_VIDEO = "media:video"
+# Media URN for MP4 video data
+MEDIA_MP4 = "media:mp4;video"
+# Media URN for MOV video data
+MEDIA_MOV = "media:mov;video"
+# Media URN for WebM video data
+MEDIA_WEBM = "media:webm;video"
+# Media URN for MKV video data
+MEDIA_MKV = "media:mkv;video"
 
 # Semantic AI input types - distinguished by their purpose/context
 # Media URN for audio input containing speech for transcription (Whisper)
@@ -151,6 +185,16 @@ MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION = "media:model-spec;candle;textable;transc
 MEDIA_MLX_MODEL_PATH = "media:mlx-model-path;textable"
 # Media URN for model repository (input for list-models) - matches CATALOG
 MEDIA_MODEL_REPO = "media:model-repo;record;textable"
+# Media URN for HuggingFace token (secret, textable)
+MEDIA_HF_TOKEN = "media:hf-token;secret;textable"
+# Media URN for model architecture list - JSON record, textable
+MEDIA_MODEL_ARCH_LIST = "media:model-arch-list;json;record;textable"
+# Media URN for model search request - JSON record, textable
+MEDIA_MODEL_SEARCH_REQUEST = "media:model-search-request;json;record;textable"
+# Media URN for model search response - JSON record, textable
+MEDIA_MODEL_SEARCH_RESPONSE = "media:model-search-response;json;record;textable"
+# Media URN for model filter resolution - JSON record, textable
+MEDIA_MODEL_FILTER_RESOLUTION = "media:model-filter-resolution;json;record;textable"
 
 # CAPDAG output types - all record structures (JSON objects)
 # Media URN for model dimension output - matches CATALOG

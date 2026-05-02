@@ -261,8 +261,8 @@ def test_247_response_chunk_copy():
     assert cloned is not chunk
 
 
-# Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk
-def test_concatenated_vs_final_payload_divergence():
+# TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk
+def test_119_concatenated_vs_final_payload_divergence():
     chunks = [
         ResponseChunk(payload=b"AAAA", seq=0, offset=None, len=None, is_eof=False),
         ResponseChunk(payload=b"BBBB", seq=1, offset=None, len=None, is_eof=False),

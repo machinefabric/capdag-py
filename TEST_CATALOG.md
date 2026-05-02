@@ -1,17 +1,16 @@
 # Python Test Catalog
 
-**Total Tests:** 973
+**Total Tests:** 968
 
-**Numbered Tests:** 947
+**Numbered Tests:** 968
 
-**Unnumbered Tests:** 26
+**Unnumbered Tests:** 0
 
-**Numbered Tests Missing Descriptions:** 1
+**Numbered Tests Missing Descriptions:** 2
 
 **Numbering Mismatches:** 0
 
-**⚠ Duplicate test numbers detected: 1 number(s) used more than once.**
-Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
+All numbered test numbers are unique.
 
 This catalog lists all tests in the Python codebase.
 
@@ -69,10 +68,10 @@ This catalog lists all tests in the Python codebase.
 | test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:652 |
 | test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:35 |
 | test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:49 |
-| test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:103 |
-| test054 | `test_054_xv5_inline_spec_redefinition_detected` | TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected | tests/test_validation.py:125 |
-| test055 | `test_055_xv5_new_inline_spec_allowed` | TEST055: XV5 - Test new inline media spec (not in registry) is allowed | tests/test_validation.py:147 |
-| test056 | `test_056_xv5_empty_media_specs_allowed` | TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation | tests/test_validation.py:167 |
+| test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:101 |
+| test054 | `test_054_xv5_inline_spec_redefinition_detected` | TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected | tests/test_validation.py:123 |
+| test055 | `test_055_xv5_new_inline_spec_allowed` | TEST055: XV5 - Test new inline media spec (not in registry) is allowed | tests/test_validation.py:145 |
+| test056 | `test_056_xv5_empty_media_specs_allowed` | TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation | tests/test_validation.py:165 |
 | test060 | `test_060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | tests/test_media_urn.py:39 |
 | test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | tests/test_media_urn.py:45 |
 | test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:58 |
@@ -119,27 +118,42 @@ This catalog lists all tests in the Python codebase.
 | test114 | `test_114_cap_json_serialization` | TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors | tests/test_cap.py:110 |
 | test115 | `test_115_cap_json_roundtrip` | TEST115: Test CapArg serialization and deserialization with multiple sources | tests/test_cap.py:143 |
 | test116 | `test_116_cap_arg_multiple_sources` | TEST116: Test CapArg constructor methods basic and with_description create args correctly | tests/test_cap.py:168 |
+| test117 | `test_117_cap_manifest_channel_roundtrip` | TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults. | tests/test_manifest.py:46 |
+| test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:92 |
+| test119 | `test_119_concatenated_vs_final_payload_divergence` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk | tests/test_cartridge_host_runtime.py:265 |
+| test121 | `test_121_max_chunk_plus_one_splits_into_two_chunks` | TEST121: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
+| test122 | `test_122_chunking_data_integrity_3x` | TEST122: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:831 |
+| test123 | `test_123_registry_add_caps_to_cache` | TEST123: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:290 |
+| test124 | `test_124_registry_config_builder_pattern` | TEST124: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:304 |
+| test125 | `test_125_normalize_urn_with_trailing_semicolon` | TEST125: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:315 |
+| test126 | `test_126_nested_object_schema_validation` | TEST126: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
+| test127 | `test_127_array_schema_validation` | TEST127: Schema validation with array schemas including minItems and item constraints | tests/test_schema_validation.py:207 |
+| test128 | `test_128_type_constraint_validation` | TEST128: Schema validation with type constraints (integer, number, boolean) | tests/test_schema_validation.py:251 |
+| test129 | `test_129_validate_multiple_arguments` | TEST129: Schema validation with multiple arguments validates each independently | tests/test_schema_validation.py:286 |
+| test130 | `test_130_output_validation_with_details` | TEST130: Output validation surfaces schema violation details | tests/test_schema_validation.py:335 |
+| test131 | `test_131_input_validation_optional_arg` | TEST131: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:66 |
+| test132 | `test_132_input_validation_too_many_args` | TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:78 |
 | test135 | `test_135_registry_creation` | TEST135: Test registry creation with temporary cache directory succeeds | tests/test_registry.py:32 |
 | test136 | `test_136_cache_key_generation` | TEST136: Test cache key generation produces consistent hashes for same URN | tests/test_registry.py:44 |
-| test137 | `test_137_parse_registry_json` | TEST137: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:69 |
-| test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:114 |
-| test139 | `test_139_url_keeps_cap_prefix_literal` | TEST139: Test URL construction keeps cap prefix literal and only encodes tags part | tests/test_registry.py:137 |
-| test140 | `test_140_url_encodes_quoted_media_urns` | TEST140: Test URL encodes media URNs with proper percent encoding for special characters | tests/test_registry.py:154 |
-| test141 | `test_141_exact_url_format` | TEST141: Test exact URL format contains properly encoded media URN components | tests/test_registry.py:174 |
-| test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:191 |
-| test143 | `test_143_default_config` | TEST143: Test default config uses capdag.com or environment variable values | tests/test_registry.py:204 |
-| test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:214 |
-| test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:259 |
-| test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:270 |
-| test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:282 |
+| test137 | `test_137_parse_registry_json` | TEST137: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:67 |
+| test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:112 |
+| test139 | `test_139_url_keeps_cap_prefix_literal` | TEST139: Test URL construction keeps cap prefix literal and only encodes tags part | tests/test_registry.py:135 |
+| test140 | `test_140_url_encodes_quoted_media_urns` | TEST140: Test URL encodes media URNs with proper percent encoding for special characters | tests/test_registry.py:152 |
+| test141 | `test_141_exact_url_format` | TEST141: Test exact URL format contains properly encoded media URN components | tests/test_registry.py:172 |
+| test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:189 |
+| test143 | `test_143_default_config` | TEST143: Test default config uses capdag.com or environment variable values | tests/test_registry.py:202 |
+| test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:212 |
+| test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:257 |
+| test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:268 |
+| test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:280 |
 | test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:20 |
-| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:76 |
-| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:92 |
-| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:121 |
-| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:128 |
-| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:152 |
-| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:169 |
-| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:187 |
+| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:110 |
+| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:126 |
+| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:155 |
+| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:162 |
+| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:186 |
+| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:203 |
+| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:221 |
 | test156 | `test_156_stdin_source_data_creation` | TEST156: Test creating StdinSource Data variant with byte vector | tests/test_caller.py:31 |
 | test157 | `test_157_stdin_source_file_reference_creation` | TEST157: Test creating StdinSource FileReference variant with all required fields | tests/test_caller.py:40 |
 | test158 | `test_158_stdin_source_data_empty` | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly | tests/test_caller.py:60 |
@@ -192,31 +206,31 @@ This catalog lists all tests in the Python codebase.
 | test206 | `test_206_decode_frame_parses_cbor_correctly` | TEST206: Test HELLO frame encode/decode roundtrip preserves max_frame, max_chunk, max_reorder_buffer | tests/test_cbor_io.py:54 |
 | test207 | `test_207_decode_frame_fails_on_invalid_cbor` | TEST207: Test ERR frame encode/decode roundtrip preserves error code and message | tests/test_cbor_io.py:66 |
 | test208 | `test_208_decode_frame_fails_on_non_map` | TEST208: Test LOG frame encode/decode roundtrip preserves level and message | tests/test_cbor_io.py:72 |
-| test210 | `test_210_read_frame_reads_length_prefixed` | TEST210: Test END frame encode/decode roundtrip preserves eof marker and optional payload | tests/test_cbor_io.py:97 |
-| test211 | `test_211_read_frame_returns_none_on_eof` | TEST211: Test HELLO with manifest encode/decode roundtrip preserves manifest bytes and limits | tests/test_cbor_io.py:114 |
-| test212 | `test_212_read_frame_fails_on_incomplete_length_prefix` | TEST212: Test chunk_with_offset encode/decode roundtrip preserves offset, len, eof (with stream_id) | tests/test_cbor_io.py:123 |
-| test213 | `test_213_read_frame_fails_on_incomplete_frame_data` | TEST213: Test heartbeat frame encode/decode roundtrip preserves ID with no extra fields | tests/test_cbor_io.py:132 |
-| test214 | `test_214_write_read_frame_io_roundtrip` | TEST214: Test write_frame/read_frame IO roundtrip through length-prefixed wire format | tests/test_cbor_io.py:142 |
-| test215 | `test_215_frame_reader_reads_multiple_frames` | TEST215: Test reading multiple sequential frames from a single buffer | tests/test_cbor_io.py:163 |
-| test216 | `test_216_write_frame_rejects_oversized_frame` | TEST216: Test write_frame rejects frames exceeding max_frame limit | tests/test_cbor_io.py:200 |
-| test217 | `test_217_read_frame_rejects_oversized_incoming_frame` | TEST217: Test read_frame rejects incoming frames exceeding the negotiated max_frame limit | tests/test_cbor_io.py:216 |
-| test218 | `test_218_write_chunked_splits_and_reconstructs` | TEST218: Test write_chunked splits data into chunks respecting max_chunk and reconstructs correctly Chunks from write_chunked have seq=0. SeqAssigner at the output stage assigns final seq. Chunk ordering within a stream is tracked by chunk_index (chunk_index field). | tests/test_cbor_io.py:235 |
-| test219 | `test_219_write_chunked_empty_data` | TEST219: Test write_chunked with empty data produces a single EOF chunk | tests/test_cbor_io.py:280 |
-| test220 | `test_220_write_chunked_exact_fit` | TEST220: Test write_chunked with data exactly equal to max_chunk produces exactly one chunk | tests/test_cbor_io.py:300 |
-| test221 | `test_221_read_frame_returns_none_on_eof` | TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream) | tests/test_cbor_io.py:320 |
-| test222 | `test_222_read_frame_fails_on_truncated_length_prefix` | TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available) | tests/test_cbor_io.py:326 |
-| test223 | `test_223_read_frame_fails_on_truncated_frame_body` | TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available) | tests/test_cbor_io.py:333 |
-| test224 | `test_224_handshake_negotiates_to_minimum_limits` | TEST224: Test MessageId::Uint roundtrips through encode/decode | tests/test_cbor_io.py:489 |
-| test225 | `test_225_handshake_function_full_handshake` | TEST225: Test decode_frame rejects non-map CBOR values (e.g., array, integer, string) | tests/test_cbor_io.py:525 |
-| test226 | `test_226_handshake_accept_receives_first` | TEST226: Test decode_frame rejects CBOR map missing required version field | tests/test_cbor_io.py:555 |
-| test227 | `test_227_handshake_fails_if_cartridge_missing_manifest` | TEST227: Test decode_frame rejects CBOR map with invalid frame_type value | tests/test_cbor_io.py:586 |
-| test228 | `test_228_read_frame_enforces_limit` | TEST228: Test decode_frame rejects CBOR map missing required id field | tests/test_cbor_io.py:611 |
-| test229 | `test_229_frame_with_zero_length_payload` | TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits | tests/test_cbor_io.py:629 |
-| test230 | `test_230_frame_roundtrip_preserves_fields` | TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits | tests/test_cbor_io.py:644 |
-| test231 | `test_231_multiple_readers_on_same_stream` | TEST231: Test handshake fails when peer sends non-HELLO frame | tests/test_cbor_io.py:666 |
-| test232 | `test_232_writer_flushes_after_each_frame` | TEST232: Test handshake fails when cartridge HELLO is missing required manifest | tests/test_cbor_io.py:691 |
-| test233 | `test_233_frame_encoding_preserves_binary_data` | TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode | tests/test_cbor_io.py:704 |
-| test234 | `test_234_handshake_with_very_small_limits` | TEST234: Test decode_frame handles garbage CBOR bytes gracefully with an error | tests/test_cbor_io.py:717 |
+| test210 | `test_210_read_frame_reads_length_prefixed` | TEST210: Test END frame encode/decode roundtrip preserves eof marker and optional payload | tests/test_cbor_io.py:81 |
+| test211 | `test_211_read_frame_returns_none_on_eof` | TEST211: Test HELLO with manifest encode/decode roundtrip preserves manifest bytes and limits | tests/test_cbor_io.py:98 |
+| test212 | `test_212_read_frame_fails_on_incomplete_length_prefix` | TEST212: Test chunk_with_offset encode/decode roundtrip preserves offset, len, eof (with stream_id) | tests/test_cbor_io.py:107 |
+| test213 | `test_213_read_frame_fails_on_incomplete_frame_data` | TEST213: Test heartbeat frame encode/decode roundtrip preserves ID with no extra fields | tests/test_cbor_io.py:116 |
+| test214 | `test_214_write_read_frame_io_roundtrip` | TEST214: Test write_frame/read_frame IO roundtrip through length-prefixed wire format | tests/test_cbor_io.py:126 |
+| test215 | `test_215_frame_reader_reads_multiple_frames` | TEST215: Test reading multiple sequential frames from a single buffer | tests/test_cbor_io.py:147 |
+| test216 | `test_216_write_frame_rejects_oversized_frame` | TEST216: Test write_frame rejects frames exceeding max_frame limit | tests/test_cbor_io.py:184 |
+| test217 | `test_217_read_frame_rejects_oversized_incoming_frame` | TEST217: Test read_frame rejects incoming frames exceeding the negotiated max_frame limit | tests/test_cbor_io.py:200 |
+| test218 | `test_218_write_chunked_splits_and_reconstructs` | TEST218: Test write_chunked splits data into chunks respecting max_chunk and reconstructs correctly Chunks from write_chunked have seq=0. SeqAssigner at the output stage assigns final seq. Chunk ordering within a stream is tracked by chunk_index (chunk_index field). | tests/test_cbor_io.py:219 |
+| test219 | `test_219_write_chunked_empty_data` | TEST219: Test write_chunked with empty data produces a single EOF chunk | tests/test_cbor_io.py:264 |
+| test220 | `test_220_write_chunked_exact_fit` | TEST220: Test write_chunked with data exactly equal to max_chunk produces exactly one chunk | tests/test_cbor_io.py:284 |
+| test221 | `test_221_read_frame_returns_none_on_eof` | TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream) | tests/test_cbor_io.py:304 |
+| test222 | `test_222_read_frame_fails_on_truncated_length_prefix` | TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available) | tests/test_cbor_io.py:310 |
+| test223 | `test_223_read_frame_fails_on_truncated_frame_body` | TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available) | tests/test_cbor_io.py:317 |
+| test224 | `test_224_handshake_negotiates_to_minimum_limits` | TEST224: Test MessageId::Uint roundtrips through encode/decode | tests/test_cbor_io.py:473 |
+| test225 | `test_225_handshake_function_full_handshake` | TEST225: Test decode_frame rejects non-map CBOR values (e.g., array, integer, string) | tests/test_cbor_io.py:509 |
+| test226 | `test_226_handshake_accept_receives_first` | TEST226: Test decode_frame rejects CBOR map missing required version field | tests/test_cbor_io.py:539 |
+| test227 | `test_227_handshake_fails_if_cartridge_missing_manifest` | TEST227: Test decode_frame rejects CBOR map with invalid frame_type value | tests/test_cbor_io.py:570 |
+| test228 | `test_228_read_frame_enforces_limit` | TEST228: Test decode_frame rejects CBOR map missing required id field | tests/test_cbor_io.py:595 |
+| test229 | `test_229_frame_with_zero_length_payload` | TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits | tests/test_cbor_io.py:613 |
+| test230 | `test_230_frame_roundtrip_preserves_fields` | TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits | tests/test_cbor_io.py:628 |
+| test231 | `test_231_multiple_readers_on_same_stream` | TEST231: Test handshake fails when peer sends non-HELLO frame | tests/test_cbor_io.py:650 |
+| test232 | `test_232_writer_flushes_after_each_frame` | TEST232: Test handshake fails when cartridge HELLO is missing required manifest | tests/test_cbor_io.py:675 |
+| test233 | `test_233_frame_encoding_preserves_binary_data` | TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode | tests/test_cbor_io.py:688 |
+| test234 | `test_234_handshake_with_very_small_limits` | TEST234: Test decode_frame handles garbage CBOR bytes gracefully with an error | tests/test_cbor_io.py:701 |
 | test235 | `test_235_response_chunk` | TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly | tests/test_cartridge_host_runtime.py:26 |
 | test236 | `test_236_response_chunk_with_all_fields` | TEST236: Test ResponseChunk with all fields populated preserves offset, len, and eof | tests/test_cartridge_host_runtime.py:43 |
 | test237 | `test_237_cartridge_response_single` | TEST237: Test CartridgeResponse::Single final_payload returns the single payload slice | tests/test_cartridge_host_runtime.py:60 |
@@ -272,6 +286,8 @@ This catalog lists all tests in the Python codebase.
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:294 |
 | test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:260 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:335 |
+| test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:275 |
+| test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:234 |
 | test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:256 |
 | test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:264 |
 | test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:272 |
@@ -279,7 +295,8 @@ This catalog lists all tests in the Python codebase.
 | test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct op and media specs | tests/test_standard_caps.py:39 |
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:47 |
 | test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | tests/test_standard_caps.py:54 |
-| test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:77 |
+| test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:64 |
+| test319 | `test_319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:505 |
 | test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify field round-trip. | tests/test_cartridge_repo.py:148 |
 | test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:160 |
 | test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:174 |
@@ -296,6 +313,7 @@ This catalog lists all tests in the Python codebase.
 | test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:433 |
 | test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync is true on an empty cache and false right after a successful update. | tests/test_cartridge_repo.py:462 |
 | test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance. | tests/test_cartridge_repo.py:474 |
+| test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:552 |
 | test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:622 |
 | test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:650 |
 | test339 | `test_339_file_path_array_glob_expansion` | TEST339: file-path-array reads multiple files with glob pattern | tests/test_cartridge_runtime.py:679 |
@@ -328,8 +346,8 @@ This catalog lists all tests in the Python codebase.
 | test366 | `test_366_stream_end_frame` | TEST366: Frame::stream_end stores request_id and stream_id | tests/test_cbor_frame.py:437 |
 | test367 | `test_367_stream_start_with_empty_stream_id` | TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:453 |
 | test368 | `test_368_stream_start_with_empty_media_urn` | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:464 |
-| test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:882 |
-| test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:898 |
+| test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:865 |
+| test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:881 |
 | test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1665 |
 | test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1697 |
 | test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1724 |
@@ -375,8 +393,8 @@ This catalog lists all tests in the Python codebase.
 | test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:290 |
 | test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:330 |
 | test439 | `test_439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:370 |
-| test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:947 |
-| test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:967 |
+| test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:930 |
+| test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:950 |
 | test442 | `test_442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | tests/test_cbor_frame.py:587 |
 | test443 | `test_443_seq_assigner_independent_rids` | TEST443: SeqAssigner maintains independent counters for different RIDs | tests/test_cbor_frame.py:608 |
 | test444 | `test_444_seq_assigner_skips_non_flow` | TEST444: SeqAssigner skips non-flow frames (Heartbeat, RelayNotify, RelayState, Hello) | tests/test_cbor_frame.py:633 |
@@ -396,18 +414,18 @@ This catalog lists all tests in the Python codebase.
 | test458 | `test_458_reorder_buffer_non_flow_bypass` | TEST458: Non-flow frames bypass reorder entirely | tests/test_cbor_frame.py:908 |
 | test459 | `test_459_reorder_buffer_end_frame` | TEST459: Terminal END frame flows through correctly | tests/test_cbor_frame.py:922 |
 | test460 | `test_460_reorder_buffer_err_frame` | TEST460: Terminal ERR frame flows through correctly | tests/test_cbor_frame.py:936 |
-| test461 | `test_461_write_chunked_seq_zero` | TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage | tests/test_cbor_io.py:340 |
-| test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:367 |
-| test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:97 |
-| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:104 |
-| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:223 |
-| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:234 |
+| test461 | `test_461_write_chunked_seq_zero` | TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage | tests/test_cbor_io.py:324 |
+| test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:351 |
+| test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:84 |
+| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:91 |
+| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:257 |
+| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:268 |
 | test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1776 |
 | test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1785 |
 | test480 | `test_480_parse_caps_rejects_manifest_without_identity` | TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY | tests/test_cartridge_host.py:119 |
-| test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:395 |
-| test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:433 |
-| test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:462 |
+| test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:379 |
+| test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:417 |
+| test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:446 |
 | test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:129 |
 | test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:150 |
 | test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:712 |
@@ -420,7 +438,7 @@ This catalog lists all tests in the Python codebase.
 | test494 | `test_494_compute_checksum_deterministic` | TEST494: compute_checksum is deterministic | tests/test_cbor_frame.py:989 |
 | test495 | `test_495_cbor_rejects_chunk_without_chunk_index` | TEST495: CBOR decode REJECTS CHUNK frame missing chunk_index field | tests/test_cbor_frame.py:999 |
 | test496 | `test_496_cbor_rejects_chunk_without_checksum` | TEST496: CBOR decode REJECTS CHUNK frame missing checksum field | tests/test_cbor_frame.py:1018 |
-| test497 | `test_497_chunk_corrupted_payload_rejected` | TEST497: Verify CHUNK frame with corrupted payload is rejected by checksum | tests/test_cbor_io.py:982 |
+| test497 | `test_497_chunk_corrupted_payload_rejected` | TEST497: Verify CHUNK frame with corrupted payload is rejected by checksum | tests/test_cbor_frame.py:1035 |
 | test498 | `test_498_routing_id_cbor_roundtrip` | TEST498: routing_id field roundtrips through CBOR encoding | tests/test_cbor_frame.py:1052 |
 | test499 | `test_499_chunk_index_checksum_cbor_roundtrip` | TEST499: chunk_index and checksum roundtrip through CBOR encoding | tests/test_cbor_frame.py:1067 |
 | test500 | `test_500_chunk_count_cbor_roundtrip` | TEST500: chunk_count roundtrips through CBOR encoding | tests/test_cbor_frame.py:1083 |
@@ -489,19 +507,19 @@ This catalog lists all tests in the Python codebase.
 | test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:821 |
 | test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:834 |
 | test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | tests/test_cap_urn.py:750 |
-| test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:174 |
-| test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:187 |
-| test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:199 |
-| test581 | `test_581_rule3_same_stdin_urns_ok` | TEST581: RULE3 - multiple stdin sources with same URN is OK | tests/test_validation.py:212 |
-| test582 | `test_582_rule4_duplicate_source_type` | TEST582: RULE4 - duplicate source type in single arg rejected | tests/test_validation.py:223 |
-| test583 | `test_583_rule5_duplicate_position` | TEST583: RULE5 - duplicate position across args rejected | tests/test_validation.py:235 |
-| test584 | `test_584_rule6_position_gap` | TEST584: RULE6 - position gap rejected (0, 2 without 1) | tests/test_validation.py:248 |
-| test585 | `test_585_rule6_sequential_ok` | TEST585: RULE6 - sequential positions (0, 1, 2) pass | tests/test_validation.py:261 |
-| test586 | `test_586_rule7_position_and_cli_flag` | TEST586: RULE7 - arg with both position and cli_flag rejected | tests/test_validation.py:272 |
-| test587 | `test_587_rule9_duplicate_cli_flag` | TEST587: RULE9 - duplicate cli_flag across args rejected | tests/test_validation.py:284 |
-| test588 | `test_588_rule10_reserved_cli_flags` | TEST588: RULE10 - reserved cli_flags rejected | tests/test_validation.py:297 |
-| test589 | `test_589_all_rules_pass` | TEST589: valid cap args with mixed sources pass all rules | tests/test_validation.py:311 |
-| test590 | `test_590_cli_flag_only_args` | TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions) | tests/test_validation.py:322 |
+| test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:172 |
+| test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:185 |
+| test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:197 |
+| test581 | `test_581_rule3_same_stdin_urns_ok` | TEST581: RULE3 - multiple stdin sources with same URN is OK | tests/test_validation.py:210 |
+| test582 | `test_582_rule4_duplicate_source_type` | TEST582: RULE4 - duplicate source type in single arg rejected | tests/test_validation.py:221 |
+| test583 | `test_583_rule5_duplicate_position` | TEST583: RULE5 - duplicate position across args rejected | tests/test_validation.py:233 |
+| test584 | `test_584_rule6_position_gap` | TEST584: RULE6 - position gap rejected (0, 2 without 1) | tests/test_validation.py:246 |
+| test585 | `test_585_rule6_sequential_ok` | TEST585: RULE6 - sequential positions (0, 1, 2) pass | tests/test_validation.py:259 |
+| test586 | `test_586_rule7_position_and_cli_flag` | TEST586: RULE7 - arg with both position and cli_flag rejected | tests/test_validation.py:270 |
+| test587 | `test_587_rule9_duplicate_cli_flag` | TEST587: RULE9 - duplicate cli_flag across args rejected | tests/test_validation.py:282 |
+| test588 | `test_588_rule10_reserved_cli_flags` | TEST588: RULE10 - reserved cli_flags rejected | tests/test_validation.py:295 |
+| test589 | `test_589_all_rules_pass` | TEST589: valid cap args with mixed sources pass all rules | tests/test_validation.py:309 |
+| test590 | `test_590_cli_flag_only_args` | TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions) | tests/test_validation.py:320 |
 | test591 | `test_591_is_more_specific_than` | TEST591: is_more_specific_than returns true when self has more tags for same request | tests/test_cap.py:195 |
 | test592 | `test_592_remove_metadata` | TEST592: remove_metadata adds then removes metadata correctly | tests/test_cap.py:224 |
 | test593 | `test_593_registered_by_lifecycle` | TEST593: registered_by lifecycle — set, get, clear | tests/test_cap.py:243 |
@@ -515,8 +533,8 @@ This catalog lists all tests in the Python codebase.
 | test601 | `test_601_get_content_type` | TEST601: get_content_type returns correct MIME type for each variant | tests/test_response.py:91 |
 | test602 | `test_602_as_type_binary_error` | TEST602: as_type on binary response returns error (cannot deserialize binary) | tests/test_response.py:103 |
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
-| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:120 |
-| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:137 |
+| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:107 |
+| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:124 |
 | test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_spec.py:562 |
 | test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_spec.py:570 |
 | test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_spec.py:593 |
@@ -728,10 +746,10 @@ This catalog lists all tests in the Python codebase.
 | test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2310 |
 | test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2333 |
 | test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2358 |
-| test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:1003 |
-| test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:1036 |
-| test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:913 |
-| test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:935 |
+| test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:965 |
+| test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:998 |
+| test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:896 |
+| test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:918 |
 | test850 | `test_850_all_format_conversion_paths_build_valid_urns` | TEST850: all_format_conversion_paths each entry builds a valid parseable CapUrn | tests/test_standard_format_conversion.py:9 |
 | test851 | `test_851_format_conversion_urn_specs` | TEST851: format_conversion_urn in/out specs match the input constants | tests/test_standard_format_conversion.py:23 |
 | test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:415 |
@@ -757,8 +775,8 @@ This catalog lists all tests in the Python codebase.
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
 | test907 | `test_907_cbor_rejects_stream_end_without_chunk_count` | TEST907: Offline flag blocks fetch_from_registry without making HTTP request | tests/test_cbor_frame.py:1547 |
-| test908 | `test_908_cached_caps_accessible_when_offline` | TEST908: Cached caps remain accessible when offline | tests/test_registry.py:224 |
-| test909 | `test_909_set_offline_false_restores_fetch` | TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked) | tests/test_registry.py:241 |
+| test908 | `test_908_cached_caps_accessible_when_offline` | TEST908: Cached caps remain accessible when offline | tests/test_registry.py:222 |
+| test909 | `test_909_set_offline_false_restores_fetch` | TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked) | tests/test_registry.py:239 |
 | test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1288 |
 | test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1316 |
 | test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1327 |
@@ -856,6 +874,10 @@ This catalog lists all tests in the Python codebase.
 | test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:571 |
 | test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:590 |
 | test1137 | `test_1137_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:606 |
+| test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
+| test1139 | `test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed` |  | tests/test_input_resolver.py:517 |
+| test1140 | `test_1140_write_stream_chunked_reassembly` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END | tests/test_cbor_io.py:722 |
+| test1141 | `test_1141_exact_max_chunk_stream_chunked` | TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK | tests/test_cbor_io.py:764 |
 | test1142 | `test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes` | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels | tests/test_orchestrator_types.py:13 |
 | test1143 | `test_1143_input_item_from_string_distinguishes_glob_directory_and_file` | TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path. | tests/test_input_resolver.py:533 |
 | test1144 | `test_1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and string values are correct. | tests/test_input_resolver.py:551 |
@@ -933,9 +955,9 @@ This catalog lists all tests in the Python codebase.
 | test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:279 |
 | test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:298 |
 | test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:502 |
-| test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:154 |
-| test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:161 |
-| test1275 | `test_1275_adapter_selection_dispatchable_by_specific_provider` | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. | tests/test_standard_caps.py:175 |
+| test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:141 |
+| test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:148 |
+| test1275 | `test_1275_adapter_selection_dispatchable_by_specific_provider` | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. | tests/test_standard_caps.py:162 |
 | test1276 | `test_1276_register_non_conflicting` | TEST1276: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:429 |
 | test1277 | `test_1277_reject_conforming_overlap` | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:436 |
 | test1278 | `test_1278_reject_entire_group` | TEST1278: Registration rejects the entire group - no partial registration | tests/test_input_resolver.py:447 |
@@ -944,7 +966,7 @@ This catalog lists all tests in the Python codebase.
 | test1281 | `test_1281_no_adapter_for_unknown` | TEST1281: has_adapter_for_extension returns false for unregistered extension | tests/test_input_resolver.py:472 |
 | test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2376 |
 | test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2383 |
-| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:246 |
+| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:280 |
 | test1285 | `test_1285_confirmed_no_adapters_fails` | TEST1285: detect_file_confirmed fails when no adapters are registered for the extension | tests/test_input_resolver.py:479 |
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:489 |
 | test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:506 |
@@ -954,104 +976,28 @@ This catalog lists all tests in the Python codebase.
 | test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. | tests/test_live_cap_fab.py:316 |
 | test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_fab.py:341 |
 | test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. | tests/test_live_cap_fab.py:358 |
-| test1294 | `test_1294_rule11_void_input_with_stdin` | TEST1294: RULE11 - void-input cap with stdin source rejected | tests/test_validation.py:333 |
-| test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:345 |
-| test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:357 |
-| test1297 | `test_1297_rule11_non_void_input_with_stdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | tests/test_validation.py:367 |
+| test1294 | `test_1294_rule11_void_input_with_stdin` | TEST1294: RULE11 - void-input cap with stdin source rejected | tests/test_validation.py:331 |
+| test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:343 |
+| test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:355 |
+| test1297 | `test_1297_rule11_non_void_input_with_stdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | tests/test_validation.py:365 |
 | test1308 | `test_1308_cyclic_strand_fails_hard` | TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError. | tests/test_machine.py:307 |
 | test1309 | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:363 |
 | test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
 | test1311 | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:533 |
-| | | | |
-| test336 ⚠ | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:552 |
-| test336 ⚠ | `test_336_update_cache_rejects_malformed_cap_urn` | TEST336: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:505 |
-| | | | |
-| unnumbered | `test_148b_cap_manifest_rejects_unknown_channel` | TEST148b: CapManifest rejects unknown channel values. The closed enum is {release, nightly} — anything else is a publish-pipeline bug we want to surface immediately, not coerce. | tests/test_manifest.py:44 |
-| unnumbered | `test_148c_cap_manifest_missing_channel_field_fails_to_parse` | TEST148c: from_dict refuses to parse a manifest without `channel`. Channel is part of the cartridge's identity — there is no default. | tests/test_manifest.py:60 |
-| unnumbered | `test_148d_cap_manifest_missing_registry_url_field_fails_to_parse` | TEST148d: from_dict refuses to parse a manifest without `registry_url`. Registry URL is part of the cartridge's identity — present-but-null means dev build, missing means old SDK. | tests/test_manifest.py:69 |
-| unnumbered | `test_324b_transform_walks_both_channels_release_first` | TEST324b: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:234 |
-| unnumbered | `test_326b_get_cartridge_by_id_channel_isolation` | TEST326b: A cartridge with the same id can independently coexist in both channels with separate metadata/versions. | tests/test_cartridge_repo.py:275 |
-| unnumbered | `test_array_schema_validation` | TEST: Schema validation with array schemas | tests/test_schema_validation.py:207 |
-| unnumbered | `test_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
-| unnumbered | `test_chunk_corrupted_payload_rejected` | Mirror-specific coverage: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum) | tests/test_cbor_frame.py:1035 |
-| unnumbered | `test_chunking_data_integrity_3x` | Mirror-specific coverage: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:848 |
-| unnumbered | `test_concatenated_vs_final_payload_divergence` | Mirror-specific coverage: Test that concatenated() returns full payload while final_payload() returns only last chunk | tests/test_cartridge_host_runtime.py:265 |
-| unnumbered | `test_exact_max_chunk_stream_chunked` | Mirror-specific coverage: Test payload exactly equal to max_chunk produces STREAM_START + 1 CHUNK + STREAM_END + END | tests/test_cbor_io.py:781 |
-| unnumbered | `test_input_validation_optional_arg` | Extra Python-specific validation coverage: optional argument omitted | tests/test_validation.py:66 |
-| unnumbered | `test_input_validation_too_many_args` | Extra Python-specific validation coverage: too many positional arguments | tests/test_validation.py:80 |
-| unnumbered | `test_llm_generate_text_urn_specs` | Mirror-specific coverage: Test llm_generate_text_urn in/out specs match the expected media URNs semantically | tests/test_standard_caps.py:63 |
-| unnumbered | `test_max_chunk_plus_one_splits_into_two_chunks` | Mirror-specific coverage: Test payload of max_chunk + 1 produces STREAM_START + 2 CHUNK + STREAM_END + END | tests/test_cbor_io.py:812 |
-| unnumbered | `test_nested_object_schema_validation` | TEST: Schema validation with nested object schemas | tests/test_schema_validation.py:154 |
-| unnumbered | `test_normalize_urn_with_trailing_semicolon` |  | tests/test_registry.py:337 |
-| unnumbered | `test_output_validation_with_details` | TEST: Output validation with error details | tests/test_schema_validation.py:335 |
-| unnumbered | `test_registry_add_caps_to_cache` | Additional integration tests for registry functionality | tests/test_registry.py:294 |
-| unnumbered | `test_registry_cache_key_consistency` |  | tests/test_registry.py:311 |
-| unnumbered | `test_registry_config_builder_pattern` |  | tests/test_registry.py:327 |
-| unnumbered | `test_resolve_inputs_confirmed_wraps_detect_file_confirmed` |  | tests/test_input_resolver.py:517 |
-| unnumbered | `test_type_constraint_validation` | TEST: Schema validation with type constraints | tests/test_schema_validation.py:251 |
-| unnumbered | `test_validate_multiple_arguments` | TEST: Schema validation with multiple arguments | tests/test_schema_validation.py:286 |
-| unnumbered | `test_write_frame_writes_length_prefixed` | Mirror-specific coverage: Test write_frame writes length-prefixed frame | tests/test_cbor_io.py:81 |
-| unnumbered | `test_write_stream_chunked_reassembly` | Mirror-specific coverage: Test write_stream_chunked sends STREAM_START + CHUNK(s) + STREAM_END + END for payload larger than max_chunk, CHUNK frames + END frame, and reading them back reassembles the full original data | tests/test_cbor_io.py:739 |
-
----
-
-## ⚠ Duplicate Test Numbers
-
-The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
-
-### test336 (2 occurrences)
-
-- `test_336_file_path_reads_file_passes_bytes` — tests/test_cartridge_runtime.py:552
-- `test_336_update_cache_rejects_malformed_cap_urn` — tests/test_cartridge_repo.py:505
-
-**Suggested free number(s):** test319
-
----
-
-## Unnumbered Tests
-
-The following tests are cataloged but do not currently participate in numeric test indexing.
-
-- `test_148b_cap_manifest_rejects_unknown_channel` — tests/test_manifest.py:44
-- `test_148c_cap_manifest_missing_channel_field_fails_to_parse` — tests/test_manifest.py:60
-- `test_148d_cap_manifest_missing_registry_url_field_fails_to_parse` — tests/test_manifest.py:69
-- `test_324b_transform_walks_both_channels_release_first` — tests/test_cartridge_repo.py:234
-- `test_326b_get_cartridge_by_id_channel_isolation` — tests/test_cartridge_repo.py:275
-- `test_array_schema_validation` — tests/test_schema_validation.py:207
-- `test_assignment_bindings_sorted_by_slot_urn` — tests/test_machine.py:631
-- `test_chunk_corrupted_payload_rejected` — tests/test_cbor_frame.py:1035
-- `test_chunking_data_integrity_3x` — tests/test_cbor_io.py:848
-- `test_concatenated_vs_final_payload_divergence` — tests/test_cartridge_host_runtime.py:265
-- `test_exact_max_chunk_stream_chunked` — tests/test_cbor_io.py:781
-- `test_input_validation_optional_arg` — tests/test_validation.py:66
-- `test_input_validation_too_many_args` — tests/test_validation.py:80
-- `test_llm_generate_text_urn_specs` — tests/test_standard_caps.py:63
-- `test_max_chunk_plus_one_splits_into_two_chunks` — tests/test_cbor_io.py:812
-- `test_nested_object_schema_validation` — tests/test_schema_validation.py:154
-- `test_normalize_urn_with_trailing_semicolon` — tests/test_registry.py:337
-- `test_output_validation_with_details` — tests/test_schema_validation.py:335
-- `test_registry_add_caps_to_cache` — tests/test_registry.py:294
-- `test_registry_cache_key_consistency` — tests/test_registry.py:311
-- `test_registry_config_builder_pattern` — tests/test_registry.py:327
-- `test_resolve_inputs_confirmed_wraps_detect_file_confirmed` — tests/test_input_resolver.py:517
-- `test_type_constraint_validation` — tests/test_schema_validation.py:251
-- `test_validate_multiple_arguments` — tests/test_schema_validation.py:286
-- `test_write_frame_writes_length_prefixed` — tests/test_cbor_io.py:81
-- `test_write_stream_chunked_reassembly` — tests/test_cbor_io.py:739
-
 ---
 
 ## Numbered Tests Missing Descriptions
 
 These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
 
+- `test1139` / `test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed` — tests/test_input_resolver.py:517
 - `test1265` / `test_1265_compatible_media_urns_at_shared_node` — tests/test_orchestrator_parser.py:220
 
 ---
 
 *Generated from Python source tree*
-*Total tests: 973*
-*Total numbered tests: 947*
-*Total unnumbered tests: 26*
-*Total numbered tests missing descriptions: 1*
+*Total tests: 968*
+*Total numbered tests: 968*
+*Total unnumbered tests: 0*
+*Total numbered tests missing descriptions: 2*
 *Total numbering mismatches: 0*

@@ -62,22 +62,20 @@ def test_052_input_validation_missing_required():
     assert exc_info.value.cap_urn == cap.urn_string()
 
 
-# Extra Python-specific validation coverage: optional argument omitted
-def test_input_validation_optional_arg():
+# TEST131: Input validation succeeds when optional positional argument is omitted
+def test_131_input_validation_optional_arg():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
     arg = CapArg(MEDIA_STRING, False, [PositionSource(0)])
     cap.add_arg(arg)
 
-    input_args = []  # Not providing optional argument
-
-    # Should succeed - optional arg can be omitted
+    input_args = []  # Not providing optional argument — must succeed
     validate_positional_arguments(cap, input_args)
 
 
-# Extra Python-specific validation coverage: too many positional arguments
-def test_input_validation_too_many_args():
+# TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied
+def test_132_input_validation_too_many_args():
     urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 

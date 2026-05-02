@@ -326,6 +326,8 @@ class Cap:
         self.media_specs: List[Dict[str, Any]] = []
         self._metadata_json: Optional[Any] = None
         self._registered_by: Optional["RegisteredBy"] = None
+        self.supported_model_types: List[str] = []
+        self.default_model_spec: Optional[str] = None
 
     @classmethod
     def with_description(cls, urn: CapUrn, title: str, command: str, description: str) -> "Cap":
@@ -540,6 +542,12 @@ class Cap:
                 "registered_at": self._registered_by.registered_at,
             }
 
+        if self.supported_model_types:
+            result["supported_model_types"] = self.supported_model_types
+
+        if self.default_model_spec is not None:
+            result["default_model_spec"] = self.default_model_spec
+
         return result
 
     @classmethod
@@ -575,6 +583,9 @@ class Cap:
                 username=rb["username"],
                 registered_at=rb["registered_at"],
             )
+
+        cap.supported_model_types = data.get("supported_model_types", [])
+        cap.default_model_spec = data.get("default_model_spec")
 
         return cap
 

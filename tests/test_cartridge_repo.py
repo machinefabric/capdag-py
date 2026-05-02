@@ -230,8 +230,8 @@ def test_324_cartridge_repo_server_transform_to_array():
     assert sum(1 for _ in cartridges[0].iter_caps()) == 1
 
 
-# TEST324b: Walking both channels produces release entries first.
-def test_324b_transform_walks_both_channels_release_first():
+# TEST301: Walking both channels produces release entries first.
+def test_301_transform_walks_both_channels_release_first():
     entry_release = _make_registry_entry(name="R")
     entry_nightly = _make_registry_entry(name="N")
     server = CartridgeRepoServer(_make_registry(
@@ -270,9 +270,9 @@ def test_326_cartridge_repo_server_get_cartridge_by_id():
     assert server.get_cartridge_by_id(CartridgeChannel.NIGHTLY, "testcartridge") is None
 
 
-# TEST326b: A cartridge with the same id can independently coexist in
-# both channels with separate metadata/versions.
-def test_326b_get_cartridge_by_id_channel_isolation():
+# TEST300: A cartridge with the same id can independently exist in
+# both channels. Each lookup must return the channel-specific entry.
+def test_300_get_cartridge_by_id_channel_isolation():
     release_entry = _make_registry_entry(name="Foo (release)")
     nightly_entry = _make_registry_entry(
         name="Foo (nightly)",
@@ -499,10 +499,10 @@ def test_335_cartridge_repo_server_client_integration():
     assert sum(1 for _ in cartridge.iter_caps()) == 1
 
 
-# TEST336: A registry response with a malformed cap URN inside
+# TEST319: A registry response with a malformed cap URN inside
 # cap_groups must propagate as ParseError when indexed into the cache,
 # not silently disappear.
-def test_336_update_cache_rejects_malformed_cap_urn():
+def test_319_update_cache_rejects_malformed_cap_urn():
     repo = CartridgeRepo(3600)
     registry = CartridgeRegistryResponse(
         cartridges=[

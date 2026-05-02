@@ -1031,8 +1031,8 @@ def test_496_cbor_rejects_chunk_without_checksum():
         decode_frame(encoded)
 
 
-# Mirror-specific coverage: chunk corrupted payload is detected by checksum mismatch (verify_chunk_checksum)
-def test_chunk_corrupted_payload_rejected():
+# TEST497: Verify CHUNK frame with corrupted payload is rejected by checksum
+def test_497_chunk_corrupted_payload_rejected():
     req_id = MessageId.random()
     payload = b"original data"
     checksum = compute_checksum(payload)

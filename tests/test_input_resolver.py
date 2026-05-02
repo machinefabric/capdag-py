@@ -514,7 +514,7 @@ async def test_1287_confirmed_all_adapters_no_match(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
+async def test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
     path = tmp_path / "data.json"
     path.write_text('{"key":"value"}')
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))

@@ -42,10 +42,8 @@ def test_135_registry_creation():
 
 # TEST136: Test cache key generation produces consistent hashes for same URN
 def test_136_cache_key_generation():
-    """Test cache key generation produces consistent SHA-256 hashes"""
     registry = CapRegistry.new_for_test()
 
-    # Use URNs with required in/out (new media URN format)
     urn1 = 'cap:in="media:void";op=extract;out="media:record;textable";target=metadata'
     urn2 = 'cap:in="media:void";op=extract;out="media:record;textable";target=metadata'
     urn3 = 'cap:in="media:void";op=different;out="media:object"'
@@ -54,11 +52,11 @@ def test_136_cache_key_generation():
     key2 = registry._cache_key(urn2)
     key3 = registry._cache_key(urn3)
 
-    # Same URN should produce same key
     assert key1 == key2
-
-    # Different URN should produce different key
     assert key1 != key3
+    # Key must be a valid SHA-256 hex digest (64 characters, all hex).
+    assert len(key1) == 64
+    assert all(c in '0123456789abcdef' for c in key1)
 
     # Keys should be hex strings (SHA-256 is 64 hex chars)
     assert len(key1) == 64
@@ -287,12 +285,9 @@ def test_147_registry_for_test_with_config():
     assert registry.config.registry_base_url == "https://test-registry.local"
 
 
-# Additional integration tests for registry functionality
-
-
+# TEST123: Test adding caps to the registry cache and retrieving them
 @pytest.mark.asyncio
-async def test_registry_add_caps_to_cache():
-    """Test adding caps to cache for testing"""
+async def test_123_registry_add_caps_to_cache():
     registry = CapRegistry.new_for_test()
 
     urn = CapUrn.from_string(_test_urn("op=test"))
@@ -300,32 +295,13 @@ async def test_registry_add_caps_to_cache():
 
     registry.add_caps_to_cache([cap])
 
-    # Should be retrievable from cache. new_for_test() auto-installs the identity cap,
-    # so the cache contains the identity cap plus our added cap.
     cached_caps = await registry.get_cached_caps()
     titles = [c.title for c in cached_caps]
     assert "Test Cap" in titles
 
 
-@pytest.mark.asyncio
-async def test_registry_cache_key_consistency():
-    """Test that cache keys are consistent for same URN"""
-    registry = CapRegistry.new_for_test()
-
-    urn = _test_urn("op=test;ext=pdf")
-
-    key1 = registry._cache_key(urn)
-    key2 = registry._cache_key(urn)
-
-    assert key1 == key2
-
-    # Verify it's a valid SHA-256 hash (64 hex chars)
-    assert len(key1) == 64
-    assert all(c in '0123456789abcdef' for c in key1)
-
-
-def test_registry_config_builder_pattern():
-    """Test registry configuration builder pattern"""
+# TEST124: Test registry configuration builder sets registry and schema URLs
+def test_124_registry_config_builder_pattern():
     config = (RegistryConfig()
               .with_registry_url("https://custom.registry")
               .with_schema_url("https://custom.schemas"))
@@ -334,13 +310,13 @@ def test_registry_config_builder_pattern():
     assert config.schema_base_url == "https://custom.schemas"
 
 
-def test_normalize_urn_with_trailing_semicolon():
-    """Test normalization handles trailing semicolons"""
+# TEST125: normalize_cap_urn strips trailing semicolons, producing the
+# same canonical form with or without a trailing semicolon
+def test_125_normalize_urn_with_trailing_semicolon():
     urn1 = _test_urn("op=test")
     urn2 = _test_urn("op=test") + ";"
 
     normalized1 = normalize_cap_urn(urn1)
     normalized2 = normalize_cap_urn(urn2)
 
-    # Should normalize to same form
     assert normalized1 == normalized2

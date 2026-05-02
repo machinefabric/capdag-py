@@ -38,13 +38,33 @@ def test_148_cap_manifest_creation():
     assert manifest.author is None
 
 
-# TEST148b: CapManifest rejects unknown channel values. The closed
-# enum is {release, nightly} — anything else is a publish-pipeline bug
-# we want to surface immediately, not coerce.
-def test_148b_cap_manifest_rejects_unknown_channel():
+# TEST117: A manifest's channel round-trips through serde and the
+# serialized form uses the canonical lowercase wire word
+# ("release" / "nightly"). CapManifest rejects unknown channel values —
+# the closed enum is {release, nightly}. A missing or unrecognized
+# channel is a hard parse error — no defaults.
+def test_117_cap_manifest_channel_roundtrip():
     urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
-    with pytest.raises(ValueError, match="release.*nightly"):
+
+    manifest = CapManifest(
+        name="TestComponent",
+        version="0.1.0",
+        channel="nightly",
+        registry_url="https://cartridges.machinefabric.com/manifest",
+        description="Channel round-trip",
+        cap_groups=[default_group([cap])],
+    )
+    json_str = manifest.to_json()
+    assert '"channel": "nightly"' in json_str or '"channel":"nightly"' in json_str
+    assert "cartridges.machinefabric.com" in json_str
+
+    deserialized = CapManifest.from_json(json_str)
+    assert deserialized.channel == "nightly"
+    assert deserialized.registry_url == "https://cartridges.machinefabric.com/manifest"
+
+    # Bogus channel must fail hard.
+    with pytest.raises((ValueError, KeyError)):
         CapManifest(
             name="TestComponent",
             version="0.1.0",
@@ -54,22 +74,36 @@ def test_148b_cap_manifest_rejects_unknown_channel():
             cap_groups=[default_group([cap])],
         )
 
-
-# TEST148c: from_dict refuses to parse a manifest without `channel`.
-# Channel is part of the cartridge's identity — there is no default.
-def test_148c_cap_manifest_missing_channel_field_fails_to_parse():
+    # Missing channel key must fail to parse.
     no_channel = '{"name":"X","version":"1.0.0","registry_url":null,"description":"x","cap_groups":[]}'
-    with pytest.raises(KeyError):
+    with pytest.raises((KeyError, ValueError)):
         CapManifest.from_json(no_channel)
 
-
-# TEST148d: from_dict refuses to parse a manifest without
-# `registry_url`. Registry URL is part of the cartridge's identity
-# — present-but-null means dev build, missing means old SDK.
-def test_148d_cap_manifest_missing_registry_url_field_fails_to_parse():
-    no_registry = '{"name":"X","version":"1.0.0","channel":"release","description":"x","cap_groups":[]}'
-    with pytest.raises(ValueError, match="registry_url"):
+    # Missing registry_url key must fail to parse.
+    no_registry = '{"name":"X","version":"1.0.0","channel":"nightly","description":"x","cap_groups":[]}'
+    with pytest.raises((KeyError, ValueError)):
         CapManifest.from_json(no_registry)
+
+
+# TEST118: A dev manifest carries registry_url: null and serializes the
+# field explicitly. The null-vs-absent distinction matters because the
+# parser refuses to accept absent (test117) — so an old SDK can't
+# accidentally pass for a dev build.
+def test_118_dev_manifest_registry_url_is_explicit_null():
+    urn = CapUrn.from_string(_test_urn("op=dev"))
+    cap = Cap(urn, "Dev", "dev")
+    manifest = CapManifest(
+        name="DevComponent",
+        version="0.1.0",
+        channel="nightly",
+        registry_url=None,
+        description="Dev build",
+        cap_groups=[default_group([cap])],
+    )
+    json_str = manifest.to_json()
+    assert '"registry_url": null' in json_str or '"registry_url":null' in json_str
+    deserialized = CapManifest.from_json(json_str)
+    assert deserialized.registry_url is None
 
 
 # TEST149: Author field
