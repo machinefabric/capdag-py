@@ -28,7 +28,7 @@ import json
 import subprocess
 import threading
 import queue
-from typing import Optional, List, Callable
+from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
 
 from capdag.bifaci.frame import Frame, FrameType, Limits
@@ -268,7 +268,13 @@ class _ManagedCartridge:
         self.writer_queue: Optional[queue.Queue] = None
         self.manifest: bytes = b""
         self.limits: Limits = Limits.default()
+        # Flat cap-urn list (derived from cap_groups; kept alongside it
+        # so cap-table rebuilds don't have to walk groups every time).
         self.caps: List[str] = []
+        # Cartridge's manifest cap_groups, parsed at HELLO time. The
+        # source of truth on the wire; the engine reads
+        # `installed_cartridges[*].cap_groups` and derives the flat list.
+        self.cap_groups: List[Any] = []
         self.known_caps: List[str] = known_caps or []
         self.running: bool = False
         self.hello_failed: bool = False
@@ -338,7 +344,8 @@ class CartridgeHost:
         except Exception as e:
             raise Handshake(f"handshake failed: {e}")
 
-        caps = _parse_caps_from_manifest(result.manifest)
+        cap_groups = _parse_cap_groups_from_manifest(result.manifest)
+        caps = _flatten_cap_urns(cap_groups)
 
         with self._lock:
             cartridge_idx = len(self._cartridges)
@@ -349,6 +356,7 @@ class CartridgeHost:
             cartridge.writer_queue = writer_q
             cartridge.manifest = result.manifest
             cartridge.limits = result.limits
+            cartridge.cap_groups = cap_groups
             cartridge.caps = caps
             cartridge.running = True
 
@@ -686,7 +694,7 @@ class CartridgeHost:
             return f"handshake failed: {e}"
 
         try:
-            caps = _parse_caps_from_manifest(result.manifest)
+            cap_groups = _parse_cap_groups_from_manifest(result.manifest)
         except Exception as e:
             cartridge.hello_failed = True
             try:
@@ -697,7 +705,8 @@ class CartridgeHost:
 
         cartridge.manifest = result.manifest
         cartridge.limits = result.limits
-        cartridge.caps = caps
+        cartridge.cap_groups = cap_groups
+        cartridge.caps = _flatten_cap_urns(cap_groups)
         cartridge.running = True
         cartridge.writer = writer
 
@@ -731,21 +740,32 @@ class CartridgeHost:
                 self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=idx))
 
     def _rebuild_capabilities(self) -> None:
-        """Rebuild the aggregate capabilities JSON."""
-        all_caps = []
-        for cartridge in self._cartridges:
-            if cartridge.hello_failed:
-                continue
-            caps = cartridge.known_caps
-            if cartridge.running and len(cartridge.caps) > 0:
-                caps = cartridge.caps
-            all_caps.extend(caps)
+        """Rebuild the aggregate capabilities JSON.
 
-        if not all_caps:
+        The wire payload now lives entirely inside
+        ``installed_cartridges[*].cap_groups``. The Python host
+        synthesises one ``installed_cartridges`` entry per running
+        cartridge, attaching the parsed ``cap_groups`` so the engine
+        can register adapter URNs.
+        """
+        installed: List[dict] = []
+        for idx, cartridge in enumerate(self._cartridges):
+            if cartridge.hello_failed or not cartridge.running:
+                continue
+            installed.append({
+                "registry_url": None,
+                "channel": "release",
+                "id": f"cartridge-{idx}",
+                "version": "0.0.0",
+                "sha256": "",
+                "cap_groups": cartridge.cap_groups,
+            })
+
+        if not installed:
             self._capabilities = None
             return
 
-        self._capabilities = json.dumps({"caps": all_caps, "installed_cartridges": []}).encode("utf-8")
+        self._capabilities = json.dumps({"installed_cartridges": installed}).encode("utf-8")
 
     def _kill_all_cartridges(self) -> None:
         """Stop all managed cartridges."""
@@ -766,10 +786,13 @@ class CartridgeHost:
 # Helpers
 # =========================================================================
 
-def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
-    """Parse cap URNs from a JSON manifest.
+def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
+    """Parse the cartridge's cap_groups from a JSON manifest.
 
-    Expected format: {"cap_groups": [{"caps": [{"urn": "cap:op=test", ...}, ...]}]}
+    Returns the list of ``cap_groups`` dicts as declared in the
+    manifest. The flat cap-urn list is computed from these groups
+    elsewhere — the engine reads ``installed_cartridges[*].cap_groups``
+    and derives its own.
     """
     from capdag.standard.caps import CAP_IDENTITY
 
@@ -781,14 +804,31 @@ def _parse_caps_from_manifest(manifest: bytes) -> List[str]:
     if not cap_groups:
         raise ValueError("Manifest missing required cap_groups array")
 
-    caps = []
+    has_identity = False
+    for group in cap_groups:
+        for cap in group.get("caps", []):
+            if cap.get("urn", "") == CAP_IDENTITY:
+                has_identity = True
+                break
+        if has_identity:
+            break
+
+    if not has_identity:
+        raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
+
+    return cap_groups
+
+
+def _flatten_cap_urns(cap_groups: List[Any]) -> List[str]:
+    """Walk a list of cap_groups dicts and return the flat list of cap
+    URN strings, preserving order.
+    """
+    caps: List[str] = []
     for group in cap_groups:
         for cap in group.get("caps", []):
             urn = cap.get("urn", "")
             if urn:
                 caps.append(urn)
-
-    if CAP_IDENTITY not in caps:
-        raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
-
     return caps
+
+

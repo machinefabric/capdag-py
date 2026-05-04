@@ -17,7 +17,11 @@ import time
 
 import pytest
 
-from capdag.bifaci.host_runtime import CartridgeHost, _parse_caps_from_manifest
+from capdag.bifaci.host_runtime import (
+    CartridgeHost,
+    _parse_cap_groups_from_manifest,
+    _flatten_cap_urns,
+)
 from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
 from capdag.bifaci.io import (
     FrameReader,
@@ -115,14 +119,22 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
 IDENTITY_CAP_JSON = '{"urn":"cap:","title":"Identity","command":"identity","args":[]}'
 
 
-# TEST480: parse_caps_from_manifest rejects manifest without CAP_IDENTITY
-def test_480_parse_caps_rejects_manifest_without_identity():
+# TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
+def test_480_parse_cap_groups_rejects_manifest_without_identity():
     manifest = b'{"name":"Broken","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test"}]}]}'
 
     with pytest.raises(ValueError) as exc_info:
-        _parse_caps_from_manifest(manifest)
+        _parse_cap_groups_from_manifest(manifest)
 
     assert "CAP_IDENTITY" in str(exc_info.value)
+
+
+def test_480_flatten_cap_urns_round_trips():
+    cap_groups = [
+        {"caps": [{"urn": "cap:"}, {"urn": "cap:op=test"}]},
+        {"caps": [{"urn": "cap:op=other"}]},
+    ]
+    assert _flatten_cap_urns(cap_groups) == ["cap:", "cap:op=test", "cap:op=other"]
 
 
 # TEST485: attach_cartridge completes identity verification with working cartridge

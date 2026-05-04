@@ -30,7 +30,35 @@ def send_notify(writer: FrameWriter, manifest_json: dict, limits: Limits):
 
 
 def make_manifest(*caps: str) -> dict:
-    return {"caps": ["cap:", *caps], "installed_cartridges": []}
+    """Build a RelayNotify-shaped manifest dict from a flat cap-urn list.
+
+    The wire schema embeds caps inside ``installed_cartridges[*].cap_groups``,
+    so this helper wraps the test's flat list (always prepended with
+    CAP_IDENTITY ``"cap:"``) in a single synthetic installed-cartridge.
+    """
+    all_caps = ["cap:", *caps]
+    group_caps = [
+        {"urn": urn, "title": "test", "command": "test", "args": []}
+        for urn in all_caps
+    ]
+    return {
+        "installed_cartridges": [
+            {
+                "registry_url": None,
+                "channel": "release",
+                "id": "test-cartridge",
+                "version": "0.0.0",
+                "sha256": "0" * 64,
+                "cap_groups": [
+                    {
+                        "name": "test",
+                        "caps": group_caps,
+                        "adapter_urns": [],
+                    },
+                ],
+            }
+        ]
+    }
 
 
 def complete_identity_verification(reader: FrameReader, writer: FrameWriter) -> None:

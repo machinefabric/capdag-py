@@ -30,8 +30,8 @@ based on URN matching and request ID tracking.
 import json
 import threading
 import queue
-from typing import Optional, List, Tuple, Dict
-from dataclasses import dataclass
+from typing import Any, Optional, List, Tuple, Dict
+from dataclasses import dataclass, field
 
 from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
 from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity
@@ -96,12 +96,18 @@ class InstalledCartridgeIdentity:
     (cartridge built locally without ``MFR_REGISTRY_URL``); non-None
     ⇔ verbatim URL the cartridge was published from. Compared
     byte-wise; never normalized.
+
+    ``cap_groups`` carries the cartridge's manifest cap_groups so the
+    engine can register content-inspection adapters per cartridge. The
+    flat cap-urn snapshot is computed from these groups, never stored
+    alongside them on the wire.
     """
     registry_url: Optional[str]
     id: str
     channel: str
     version: str
     sha256: str
+    cap_groups: List[Any] = field(default_factory=list)
 
     def registry_slug(self) -> str:
         """On-disk slug derived from ``registry_url``. ``None`` →
@@ -109,6 +115,21 @@ class InstalledCartridgeIdentity:
         the URL bytes."""
         from capdag.bifaci.cartridge_slug import slug_for
         return slug_for(self.registry_url)
+
+    def cap_urns(self) -> List[str]:
+        """Flat de-duplicated cap-URN view across this cartridge's
+        groups, preserving first-seen order."""
+        seen = set()
+        out: List[str] = []
+        for group in self.cap_groups:
+            caps = group.get("caps", []) if isinstance(group, dict) else []
+            for cap in caps:
+                urn = cap.get("urn", "") if isinstance(cap, dict) else ""
+                if not urn or urn in seen:
+                    continue
+                seen.add(urn)
+                out.append(urn)
+        return out
 
 
 @dataclass
@@ -569,16 +590,26 @@ class RelaySwitch:
         self._aggregate_installed_cartridges = result
 
     def _rebuild_capabilities(self):
-        """Rebuild aggregate capabilities manifest (union with deduplication)"""
-        all_caps = set()
-        for master in self._masters:
-            if master.healthy:
-                all_caps.update(master.caps)
+        """Rebuild aggregate capabilities manifest.
 
-        manifest = {
-            "caps": sorted(list(all_caps)),
-            "installed_cartridges": [],
-        }
+        The wire payload now carries caps inside
+        ``installed_cartridges[*].cap_groups``; the relay republishes
+        the union of every healthy master's installed cartridges so the
+        engine sees one combined view and derives the flat cap-urn list
+        itself.
+        """
+        installed: List[dict] = []
+        for ic in self._aggregate_installed_cartridges:
+            installed.append({
+                "registry_url": ic.registry_url,
+                "id": ic.id,
+                "channel": ic.channel,
+                "version": ic.version,
+                "sha256": ic.sha256,
+                "cap_groups": ic.cap_groups,
+            })
+
+        manifest = {"installed_cartridges": installed}
         self._aggregate_capabilities = json.dumps(manifest).encode("utf-8")
 
     def _rebuild_limits(self):
@@ -627,58 +658,72 @@ class _MasterConnection:
 # =============================================================================
 
 def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeIdentity]]:
-    """Parse capability URNs and installed cartridges from RelayNotify manifest JSON.
+    """Parse installed cartridges (with cap_groups) from a RelayNotify manifest JSON.
 
-    The payload must contain "caps" (list of URN strings) and optionally
-    "installed_cartridges". Returns (caps, installed_cartridges).
+    The payload carries ``installed_cartridges``, each with a ``cap_groups``
+    array. The flat cap-urn list returned alongside is computed from those
+    groups — it is no longer transmitted on the wire.
     """
     try:
         parsed = json.loads(manifest.decode("utf-8"))
     except json.JSONDecodeError as e:
         raise ProtocolError(f"Failed to parse manifest JSON: {e}")
 
-    if "caps" not in parsed:
-        raise ProtocolError("manifest missing required caps array")
+    if "installed_cartridges" not in parsed:
+        raise ProtocolError("manifest missing required installed_cartridges array")
 
-    caps_value = parsed["caps"]
-    if not isinstance(caps_value, list):
-        raise ProtocolError(f"Manifest caps must be array, got {type(caps_value)}")
-    caps = [str(cap) for cap in caps_value]
+    ic_raw = parsed["installed_cartridges"]
+    if not isinstance(ic_raw, list):
+        raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
 
-    installed_cartridges = []
-    if "installed_cartridges" in parsed:
-        ic_raw = parsed["installed_cartridges"]
-        if not isinstance(ic_raw, list):
-            raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
-        for item in ic_raw:
-            # (registry_url, channel) are both part of every
-            # install's identity. Reject entries that omit either
-            # — an upstream that ships an InstalledCartridgeIdentity
-            # without these fields is using an old schema.
-            channel = item.get("channel")
-            if channel not in ("release", "nightly"):
-                raise ProtocolError(
-                    f"installed_cartridges entry missing or invalid 'channel' "
-                    f"(got {channel!r}); expected 'release' or 'nightly'"
-                )
-            if "registry_url" not in item:
-                raise ProtocolError(
-                    "installed_cartridges entry missing required `registry_url` field. "
-                    "It must be present, with value null for dev installs or "
-                    "a URL string for registry installs."
-                )
-            registry_url_raw = item["registry_url"]
-            if registry_url_raw is not None and not isinstance(registry_url_raw, str):
-                raise ProtocolError(
-                    f"installed_cartridges entry `registry_url` must be null or string, "
-                    f"got {type(registry_url_raw)}"
-                )
-            installed_cartridges.append(InstalledCartridgeIdentity(
-                registry_url=registry_url_raw,
-                id=str(item.get("id", "")),
-                channel=str(channel),
-                version=str(item.get("version", "")),
-                sha256=str(item.get("sha256", "")),
-            ))
+    installed_cartridges: List[InstalledCartridgeIdentity] = []
+    for item in ic_raw:
+        # (registry_url, channel) are both part of every
+        # install's identity. Reject entries that omit either
+        # — an upstream that ships an InstalledCartridgeIdentity
+        # without these fields is using an old schema.
+        channel = item.get("channel")
+        if channel not in ("release", "nightly"):
+            raise ProtocolError(
+                f"installed_cartridges entry missing or invalid 'channel' "
+                f"(got {channel!r}); expected 'release' or 'nightly'"
+            )
+        if "registry_url" not in item:
+            raise ProtocolError(
+                "installed_cartridges entry missing required `registry_url` field. "
+                "It must be present, with value null for dev installs or "
+                "a URL string for registry installs."
+            )
+        registry_url_raw = item["registry_url"]
+        if registry_url_raw is not None and not isinstance(registry_url_raw, str):
+            raise ProtocolError(
+                f"installed_cartridges entry `registry_url` must be null or string, "
+                f"got {type(registry_url_raw)}"
+            )
+        cap_groups_raw = item.get("cap_groups", []) or []
+        if not isinstance(cap_groups_raw, list):
+            raise ProtocolError(
+                f"installed_cartridges entry `cap_groups` must be array, "
+                f"got {type(cap_groups_raw)}"
+            )
+        installed_cartridges.append(InstalledCartridgeIdentity(
+            registry_url=registry_url_raw,
+            id=str(item.get("id", "")),
+            channel=str(channel),
+            version=str(item.get("version", "")),
+            sha256=str(item.get("sha256", "")),
+            cap_groups=cap_groups_raw,
+        ))
+
+    # Derive the flat cap-urn union from cap_groups across all installed
+    # cartridges, preserving first-seen order.
+    seen_caps: set = set()
+    caps: List[str] = []
+    for cart in installed_cartridges:
+        for urn in cart.cap_urns():
+            if urn in seen_caps:
+                continue
+            seen_caps.add(urn)
+            caps.append(urn)
 
     return caps, installed_cartridges
