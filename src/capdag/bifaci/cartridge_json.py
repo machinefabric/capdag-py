@@ -23,10 +23,18 @@ from typing import Optional
 
 
 class CartridgeInstallSource(str, Enum):
-    """How a cartridge was installed."""
+    """Opaque optional install-provenance metadata.
+
+    **Not consulted for any host or engine routing decision** — kept
+    around so downstream telemetry / audit tooling can record install
+    provenance without growing a parallel data structure. Within the
+    codebase nothing should branch on the variant; the dev-vs-not-dev
+    signal the host actually uses is ``registry_url`` (``None`` ⇔ dev).
+    """
     REGISTRY = "registry"
     DEV = "dev"
     BUNDLE = "bundle"
+    APP_INSTALLER = "app_installer"
 
 
 @dataclass
@@ -59,8 +67,11 @@ class CartridgeJson:
     entry: str
     #: RFC3339 timestamp of when the cartridge was installed.
     installed_at: str
-    #: How the cartridge was installed.
-    installed_from: CartridgeInstallSource
+    #: Optional install-provenance metadata. Not consulted for any
+    #: routing or attachment decision; kept around as opaque
+    #: telemetry / audit hint. ``None`` (and absence in the on-disk
+    #: JSON) is acceptable.
+    installed_from: Optional[CartridgeInstallSource] = field(default=None)
     #: URL the package was downloaded from (empty for dev/bundle installs).
     source_url: str = field(default="")
     #: SHA256 hash of the original package (tarball or binary).
@@ -88,8 +99,14 @@ class CartridgeJson:
             "registry_url": self.registry_url,
             "entry": self.entry,
             "installed_at": self.installed_at,
-            "installed_from": self.installed_from.value,
         }
+        # ``installed_from`` is opaque optional metadata; we omit
+        # the key when no value is set rather than emitting an
+        # explicit JSON null, since a downstream reader treating
+        # absent and null as the same is exactly the regime we
+        # want.
+        if self.installed_from is not None:
+            d["installed_from"] = self.installed_from.value
         if self.source_url:
             d["source_url"] = self.source_url
         if self.package_sha256:
@@ -110,6 +127,17 @@ class CartridgeJson:
                 "It must be present, with value null for dev installs or "
                 "a URL string for registry installs."
             )
+        # ``installed_from`` is optional metadata. Missing key or
+        # explicit null both deserialize to ``None``; an unknown
+        # variant string still raises (Enum constructor) so a typo
+        # in the on-disk file surfaces immediately rather than
+        # being silently coerced.
+        raw_installed_from = d.get("installed_from")
+        installed_from = (
+            CartridgeInstallSource(raw_installed_from)
+            if raw_installed_from is not None
+            else None
+        )
         return cls(
             name=d["name"],
             version=d["version"],
@@ -117,7 +145,7 @@ class CartridgeJson:
             registry_url=d["registry_url"],
             entry=d["entry"],
             installed_at=d["installed_at"],
-            installed_from=CartridgeInstallSource(d["installed_from"]),
+            installed_from=installed_from,
             source_url=d.get("source_url", ""),
             package_sha256=d.get("package_sha256", ""),
             package_size=d.get("package_size", 0),

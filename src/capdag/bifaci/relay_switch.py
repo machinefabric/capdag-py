@@ -83,7 +83,7 @@ class SocketPair:
 
 
 @dataclass
-class InstalledCartridgeIdentity:
+class InstalledCartridgeRecord:
     """Identity of an installed cartridge.
 
     `(registry_url, channel, id, version)` is the install's full
@@ -180,7 +180,7 @@ class RelaySwitch:
         self._peer_requests: set = set()  # Request IDs for peer-initiated requests
         self._peer_call_parents: Dict[str, List[str]] = {}  # parent key → list of child peer-call keys
         self._aggregate_capabilities: bytes = b""
-        self._aggregate_installed_cartridges: List[InstalledCartridgeIdentity] = []
+        self._aggregate_installed_cartridges: List[InstalledCartridgeRecord] = []
         self._negotiated_limits: Limits = Limits.default()
         self._lock = threading.Lock()
 
@@ -279,7 +279,7 @@ class RelaySwitch:
         with self._lock:
             return self._negotiated_limits
 
-    def installed_cartridges(self) -> List[InstalledCartridgeIdentity]:
+    def installed_cartridges(self) -> List[InstalledCartridgeRecord]:
         """Get aggregate installed cartridge identities of all healthy masters"""
         with self._lock:
             return list(self._aggregate_installed_cartridges)
@@ -578,7 +578,7 @@ class RelaySwitch:
     def _rebuild_installed_cartridges(self):
         """Rebuild aggregate installed cartridges (union with deduplication, sorted)"""
         seen: Dict[str, bool] = {}
-        result: List[InstalledCartridgeIdentity] = []
+        result: List[InstalledCartridgeRecord] = []
         for master in self._masters:
             if master.healthy:
                 for ic in master.installed_cartridges:
@@ -648,7 +648,7 @@ class _MasterConnection:
     manifest: bytes
     limits: Limits
     caps: List[str]
-    installed_cartridges: List[InstalledCartridgeIdentity]
+    installed_cartridges: List[InstalledCartridgeRecord]
     healthy: bool
     reader_handle: threading.Thread
 
@@ -657,7 +657,7 @@ class _MasterConnection:
 # HELPER FUNCTIONS
 # =============================================================================
 
-def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeIdentity]]:
+def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeRecord]]:
     """Parse installed cartridges (with cap_groups) from a RelayNotify manifest JSON.
 
     The payload carries ``installed_cartridges``, each with a ``cap_groups``
@@ -676,11 +676,11 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
     if not isinstance(ic_raw, list):
         raise ProtocolError(f"installed_cartridges must be array, got {type(ic_raw)}")
 
-    installed_cartridges: List[InstalledCartridgeIdentity] = []
+    installed_cartridges: List[InstalledCartridgeRecord] = []
     for item in ic_raw:
         # (registry_url, channel) are both part of every
         # install's identity. Reject entries that omit either
-        # — an upstream that ships an InstalledCartridgeIdentity
+        # — an upstream that ships an InstalledCartridgeRecord
         # without these fields is using an old schema.
         channel = item.get("channel")
         if channel not in ("release", "nightly"):
@@ -706,7 +706,7 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
                 f"installed_cartridges entry `cap_groups` must be array, "
                 f"got {type(cap_groups_raw)}"
             )
-        installed_cartridges.append(InstalledCartridgeIdentity(
+        installed_cartridges.append(InstalledCartridgeRecord(
             registry_url=registry_url_raw,
             id=str(item.get("id", "")),
             channel=str(channel),
