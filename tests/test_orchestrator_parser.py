@@ -44,10 +44,10 @@ def _media(s: str) -> MediaUrn:
 @pytest.mark.asyncio
 async def test_1256_parse_simple_machine():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
+        ('cap:in="media:pdf";extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
     ])
     notation = (
-        '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]'
+        '[extract cap:in="media:pdf";extract;out="media:txt;textable"]'
         "[A -> extract -> B]"
     )
     graph = await parse_machine_to_cap_dag(notation, registry)
@@ -65,13 +65,13 @@ async def test_1256_parse_simple_machine():
 @pytest.mark.asyncio
 async def test_1257_parse_two_step_chain():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
-        ('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"',
+        ('cap:in="media:pdf";extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
+        ('cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"',
          ["media:txt;textable"], "media:embedding-vector;record;textable"),
     ])
     notation = (
-        '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]'
-        '[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]'
+        '[extract cap:in="media:pdf";extract;out="media:txt;textable"]'
+        '[embed cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"]'
         "[A -> extract -> B]"
         "[B -> embed -> C]"
     )
@@ -91,7 +91,7 @@ def test_1261_cap_not_found_in_registry():
     import asyncio
     registry = _build_registry([])
     notation = (
-        '[ex cap:in="media:unknown";op=test;out="media:unknown"]'
+        '[ex cap:in="media:unknown";test;out="media:unknown"]'
         "[A -> ex -> B]"
     )
     with pytest.raises(ParseOrchestrationError):
@@ -110,17 +110,17 @@ async def test_1262_invalid_machine_notation():
 @pytest.mark.asyncio
 async def test_1258_parse_fan_out():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"',
+        ('cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"',
          ["media:pdf"], "media:file-metadata;record;textable"),
-        ('cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"',
+        ('cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"',
          ["media:pdf"], "media:document-outline;record;textable"),
-        ('cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"',
+        ('cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"',
          ["media:pdf"], "media:image;png;thumbnail"),
     ])
     notation = (
-        '[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]'
-        '[outline cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"]'
-        '[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]'
+        '[meta cap:in="media:pdf";extract-metadata;out="media:file-metadata;record;textable"]'
+        '[outline cap:in="media:pdf";extract-outline;out="media:document-outline;record;textable"]'
+        '[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]'
         "[doc -> meta -> metadata]"
         "[doc -> outline -> outline_data]"
         "[doc -> thumb -> thumbnail]"
@@ -134,17 +134,17 @@ async def test_1258_parse_fan_out():
 @pytest.mark.asyncio
 async def test_1259_parse_fan_in():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"',
+        ('cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"',
          ["media:pdf"], "media:image;png;thumbnail"),
-        ('cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"',
+        ('cap:in="media:model-spec;textable";download;out="media:model-spec;textable"',
          ["media:model-spec;textable"], "media:model-spec;textable"),
-        ('cap:in="media:image;png";op=describe_image;out="media:image-description;textable"',
+        ('cap:in="media:image;png";describe-image;out="media:image-description;textable"',
          ["media:image;png", "media:model-spec;textable"], "media:image-description;textable"),
     ])
     notation = (
-        '[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]'
-        '[model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"]'
-        '[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]'
+        '[thumb cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"]'
+        '[model_dl cap:in="media:model-spec;textable";download;out="media:model-spec;textable"]'
+        '[describe cap:in="media:image;png";describe-image;out="media:image-description;textable"]'
         "[doc -> thumb -> thumbnail]"
         "[spec_input -> model_dl -> model_spec]"
         "[(thumbnail, model_spec) -> describe -> description]"
@@ -158,11 +158,11 @@ async def test_1259_parse_fan_in():
 @pytest.mark.asyncio
 async def test_1260_parse_loop_wiring():
     registry = _build_registry([
-        ('cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"',
+        ('cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"',
          ["media:disbound-page;textable"], "media:txt;textable"),
     ])
     notation = (
-        '[p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"]'
+        '[p2t cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"]'
         "[pages -> LOOP p2t -> texts]"
     )
     graph = await parse_machine_to_cap_dag(notation, registry)
@@ -174,11 +174,11 @@ async def test_1260_parse_loop_wiring():
 @pytest.mark.asyncio
 async def test_1263_cycle_detection():
     registry = _build_registry([
-        ('cap:in="media:txt;textable";op=process;out="media:txt;textable"',
+        ('cap:in="media:txt;textable";process;out="media:txt;textable"',
          ["media:txt;textable"], "media:txt;textable"),
     ])
     notation = (
-        '[proc cap:in="media:txt;textable";op=process;out="media:txt;textable"]'
+        '[proc cap:in="media:txt;textable";process;out="media:txt;textable"]'
         "[A -> proc -> B]"
         "[B -> proc -> C]"
         "[C -> proc -> A]"
@@ -191,14 +191,14 @@ async def test_1263_cycle_detection():
 @pytest.mark.asyncio
 async def test_1264_incompatible_media_types_at_shared_node():
     registry = _build_registry([
-        ('cap:in="media:void";op=produce_pdf;out="media:pdf"',
+        ('cap:in="media:void";produce-pdf;out="media:pdf"',
          ["media:void"], "media:pdf"),
-        ('cap:in="media:audio;wav";op=transcribe;out="media:txt;textable"',
+        ('cap:in="media:audio;wav";transcribe;out="media:txt;textable"',
          ["media:audio;wav"], "media:txt;textable"),
     ])
     notation = (
-        '[produce cap:in="media:void";op=produce_pdf;out="media:pdf"]'
-        '[transcribe cap:in="media:audio;wav";op=transcribe;out="media:txt;textable"]'
+        '[produce cap:in="media:void";produce-pdf;out="media:pdf"]'
+        '[transcribe cap:in="media:audio;wav";transcribe;out="media:txt;textable"]'
         "[A -> produce -> B]"
         "[B -> transcribe -> C]"
     )
@@ -219,14 +219,14 @@ async def test_1264_incompatible_media_types_at_shared_node():
 @pytest.mark.asyncio
 async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=thumbnail;out="media:image;png"',
+        ('cap:in="media:pdf";thumbnail;out="media:image;png"',
          ["media:pdf"], "media:image;png"),
-        ('cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable"',
+        ('cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"',
          ["media:image;png;bytes"], "media:embedding-vector;record;textable"),
     ])
     notation = (
-        '[thumb cap:in="media:pdf";op=thumbnail;out="media:image;png"]'
-        '[embed_image cap:in="media:image;png;bytes";op=embed_image;out="media:embedding-vector;record;textable"]'
+        '[thumb cap:in="media:pdf";thumbnail;out="media:image;png"]'
+        '[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"]'
         "[A -> thumb -> B]"
         "[B -> embed_image -> C]"
     )
@@ -239,14 +239,14 @@ async def test_1265_compatible_media_urns_at_shared_node():
 @pytest.mark.asyncio
 async def test_1266_structure_mismatch_record_to_opaque():
     registry = _build_registry([
-        ('cap:in="media:void";op=produce;out="media:json;record;textable"',
+        ('cap:in="media:void";produce;out="media:json;record;textable"',
          ["media:void"], "media:json;record;textable"),
-        ('cap:in="media:json;textable";op=process;out="media:txt;textable"',
+        ('cap:in="media:json;textable";process;out="media:txt;textable"',
          ["media:json;textable"], "media:txt;textable"),
     ])
     notation = (
-        '[produce cap:in="media:void";op=produce;out="media:json;record;textable"]'
-        '[process cap:in="media:json;textable";op=process;out="media:txt;textable"]'
+        '[produce cap:in="media:void";produce;out="media:json;record;textable"]'
+        '[process cap:in="media:json;textable";process;out="media:txt;textable"]'
         "[A -> produce -> B]"
         "[B -> process -> C]"
     )
@@ -259,14 +259,14 @@ async def test_1266_structure_mismatch_record_to_opaque():
 @pytest.mark.asyncio
 async def test_1267_structure_match_both_record():
     registry = _build_registry([
-        ('cap:in="media:void";op=produce;out="media:json;record;textable"',
+        ('cap:in="media:void";produce;out="media:json;record;textable"',
          ["media:void"], "media:json;record;textable"),
-        ('cap:in="media:json;record;textable";op=transform;out="media:result;record;textable"',
+        ('cap:in="media:json;record;textable";transform;out="media:result;record;textable"',
          ["media:json;record;textable"], "media:result;record;textable"),
     ])
     notation = (
-        '[produce cap:in="media:void";op=produce;out="media:json;record;textable"]'
-        '[transform cap:in="media:json;record;textable";op=transform;out="media:result;record;textable"]'
+        '[produce cap:in="media:void";produce;out="media:json;record;textable"]'
+        '[transform cap:in="media:json;record;textable";transform;out="media:result;record;textable"]'
         "[A -> produce -> B]"
         "[B -> transform -> C]"
     )
@@ -278,14 +278,14 @@ async def test_1267_structure_match_both_record():
 @pytest.mark.asyncio
 async def test_1268_structure_match_both_opaque():
     registry = _build_registry([
-        ('cap:in="media:void";op=produce;out="media:json;textable"',
+        ('cap:in="media:void";produce;out="media:json;textable"',
          ["media:void"], "media:json;textable"),
-        ('cap:in="media:json;textable";op=format;out="media:txt;textable"',
+        ('cap:in="media:json;textable";format;out="media:txt;textable"',
          ["media:json;textable"], "media:txt;textable"),
     ])
     notation = (
-        '[produce cap:in="media:void";op=produce;out="media:json;textable"]'
-        '[format cap:in="media:json;textable";op=format;out="media:txt;textable"]'
+        '[produce cap:in="media:void";produce;out="media:json;textable"]'
+        '[format cap:in="media:json;textable";format;out="media:txt;textable"]'
         "[A -> produce -> B]"
         "[B -> format -> C]"
     )
@@ -297,9 +297,9 @@ async def test_1268_structure_match_both_opaque():
 @pytest.mark.asyncio
 async def test_1269_parse_multiline_machine():
     registry = _build_registry([
-        ('cap:in="media:pdf";op=extract;out="media:txt;textable"',
+        ('cap:in="media:pdf";extract;out="media:txt;textable"',
          ["media:pdf"], "media:txt;textable"),
     ])
-    notation = '\n[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]\n[doc -> extract -> text]\n'
+    notation = '\n[extract cap:in="media:pdf";extract;out="media:txt;textable"]\n[doc -> extract -> text]\n'
     result = await parse_machine_to_cap_dag(notation, registry)
     assert result is not None, "Multi-line parse failed"

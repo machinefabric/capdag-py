@@ -12,11 +12,11 @@ def _make_test_cap(urn: str, title: str) -> Cap:
 # TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels
 def test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes():
     cap = _make_test_cap(
-        'cap:in="media:pdf";op=extract;out="media:txt;textable"',
+        'cap:in="media:pdf";extract;out="media:txt;textable"',
         'Extract "Title" <One>\\path',
     )
     second_cap = _make_test_cap(
-        'cap:in="media:txt;textable";op=embed;out="media:embedding;record"',
+        'cap:in="media:txt;textable";embed;out="media:embedding;record"',
         "Embed",
     )
     graph = ResolvedGraph(

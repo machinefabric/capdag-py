@@ -42,7 +42,7 @@ def test_668_resolve_slot_with_populated_byte_slot_values():
     binding = ArgumentBinding.slot("media:width;textable;numeric")
     result = resolve_binding(
         binding, ctx,
-        'cap:in="media:pdf";op=resize;out="media:pdf"',
+        'cap:in="media:pdf";resize;out="media:pdf"',
         "step_0",
         None, True,
     )
@@ -54,7 +54,7 @@ def test_668_resolve_slot_with_populated_byte_slot_values():
 def test_669_resolve_slot_falls_back_to_default():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:quality;textable;numeric")
-    result = resolve_binding(binding, ctx, "cap:op=compress", "step_0", 85, False)
+    result = resolve_binding(binding, ctx, "cap:compress", "step_0", 85, False)
     assert result is not None
     assert result.value == json.dumps(85, separators=(",", ":")).encode("utf-8")
     assert result.source == ArgumentSource.CAP_DEFAULT
@@ -64,14 +64,14 @@ def test_670_resolve_required_slot_no_value_returns_err():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:question;textable")
     with pytest.raises(InternalError) as exc_info:
-        resolve_binding(binding, ctx, "cap:op=generate", "step_0", None, True)
+        resolve_binding(binding, ctx, "cap:generate", "step_0", None, True)
     assert "media:question;textable" in str(exc_info.value)
 
 # TEST671: resolve_optional_slot_no_value_returns_none
 def test_671_resolve_optional_slot_no_value_returns_none():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:suffix;textable")
-    result = resolve_binding(binding, ctx, "cap:op=rename", "step_0", None, False)
+    result = resolve_binding(binding, ctx, "cap:rename", "step_0", None, False)
     assert result is None
 
 
@@ -82,7 +82,7 @@ def test_671_resolve_optional_slot_no_value_returns_none():
 # TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve.
 # This is the core disambiguation scenario that step-index keying was designed to solve.
 def test_1105_two_steps_same_cap_urn_different_slot_values():
-    cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'
+    cap_urn = 'cap:in="media:pdf";make-decision;out="media:bool;textable"'
     slot_name = "media:question;textable;list"
     slot_values = {
         f"step_0:{slot_name}": b"Is this a contract?",
@@ -110,7 +110,7 @@ def test_1105_two_steps_same_cap_urn_different_slot_values():
 # TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 # cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 def test_1106_slot_falls_through_to_cap_settings_shared():
-    cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'
+    cap_urn = 'cap:in="media:pdf";make-decision;out="media:bool;textable"'
     slot_name = "media:language;textable"
     cap_settings = {
         cap_urn: {slot_name: "en"},
@@ -131,7 +131,7 @@ def test_1106_slot_falls_through_to_cap_settings_shared():
 # TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback.
 # Proves per-step override works while shared settings remain as fallback.
 def test_1107_slot_value_overrides_cap_settings_per_step():
-    cap_urn = 'cap:in="media:pdf";op=make_decision;out="media:bool;textable"'
+    cap_urn = 'cap:in="media:pdf";make-decision;out="media:bool;textable"'
     slot_name = "media:language;textable"
     slot_values = {
         f"step_0:{slot_name}": b"fr",
@@ -170,7 +170,7 @@ def test_1108_resolve_all_passes_node_id():
     bindings.add("media:quality;textable;numeric",
                  ArgumentBinding.slot("media:quality;textable;numeric"))
 
-    results = bindings.resolve_all(ctx, "cap:op=resize", "step_3")
+    results = bindings.resolve_all(ctx, "cap:resize", "step_3")
     assert len(results) == 2
 
     by_name = {r.name: r for r in results}
@@ -185,7 +185,7 @@ def test_1108_resolve_all_passes_node_id():
 
 # TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match.
 def test_1109_slot_key_uses_node_id_not_cap_urn():
-    cap_urn = 'cap:in="media:pdf";op=resize;out="media:pdf"'
+    cap_urn = 'cap:in="media:pdf";resize;out="media:pdf"'
     slot_name = "media:width;textable;numeric"
     # Deliberately key by cap_urn (the OLD format) — should NOT match
     slot_values = {

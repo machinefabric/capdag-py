@@ -56,7 +56,7 @@ def test_693_compatibility_vector_to_vector():
 # TEST697: Tests CapShapeInfo correctly identifies one-to-one pattern Verifies Single input and Single output result in OneToOne pattern
 def test_697_cap_shape_info_one_to_one():
     info = CapShapeInfo.from_cap_specs(
-        'cap:in="media:text";op=echo;out="media:text"',
+        'cap:in="media:text";echo;out="media:text"',
         "media:text",
         "media:text",
     )
@@ -66,7 +66,7 @@ def test_697_cap_shape_info_one_to_one():
 # TEST698: CapShapeInfo cardinality is always Single when derived from URN Cardinality comes from context (is_sequence), not from URN tags. The list tag is a semantic type property, not a cardinality indicator.
 def test_698_cap_shape_info_cardinality_always_single_from_urn():
     info = CapShapeInfo.from_cap_specs(
-        'cap:in="media:file-path;list";op=test;out="media:file-path;list"',
+        'cap:in="media:file-path;list";test;out="media:file-path;list"',
         "media:file-path;list",
         "media:file-path;list",
     )
@@ -77,7 +77,7 @@ def test_698_cap_shape_info_cardinality_always_single_from_urn():
 # TEST699: CapShapeInfo cardinality from URN is always Single; ManyToOne requires is_sequence
 def test_699_cap_shape_info_list_urn_still_single_cardinality():
     info = CapShapeInfo.from_cap_specs(
-        'cap:in="media:json;list;record";op=test;out="media:text"',
+        'cap:in="media:json;list;record";test;out="media:text"',
         "media:json;list;record",
         "media:text",
     )
@@ -104,8 +104,8 @@ def test_710_pattern_requires_vector():
 # TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
 def test_711_strand_shape_analysis_simple_linear():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:pdf", "media:png"),
-        CapShapeInfo.from_cap_specs("cap:resize", "media:png", "media:png"),
+        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:pdf", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
@@ -119,11 +119,11 @@ def test_712_strand_shape_analysis_with_fan_out():
         CapShapeInfo.from_cap_specs_with_sequence(
             "cap:pdf-to-pages",
             "media:pdf",
-            "media:png",
+            "media:image;png",
             False,
             True,
         ),
-        CapShapeInfo.from_cap_specs("cap:thumbnail", "media:png", "media:png"),
+        CapShapeInfo.from_cap_specs("cap:thumbnail", "media:image;png", "media:image;png"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
@@ -299,8 +299,8 @@ def test_741_cap_shape_info_pattern():
 # TEST750: Tests shape chain analysis for valid chain with matching structures
 def test_750_strand_shape_valid():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:resize", "media:png", "media:png"),
-        CapShapeInfo.from_cap_specs("cap:compress", "media:png", "media:png"),
+        CapShapeInfo.from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:compress", "media:image;png", "media:image;png"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid

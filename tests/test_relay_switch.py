@@ -179,7 +179,7 @@ def test_427_multi_master_cap_routing():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
 
-        manifest = make_manifest('cap:in="media:void";op=double;out="media:void"')
+        manifest = make_manifest('cap:in="media:void";double;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done2.set()
         complete_identity_verification(reader, writer)
@@ -218,7 +218,7 @@ def test_427_multi_master_cap_routing():
     # Send REQ for double cap → routes to master 2
     req2 = Frame.req(
         MessageId(2),
-        'cap:in="media:void";op=double;out="media:void"',
+        'cap:in="media:void";double;out="media:void"',
         bytes(),
         "text/plain"
     )
@@ -254,7 +254,7 @@ def test_428_unknown_cap_returns_error():
     # Send REQ for unknown cap
     req = Frame.req(
         MessageId(1),
-        'cap:in="media:void";op=unknown;out="media:void"',
+        'cap:in="media:void";unknown;out="media:void"',
         bytes(),
         "text/plain"
     )
@@ -286,7 +286,7 @@ def test_429_find_master_for_cap():
     def slave2_thread():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        manifest = make_manifest('cap:in="media:void";op=double;out="media:void"')
+        manifest = make_manifest('cap:in="media:void";double;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done2.set()
         complete_identity_verification(reader, writer)
@@ -304,8 +304,8 @@ def test_429_find_master_for_cap():
 
     # Verify routing
     assert switch._find_master_for_cap('cap:in=media:;out=media:') == 0
-    assert switch._find_master_for_cap('cap:in="media:void";op=double;out="media:void"') == 1
-    assert switch._find_master_for_cap('cap:in="media:void";op=unknown;out="media:void"') is None
+    assert switch._find_master_for_cap('cap:in="media:void";double;out="media:void"') == 1
+    assert switch._find_master_for_cap('cap:in="media:void";unknown;out="media:void"') is None
 
     # Verify aggregate capabilities
     caps = json.loads(switch.capabilities())
@@ -523,7 +523,7 @@ def test_431_continuation_frame_routing():
         reader = FrameReader(slave_read.makefile('rb'))
         writer = FrameWriter(slave_write.makefile('wb'))
 
-        manifest = make_manifest('cap:in="media:void";op=test;out="media:void"')
+        manifest = make_manifest('cap:in="media:void";test;out="media:void"')
         send_notify(writer, manifest, Limits.default())
         done.set()
         complete_identity_verification(reader, writer)
@@ -555,7 +555,7 @@ def test_431_continuation_frame_routing():
     req_id = MessageId(1)
 
     # Send REQ
-    req = Frame.req(req_id, 'cap:in="media:void";op=test;out="media:void"', bytes(), "text/plain")
+    req = Frame.req(req_id, 'cap:in="media:void";test;out="media:void"', bytes(), "text/plain")
     switch.send_to_master(req)
 
     # Send CHUNK continuation
@@ -598,7 +598,7 @@ def test_433_capability_aggregation_deduplicates():
         writer = FrameWriter(slave_write1.makefile('wb'))
         manifest = make_manifest(
             'cap:in=media:;out=media:',
-            'cap:in="media:void";op=double;out="media:void"',
+            'cap:in="media:void";double;out="media:void"',
         )
         send_notify(writer, manifest, Limits.default())
         done1.set()
@@ -609,7 +609,7 @@ def test_433_capability_aggregation_deduplicates():
         writer = FrameWriter(slave_write2.makefile('wb'))
         manifest = make_manifest(
             'cap:in=media:;out=media:',
-            'cap:in="media:void";op=triple;out="media:void"',
+            'cap:in="media:void";triple;out="media:void"',
         )
         send_notify(writer, manifest, Limits.default())
         done2.set()
@@ -632,9 +632,9 @@ def test_433_capability_aggregation_deduplicates():
     # Should have 4 unique caps including CAP_IDENTITY (echo appears twice but deduplicated)
     assert len(cap_list) == 4
     assert 'cap:' in cap_list
-    assert 'cap:in="media:void";op=double;out="media:void"' in cap_list
+    assert 'cap:in="media:void";double;out="media:void"' in cap_list
     assert 'cap:in=media:;out=media:' in cap_list
-    assert 'cap:in="media:void";op=triple;out="media:void"' in cap_list
+    assert 'cap:in="media:void";triple;out="media:void"' in cap_list
 
 
 # TEST434: Limits negotiation takes minimum
@@ -691,7 +691,7 @@ def test_435_urn_matching_exact_and_accepts():
     done = threading.Event()
 
     # Master advertises a specific cap
-    registered_cap = 'cap:in="media:text;utf8";op=process;out="media:text;utf8"'
+    registered_cap = 'cap:in="media:text;utf8";process;out="media:text;utf8"'
 
     def slave_thread():
         reader = FrameReader(slave_read.makefile('rb'))
@@ -727,7 +727,7 @@ def test_435_urn_matching_exact_and_accepts():
     # Output (covariant): provider's media:text;utf8 conforms_to request's media:text
     req2 = Frame.req(
         MessageId(2),
-        'cap:in="media:text;utf8;normalized";op=process;out="media:text"',
+        'cap:in="media:text;utf8;normalized";process;out="media:text"',
         bytes(),
         "text/plain"
     )
@@ -744,13 +744,13 @@ def test_487_relay_switch_identity_verification_succeeds():
     def slave_thread():
         reader = FrameReader(slave_read.makefile("rb"))
         writer = FrameWriter(slave_write.makefile("wb"))
-        send_notify(writer, make_manifest('cap:in="media:void";op=test;out="media:void"'), Limits.default())
+        send_notify(writer, make_manifest('cap:in="media:void";test;out="media:void"'), Limits.default())
         complete_identity_verification(reader, writer)
 
     threading.Thread(target=slave_thread, daemon=True).start()
 
     switch = RelaySwitch([SocketPair(read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
-    assert switch._find_master_for_cap('cap:in="media:void";op=test;out="media:void"') == 0
+    assert switch._find_master_for_cap('cap:in="media:void";test;out="media:void"') == 0
 
 
 # TEST488: RelaySwitch construction fails when master's identity verification fails
@@ -761,7 +761,7 @@ def test_488_relay_switch_identity_verification_fails():
     def slave_thread():
         reader = FrameReader(slave_read.makefile("rb"))
         writer = FrameWriter(slave_write.makefile("wb"))
-        send_notify(writer, make_manifest('cap:in="media:void";op=test;out="media:void"'), Limits.default())
+        send_notify(writer, make_manifest('cap:in="media:void";test;out="media:void"'), Limits.default())
         req = reader.read()
         assert req is not None
         assert req.frame_type == FrameType.REQ

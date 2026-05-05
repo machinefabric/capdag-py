@@ -30,7 +30,7 @@ from capdag.bifaci.io import (
 )
 
 # Test manifest JSON - cartridges MUST include manifest in HELLO response
-TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
 
 
 def create_socket_pair():
@@ -155,7 +155,7 @@ def test_286_streaming_chunks():
     # handshake already sets limits on reader/writer
 
     request_id = MessageId.new_uuid()
-    writer.write(Frame.req(request_id, "cap:op=stream", b"go", "application/json"))
+    writer.write(Frame.req(request_id, "cap:stream", b"go", "application/json"))
 
     # Collect chunks
     chunks = []
@@ -278,7 +278,7 @@ def test_291_binary_payload_roundtrip():
     # handshake already sets limits on reader/writer
 
     request_id = MessageId.new_uuid()
-    writer.write(Frame.req(request_id, "cap:op=binary", binary_data, "application/octet-stream"))
+    writer.write(Frame.req(request_id, "cap:binary", binary_data, "application/octet-stream"))
 
     response = reader.read()
     result = response.payload
@@ -320,7 +320,7 @@ def test_292_message_id_uniqueness():
 
     for _ in range(3):
         request_id = MessageId.new_uuid()
-        writer.write(Frame.req(request_id, "cap:op=test", b"", "application/json"))
+        writer.write(Frame.req(request_id, "cap:test", b"", "application/json"))
         reader.read()
 
     cartridge.join(timeout=5.0)
@@ -358,7 +358,7 @@ def test_299_empty_payload_roundtrip():
     # handshake already sets limits on reader/writer
 
     request_id = MessageId.new_uuid()
-    writer.write(Frame.req(request_id, "cap:op=empty", b"", "application/json"))
+    writer.write(Frame.req(request_id, "cap:empty", b"", "application/json"))
 
     response = reader.read()
     assert response.payload is None or response.payload == b""

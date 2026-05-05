@@ -288,7 +288,7 @@ def test_675_build_request_frames_preserves_media_urn_in_stream_start():
     arg = CapArgumentValue(full_urn, b'{"prompt":"test"}')
     request_id = MessageId.new_uuid()
 
-    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:test", [arg], 32768)
     stream_start = next(frame for frame in frames if frame.frame_type == FrameType.STREAM_START)
 
     assert stream_start.media_urn == full_urn
@@ -301,7 +301,7 @@ def test_676_build_request_frames_round_trip_find_stream_succeeds():
     arg = CapArgumentValue(full_urn, payload)
     request_id = MessageId.new_uuid()
 
-    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:test", [arg], 32768)
     streams = _extract_streams_from_request_frames(frames)
 
     found = find_stream(streams, full_urn)
@@ -315,7 +315,7 @@ def test_677_base_urn_does_not_match_full_urn_in_find_stream():
     arg = CapArgumentValue(base_urn, b"{}")
     request_id = MessageId.new_uuid()
 
-    frames = CapArgumentValue.build_request_frames(request_id, "cap:op=test", [arg], 32768)
+    frames = CapArgumentValue.build_request_frames(request_id, "cap:test", [arg], 32768)
     streams = _extract_streams_from_request_frames(frames)
 
     assert find_stream(streams, full_urn) is None

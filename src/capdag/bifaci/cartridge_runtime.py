@@ -33,7 +33,7 @@ def main():
         # Return final result
         return b"final result"
 
-    runtime.register_raw("cap:in=*;op=my_op;out=*", my_handler)
+    runtime.register_raw("cap:in=*;my-op;out=*", my_handler)
 
     # runtime.run() automatically detects CLI vs Cartridge CBOR mode
     runtime.run()

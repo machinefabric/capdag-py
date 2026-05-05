@@ -30,7 +30,7 @@ from capdag.urn.media_urn import (
 # TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs
 def test_307_model_availability_urn():
     urn = model_availability_urn()
-    assert urn.has_tag("op", "model-availability"), "URN must have op=model-availability"
+    assert urn.has_tag("op", "model-availability"), "URN must have model-availability"
     assert urn.in_spec() == MEDIA_MODEL_SPEC, "input must be model-spec"
     assert urn.out_spec() == MEDIA_AVAILABILITY_OUTPUT, "output must be availability output"
 
@@ -38,7 +38,7 @@ def test_307_model_availability_urn():
 # TEST308: Test model_path_urn builds valid cap URN with correct op and media specs
 def test_308_model_path_urn():
     urn = model_path_urn()
-    assert urn.has_tag("op", "model-path"), "URN must have op=model-path"
+    assert urn.has_tag("op", "model-path"), "URN must have model-path"
     assert urn.in_spec() == MEDIA_MODEL_SPEC, "input must be model-spec"
     assert urn.out_spec() == MEDIA_PATH_OUTPUT, "output must be path output"
 
@@ -54,7 +54,7 @@ def test_309_model_availability_and_path_are_distinct():
 def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"
-    assert urn.has_tag("op", "generate_text"), "must have op=generate_text"
+    assert urn.has_tag("op", "generate_text"), "must have generate-text"
     assert MediaUrn.from_string(urn.in_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
     assert MediaUrn.from_string(urn.out_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
 
@@ -90,7 +90,7 @@ def test_473_cap_discard_parses_as_valid_urn():
 # TEST474: CAP_DISCARD accepts specific-input/void-output caps
 def test_474_cap_discard_accepts_specific_void_cap():
     discard = CapUrn.from_string(CAP_DISCARD)
-    specific = CapUrn.from_string('cap:in="media:pdf";op=shred;out="media:void"')
+    specific = CapUrn.from_string('cap:in="media:pdf";shred;out="media:void"')
 
     # discard (pattern) accepts specific (instance) — the specific cap
     # IS more specific (has op=shred and specific input)
@@ -98,7 +98,7 @@ def test_474_cap_discard_accepts_specific_void_cap():
         "CAP_DISCARD must accept a more specific cap with void output"
 
     # But a cap with non-void output must NOT conform to discard
-    non_void = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:string"')
+    non_void = CapUrn.from_string('cap:in="media:pdf";convert;out="media:string"')
     assert not discard.accepts(non_void), \
         "CAP_DISCARD must NOT accept a cap with non-void output"
 
@@ -111,7 +111,7 @@ def test_605_all_coercion_paths_build_valid_urns():
     for source, target in paths:
         urn = coercion_urn(source, target)
         assert urn.has_tag("op", "coerce"), \
-            f"Coercion URN for {source}→{target} must have op=coerce"
+            f"Coercion URN for {source}→{target} must have coerce"
 
         # Verify roundtrip through string parsing
         urn_str = urn.to_string()

@@ -49,14 +49,14 @@ from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, Fra
 from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
 # Test manifest JSON with a single cap for basic tests.
-# Note: cap URN uses "cap:op=test" which lacks in/out tags, so CapManifest deserialization
+# Note: cap URN uses "cap:test" which lacks in/out tags, so CapManifest deserialization
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
 
 # Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";op=test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
 
 
 # =============================================================================
@@ -152,8 +152,8 @@ def test_248_register_and_find_handler():
         def metadata(self): return OpMetadata.builder("EmitBytesOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:in=*;op=test;out=*", EmitBytesOp)
-    assert runtime.find_handler("cap:in=*;op=test;out=*") is not None
+    runtime.register_op("cap:in=*;test;out=*", EmitBytesOp)
+    assert runtime.find_handler("cap:in=*;test;out=*") is not None
 
 
 # TEST249: Test register_op handler echoes bytes directly
@@ -176,9 +176,9 @@ def test_249_raw_handler():
         def metadata(self): return OpMetadata.builder("EchoOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:op=raw", EchoOp)
+    runtime.register_op("cap:raw", EchoOp)
 
-    factory = runtime.find_handler("cap:op=raw")
+    factory = runtime.find_handler("cap:raw")
     assert factory is not None
 
     frames = make_test_frames("media:", b"echo this")
@@ -209,9 +209,9 @@ def test_250_typed_handler_deserialization():
         def metadata(self): return OpMetadata.builder("JsonKeyOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:op=test", JsonKeyOp)
+    runtime.register_op("cap:test", JsonKeyOp)
 
-    factory = runtime.find_handler("cap:op=test")
+    factory = runtime.find_handler("cap:test")
     assert factory is not None
 
     frames = make_test_frames("media:", b'{"key":"hello"}')
@@ -238,9 +238,9 @@ def test_251_typed_handler_rejects_invalid_json():
         def metadata(self): return OpMetadata.builder("JsonParseOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:op=test", JsonParseOp)
+    runtime.register_op("cap:test", JsonParseOp)
 
-    factory = runtime.find_handler("cap:op=test")
+    factory = runtime.find_handler("cap:test")
     frames = make_test_frames("media:", b"not json {{{{")
     emitter = CliStreamEmitter()
 
@@ -253,7 +253,7 @@ def test_251_typed_handler_rejects_invalid_json():
 # TEST252: Test find_handler returns None for unregistered cap URNs
 def test_252_find_handler_unknown_cap():
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    assert runtime.find_handler("cap:op=nonexistent") is None
+    assert runtime.find_handler("cap:nonexistent") is None
 
 
 # TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN
@@ -273,12 +273,12 @@ def test_293_cartridge_runtime_handler_registration():
         def metadata(self): return OpMetadata.builder("TransformOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode("utf-8"))
-    runtime.register_op("cap:op=json-echo", JsonEchoOp)
-    runtime.register_op("cap:op=transform", TransformOp)
+    runtime.register_op("cap:json-echo", JsonEchoOp)
+    runtime.register_op("cap:transform", TransformOp)
 
-    assert runtime.find_handler("cap:op=json-echo") is JsonEchoOp
-    assert runtime.find_handler("cap:op=transform") is TransformOp
-    assert runtime.find_handler("cap:op=nonexistent") is None
+    assert runtime.find_handler("cap:json-echo") is JsonEchoOp
+    assert runtime.find_handler("cap:transform") is TransformOp
+    assert runtime.find_handler("cap:nonexistent") is None
 
 
 # TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync)
@@ -296,9 +296,9 @@ def test_253_handler_is_send_sync():
         def metadata(self): return OpMetadata.builder("EmitAndRecordOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:op=threaded", EmitAndRecordOp)
+    runtime.register_op("cap:threaded", EmitAndRecordOp)
 
-    factory = runtime.find_handler("cap:op=threaded")
+    factory = runtime.find_handler("cap:threaded")
     assert factory is not None
 
     def thread_func():
@@ -317,7 +317,7 @@ def test_254_no_peer_invoker():
     no_peer = NoPeerInvoker()
 
     with pytest.raises(PeerRequestError) as exc_info:
-        no_peer.invoke("cap:op=test", [])
+        no_peer.invoke("cap:test", [])
 
     assert "not supported" in str(exc_info.value).lower()
 
@@ -328,7 +328,7 @@ def test_255_no_peer_invoker_with_arguments():
     args = [CapArgumentValue.from_str("media:test", "value")]
 
     with pytest.raises(PeerRequestError):
-        no_peer.invoke("cap:op=test", args)
+        no_peer.invoke("cap:test", args)
 
 
 # TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid
@@ -360,7 +360,7 @@ def test_258_with_manifest_struct():
 
 # TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged
 def test_259_extract_effective_payload_non_cbor():
-    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:void";test;out="media:void"', "Test", "test", [])
     payload = b"raw data"
     result = extract_effective_payload(payload, "application/json", cap, True)
     assert result == payload
@@ -368,7 +368,7 @@ def test_259_extract_effective_payload_non_cbor():
 
 # TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
 def test_260_extract_effective_payload_no_content_type():
-    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:void";test;out="media:void"', "Test", "test", [])
     payload = b"raw data"
     result = extract_effective_payload(payload, "", cap, True)
     assert result == payload
@@ -378,7 +378,7 @@ def test_260_extract_effective_payload_no_content_type():
 def test_261_extract_effective_payload_cbor_match():
     args = [{"media_urn": "media:string;textable", "value": b"hello"}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:string;textable";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:string;textable";test;out="media:void"', "Test", "test", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     # NEW REGIME: result is full CBOR array; extract value from matching arg
     result_arr = cbor2.loads(result)
@@ -390,7 +390,7 @@ def test_261_extract_effective_payload_cbor_match():
 def test_262_extract_effective_payload_cbor_no_match():
     args = [{"media_urn": "media:other-type", "value": b"data"}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:string;textable";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:string;textable";test;out="media:void"', "Test", "test", [])
     with pytest.raises(DeserializeError) as exc_info:
         extract_effective_payload(payload, "application/cbor", cap, False)
     assert "No argument found matching" in str(exc_info.value)
@@ -398,7 +398,7 @@ def test_262_extract_effective_payload_cbor_no_match():
 
 # TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error
 def test_263_extract_effective_payload_invalid_cbor():
-    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:void";test;out="media:void"', "Test", "test", [])
     with pytest.raises(DeserializeError):
         extract_effective_payload(b"not cbor", "application/cbor", cap, False)
 
@@ -406,7 +406,7 @@ def test_263_extract_effective_payload_invalid_cbor():
 # TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error
 def test_264_extract_effective_payload_cbor_not_array():
     payload = cbor2.dumps({})  # CBOR map, not array
-    cap = create_test_cap('cap:in="media:void";op=test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:void";test;out="media:void"', "Test", "test", [])
     with pytest.raises(DeserializeError):
         extract_effective_payload(payload, "application/cbor", cap, False)
 
@@ -422,8 +422,8 @@ def test_266_cli_stream_emitter_construction():
 
 # TEST268: Test RuntimeError variants display correct messages
 def test_268_runtime_error_display():
-    err = NoHandlerError("cap:op=missing")
-    assert "cap:op=missing" in str(err)
+    err = NoHandlerError("cap:missing")
+    assert "cap:missing" in str(err)
 
     err2 = MissingArgumentError("model")
     assert "model" in str(err2)
@@ -453,18 +453,18 @@ def test_270_multiple_handlers():
         def metadata(self): return OpMetadata.builder("EchoTagOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op("cap:op=alpha", lambda: EchoTagOp(b"a"))
-    runtime.register_op("cap:op=beta", lambda: EchoTagOp(b"b"))
-    runtime.register_op("cap:op=gamma", lambda: EchoTagOp(b"g"))
+    runtime.register_op("cap:alpha", lambda: EchoTagOp(b"a"))
+    runtime.register_op("cap:beta", lambda: EchoTagOp(b"b"))
+    runtime.register_op("cap:gamma", lambda: EchoTagOp(b"g"))
 
     emitter = CliStreamEmitter()
-    f_alpha = runtime.find_handler("cap:op=alpha")
+    f_alpha = runtime.find_handler("cap:alpha")
     invoke_op(f_alpha, make_test_frames("media:", b""), emitter)
 
-    f_beta = runtime.find_handler("cap:op=beta")
+    f_beta = runtime.find_handler("cap:beta")
     invoke_op(f_beta, make_test_frames("media:", b""), emitter)
 
-    f_gamma = runtime.find_handler("cap:op=gamma")
+    f_gamma = runtime.find_handler("cap:gamma")
     invoke_op(f_gamma, make_test_frames("media:", b""), emitter)
 
 
@@ -488,10 +488,10 @@ def test_271_handler_replacement():
         def metadata(self): return OpMetadata.builder("SecondOp").build()
 
     runtime = CartridgeRuntime(TEST_MANIFEST.encode('utf-8'))
-    runtime.register_op_type("cap:op=test", FirstOp)
-    runtime.register_op_type("cap:op=test", SecondOp)
+    runtime.register_op_type("cap:test", FirstOp)
+    runtime.register_op_type("cap:test", SecondOp)
 
-    factory = runtime.find_handler("cap:op=test")
+    factory = runtime.find_handler("cap:test")
     assert factory is not None
 
     emitter = CliStreamEmitter()
@@ -506,7 +506,7 @@ def test_272_extract_effective_payload_multiple_args():
         {"media_urn": "media:model-spec;textable", "value": b"correct"},
     ]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:model-spec;textable";op=infer;out="media:void"', "Test", "infer", [])
+    cap = create_test_cap('cap:in="media:model-spec;textable";infer;out="media:void"', "Test", "infer", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     # NEW REGIME: handler receives full CBOR array; matches against in_spec.
     result_arr = cbor2.loads(result)
@@ -526,7 +526,7 @@ def test_273_extract_effective_payload_binary_value():
     binary_data = bytes(range(256))
     args = [{"media_urn": "media:pdf", "value": binary_data}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:pdf";op=process;out="media:void"', "Test", "process", [])
+    cap = create_test_cap('cap:in="media:pdf";process;out="media:void"', "Test", "process", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     result_arr = cbor2.loads(result)
     assert result_arr[0]["value"] == binary_data
@@ -557,7 +557,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
     test_file.write_bytes(b"PDF binary content 336")
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process PDF",
         "process",
         [CapArg(
@@ -588,7 +588,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
             received_payload.append(b''.join(chunks))
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
-    runtime.register_op('cap:in="media:pdf";op=process;out="media:void"', CollectBytesOp)
+    runtime.register_op('cap:in="media:pdf";process;out="media:void"', CollectBytesOp)
 
     # Simulate CLI invocation through the full runtime CLI flow.
     cli_args = [str(test_file)]
@@ -626,7 +626,7 @@ def test_337_file_path_without_stdin_passes_string(tmp_path):
     test_file.write_bytes(b"content")
 
     cap = create_test_cap(
-        'cap:in="media:void";op=test;out="media:void"',
+        'cap:in="media:void";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -654,7 +654,7 @@ def test_338_file_path_via_cli_flag(tmp_path):
     test_file.write_bytes(b"PDF via flag 338")
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process",
         "process",
         [CapArg(
@@ -688,7 +688,7 @@ def test_339_file_path_array_glob_expansion(tmp_path):
     file2.write_bytes(b"content2")
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Batch",
         "batch",
         [CapArg(
@@ -720,7 +720,7 @@ def test_340_file_not_found_clear_error():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=test;out="media:void"',
+        'cap:in="media:pdf";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -754,7 +754,7 @@ def test_341_stdin_precedence_over_file_path(tmp_path):
 
     # Stdin source comes BEFORE position source
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -786,7 +786,7 @@ def test_342_file_path_position_zero_reads_first_arg(tmp_path):
     test_file.write_bytes(b"binary data 342")
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -813,7 +813,7 @@ def test_343_non_file_path_args_unaffected():
 
     # Arg with different media type should NOT trigger file reading
     cap = create_test_cap(
-        'cap:in="media:void";op=test;out="media:void"',
+        'cap:in="media:void";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -842,7 +842,7 @@ def test_344_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -875,7 +875,7 @@ def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
     missing_path = tmp_path / "test345_missing.txt"
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -911,7 +911,7 @@ def test_346_large_file_reads_successfully(tmp_path):
     test_file.write_bytes(large_data)
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -941,7 +941,7 @@ def test_347_empty_file_reads_as_empty_bytes(tmp_path):
     test_file.write_bytes(b"")
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -971,7 +971,7 @@ def test_348_file_path_conversion_respects_source_order(tmp_path):
 
     # Position source BEFORE stdin source
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1002,7 +1002,7 @@ def test_349_file_path_multiple_sources_fallback(tmp_path):
     test_file.write_bytes(b"content 349")
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1035,7 +1035,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     test_file.write_bytes(test_content)
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:result;textable"',
+        'cap:in="media:pdf";process;out="media:result;textable"',
         "Process PDF",
         "process",
         [CapArg(
@@ -1067,7 +1067,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op(
-        'cap:in="media:pdf";op=process;out="media:result;textable"',
+        'cap:in="media:pdf";process;out="media:result;textable"',
         CollectBytesOp,
     )
 
@@ -1104,7 +1104,7 @@ def test_351_file_path_array_empty_array():
     from capdag.cap.definition import CapArg, StdinSource
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -1140,7 +1140,7 @@ def test_352_file_permission_denied_clear_error(tmp_path):
     os.chmod(test_file, 0o000)
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1172,7 +1172,7 @@ def test_353_cbor_payload_format_consistency():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:text;textable";op=test;out="media:void"',
+        'cap:in="media:text;textable";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1203,7 +1203,7 @@ def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -1243,7 +1243,7 @@ def test_355_glob_pattern_skips_directories(tmp_path):
     file1.write_bytes(b"content1")
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -1281,7 +1281,7 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
     file2.write_bytes(b"json")
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -1326,7 +1326,7 @@ def test_357_symlinks_followed(tmp_path):
     os.symlink(real_file, link_file)
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1358,7 +1358,7 @@ def test_358_binary_file_non_utf8(tmp_path):
     test_file.write_bytes(binary_data)
 
     cap = create_test_cap(
-        'cap:in="media:";op=test;out="media:void"',
+        'cap:in="media:";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
@@ -1385,7 +1385,7 @@ def test_359_invalid_glob_pattern_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:";op=batch;out="media:void"',
+        'cap:in="media:";batch;out="media:void"',
         "Test",
         "batch",
         [CapArg(
@@ -1422,7 +1422,7 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
     test_file.write_bytes(pdf_content)
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process",
         "process",
         [CapArg(
@@ -1458,7 +1458,7 @@ def test_361_cli_mode_file_path(tmp_path):
     test_file.write_bytes(pdf_content)
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process",
         "process",
         [CapArg(
@@ -1503,7 +1503,7 @@ def test_362_cli_mode_piped_binary():
 
     # Create cap that accepts stdin
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process",
         "process",
         [CapArg(
@@ -1565,7 +1565,7 @@ def test_363_cbor_mode_chunked_content():
         def metadata(self): return OpMetadata.builder("StreamingOp").build()
 
     cap = create_test_cap(
-        'cap:in="media:pdf";op=process;out="media:void"',
+        'cap:in="media:pdf";process;out="media:void"',
         "Process",
         "process",
         [CapArg(
@@ -1664,7 +1664,7 @@ def test_364_cbor_mode_file_path(tmp_path):
 # TEST395: Small payload (< max_chunk) produces correct CBOR arguments
 def test_395_build_payload_small():
     cap = create_test_cap(
-        'cap:in="media:";op=process;out="media:void"',
+        'cap:in="media:";process;out="media:void"',
         "Process",
         "process",
         [],
@@ -1696,7 +1696,7 @@ def test_395_build_payload_small():
 # TEST396: Large payload (> max_chunk) accumulates across chunks correctly
 def test_396_build_payload_large():
     cap = create_test_cap(
-        'cap:in="media:";op=process;out="media:void"',
+        'cap:in="media:";process;out="media:void"',
         "Process",
         "process",
         [],
@@ -1723,7 +1723,7 @@ def test_396_build_payload_large():
 # TEST397: Empty reader produces valid empty CBOR arguments
 def test_397_build_payload_empty():
     cap = create_test_cap(
-        'cap:in="media:";op=process;out="media:void"',
+        'cap:in="media:";process;out="media:void"',
         "Process",
         "process",
         [],
@@ -1754,7 +1754,7 @@ class ErrorReader:
 # TEST398: IO error from reader propagates as RuntimeError::Io
 def test_398_build_payload_io_error():
     cap = create_test_cap(
-        'cap:in="media:";op=process;out="media:void"',
+        'cap:in="media:";process;out="media:void"',
         "Process",
         "process",
         [],
@@ -1778,7 +1778,7 @@ def test_478_auto_registers_identity_and_discard_handlers():
 
     assert runtime.find_handler(CAP_IDENTITY) is not None
     assert runtime.find_handler(CAP_DISCARD) is not None
-    assert runtime.find_handler('cap:in="media:void";op=nonexistent;out="media:void"') is None
+    assert runtime.find_handler('cap:in="media:void";nonexistent;out="media:void"') is None
 
 
 # TEST479: Custom identity Op overrides auto-registered default
@@ -2083,7 +2083,7 @@ def test_544_peer_invoker_sends_end_frame():
     )
 
     args = [CapArgumentValue.from_str("media:test", "hello")]
-    response_queue = peer.invoke('cap:in="media:void";op=test;out="media:void"', args)
+    response_queue = peer.invoke('cap:in="media:void";test;out="media:void"', args)
 
     # Check that frames include END
     end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
@@ -2259,10 +2259,10 @@ def test_680_require_stream_missing_fails():
 def test_681_find_stream_multiple():
     streams = [
         ("media:textable;txt", b"text data"),
-        ("media:png", b"image data"),
+        ("media:image;png", b"image data"),
         ("media:json;textable", b"json data"),
     ]
-    assert find_stream(streams, "media:png") == b"image data"
+    assert find_stream(streams, "media:image;png") == b"image data"
     assert find_stream(streams, "media:textable;txt") == b"text data"
     assert find_stream(streams, "media:json;textable") == b"json data"
 

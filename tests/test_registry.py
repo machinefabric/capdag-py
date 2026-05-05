@@ -44,9 +44,9 @@ def test_135_registry_creation():
 def test_136_cache_key_generation():
     registry = CapRegistry.new_for_test()
 
-    urn1 = 'cap:in="media:void";op=extract;out="media:record;textable";target=metadata'
-    urn2 = 'cap:in="media:void";op=extract;out="media:record;textable";target=metadata'
-    urn3 = 'cap:in="media:void";op=different;out="media:object"'
+    urn1 = 'cap:in="media:void";extract;out="media:record;textable";target=metadata'
+    urn2 = 'cap:in="media:void";extract;out="media:record;textable";target=metadata'
+    urn3 = 'cap:in="media:void";different;out="media:object"'
 
     key1 = registry._cache_key(urn1)
     key2 = registry._cache_key(urn2)
@@ -68,7 +68,7 @@ def test_137_parse_registry_json():
     """Test parsing cap JSON without stdin args"""
     # JSON without stdin args - means cap doesn't accept stdin
     json_str = '''{
-        "urn": "cap:in=\\"media:listing-id\\";op=use_grinder;out=\\"media:task;id\\"",
+        "urn": "cap:in=\\"media:listing-id\\";use-grinder;out=\\"media:task;id\\"",
         "command": "grinder_task",
         "title": "Create Grinder Tool Task",
         "cap_description": "Create a task for initial document analysis",
@@ -112,7 +112,7 @@ def test_137_parse_registry_json():
 def test_138_parse_registry_json_with_stdin():
     """Test parsing cap JSON with stdin args"""
     json_str = '''{
-        "urn": "cap:in=\\"media:pdf\\";op=disbind;out=\\"media:textable;page\\"",
+        "urn": "cap:in=\\"media:pdf\\";disbind;out=\\"media:textable;page\\"",
         "command": "disbind",
         "title": "Disbind PDF",
         "args": [
@@ -137,7 +137,7 @@ def test_139_url_keeps_cap_prefix_literal():
     from urllib.parse import quote as url_encode
 
     config = RegistryConfig()
-    urn = 'cap:in="media:string";op=test;out="media:object"'
+    urn = 'cap:in="media:string";test;out="media:object"'
     normalized = normalize_cap_urn(urn)
     tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
     encoded_tags = url_encode(tags_part, safe='')
@@ -154,7 +154,7 @@ def test_140_url_encodes_quoted_media_urns():
     from urllib.parse import quote as url_encode
 
     config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task;id"'
+    urn = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
     normalized = normalize_cap_urn(urn)
     tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
     encoded_tags = url_encode(tags_part, safe='')
@@ -174,7 +174,7 @@ def test_141_exact_url_format():
     from urllib.parse import quote as url_encode
 
     config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";op=use_grinder;out="media:task;id"'
+    urn = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
     normalized = normalize_cap_urn(urn)
     tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
     encoded_tags = url_encode(tags_part, safe='')
@@ -189,7 +189,7 @@ def test_141_exact_url_format():
 def test_142_normalize_handles_different_tag_orders():
     """Test that different tag orders normalize to same form"""
     # Different tag orders should normalize to the same canonical form
-    urn1 = 'cap:op=test;in="media:string";out="media:object"'
+    urn1 = 'cap:test;in="media:string";out="media:object"'
     urn2 = 'cap:in="media:string";out="media:object";op=test'
 
     normalized1 = normalize_cap_urn(urn1)
@@ -223,14 +223,14 @@ async def test_908_cached_caps_accessible_when_offline():
     registry = CapRegistry.new_for_test()
     cap = Cap.from_dict(
         json.loads(
-            '{"urn":"cap:in=media:void;op=test_offline;out=media:void","command":"test","title":"Test Cap","args":[]}'
+            '{"urn":"cap:in=media:void;test-offline;out=media:void","command":"test","title":"Test Cap","args":[]}'
         )
     )
     registry.add_caps_to_cache([cap])
 
     registry.set_offline(True)
 
-    cached = await registry.get_cap("cap:in=media:void;op=test_offline;out=media:void")
+    cached = await registry.get_cap("cap:in=media:void;test-offline;out=media:void")
     assert cached.title == "Test Cap"
 
 
@@ -241,7 +241,7 @@ async def test_909_set_offline_false_restores_fetch(monkeypatch):
     registry.set_offline(True)
 
     with pytest.raises(NetworkBlockedError):
-        await registry.get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+        await registry.get_cap("cap:in=media:void;nonexistent;out=media:void")
 
     async def fake_fetch(_urn: str):
         raise HttpError("simulated http failure")
@@ -250,7 +250,7 @@ async def test_909_set_offline_false_restores_fetch(monkeypatch):
     registry.set_offline(False)
 
     with pytest.raises(HttpError, match="simulated http failure"):
-        await registry.get_cap("cap:in=media:void;op=nonexistent;out=media:void")
+        await registry.get_cap("cap:in=media:void;nonexistent;out=media:void")
 
 
 # TEST145: Test custom registry and schema URLs set independently
@@ -290,7 +290,7 @@ def test_147_registry_for_test_with_config():
 async def test_123_registry_add_caps_to_cache():
     registry = CapRegistry.new_for_test()
 
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test Cap", "test-command")
 
     registry.add_caps_to_cache([cap])
@@ -313,8 +313,8 @@ def test_124_registry_config_builder_pattern():
 # TEST125: normalize_cap_urn strips trailing semicolons, producing the
 # same canonical form with or without a trailing semicolon
 def test_125_normalize_urn_with_trailing_semicolon():
-    urn1 = _test_urn("op=test")
-    urn2 = _test_urn("op=test") + ";"
+    urn1 = _test_urn("test")
+    urn2 = _test_urn("test") + ";"
 
     normalized1 = normalize_cap_urn(urn1)
     normalized2 = normalize_cap_urn(urn2)

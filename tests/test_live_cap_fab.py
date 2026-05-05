@@ -25,7 +25,7 @@ def _make_test_cap(
     input_is_sequence: bool = False,
     output_is_sequence: bool = False,
 ) -> Cap:
-    urn = CapUrn.from_string(f'cap:in="{in_spec}";op={op};out="{out_spec}"')
+    urn = CapUrn.from_string(f'cap:{op};in="{in_spec}";out="{out_spec}"')
     cap = Cap.with_description(urn, title, op, f"{title} cap")
     cap.add_arg(
         CapArg(
@@ -86,7 +86,7 @@ def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
     graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
 
     paths = graph.find_paths_to_exact_target(
-        _media("media:png"),
+        _media("media:image;png"),
         _media("media:textable"),
         False,
         5,
@@ -99,7 +99,7 @@ def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
 # TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding
 def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
+    graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     paths = graph.find_paths_to_exact_target(
         _media("media:pdf"),
@@ -116,9 +116,9 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 def test_779_get_reachable_targets_respects_type_matching():
     graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
-    graph.add_cap(_make_test_cap("media:png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
+    graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
-    png_targets = graph.get_reachable_targets(_media("media:png"), False, 5)
+    png_targets = graph.get_reachable_targets(_media("media:image;png"), False, 5)
     assert any(t.media_spec.is_equivalent(_media("media:thumbnail")) for t in png_targets)
     assert not any(t.media_spec.is_equivalent(_media("media:textable")) for t in png_targets)
 
@@ -130,11 +130,11 @@ def test_779_get_reachable_targets_respects_type_matching():
 # TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
 def test_781_find_paths_respects_type_chain():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:png", "media:resized-png", "resize", "Resize PNG"))
+    graph.add_cap(_make_test_cap("media:image;png", "media:resized-png", "resize", "Resize PNG"))
     graph.add_cap(_make_test_cap("media:resized-png", "media:thumbnail", "thumb", "To Thumbnail"))
 
     png_paths = graph.find_paths_to_exact_target(
-        _media("media:png"),
+        _media("media:image;png"),
         _media("media:thumbnail"),
         False,
         5,
@@ -210,7 +210,7 @@ def test_789_cap_from_json_has_valid_specs():
     cap = Cap.from_dict(
         json.loads(
             r"""{
-                "urn": "cap:in=media:pdf;op=disbind;out=\"media:disbound-page;textable\"",
+                "urn": "cap:in=media:pdf;disbind;out=\"media:disbound-page;textable\"",
                 "command": "disbind",
                 "title": "Disbind PDF",
                 "args": [],
@@ -234,7 +234,7 @@ def test_790_identity_urn_is_specific():
     assert identity.out_spec() == "media:"
 
     specific_cap = CapUrn.from_string(
-        'cap:in=media:pdf;op=disbind;out="media:disbound-page;textable"'
+        'cap:in=media:pdf;disbind;out="media:disbound-page;textable"'
     )
     assert not specific_cap.is_equivalent(identity)
 

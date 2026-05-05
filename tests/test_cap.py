@@ -17,7 +17,7 @@ def _test_urn(tags: str) -> str:
 
 # TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 def test_108_cap_creation():
-    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     assert cap.urn == urn
@@ -28,7 +28,7 @@ def test_108_cap_creation():
 
 # TEST109: Test creating cap with metadata initializes and retrieves metadata correctly
 def test_109_cap_with_args():
-    urn = CapUrn.from_string(_test_urn("op=process"))
+    urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process Data", "process-data")
 
     # Add positional argument
@@ -47,7 +47,7 @@ def test_109_cap_with_args():
 
 # TEST110: Test cap matching with subset semantics for request fulfillment
 def test_110_cap_with_stdin():
-    urn = CapUrn.from_string(_test_urn("op=convert"))
+    urn = CapUrn.from_string(_test_urn("convert"))
     cap = Cap(urn, "Convert", "convert")
 
     # Add stdin argument
@@ -63,7 +63,7 @@ def test_110_cap_with_stdin():
 
 # TEST111: Test getting and setting cap title updates correctly
 def test_111_cap_without_stdin():
-    urn = CapUrn.from_string(_test_urn("op=process"))
+    urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process", "process")
 
     # Add non-stdin argument
@@ -79,7 +79,7 @@ def test_111_cap_without_stdin():
 
 # TEST112: Test cap equality based on URN and title matching
 def test_112_cap_with_output():
-    urn = CapUrn.from_string(_test_urn("op=generate"))
+    urn = CapUrn.from_string(_test_urn("generate"))
     cap = Cap(urn, "Generate", "generate")
 
     output = CapOutput(
@@ -95,7 +95,7 @@ def test_112_cap_with_output():
 
 # TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
 def test_113_cap_with_metadata():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     metadata = {"supports_streaming": "true", "version": "2.0"}
     cap = Cap.with_metadata(urn, "Test Cap", "test-cap", metadata)
 
@@ -108,7 +108,7 @@ def test_113_cap_with_metadata():
 
 # TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors
 def test_114_cap_json_serialization():
-    urn = CapUrn.from_string(_test_urn("op=process"))
+    urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process", "process-cmd")
     cap.set_description("A processing capability")
 
@@ -141,7 +141,7 @@ def test_114_cap_json_serialization():
 
 # TEST115: Test CapArg serialization and deserialization with multiple sources
 def test_115_cap_json_roundtrip():
-    urn = CapUrn.from_string(_test_urn("op=convert"))
+    urn = CapUrn.from_string(_test_urn("convert"))
     cap = Cap(urn, "Convert", "convert-cmd")
 
     stdin_arg = CapArg(
@@ -194,35 +194,35 @@ def test_116_cap_arg_multiple_sources():
 # TEST591: is_more_specific_than returns true when self has more tags for same request
 def test_591_is_more_specific_than():
     general = Cap(
-        CapUrn.from_string(_test_urn("op=transform")),
+        CapUrn.from_string(_test_urn("transform")),
         "General",
         "cmd",
     )
     specific = Cap(
-        CapUrn.from_string(_test_urn("op=transform;format=json")),
+        CapUrn.from_string(_test_urn("transform;format=json")),
         "Specific",
         "cmd",
     )
     unrelated = Cap(
-        CapUrn.from_string(_test_urn("op=convert")),
+        CapUrn.from_string(_test_urn("convert")),
         "Unrelated",
         "cmd",
     )
 
     # Specific is more specific than general for the general request
-    assert specific.is_more_specific_than(general, _test_urn("op=transform")), \
+    assert specific.is_more_specific_than(general, _test_urn("transform")), \
         "specific cap must be more specific than general"
-    assert not general.is_more_specific_than(specific, _test_urn("op=transform")), \
+    assert not general.is_more_specific_than(specific, _test_urn("transform")), \
         "general cap must not be more specific than specific"
 
     # If either doesn't accept the request, returns false
-    assert not general.is_more_specific_than(unrelated, _test_urn("op=transform")), \
+    assert not general.is_more_specific_than(unrelated, _test_urn("transform")), \
         "unrelated cap doesn't accept request, so no comparison possible"
 
 
 # TEST592: remove_metadata adds then removes metadata correctly
 def test_592_remove_metadata():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
 
     cap.set_metadata("key1", "val1")
@@ -241,7 +241,7 @@ def test_592_remove_metadata():
 
 # TEST593: registered_by lifecycle — set, get, clear
 def test_593_registered_by_lifecycle():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
 
     # Initially None
@@ -262,7 +262,7 @@ def test_593_registered_by_lifecycle():
 
 # TEST594: metadata_json lifecycle — set, get, clear
 def test_594_metadata_json_lifecycle():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
 
     # Initially None
@@ -280,7 +280,7 @@ def test_594_metadata_json_lifecycle():
 
 # TEST595: with_args constructor stores args correctly
 def test_595_with_args_constructor():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     args = [
         CapArg(
             media_urn="media:string",
@@ -304,7 +304,7 @@ def test_595_with_args_constructor():
 
 # TEST596: with_full_definition constructor stores all fields
 def test_596_with_full_definition_constructor():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     metadata = {"env": "prod"}
     args = [CapArg(media_urn="media:string", required=True, sources=[])]
     output = CapOutput(media_urn="media:object", output_description="Output object")
@@ -365,7 +365,7 @@ def test_597_cap_arg_with_full_definition():
 
 # TEST598: CapOutput lifecycle — set_output, set/clear metadata
 def test_598_cap_output_lifecycle():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
 
     # Initially no output

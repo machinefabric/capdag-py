@@ -12,7 +12,7 @@ def test_638_no_peer_router_rejects_all():
 
     with pytest.raises(PeerInvokeNotSupported) as exc_info:
         router.begin_request(
-            'cap:in="media:void";op=test;out="media:void"',
+            'cap:in="media:void";test;out="media:void"',
             req_id,
         )
 

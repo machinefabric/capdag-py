@@ -128,7 +128,7 @@ def test_214_write_read_frame_io_roundtrip():
     limits = Limits(10000, 5000)
     original = Frame.req(
         MessageId.new_uuid(),
-        "cap:op=test",
+        "cap:test",
         b"payload",
         "application/json",
     )
@@ -148,7 +148,7 @@ def test_215_frame_reader_reads_multiple_frames():
     output = io.BytesIO()
     limits = Limits(10000, 5000)
 
-    frame1 = Frame.req(MessageId.new_uuid(), "cap:op=first", b"one", "text/plain")
+    frame1 = Frame.req(MessageId.new_uuid(), "cap:first", b"one", "text/plain")
     payload = b"two"
     frame2 = Frame.chunk(MessageId.new_uuid(), "stream-001", 0, payload, 0, compute_checksum(payload))
     frame3 = Frame.end(MessageId.new_uuid(), b"three")
@@ -187,7 +187,7 @@ def test_216_write_frame_rejects_oversized_frame():
     payload = b"x" * 200
     frame = Frame.req(
         MessageId.new_uuid(),
-        "cap:op=test",
+        "cap:test",
         payload,
         "application/octet-stream",
     )
@@ -203,7 +203,7 @@ def test_217_read_frame_rejects_oversized_incoming_frame():
     read_limits = Limits(50, 50)
     frame = Frame.req(
         MessageId.new_uuid(),
-        "cap:op=test",
+        "cap:test",
         b"x" * 200,
         "text/plain",
     )
@@ -633,7 +633,7 @@ def test_230_frame_roundtrip_preserves_fields():
         content_type="application/json",
         meta={"key": "value"},
         payload=b"test data",
-        cap="cap:in=\"media:void\";op=test;out=\"media:void\"",
+        cap="cap:in=\"media:void\";test;out=\"media:void\"",
     )
 
     data = encode_frame(original)
@@ -894,7 +894,7 @@ def test_390_stream_end_roundtrip():
 
 # TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits
 def test_848_relay_notify_roundtrip():
-    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:op=relay-test"]}]}'
+    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:relay-test"]}]}'
     max_frame = 2_000_000
     max_chunk = 128_000
 

@@ -109,7 +109,7 @@ def test_1188_resolve_strand_no_cap_steps_fails_hard():
 # TEST1187: Resolving a strand fails hard when a referenced cap is not in the registry.
 def test_1187_unknown_cap_error_when_not_in_registry():
     reg = _registry_with([])  # empty registry
-    cap_urn = _cap_urn("cap:in=media:pdf;op=extract;out=\"media:txt;textable\"")
+    cap_urn = _cap_urn("cap:in=media:pdf;extract;out=\"media:txt;textable\"")
     nodes = [_media("media:pdf"), _media("media:txt;textable")]
     wirings = [PreInternedWiring(
         cap_urn=cap_urn,
@@ -119,12 +119,12 @@ def test_1187_unknown_cap_error_when_not_in_registry():
     )]
     with pytest.raises(UnknownCapError) as exc_info:
         resolve_pre_interned(nodes, wirings, reg, 0)
-    assert "cap:in=media:pdf" in str(exc_info.value) or "op=extract" in str(exc_info.value)
+    assert "cap:in=media:pdf" in str(exc_info.value) or "extract" in str(exc_info.value)
 
 
 # TEST1184: Resolving a strand with one cap produces one resolved machine edge.
 def test_1184_single_edge_strand_resolves_correctly():
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -146,8 +146,8 @@ def test_1184_single_edge_strand_resolves_correctly():
 
 # TEST1185: Resolving a strand with two chained caps shares the intermediate node.
 def test_1185_two_step_chain_shares_intermediate_node():
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:textable;embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:textable", "media:vec;record")
     reg = _registry_with([cap1, cap2])
@@ -178,7 +178,7 @@ def test_1185_two_step_chain_shares_intermediate_node():
 
 # TEST1155: Building a machine from one strand produces one strand with one resolved edge.
 def test_1155_from_strand_produces_single_strand_machine():
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -192,8 +192,8 @@ def test_1155_from_strand_produces_single_strand_machine():
 
 # TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order.
 def test_1156_from_strands_keeps_strands_disjoint():
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:textable;embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:textable", "media:vec;record")
     reg = _registry_with([cap1, cap2])
@@ -220,8 +220,8 @@ def test_1157_from_strands_empty_raises_no_capability_steps():
 
 # TEST1158: Machine equivalence is strict about strand order and rejects reordered strands.
 def test_1158_machine_is_equivalent_strict_positional_order_matters():
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:textable;embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:textable", "media:vec;record")
     reg = _registry_with([cap1, cap2])
@@ -241,7 +241,7 @@ def test_1158_machine_is_equivalent_strict_positional_order_matters():
 
 # TEST1159: MachineStrand equivalence accepts two separately built but structurally identical strands.
 def test_1159_strand_is_equivalent_consistent_node_bijection():
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -256,7 +256,7 @@ def test_1159_strand_is_equivalent_consistent_node_bijection():
 def test_1178_match_sources_to_args_single_trivial():
     sources = [_media("media:pdf")]
     args = [_media("media:pdf")]
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
 
     pairs = match_sources_to_args(sources, args, cap_urn_str, 0)
 
@@ -269,7 +269,7 @@ def test_1178_match_sources_to_args_single_trivial():
 def test_1179_match_sources_more_specific_source_matches_general_arg():
     sources = [_media("media:txt;textable")]
     args = [_media("media:textable")]
-    pairs = match_sources_to_args(sources, args, "cap:in=media:textable;op=embed;out=media:vec", 0)
+    pairs = match_sources_to_args(sources, args, "cap:in=media:textable;embed;out=media:vec", 0)
     assert len(pairs) == 1
     assert pairs[0][0].is_equivalent(_media("media:textable"))
     assert pairs[0][1].is_equivalent(_media("media:txt;textable"))
@@ -279,7 +279,7 @@ def test_1179_match_sources_more_specific_source_matches_general_arg():
 def test_1180_match_sources_unmatched_source_fails_hard():
     sources = [_media("media:numeric")]
     args = [_media("media:textable")]
-    cap_urn_str = "cap:in=media:textable;op=t;out=media:textable"
+    cap_urn_str = "cap:in=media:textable;t;out=media:textable"
 
     with pytest.raises(UnmatchedSourceInCapArgsError) as exc_info:
         match_sources_to_args(sources, args, cap_urn_str, 7)
@@ -294,7 +294,7 @@ def test_1182_match_sources_ambiguous_raises_ambiguous_error():
     # Two sources both conform equally to both args at the same distance.
     sources = [_media("media:textable"), _media("media:textable")]
     args = [_media("media:textable"), _media("media:textable")]
-    cap_urn_str = "cap:in=media:textable;op=merge;out=media:textable"
+    cap_urn_str = "cap:in=media:textable;merge;out=media:textable"
 
     with pytest.raises(AmbiguousMachineNotationError) as exc_info:
         match_sources_to_args(sources, args, cap_urn_str, 3)
@@ -309,8 +309,8 @@ def test_1308_cyclic_strand_fails_hard():
 
     Cycle: node 0 → cap A → node 1 → cap B → node 0
     """
-    urn_a = "cap:in=media:pdf;op=op_a;out=\"media:txt;textable\""
-    urn_b = "cap:in=\"media:txt;textable\";op=op_b;out=media:pdf"
+    urn_a = "cap:in=media:pdf;op-a;out=\"media:txt;textable\""
+    urn_b = "cap:in=\"media:txt;textable\";op-b;out=media:pdf"
 
     cap_a = _simple_cap(urn_a, "media:pdf", "media:txt;textable")
     cap_b = _simple_cap(urn_b, "media:txt;textable", "media:pdf")
@@ -346,7 +346,7 @@ def test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
     reg = _registry_with([])  # empty — no caps loaded
 
     notation = (
-        "[extract cap:in=media:pdf;op=extract;out=\"media:txt;textable\"]\n"
+        "[extract cap:in=media:pdf;extract;out=\"media:txt;textable\"]\n"
         "[doc -> extract -> text]"
     )
 
@@ -361,7 +361,7 @@ def test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
 
 # TEST1309: Parsing a single-cap machine notation produces one strand with one edge.
 def test_1309_parse_machine_single_wiring_one_strand():
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -379,8 +379,8 @@ def test_1309_parse_machine_single_wiring_one_strand():
 
 # TEST1164: Parsing two disconnected strand definitions yields two separate machine strands.
 def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:image;op=caption;out=\"media:txt;textable\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:image;caption;out=\"media:txt;textable\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:image", "media:txt;textable")
     reg = _registry_with([cap1, cap2])
@@ -403,8 +403,8 @@ def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
 # =============================================================================
 
 def test_1163_parse_machine_shared_node_name_yields_one_strand():
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:textable;embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:textable", "media:vec;record")
     reg = _registry_with([cap1, cap2])
@@ -435,7 +435,7 @@ def test_1191_binding_slot_identity_is_outer_media_urn():
     media_urn="media:file-path;textable" with stdin="media:pdf".
     The binding must record the slot identity, not the stdin type.
     """
-    cap_urn_str = "cap:in=media:pdf;op=read_pdf;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;read-pdf;out=\"media:txt;textable\""
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "ReadPdf", "read_pdf", "reads a PDF")
     # slot identity = "media:file-path;textable", stdin = "media:pdf"
@@ -475,8 +475,8 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
     The NodeBijection check requires URN-level is_equivalent at both ends of
     every mapped NodeId pair.
     """
-    urn_extract = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn_summarize = "cap:in=media:pdf;op=extract;out=\"media:md;textable\""
+    urn_extract = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn_summarize = "cap:in=media:pdf;extract;out=\"media:md;textable\""
     cap_e = _simple_cap(urn_extract, "media:pdf", "media:txt;textable")
     cap_s = _simple_cap(urn_summarize, "media:pdf", "media:md;textable")
     reg = _registry_with([cap_e, cap_s])
@@ -496,7 +496,7 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 # =============================================================================
 
 def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
-    cap_urn_str = "cap:in=media:textable;op=embed;out=\"media:vec;record\""
+    cap_urn_str = "cap:in=media:textable;embed;out=\"media:vec;record\""
     cap = _simple_cap(cap_urn_str, "media:textable", "media:vec;record")
     reg = _registry_with([cap])
 
@@ -531,7 +531,7 @@ def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
 # =============================================================================
 
 def test_1311_machine_from_string_delegates_to_parse_machine():
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -554,9 +554,9 @@ def test_1311_machine_from_string_delegates_to_parse_machine():
 def test_1134_abstraction_error_subclass_hierarchy():
     """TEST1134: All resolution error subclasses are instances of MachineAbstractionError."""
     err_no_steps = NoCapabilityStepsError()
-    err_unknown = UnknownCapError("cap:op=x")
-    err_unmatched = UnmatchedSourceInCapArgsError(0, "cap:op=x", "media:pdf")
-    err_ambiguous = AmbiguousMachineNotationError(1, "cap:op=y")
+    err_unknown = UnknownCapError("cap:x")
+    err_unmatched = UnmatchedSourceInCapArgsError(0, "cap:x", "media:pdf")
+    err_ambiguous = AmbiguousMachineNotationError(1, "cap:y")
     err_cyclic = CyclicMachineStrandError(2)
 
     for err in [err_no_steps, err_unknown, err_unmatched, err_ambiguous, err_cyclic]:
@@ -570,7 +570,7 @@ def test_1134_abstraction_error_subclass_hierarchy():
 
 def test_1135_strand_node_urn_accessor():
     """TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId."""
-    cap_urn_str = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
     cap = _simple_cap(cap_urn_str, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
 
@@ -607,8 +607,8 @@ def test_1137_two_strand_machine_serializes_to_notation():
     """TEST1137: Machine with two strands serializes to a non-empty notation string."""
     import capdag.machine.serializer  # ensure methods are attached
 
-    urn1 = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    urn2 = "cap:in=media:image;op=caption;out=\"media:txt;textable\""
+    urn1 = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    urn2 = "cap:in=media:image;caption;out=\"media:txt;textable\""
     cap1 = _simple_cap(urn1, "media:pdf", "media:txt;textable")
     cap2 = _simple_cap(urn2, "media:image", "media:txt;textable")
     reg = _registry_with([cap1, cap2])
@@ -636,7 +636,7 @@ def test_1138_assignment_bindings_sorted_by_slot_urn():
     different binding orderings. Assert the bindings are always sorted.
     """
     # Cap with two stdin args in reverse alphabetical slot order
-    cap_urn_str = "cap:in=media:pdf;op=merge;out=\"media:txt;textable\""
+    cap_urn_str = "cap:in=media:pdf;merge;out=\"media:txt;textable\""
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "Merge", "merge", "merge two inputs")
     # Slot B comes before A alphabetically; add them in B, A order.
@@ -710,8 +710,8 @@ def test_1149_machine_parse_error_from_resolution_preserves_variant():
     assert parse_err.cause.cap_urn == "cap:in=media:pdf;out=media:text"
 
 
-_URN_EXTRACT = 'cap:in=media:pdf;op=extract;out="media:txt;textable"'
-_URN_EMBED = 'cap:in=media:textable;op=embed;out="media:vec;record"'
+_URN_EXTRACT = 'cap:in=media:pdf;extract;out="media:txt;textable"'
+_URN_EMBED = 'cap:in=media:textable;embed;out="media:vec;record"'
 
 
 def _pdf_extract_embed_registry() -> "CapRegistry":
@@ -760,7 +760,7 @@ def test_1168_parse_node_alias_collision_with_header_alias_fails_hard():
 
 # TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
 def test_1169_parse_loop_marker_sets_is_loop_on_resolved_edge():
-    urn = "cap:in=media:textable;op=t;out=media:textable"
+    urn = "cap:in=media:textable;t;out=media:textable"
     cap = _simple_cap(urn, "media:textable", "media:textable")
     reg = _registry_with([cap])
     notation = (
@@ -862,8 +862,8 @@ def test_1175_empty_machine_serializes_to_empty_string():
 # TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
 def test_1176_render_payload_json_includes_strand_with_anchors():
     import capdag.machine.serializer  # ensure to_render_payload_json is attached
-    extract_urn = "cap:in=media:pdf;op=extract;out=\"media:txt;textable\""
-    embed_urn = "cap:in=\"media:txt;textable\";op=embed;out=\"media:vec;record\""
+    extract_urn = "cap:in=media:pdf;extract;out=\"media:txt;textable\""
+    embed_urn = "cap:in=\"media:txt;textable\";embed;out=\"media:vec;record\""
     cap_e = _simple_cap(extract_urn, "media:pdf", "media:txt;textable")
     cap_s = _simple_cap(embed_urn, "media:txt;textable", "media:vec;record")
     reg = _registry_with([cap_e, cap_s])
@@ -878,8 +878,8 @@ def test_1176_render_payload_json_includes_strand_with_anchors():
     assert '"edges":[' in payload
     assert '"input_anchor_nodes":[' in payload
     assert '"output_anchor_nodes":[' in payload
-    assert "op=extract" in payload
-    assert "op=embed" in payload
+    assert "extract" in payload
+    assert "embed" in payload
 
 
 # TEST1177: Rendering payload JSON for an empty machine emits an empty strands array.
@@ -896,7 +896,7 @@ def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
 
 # TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
 def test_1181_match_two_sources_disambiguated_by_specificity():
-    urn = "cap:in=\"media:image;png\";op=describe;out=\"media:image-description;textable\""
+    urn = "cap:in=\"media:image;png\";describe;out=\"media:image-description;textable\""
     sources = [_media("media:image;png"), _media("media:model-spec;textable")]
     args = [_media("media:image;png"), _media("media:textable")]
     cap_urn = _cap_urn(urn)
@@ -918,14 +918,14 @@ def test_1181_match_two_sources_disambiguated_by_specificity():
 def test_1183_match_more_sources_than_args_fails_hard():
     sources = [_media("media:pdf"), _media("media:pdf"), _media("media:pdf")]
     args = [_media("media:pdf"), _media("media:pdf")]
-    cap_urn = _cap_urn("cap:in=media:pdf;op=t;out=media:pdf")
+    cap_urn = _cap_urn("cap:in=media:pdf;t;out=media:pdf")
     with pytest.raises(UnmatchedSourceInCapArgsError):
         match_sources_to_args(sources, args, cap_urn, 0)
 
 
 # TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs.
 def test_1189_resolve_strand_canonical_anchor_order_is_stable():
-    urn = 'cap:in=media:pdf;op=extract;out="media:txt;textable"'
+    urn = 'cap:in=media:pdf;extract;out="media:txt;textable"'
     cap = _simple_cap(urn, "media:pdf", "media:txt;textable")
     reg = _registry_with([cap])
     strand = _strand_with_cap_steps([(urn, "media:pdf", "media:txt;textable")])
@@ -940,8 +940,8 @@ def test_1189_resolve_strand_canonical_anchor_order_is_stable():
 
 # TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph.
 def test_1190_resolve_strand_inverse_format_converters_no_cycle():
-    urn_to_int = 'cap:in="media:numeric;textable";op=coerce_int;out="media:integer;numeric;textable"'
-    urn_to_num = 'cap:in="media:integer;numeric;textable";op=coerce_num;out="media:numeric;textable"'
+    urn_to_int = 'cap:in="media:numeric;textable";coerce-int;out="media:integer;numeric;textable"'
+    urn_to_num = 'cap:in="media:integer;numeric;textable";coerce-num;out="media:numeric;textable"'
     cap_to_int = _simple_cap(urn_to_int, "media:numeric;textable", "media:integer;numeric;textable")
     cap_to_num = _simple_cap(urn_to_num, "media:integer;numeric;textable", "media:numeric;textable")
     reg = _registry_with([cap_to_int, cap_to_num])

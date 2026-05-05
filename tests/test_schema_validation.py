@@ -35,7 +35,7 @@ def test_163_argument_schema_validation_success():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:user-data",
@@ -65,7 +65,7 @@ def test_164_argument_schema_validation_failure():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:user-data",
@@ -99,7 +99,7 @@ def test_165_output_schema_validation_success():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:query-result",
@@ -121,7 +121,7 @@ def test_166_skip_validation_without_schema():
     validator = SchemaValidator()
 
     # Create cap without media_specs
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
 
     # Argument using media URN with no schema in media_specs
@@ -136,7 +136,7 @@ def test_166_skip_validation_without_schema():
 def test_167_unresolved_media_urn_skips_validation():
     validator = SchemaValidator()
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
 
     # Argument with unknown media URN - not in media_specs
@@ -170,7 +170,7 @@ def test_126_nested_object_schema_validation():
         "required": ["user"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:user-event",
@@ -220,7 +220,7 @@ def test_127_array_schema_validation():
         "minItems": 1
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:item-list",
@@ -261,7 +261,7 @@ def test_128_type_constraint_validation():
         "required": ["count"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:product",
@@ -297,7 +297,7 @@ def test_129_validate_multiple_arguments():
         "maximum": 100
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:name",
@@ -344,7 +344,7 @@ def test_130_output_validation_with_details():
         "required": ["status"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;op=validate"))
+    urn = CapUrn.from_string(_test_urn("type=test;validate"))
     cap = Cap(urn, "Test", "test")
     cap.add_media_spec(MediaSpecDef(
         urn="media:response",

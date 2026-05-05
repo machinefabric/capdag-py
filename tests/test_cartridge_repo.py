@@ -302,7 +302,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                     "pdf",
                     caps=[
                         _make_cap(
-                            'cap:in=media:pdf;op=disbind;out="media:page;textable"',
+                            'cap:in=media:pdf;disbind;out="media:page;textable"',
                             title="Disbind PDF",
                             command="disbind",
                         )
@@ -336,8 +336,8 @@ def test_328_cartridge_repo_server_get_by_category():
 # whose tags appear in different declared order than the cap's still
 # resolves because the predicate is order-independent.
 def test_329_cartridge_repo_server_get_by_cap():
-    declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
-    request_urn = 'cap:in="media:pdf";op=disbind;out="media:list;disbound-page;textable"'
+    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
+    request_urn = 'cap:in="media:pdf";disbind;out="media:list;disbound-page;textable"'
 
     server = CartridgeRepoServer(_make_registry(release_entries={
         "pdfcartridge": _make_registry_entry(
@@ -354,7 +354,7 @@ def test_329_cartridge_repo_server_get_by_cap():
 
     assert len(server.get_cartridges_by_cap(declared_urn)) == 1
     assert len(server.get_cartridges_by_cap(request_urn)) == 1, "tagged-URN equivalence must resolve"
-    assert server.get_cartridges_by_cap('cap:in="media:bogus";op=nope;out="media:nonexistent"') == []
+    assert server.get_cartridges_by_cap('cap:in="media:bogus";nope;out="media:nonexistent"') == []
 
 
 # ---------------------------------------------------------------------------
@@ -385,8 +385,8 @@ def test_330_cartridge_repo_client_update_cache():
 # propagated from the source cartridge.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
-    declared_urn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
-    request_urn = 'cap:in="media:pdf";op=disbind;out="media:list;disbound-page;textable"'
+    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
+    request_urn = 'cap:in="media:pdf";disbind;out="media:list;disbound-page;textable"'
 
     info = _make_cartridge_info(
         id="pdfcartridge",
@@ -432,8 +432,8 @@ def test_332_cartridge_repo_client_get_cartridge():
 # normalized URNs across cartridges.
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
-    cap1 = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"'
-    cap2 = 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;list"'
+    cap1 = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
+    cap2 = 'cap:in="media:txt;textable";disbind;out="media:disbound-page;textable;list"'
     repo.update_cache(
         "https://example.com/cartridges",
         CartridgeRegistryResponse(
@@ -472,7 +472,7 @@ def test_334_cartridge_repo_client_needs_sync():
 # Server → CartridgeInfo, preserving the cap_groups structure, signed
 # flag, and channel provenance.
 def test_335_cartridge_repo_server_client_integration():
-    cap_urn = 'cap:in="media:test";op=test;out="media:result"'
+    cap_urn = 'cap:in="media:test";test;out="media:result"'
     server = CartridgeRepoServer(_make_registry(release_entries={
         "testcartridge": _make_registry_entry(
             page_url="https://example.com",
@@ -557,7 +557,7 @@ def test_632_deserialize_minimal_registry_cap():
 def test_633_deserialize_rich_registry_cap():
     cap = RegistryCap.from_dict(
         {
-            "urn": 'cap:in="media:pdf";op=disbind;out="media:page;textable"',
+            "urn": 'cap:in="media:pdf";disbind;out="media:page;textable"',
             "title": "Disbind PDF",
             "command": "disbind",
             "cap_description": "Extract each PDF page as plain page text.",
@@ -630,7 +630,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
                     "caps": [
                         {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"},
                         {
-                            "urn": 'cap:in=media:pdf;op=disbind;out="media:page;textable"',
+                            "urn": 'cap:in=media:pdf;disbind;out="media:page;textable"',
                             "title": "Disbind PDF Into Page Text",
                             "command": "disbind",
                         },
@@ -718,7 +718,7 @@ def test_637_deserialize_full_registry_response():
                             "name": "image-formats",
                             "caps": [
                                 {
-                                    "urn": 'cap:in="media:image;jpeg";op=convert_image;out="media:image;png"',
+                                    "urn": 'cap:in="media:image;jpeg";convert-image;out="media:image;png"',
                                     "title": "Convert JPEG to PNG",
                                     "command": "convert-image",
                                 }

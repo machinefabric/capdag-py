@@ -17,7 +17,7 @@ from capdag.urn.cap_urn import CapUrn
 
 
 def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
-    urn = CapUrn.from_string(f'cap:in="{in_spec}";op={op};out="{out_spec}"')
+    urn = CapUrn.from_string(f'cap:{op};in="{in_spec}";out="{out_spec}"')
     cap = Cap.with_description(urn, title, "test-command", f"{title} cap")
     cap.add_arg(
         CapArg(
@@ -72,10 +72,10 @@ def test_767_argument_info_serialization():
 def test_768_path_argument_requirements_structure():
     requirements = PathArgumentRequirements(
         source_spec="media:pdf",
-        target_spec="media:png",
+        target_spec="media:image;png",
         steps=[
             StepArgumentRequirements(
-                cap_urn="cap:op=generate_thumbnail;in=pdf;out=png",
+                cap_urn="cap:generate-thumbnail;in=pdf;out=png",
                 step_index=0,
                 title="Generate Thumbnail",
                 arguments=[
@@ -119,7 +119,7 @@ def test_769_path_with_required_slot():
         target_spec="media:translated",
         steps=[
             StepArgumentRequirements(
-                cap_urn="cap:op=translate;in=text;out=translated",
+                cap_urn="cap:translate;in=text;out=translated",
                 step_index=0,
                 title="Translate",
                 arguments=[
@@ -159,7 +159,7 @@ def test_991_detects_duplicate_cap_urns():
     except ValueError as exc:
         message = str(exc)
         assert "Duplicate cap_urn detected" in message
-        assert "op=disbind" in message
+        assert "disbind" in message
         assert "media:pdf" in message
 
 
@@ -200,7 +200,7 @@ def test_994_input_arg_first_cap_auto_resolved_from_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:pdf",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         True,
         None,
@@ -214,7 +214,7 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     resolution = builder.determine_resolution_with_io_check(
         "media:pdf",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         1,
         True,
         None,
@@ -224,7 +224,7 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     resolution = builder.determine_resolution_with_io_check(
         "media:pdf",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         2,
         True,
         None,
@@ -236,9 +236,9 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
 def test_996_output_arg_auto_resolved():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
-        "media:png",
+        "media:image;png",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         True,
         None,
@@ -252,7 +252,7 @@ def test_997_file_path_type_fallback_first_cap():
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         True,
         None,
@@ -266,7 +266,7 @@ def test_998_file_path_type_fallback_subsequent_cap():
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
         "media:pdf",
-        "media:png",
+        "media:image;png",
         1,
         True,
         None,
@@ -282,7 +282,7 @@ def test_1009_non_io_arg_with_default_has_default():
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         True,
         200,
@@ -296,7 +296,7 @@ def test_886_optional_non_io_arg_with_default_has_default():
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         False,
         300,
@@ -310,7 +310,7 @@ def test_1012_non_io_arg_without_default_requires_user_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:string",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         True,
         None,
@@ -324,7 +324,7 @@ def test_1015_optional_non_io_arg_without_default_requires_user_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:boolean",
         "media:pdf",
-        "media:png",
+        "media:image;png",
         0,
         False,
         None,

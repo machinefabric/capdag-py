@@ -18,7 +18,7 @@ def _test_urn(tags: str) -> str:
 
 # TEST148: Manifest creation with cap groups
 def test_148_cap_manifest_creation():
-    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     manifest = CapManifest(
@@ -44,7 +44,7 @@ def test_148_cap_manifest_creation():
 # the closed enum is {release, nightly}. A missing or unrecognized
 # channel is a hard parse error — no defaults.
 def test_117_cap_manifest_channel_roundtrip():
-    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     manifest = CapManifest(
@@ -90,7 +90,7 @@ def test_117_cap_manifest_channel_roundtrip():
 # parser refuses to accept absent (test117) — so an old SDK can't
 # accidentally pass for a dev build.
 def test_118_dev_manifest_registry_url_is_explicit_null():
-    urn = CapUrn.from_string(_test_urn("op=dev"))
+    urn = CapUrn.from_string(_test_urn("dev"))
     cap = Cap(urn, "Dev", "dev")
     manifest = CapManifest(
         name="DevComponent",
@@ -108,7 +108,7 @@ def test_118_dev_manifest_registry_url_is_explicit_null():
 
 # TEST149: Author field
 def test_149_cap_manifest_with_author():
-    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     manifest = CapManifest(
@@ -124,7 +124,7 @@ def test_149_cap_manifest_with_author():
 
 # TEST150: JSON roundtrip
 def test_150_cap_manifest_json_serialization():
-    urn = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     cap.add_arg(CapArg(
@@ -160,10 +160,10 @@ def test_151_cap_manifest_required_fields():
 
 # TEST152: Multiple caps across groups
 def test_152_cap_manifest_with_multiple_caps():
-    id1 = CapUrn.from_string(_test_urn("op=extract;target=metadata"))
+    id1 = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap1 = Cap(id1, "Extract Metadata", "extract-metadata")
 
-    id2 = CapUrn.from_string(_test_urn("op=extract;target=outline"))
+    id2 = CapUrn.from_string(_test_urn("extract;target=outline"))
     metadata = {"supports_outline": "true"}
     cap2 = Cap.with_metadata(id2, "Extract Outline", "extract-outline", metadata)
 
@@ -201,7 +201,7 @@ def test_153_cap_manifest_empty_cap_groups():
 
 # TEST154: Optional author field omitted in serialization
 def test_154_cap_manifest_optional_fields():
-    urn = CapUrn.from_string(_test_urn("op=test"))
+    urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "test")
 
     manifest = CapManifest(
@@ -219,7 +219,7 @@ def test_154_cap_manifest_optional_fields():
 
 # TEST155: ComponentMetadata pattern
 def test_155_cap_manifest_complex_roundtrip():
-    urn = CapUrn.from_string(_test_urn("op=process"))
+    urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process", "process")
     cap.set_description("A processing capability")
 
@@ -266,7 +266,7 @@ def test_475_validate_passes_with_identity():
 
 # TEST476: validate() fails without CAP_IDENTITY
 def test_476_validate_fails_without_identity():
-    specific_urn = CapUrn.from_string(_test_urn("op=convert"))
+    specific_urn = CapUrn.from_string(_test_urn("convert"))
     specific_cap = Cap(specific_urn, "Convert", "convert")
     manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([specific_cap])])
 
@@ -278,7 +278,7 @@ def test_476_validate_fails_without_identity():
 
 # TEST1284: Cap group with adapter URNs serializes and deserializes correctly
 def test_1284_cap_group_with_adapter_urns():
-    urn = CapUrn.from_string(_test_urn("op=convert"))
+    urn = CapUrn.from_string(_test_urn("convert"))
     cap = Cap(urn, "Convert", "convert")
 
     group = CapGroup(

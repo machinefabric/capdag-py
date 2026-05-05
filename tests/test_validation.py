@@ -33,7 +33,7 @@ def _test_urn_with_input(tags: str) -> str:
 
 # TEST051: Test input validation succeeds with valid positional argument
 def test_051_input_validation_success():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
@@ -47,7 +47,7 @@ def test_051_input_validation_success():
 
 # TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
 def test_052_input_validation_missing_required():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
@@ -64,7 +64,7 @@ def test_052_input_validation_missing_required():
 
 # TEST131: Input validation succeeds when optional positional argument is omitted
 def test_131_input_validation_optional_arg():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
     arg = CapArg(MEDIA_STRING, False, [PositionSource(0)])
@@ -76,7 +76,7 @@ def test_131_input_validation_optional_arg():
 
 # TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied
 def test_132_input_validation_too_many_args():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
@@ -99,7 +99,7 @@ class _StubMediaRegistry:
 
 # TEST053: Test input validation fails with InvalidArgumentType when wrong type provided
 def test_053_input_validation_wrong_type():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.set_media_specs(
         [
@@ -121,7 +121,7 @@ def test_053_input_validation_wrong_type():
 
 # TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
 def test_054_xv5_inline_spec_redefinition_detected():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.set_media_specs(
         [
@@ -143,7 +143,7 @@ def test_054_xv5_inline_spec_redefinition_detected():
 
 # TEST055: XV5 - Test new inline media spec (not in registry) is allowed
 def test_055_xv5_new_inline_spec_allowed():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.set_media_specs(
         [
@@ -163,14 +163,14 @@ def test_055_xv5_new_inline_spec_allowed():
 
 # TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
 def test_056_xv5_empty_media_specs_allowed():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
 
 
 # TEST578: RULE1 - duplicate media_urns rejected
 def test_578_rule1_duplicate_media_urns():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(1)]))
@@ -183,7 +183,7 @@ def test_578_rule1_duplicate_media_urns():
 
 # TEST579: RULE2 - empty sources rejected
 def test_579_rule2_empty_sources():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, []))
 
@@ -195,7 +195,7 @@ def test_579_rule2_empty_sources():
 
 # TEST580: RULE3 - multiple stdin sources with different URNs rejected
 def test_580_rule3_different_stdin_urns():
-    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:")]))
@@ -208,7 +208,7 @@ def test_580_rule3_different_stdin_urns():
 
 # TEST581: RULE3 - multiple stdin sources with same URN is OK
 def test_581_rule3_same_stdin_urns_ok():
-    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:txt;textable")]))
@@ -219,7 +219,7 @@ def test_581_rule3_same_stdin_urns_ok():
 
 # TEST582: RULE4 - duplicate source type in single arg rejected
 def test_582_rule4_duplicate_source_type():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), PositionSource(1)]))
 
@@ -231,7 +231,7 @@ def test_582_rule4_duplicate_source_type():
 
 # TEST583: RULE5 - duplicate position across args rejected
 def test_583_rule5_duplicate_position():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(0)]))
@@ -244,7 +244,7 @@ def test_583_rule5_duplicate_position():
 
 # TEST584: RULE6 - position gap rejected (0, 2 without 1)
 def test_584_rule6_position_gap():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(2)]))
@@ -257,7 +257,7 @@ def test_584_rule6_position_gap():
 
 # TEST585: RULE6 - sequential positions (0, 1, 2) pass
 def test_585_rule6_sequential_ok():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(1)]))
@@ -268,7 +268,7 @@ def test_585_rule6_sequential_ok():
 
 # TEST586: RULE7 - arg with both position and cli_flag rejected
 def test_586_rule7_position_and_cli_flag():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), CliFlagSource("--file")]))
 
@@ -280,7 +280,7 @@ def test_586_rule7_position_and_cli_flag():
 
 # TEST587: RULE9 - duplicate cli_flag across args rejected
 def test_587_rule9_duplicate_cli_flag():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--file")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [CliFlagSource("--file")]))
@@ -294,7 +294,7 @@ def test_587_rule9_duplicate_cli_flag():
 # TEST588: RULE10 - reserved cli_flags rejected
 def test_588_rule10_reserved_cli_flags():
     for reserved_flag in RESERVED_CLI_FLAGS:
-        urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+        urn = CapUrn.from_string(_test_urn("type=test;cap"))
         cap = Cap(urn, "Test Capability", "test-command")
         cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource(reserved_flag)]))
 
@@ -307,7 +307,7 @@ def test_588_rule10_reserved_cli_flags():
 
 # TEST589: valid cap args with mixed sources pass all rules
 def test_589_all_rules_pass():
-    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), StdinSource("media:txt;textable")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, False, [PositionSource(1)]))
@@ -318,7 +318,7 @@ def test_589_all_rules_pass():
 
 # TEST590: validate_cap_args accepts cap with only cli_flag sources (no positions)
 def test_590_cli_flag_only_args():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--input")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, False, [CliFlagSource("--count")]))
@@ -329,7 +329,7 @@ def test_590_cli_flag_only_args():
 
 # TEST1294: RULE11 - void-input cap with stdin source rejected
 def test_1294_rule11_void_input_with_stdin():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
 
@@ -341,7 +341,7 @@ def test_1294_rule11_void_input_with_stdin():
 
 # TEST1295: RULE11 - non-void-input cap without stdin source rejected
 def test_1295_rule11_non_void_input_without_stdin():
-    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0)]))
 
@@ -353,7 +353,7 @@ def test_1295_rule11_non_void_input_without_stdin():
 
 # TEST1296: RULE11 - void-input cap with only cli_flag sources passes
 def test_1296_rule11_void_input_cli_flag_only():
-    urn = CapUrn.from_string(_test_urn("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [CliFlagSource("--input")]))
 
@@ -363,7 +363,7 @@ def test_1296_rule11_void_input_cli_flag_only():
 
 # TEST1297: RULE11 - non-void-input cap with stdin source passes
 def test_1297_rule11_non_void_input_with_stdin():
-    urn = CapUrn.from_string(_test_urn_with_input("type=test;op=cap"))
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
     cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:txt;textable")]))
 

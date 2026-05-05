@@ -121,7 +121,7 @@ IDENTITY_CAP_JSON = '{"urn":"cap:","title":"Identity","command":"identity","args
 
 # TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
 def test_480_parse_cap_groups_rejects_manifest_without_identity():
-    manifest = b'{"name":"Broken","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:op=test"}]}]}'
+    manifest = b'{"name":"Broken","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:test"}]}]}'
 
     with pytest.raises(ValueError) as exc_info:
         _parse_cap_groups_from_manifest(manifest)
@@ -131,15 +131,15 @@ def test_480_parse_cap_groups_rejects_manifest_without_identity():
 
 def test_480_flatten_cap_urns_round_trips():
     cap_groups = [
-        {"caps": [{"urn": "cap:"}, {"urn": "cap:op=test"}]},
-        {"caps": [{"urn": "cap:op=other"}]},
+        {"caps": [{"urn": "cap:"}, {"urn": "cap:test"}]},
+        {"caps": [{"urn": "cap:other"}]},
     ]
-    assert _flatten_cap_urns(cap_groups) == ["cap:", "cap:op=test", "cap:op=other"]
+    assert _flatten_cap_urns(cap_groups) == ["cap:", "cap:test", "cap:other"]
 
 
 # TEST485: attach_cartridge completes identity verification with working cartridge
 def test_485_attach_cartridge_identity_verification_succeeds():
-    manifest = '{"name":"IdentityTest","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}]}'
+    manifest = '{"name":"IdentityTest","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:test"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     t = threading.Thread(target=lambda: simulate_cartridge(pr, pw, manifest), daemon=True)
@@ -152,7 +152,7 @@ def test_485_attach_cartridge_identity_verification_succeeds():
     with host._lock:
         assert host._cartridges[0].running
         assert "cap:" in host._cartridges[0].caps
-        assert "cap:op=test" in host._cartridges[0].caps
+        assert "cap:test" in host._cartridges[0].caps
 
     cleanup(hs, ps)
     t.join(timeout=2)
@@ -187,7 +187,7 @@ def test_486_attach_cartridge_identity_verification_fails():
 
 # TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge
 def test_489_full_path_identity_verification():
-    manifest = '{"name":"IdentityE2E","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=test"}]}]}'
+    manifest = '{"name":"IdentityE2E","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:test"}]}]}'
 
     cartridge_host_read, cartridge_host_write, cartridge_read, cartridge_write, cartridge_host_socks, cartridge_socks = make_conn()
     relay_host_read, relay_host_write, engine_read, engine_write, relay_host_socks, engine_socks = make_conn()
@@ -197,7 +197,7 @@ def test_489_full_path_identity_verification():
             req = r.read()
             assert req is not None
             assert req.frame_type == FrameType.REQ
-            assert req.cap == "cap:op=test"
+            assert req.cap == "cap:test"
             while True:
                 frame = r.read()
                 assert frame is not None
@@ -222,7 +222,7 @@ def test_489_full_path_identity_verification():
     engine_reader = FrameReader(engine_read)
     engine_writer = FrameWriter(engine_write)
     request_id = MessageId.new_uuid()
-    engine_writer.write(Frame.req(request_id, "cap:op=test", b"", "application/cbor"))
+    engine_writer.write(Frame.req(request_id, "cap:test", b"", "application/cbor"))
     engine_writer.write(Frame.end(request_id, None))
 
     response = engine_reader.read()
@@ -238,8 +238,8 @@ def test_489_full_path_identity_verification():
 
 # TEST490: Identity verification with multiple cartridges through single relay
 def test_490_identity_verification_multiple_cartridges():
-    manifest_a = '{"name":"CartridgeA","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}]}'
-    manifest_b = '{"name":"CartridgeB","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}]}'
+    manifest_a = '{"name":"CartridgeA","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:alpha"}]}]}'
+    manifest_b = '{"name":"CartridgeB","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:beta"}]}]}'
 
     ha_r, ha_w, ca_r, ca_w, ha_socks, ca_socks = make_conn()
     hb_r, hb_w, cb_r, cb_w, hb_socks, cb_socks = make_conn()
@@ -250,7 +250,7 @@ def test_490_identity_verification_multiple_cartridges():
             req = r.read()
             assert req is not None
             assert req.frame_type == FrameType.REQ
-            assert req.cap == "cap:op=alpha"
+            assert req.cap == "cap:alpha"
             while True:
                 frame = r.read()
                 assert frame is not None
@@ -265,7 +265,7 @@ def test_490_identity_verification_multiple_cartridges():
             req = r.read()
             assert req is not None
             assert req.frame_type == FrameType.REQ
-            assert req.cap == "cap:op=beta"
+            assert req.cap == "cap:beta"
             while True:
                 frame = r.read()
                 assert frame is not None
@@ -294,7 +294,7 @@ def test_490_identity_verification_multiple_cartridges():
     engine_writer = FrameWriter(engine_write)
 
     alpha_id = MessageId.new_uuid()
-    engine_writer.write(Frame.req(alpha_id, "cap:op=alpha", b"", "application/cbor"))
+    engine_writer.write(Frame.req(alpha_id, "cap:alpha", b"", "application/cbor"))
     engine_writer.write(Frame.end(alpha_id, None))
     alpha_resp = engine_reader.read()
     assert alpha_resp is not None
@@ -302,7 +302,7 @@ def test_490_identity_verification_multiple_cartridges():
     assert alpha_resp.payload == b"from-alpha"
 
     beta_id = MessageId.new_uuid()
-    engine_writer.write(Frame.req(beta_id, "cap:op=beta", b"", "application/cbor"))
+    engine_writer.write(Frame.req(beta_id, "cap:beta", b"", "application/cbor"))
     engine_writer.write(Frame.end(beta_id, None))
     beta_resp = engine_reader.read()
     assert beta_resp is not None
@@ -319,13 +319,13 @@ def test_490_identity_verification_multiple_cartridges():
 # TEST413: Register cartridge adds entries to cap_table
 def test_413_register_cartridge_adds_cap_table():
     host = CartridgeHost()
-    host.register_cartridge("/path/to/converter", ["cap:op=convert", "cap:op=analyze"])
+    host.register_cartridge("/path/to/converter", ["cap:convert", "cap:analyze"])
 
     with host._lock:
         assert len(host._cap_table) == 2, "must have 2 cap table entries"
-        assert host._cap_table[0].cap_urn == "cap:op=convert"
+        assert host._cap_table[0].cap_urn == "cap:convert"
         assert host._cap_table[0].cartridge_idx == 0
-        assert host._cap_table[1].cap_urn == "cap:op=analyze"
+        assert host._cap_table[1].cap_urn == "cap:analyze"
         assert host._cap_table[1].cartridge_idx == 0
         assert len(host._cartridges) == 1
         assert not host._cartridges[0].running, "registered cartridge must not be running"
@@ -335,14 +335,14 @@ def test_413_register_cartridge_adds_cap_table():
 def test_414_capabilities_empty_initially():
     host = CartridgeHost()
     assert host.capabilities() is None, "no cartridges → None capabilities"
-    host.register_cartridge("/path/to/cartridge", ["cap:op=test"])
+    host.register_cartridge("/path/to/cartridge", ["cap:test"])
     assert host.capabilities() is None, "registered but not running → None capabilities"
 
 
 # TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 def test_415_req_triggers_spawn():
     host = CartridgeHost()
-    host.register_cartridge("/nonexistent/cartridge/binary", ["cap:op=test"])
+    host.register_cartridge("/nonexistent/cartridge/binary", ["cap:test"])
 
     hr, hw, pr, pw, hs, ps = make_conn()
     err_frame = [None]
@@ -351,7 +351,7 @@ def test_415_req_triggers_spawn():
         w = FrameWriter(pw)
         r = FrameReader(pr)
         req_id = MessageId.new_uuid()
-        w.write(Frame.req(req_id, "cap:op=test", b"hello", "text/plain"))
+        w.write(Frame.req(req_id, "cap:test", b"hello", "text/plain"))
         frame = r.read()
         if frame is not None:
             err_frame[0] = frame
@@ -398,8 +398,8 @@ def test_416_attach_cartridge_handshake():
 
 # TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges)
 def test_417_route_req_by_cap_urn():
-    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=convert"}]}]}'
-    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=analyze"}]}]}'
+    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:convert"}]}]}'
+    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:analyze"}]}]}'
 
     hr_a, hw_a, pr_a, pw_a, hs_a, ps_a = make_conn()
     hr_b, hw_b, pr_b, pw_b, hs_b, ps_b = make_conn()
@@ -438,7 +438,7 @@ def test_417_route_req_by_cap_urn():
         w = FrameWriter(r_pw)
         r = FrameReader(r_pr)
         req_id = MessageId.new_uuid()
-        w.write(Frame.req(req_id, "cap:op=convert", b"", "text/plain"))
+        w.write(Frame.req(req_id, "cap:convert", b"", "text/plain"))
         w.write(Frame.end(req_id))
         frame = r.read()
         if frame is not None and frame.frame_type == FrameType.END:
@@ -459,7 +459,7 @@ def test_417_route_req_by_cap_urn():
 
 # TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames.
 def test_418_route_continuation_by_req_id():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=cont"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:cont"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -495,7 +495,7 @@ def test_418_route_continuation_by_req_id():
         w = FrameWriter(r_pw)
         r = FrameReader(r_pr)
         req_id = MessageId.new_uuid()
-        w.write(Frame.req(req_id, "cap:op=cont", b"", "text/plain"))
+        w.write(Frame.req(req_id, "cap:cont", b"", "text/plain"))
         w.write(Frame.stream_start(req_id, "arg-0", "media:"))
         w.write(Frame.chunk(req_id, "arg-0", 0, b"payload-data", 0, compute_checksum(b"payload-data")))
         w.write(Frame.stream_end(req_id, "arg-0", 1))
@@ -518,7 +518,7 @@ def test_418_route_continuation_by_req_id():
 
 # TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay)
 def test_419_heartbeat_local_handling():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=hb"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:hb"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     cartridge_done = threading.Event()
@@ -580,7 +580,7 @@ def test_419_heartbeat_local_handling():
 
 # TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through)
 def test_420_cartridge_frames_forwarded_to_relay():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=fwd"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:fwd"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -610,7 +610,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
         w = FrameWriter(r_pw)
         r = FrameReader(r_pr)
         req_id = MessageId.new_uuid()
-        w.write(Frame.req(req_id, "cap:op=fwd", b"", "text/plain"))
+        w.write(Frame.req(req_id, "cap:fwd", b"", "text/plain"))
         w.write(Frame.end(req_id))
         while True:
             frame = r.read()
@@ -638,7 +638,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
 
 # TEST421: Cartridge death updates capability list (caps removed)
 def test_421_cartridge_death_updates_caps():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:die"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -654,7 +654,7 @@ def test_421_cartridge_death_updates_caps():
 
     caps = host.capabilities()
     assert caps is not None
-    assert b"cap:op=die" in caps
+    assert b"cap:die" in caps
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
 
@@ -679,7 +679,7 @@ def test_421_cartridge_death_updates_caps():
 
 # TEST422: Cartridge death sends ERR for all pending requests via relay
 def test_422_cartridge_death_sends_err():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=die"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:die"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -702,7 +702,7 @@ def test_422_cartridge_death_sends_err():
         w = FrameWriter(r_pw)
         r = FrameReader(r_pr)
         req_id = MessageId.new_uuid()
-        w.write(Frame.req(req_id, "cap:op=die", b"hello", "text/plain"))
+        w.write(Frame.req(req_id, "cap:die", b"hello", "text/plain"))
         w.write(Frame.end(req_id))
         while True:
             frame = r.read()
@@ -727,8 +727,8 @@ def test_422_cartridge_death_sends_err():
 
 # TEST423: Multiple cartridges registered with distinct caps route independently
 def test_423_multi_cartridge_distinct_caps():
-    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=alpha"}]}]}'
-    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=beta"}]}]}'
+    manifest_a = '{"name":"A","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:alpha"}]}]}'
+    manifest_b = '{"name":"B","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:beta"}]}]}'
 
     hr_a, hw_a, pr_a, pw_a, hs_a, ps_a = make_conn()
     hr_b, hw_b, pr_b, pw_b, hs_b, ps_b = make_conn()
@@ -774,10 +774,10 @@ def test_423_multi_cartridge_distinct_caps():
         w = FrameWriter(r_pw)
         r = FrameReader(r_pr)
         alpha_id = MessageId.new_uuid()
-        w.write(Frame.req(alpha_id, "cap:op=alpha", b"", "text/plain"))
+        w.write(Frame.req(alpha_id, "cap:alpha", b"", "text/plain"))
         w.write(Frame.end(alpha_id))
         beta_id = MessageId.new_uuid()
-        w.write(Frame.req(beta_id, "cap:op=beta", b"", "text/plain"))
+        w.write(Frame.req(beta_id, "cap:beta", b"", "text/plain"))
         w.write(Frame.end(beta_id))
         for _ in range(2):
             frame = r.read()
@@ -808,7 +808,7 @@ def test_423_multi_cartridge_distinct_caps():
 
 # TEST424: Concurrent requests to the same cartridge are handled independently
 def test_424_concurrent_requests_same_cartridge():
-    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:op=conc"}]}]}'
+    manifest = '{"name":"Test","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:conc"}]}]}'
     hr, hw, pr, pw, hs, ps = make_conn()
 
     def cartridge_thread():
@@ -843,9 +843,9 @@ def test_424_concurrent_requests_same_cartridge():
         r = FrameReader(r_pr)
         id0 = MessageId.new_uuid()
         id1 = MessageId.new_uuid()
-        w.write(Frame.req(id0, "cap:op=conc", b"", "text/plain"))
+        w.write(Frame.req(id0, "cap:conc", b"", "text/plain"))
         w.write(Frame.end(id0))
-        w.write(Frame.req(id1, "cap:op=conc", b"", "text/plain"))
+        w.write(Frame.req(id1, "cap:conc", b"", "text/plain"))
         w.write(Frame.end(id1))
         for _ in range(2):
             frame = r.read()
@@ -876,20 +876,20 @@ def test_424_concurrent_requests_same_cartridge():
 # TEST425: find_cartridge_for_cap returns None for unregistered cap
 def test_425_find_cartridge_for_cap_unknown():
     host = CartridgeHost()
-    host.register_cartridge("/path/to/cartridge", ["cap:op=known"])
+    host.register_cartridge("/path/to/cartridge", ["cap:known"])
 
-    idx = host.find_cartridge_for_cap("cap:op=known")
+    idx = host.find_cartridge_for_cap("cap:known")
     assert idx is not None, "known cap must be found"
     assert idx == 0
 
-    idx2 = host.find_cartridge_for_cap("cap:op=unknown")
+    idx2 = host.find_cartridge_for_cap("cap:unknown")
     assert idx2 is None, "unknown cap must not be found"
 
 
 # TEST661: Cartridge death keeps known_caps advertised for on-demand respawn
 def test_661_cartridge_death_keeps_known_caps_advertised():
     host = CartridgeHost()
-    known_caps = ["cap:", 'cap:in="media:pdf";op=thumbnail;out="media:image;png"']
+    known_caps = ["cap:", 'cap:in="media:pdf";thumbnail;out="media:image;png"']
     host.register_cartridge("/fake/cartridge", known_caps)
 
     with host._lock:
@@ -914,8 +914,8 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
 # TEST662: rebuild_capabilities includes non-running cartridges' known_caps
 def test_662_rebuild_capabilities_includes_non_running_cartridges():
     host = CartridgeHost()
-    host.register_cartridge("/fake/cartridge1", ["cap:", 'cap:in="media:pdf";op=extract;out="media:text"'])
-    host.register_cartridge("/fake/cartridge2", ["cap:", 'cap:in="media:image";op=ocr;out="media:text"'])
+    host.register_cartridge("/fake/cartridge1", ["cap:", 'cap:in="media:pdf";extract;out="media:text"'])
+    host.register_cartridge("/fake/cartridge2", ["cap:", 'cap:in="media:image";ocr;out="media:text"'])
 
     with host._lock:
         host._rebuild_capabilities()
@@ -929,7 +929,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
 # TEST663: Cartridge with hello_failed is permanently removed from capabilities
 def test_663_hello_failed_cartridge_removed_from_capabilities():
     host = CartridgeHost()
-    host.register_cartridge("/fake/broken", ["cap:", 'cap:in="media:void";op=broken;out="media:void"'])
+    host.register_cartridge("/fake/broken", ["cap:", 'cap:in="media:void";broken;out="media:void"'])
 
     with host._lock:
         host._cartridges[0].hello_failed = True
@@ -947,12 +947,12 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
 # TEST664: Running cartridge uses manifest caps, not known_caps
 def test_664_running_cartridge_uses_manifest_caps():
     host = CartridgeHost()
-    host.register_cartridge("/fake/path", ["cap:", 'cap:in="media:pdf";op=extract;out="media:text"'])
+    host.register_cartridge("/fake/path", ["cap:", 'cap:in="media:pdf";extract;out="media:text"'])
 
     with host._lock:
         cartridge = host._cartridges[0]
         cartridge.running = True
-        cartridge.caps = ["cap:", 'cap:in="media:text";op=uppercase;out="media:text"']
+        cartridge.caps = ["cap:", 'cap:in="media:text";uppercase;out="media:text"']
         host._update_cap_table()
         host._rebuild_capabilities()
         advertised = [entry.cap_urn for entry in host._cap_table]
@@ -968,12 +968,12 @@ def test_664_running_cartridge_uses_manifest_caps():
 # TEST665: Cap table uses manifest caps for running, known_caps for non-running
 def test_665_cap_table_mixed_running_and_non_running():
     host = CartridgeHost()
-    host.register_cartridge("/fake/running", ["cap:", 'cap:in="media:void";op=stale;out="media:void"'])
-    host.register_cartridge("/fake/stopped", ["cap:", 'cap:in="media:image";op=ocr;out="media:text"'])
+    host.register_cartridge("/fake/running", ["cap:", 'cap:in="media:void";stale;out="media:void"'])
+    host.register_cartridge("/fake/stopped", ["cap:", 'cap:in="media:image";ocr;out="media:text"'])
 
     with host._lock:
         host._cartridges[0].running = True
-        host._cartridges[0].caps = ["cap:", 'cap:in="media:text";op=running-op;out="media:text"']
+        host._cartridges[0].caps = ["cap:", 'cap:in="media:text";running-op;out="media:text"']
         host._update_cap_table()
         advertised = [entry.cap_urn for entry in host._cap_table]
 

@@ -27,7 +27,7 @@ def _test_urn(tags_part: str) -> str:
 
 # TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible
 def test_001_cap_urn_creation():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf;target=thumbnail"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
     assert cap.get_tag("op") == "generate"
     assert cap.get_tag("target") == "thumbnail"
     assert cap.get_tag("ext") == "pdf"
@@ -62,20 +62,20 @@ def test_003_direction_matching():
     out_int = "media:integer;textable;numeric"  # MEDIA_INTEGER
 
     # Direction specs must match for caps to match
-    cap1 = CapUrn.from_string(f'cap:in="{in_str}";op=test;out="{out_obj}"')
-    cap2 = CapUrn.from_string(f'cap:in="{in_str}";op=test;out="{out_obj}"')
+    cap1 = CapUrn.from_string(f'cap:in="{in_str}";test;out="{out_obj}"')
+    cap2 = CapUrn.from_string(f'cap:in="{in_str}";test;out="{out_obj}"')
     assert cap1.accepts(cap2)
 
     # Different in_urn should not match
-    cap3 = CapUrn.from_string(f'cap:in="{in_bin}";op=test;out="{out_obj}"')
+    cap3 = CapUrn.from_string(f'cap:in="{in_bin}";test;out="{out_obj}"')
     assert not cap1.accepts(cap3)
 
     # Different out_urn should not match
-    cap4 = CapUrn.from_string(f'cap:in="{in_str}";op=test;out="{out_int}"')
+    cap4 = CapUrn.from_string(f'cap:in="{in_str}";test;out="{out_int}"')
     assert not cap1.accepts(cap4)
 
     # Wildcard in=* direction: cap5 has media: for in, specific for out
-    cap5 = CapUrn.from_string(f'cap:in=*;op=test;out="{out_obj}"')
+    cap5 = CapUrn.from_string(f'cap:in=*;test;out="{out_obj}"')
     # cap1 (specific in) as pattern rejects cap5 (bare media: in) — specific pattern doesn't accept broad instance
     assert not cap1.accepts(cap5)
     # cap5 (wildcard in) as pattern accepts cap1 (specific in) — wildcard pattern accepts anything
@@ -97,7 +97,7 @@ def test_004_unquoted_values_lowercased():
     assert cap.get_tag("Op") == "generate"
 
     # Both URNs parse to same lowercase values (same tags, same values)
-    cap2 = CapUrn.from_string(_test_urn("op=generate;ext=pdf;target=thumbnail"))
+    cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
     assert cap.to_string() == cap2.to_string()
     assert cap == cap2
 
@@ -194,7 +194,7 @@ def test_011_serialization_smart_quoting():
 
 # TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original)
 def test_012_round_trip_simple():
-    original = _test_urn("op=generate;ext=pdf")
+    original = _test_urn("generate;ext=pdf")
     cap = CapUrn.from_string(original)
     serialized = cap.to_string()
     reparsed = CapUrn.from_string(serialized)
@@ -228,7 +228,7 @@ def test_015_cap_prefix_required():
         CapUrn.from_string(f'in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";op=generate')
 
     # Valid cap: prefix should work
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap.get_tag("op") == "generate"
 
     # Case-insensitive prefix
@@ -239,8 +239,8 @@ def test_015_cap_prefix_required():
 # TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches)
 def test_016_trailing_semicolon_equivalence():
     # Both with and without trailing semicolon should be equivalent
-    cap1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    cap2 = CapUrn.from_string(_test_urn("op=generate;ext=pdf") + ";")
+    cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf") + ";")
 
     # They should be equal
     assert cap1 == cap2
@@ -259,12 +259,12 @@ def test_016_trailing_semicolon_equivalence():
 # TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
 def test_017_tag_matching():
     # Exact match
-    cap1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    cap2 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap1.accepts(cap2)
 
     # cap1(op,ext) as pattern rejects cap3(op) missing ext
-    cap3 = CapUrn.from_string(_test_urn("op=generate"))  # Missing ext tag
+    cap3 = CapUrn.from_string(_test_urn("generate"))  # Missing ext tag
     assert not cap1.accepts(cap3), "Pattern rejects instance missing required tag"
     # Routing: cap3(op) accepts cap1(op,ext) — instance has op → match
     assert cap3.accepts(cap1), "cap3 missing ext is wildcard, accepts cap1 with ext"
@@ -274,7 +274,7 @@ def test_017_tag_matching():
     assert cap4.accepts(cap1)  # cap4 can handle cap1
 
     # Value mismatch
-    cap5 = CapUrn.from_string(_test_urn("op=generate;ext=docx"))
+    cap5 = CapUrn.from_string(_test_urn("generate;ext=docx"))
     assert not cap1.accepts(cap5)
 
 
@@ -287,7 +287,7 @@ def test_018_quoted_values_case_sensitive():
 
 # TEST019: Missing tag in instance causes rejection — pattern's tags are constraints
 def test_019_missing_tag_handling():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
+    cap = CapUrn.from_string(_test_urn("generate"))
     request1 = CapUrn.from_string(_test_urn("ext=pdf"))
 
     # cap(op) as pattern: instance(ext) missing op -> reject
@@ -296,8 +296,8 @@ def test_019_missing_tag_handling():
     assert not request1.accepts(cap)
 
     # Routing: request(op) accepts cap(op,ext) — instance has op -> match
-    cap2 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    request2 = CapUrn.from_string(_test_urn("op=generate"))
+    cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    request2 = CapUrn.from_string(_test_urn("generate"))
     assert request2.accepts(cap2)
     # Reverse: cap(op,ext) as pattern rejects request missing ext
     assert not cap2.accepts(request2)
@@ -312,8 +312,8 @@ def test_020_specificity_calculation():
     assert cap2.specificity() > cap1.specificity()
 
     # Wildcards in tags don't count
-    cap3 = CapUrn.from_string(_test_urn("op=generate;ext=*"))
-    cap4 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap3 = CapUrn.from_string(_test_urn("generate;ext=*"))
+    cap4 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap4.specificity() > cap3.specificity()
 
 
@@ -366,9 +366,9 @@ def test_023_builder_preserves_case():
 
 # TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
 def test_024_directional_accepts():
-    cap1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    cap2 = CapUrn.from_string(_test_urn("op=generate;format=*"))
-    cap3 = CapUrn.from_string(_test_urn("type=image;op=extract"))
+    cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    cap2 = CapUrn.from_string(_test_urn("generate;format=*"))
+    cap3 = CapUrn.from_string(_test_urn("type=image;extract"))
 
     # cap1(op,ext) as pattern: cap2 missing ext -> reject
     assert not cap1.accepts(cap2)
@@ -379,13 +379,13 @@ def test_024_directional_accepts():
     assert not cap3.accepts(cap1)
 
     # Routing: general request(op) accepts specific cap(op,ext) — instance has op
-    cap4 = CapUrn.from_string(_test_urn("op=generate"))
+    cap4 = CapUrn.from_string(_test_urn("generate"))
     assert cap4.accepts(cap1)
     # Reverse: specific cap(op,ext) rejects general request missing ext
     assert not cap1.accepts(cap4)
 
     # Different direction specs: cap1 has in=media:void (specific), cap5 has in=media: (wildcard)
-    cap5 = CapUrn.from_string(f'cap:in="media:";op=generate;out="{MEDIA_OBJECT}"')
+    cap5 = CapUrn.from_string(f'cap:in="media:";generate;out="{MEDIA_OBJECT}"')
     # cap1 (in=media:void) cannot accept cap5 (in=media:) - specific doesn't accept wildcard
     assert not cap1.accepts(cap5)
     # cap5 (in=media:) CAN accept cap1 (in=media:void) - wildcard accepts specific
@@ -398,9 +398,9 @@ def test_025_find_best_match():
     # For now, we test the specificity and matching directly
     caps = [
         CapUrn.from_string(_test_urn("op=*")),  # Generic
-        CapUrn.from_string(_test_urn("op=generate;ext=pdf")),  # Specific
+        CapUrn.from_string(_test_urn("generate;ext=pdf")),  # Specific
     ]
-    request = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
 
     # Both accept, but the second is more specific
     matching = [c for c in caps if c.accepts(request)]
@@ -411,8 +411,8 @@ def test_025_find_best_match():
 
 # TEST026: Test merge combines tags from both caps, subset keeps only specified tags
 def test_026_merge_and_subset():
-    cap1 = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    cap2 = CapUrn.from_string(_test_urn("op=convert;target=thumbnail"))
+    cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    cap2 = CapUrn.from_string(_test_urn("convert;target=thumbnail"))
 
     # Merge: cap2 takes precedence
     merged = cap1.merge(cap2)
@@ -428,7 +428,7 @@ def test_026_merge_and_subset():
 
 # TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
 def test_027_with_wildcard_tag():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
 
     # Wildcard a regular tag
     cap2 = cap.with_wildcard_tag("ext")
@@ -480,7 +480,7 @@ def test_031_wildcard_in_keys_and_values():
 # TEST032: Test duplicate keys are rejected with DuplicateKey error
 def test_032_duplicate_keys_rejected():
     with pytest.raises(CapUrnError, match="Duplicate"):
-        CapUrn.from_string(_test_urn("op=generate;op=convert"))
+        CapUrn.from_string(_test_urn("generate;convert"))
 
 
 # TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed
@@ -526,14 +526,14 @@ def test_035_has_tag_behavior():
 
 # TEST036: Test with_tag preserves value case
 def test_036_with_tag_preserves_case():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
+    cap = CapUrn.from_string(_test_urn("generate"))
     cap2 = cap.with_tag("key", "MixedCase")
     assert cap2.get_tag("key") == "MixedCase"
 
 
 # TEST037: Test with_tag rejects empty value
 def test_037_with_tag_rejects_empty():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
+    cap = CapUrn.from_string(_test_urn("generate"))
     with pytest.raises(CapUrnError, match="Empty value"):
         cap.with_tag("key", "")
 
@@ -549,7 +549,7 @@ def test_038_semantic_equivalence_quoted_unquoted():
 
 # TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup
 def test_039_get_tag_direction_specs():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
+    cap = CapUrn.from_string(_test_urn("generate"))
 
     # get_tag works for in/out
     assert cap.get_tag("in") == MEDIA_VOID
@@ -573,22 +573,22 @@ def test_039_get_tag_direction_specs():
 
 # TEST040: Matching semantics - exact match succeeds
 def test_040_matching_semantics_exact_match():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap.accepts(request), "Test 1: Exact match should succeed"
 
 
 # TEST041: Matching semantics - cap missing tag matches (implicit wildcard)
 def test_041_matching_semantics_cap_missing_tag():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate"))
+    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap.accepts(request), "Test 2: Cap missing tag should accept (implicit wildcard)"
 
 
 # TEST042: Pattern rejects instance missing required tags
 def test_042_matching_semantics_cap_has_extra_tag():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf;version=2"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf;version=2"))
+    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     # cap(op,ext,version) as pattern rejects request missing version
     assert not cap.accepts(request), "Pattern rejects instance missing required tag"
     # Routing: request(op,ext) accepts cap(op,ext,version) — instance has all request needs
@@ -597,51 +597,51 @@ def test_042_matching_semantics_cap_has_extra_tag():
 
 # TEST043: Matching semantics - request wildcard matches specific cap value
 def test_043_matching_semantics_request_has_wildcard():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=*"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    request = CapUrn.from_string(_test_urn("generate;ext=*"))
     assert cap.accepts(request), "Test 4: Request wildcard should be accepted"
 
 
 # TEST044: Matching semantics - cap wildcard matches specific request value
 def test_044_matching_semantics_cap_has_wildcard():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=*"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=*"))
+    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap.accepts(request), "Test 5: Cap wildcard should accept"
 
 
 # TEST045: Matching semantics - value mismatch does not match
 def test_045_matching_semantics_value_mismatch():
-    cap = CapUrn.from_string(_test_urn("op=generate;ext=pdf"))
-    request = CapUrn.from_string(_test_urn("op=generate;ext=docx"))
+    cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    request = CapUrn.from_string(_test_urn("generate;ext=docx"))
     assert not cap.accepts(request), "Test 6: Value mismatch should not accept"
 
 
 # TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard)
 def test_046_matching_semantics_fallback_pattern():
     in_bin = "media:"
-    cap = CapUrn.from_string(f'cap:in="{in_bin}";op=generate_thumbnail;out="{in_bin}"')
-    request = CapUrn.from_string(f'cap:ext=wav;in="{in_bin}";op=generate_thumbnail;out="{in_bin}"')
+    cap = CapUrn.from_string(f'cap:in="{in_bin}";generate-thumbnail;out="{in_bin}"')
+    request = CapUrn.from_string(f'cap:ext=wav;in="{in_bin}";generate-thumbnail;out="{in_bin}"')
     assert cap.accepts(request), "Test 7: Fallback pattern should accept (cap missing ext = implicit wildcard)"
 
 
 # TEST047: Matching semantics - thumbnail fallback with void input
 def test_047_matching_semantics_thumbnail_void_input():
     out_bin = "media:"
-    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";op=generate_thumbnail;out="{out_bin}"')
-    request = CapUrn.from_string(f'cap:ext=wav;in="{MEDIA_VOID}";op=generate_thumbnail;out="{out_bin}"')
+    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";generate-thumbnail;out="{out_bin}"')
+    request = CapUrn.from_string(f'cap:ext=wav;in="{MEDIA_VOID}";generate-thumbnail;out="{out_bin}"')
     assert cap.accepts(request), "Test 7b: Thumbnail fallback with void input should accept"
 
 
 # TEST048: Matching semantics - wildcard direction matches anything
 def test_048_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:in=*;out=*")
-    request = CapUrn.from_string(f'cap:ext=pdf;in="media:textable";op=generate;out="{MEDIA_OBJECT}"')
+    request = CapUrn.from_string(f'cap:ext=pdf;in="media:textable";generate;out="{MEDIA_OBJECT}"')
     assert cap.accepts(request), "Test 8: Wildcard direction should accept any direction"
 
 
 # TEST049: Non-overlapping tags — neither direction accepts
 def test_049_matching_semantics_cross_dimension():
-    cap = CapUrn.from_string(_test_urn("op=generate"))
+    cap = CapUrn.from_string(_test_urn("generate"))
     request = CapUrn.from_string(_test_urn("ext=pdf"))
     # cap(op) rejects request missing op; request(ext) rejects cap missing ext
     assert not cap.accepts(request), "Pattern rejects instance missing required tag"
@@ -652,8 +652,8 @@ def test_049_matching_semantics_cross_dimension():
 def test_050_matching_semantics_direction_mismatch():
     # media:textable (string) has different tags than media: (wildcard)
     # Neither can provide input for the other (completely different marker tags)
-    cap = CapUrn.from_string(f'cap:in="media:textable";op=generate;out="{MEDIA_OBJECT}"')
-    request = CapUrn.from_string(f'cap:in="media:";op=generate;out="{MEDIA_OBJECT}"')
+    cap = CapUrn.from_string(f'cap:in="media:textable";generate;out="{MEDIA_OBJECT}"')
+    request = CapUrn.from_string(f'cap:in="media:";generate;out="{MEDIA_OBJECT}"')
     assert not cap.accepts(request), "Test 10: Direction mismatch should not accept"
 
 
@@ -665,7 +665,7 @@ def test_050_matching_semantics_direction_mismatch():
 # TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys
 def test_559_without_tag():
     cap = CapUrn.from_string(
-        'cap:in="media:void";op=test;ext=pdf;out="media:void"'
+        'cap:in="media:void";test;ext=pdf;out="media:void"'
     )
     removed = cap.without_tag("ext")
     assert removed.get_tag("ext") is None
@@ -689,7 +689,7 @@ def test_559_without_tag():
 # TEST560: with_in_spec and with_out_spec change direction specs
 def test_560_with_in_out_spec():
     cap = CapUrn.from_string(
-        'cap:in="media:void";op=test;out="media:void"'
+        'cap:in="media:void";test;out="media:void"'
     )
 
     changed_in = cap.with_in_spec("media:")
@@ -710,7 +710,7 @@ def test_560_with_in_out_spec():
 # TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
 def test_561_in_out_media_urn():
     cap = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:txt;textable"'
+        'cap:in="media:pdf";extract;out="media:txt;textable"'
     )
 
     in_urn = cap.in_media_urn()
@@ -734,7 +734,7 @@ def test_562_canonical_option():
     assert result is None
 
     # Some valid input -> canonical string
-    input_str = 'cap:op=test;in="media:void";out="media:void"'
+    input_str = 'cap:test;in="media:void";out="media:void"'
     result = CapUrn.canonical_option(input_str)
     assert result is not None
     original = CapUrn.from_string(input_str)
@@ -749,10 +749,10 @@ def test_562_canonical_option():
 # TEST568: is_dispatchable with different tag order in output spec
 def test_568_dispatch_output_tag_order():
     provider = CapUrn.from_string(
-        'cap:in="media:model-spec;textable";op=download-model;out="media:download-result;record;textable"'
+        'cap:in="media:model-spec;textable";download-model;out="media:download-result;record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:model-spec;textable";op=download-model;out="media:download-result;textable;record"'
+        'cap:in="media:model-spec;textable";download-model;out="media:download-result;textable;record"'
     )
 
     # After parsing, both should be normalized to same canonical form
@@ -767,15 +767,15 @@ def test_568_dispatch_output_tag_order():
 # TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
 def test_563_find_all_matches():
     caps = [
-        CapUrn.from_string('cap:in="media:void";op=test;out="media:void"'),
-        CapUrn.from_string('cap:in="media:void";op=test;ext=pdf;out="media:void"'),
-        CapUrn.from_string('cap:in="media:void";op=different;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";test;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";test;ext=pdf;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";different;out="media:void"'),
     ]
 
-    request = CapUrn.from_string('cap:in="media:void";op=test;out="media:void"')
+    request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
     matches = CapMatcher.find_all_matches(caps, request)
 
-    # Should find 2 matches (op=test and op=test;ext=pdf), not op=different
+    # Should find 2 matches (op=test and test;ext=pdf), not op=different
     assert len(matches) == 2
     # Sorted by specificity descending: ext=pdf first (more specific)
     assert matches[0].specificity() >= matches[1].specificity()
@@ -785,16 +785,16 @@ def test_563_find_all_matches():
 # TEST564: CapMatcher::are_compatible detects bidirectional overlap
 def test_564_are_compatible():
     caps1 = [
-        CapUrn.from_string('cap:in="media:void";op=test;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";test;out="media:void"'),
     ]
     caps2 = [
-        CapUrn.from_string('cap:in="media:void";op=test;ext=pdf;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";test;ext=pdf;out="media:void"'),
     ]
     caps3 = [
-        CapUrn.from_string('cap:in="media:void";op=different;out="media:void"'),
+        CapUrn.from_string('cap:in="media:void";different;out="media:void"'),
     ]
 
-    # caps1 (op=test) accepts caps2 (op=test;ext=pdf) -> compatible
+    # caps1 (op=test) accepts caps2 (test;ext=pdf) -> compatible
     assert CapMatcher.are_compatible(caps1, caps2)
 
     # caps1 (op=test) vs caps3 (op=different) -> not compatible
@@ -808,19 +808,19 @@ def test_564_are_compatible():
 # TEST565: tags_to_string returns only tags portion without prefix
 def test_565_tags_to_string():
     cap = CapUrn.from_string(
-        'cap:in="media:void";op=test;out="media:void"'
+        'cap:in="media:void";test;out="media:void"'
     )
     tags_str = cap.tags_to_string()
     # Should NOT start with "cap:"
     assert not tags_str.startswith("cap:")
     # Should contain in, out, op tags
-    assert "op=test" in tags_str
+    assert "test" in tags_str
 
 
 # TEST566: with_tag silently ignores in/out keys
 def test_566_with_tag_ignores_in_out():
     cap = CapUrn.from_string(
-        'cap:in="media:void";op=test;out="media:void"'
+        'cap:in="media:void";test;out="media:void"'
     )
     # Attempting to set in/out via with_tag is silently ignored
     same = cap.with_tag("in", "media:")
@@ -833,15 +833,15 @@ def test_566_with_tag_ignores_in_out():
 # TEST567: conforms_to_str and accepts_str work with string arguments
 def test_567_str_variants():
     cap = CapUrn.from_string(
-        'cap:in="media:void";op=test;out="media:void"'
+        'cap:in="media:void";test;out="media:void"'
     )
 
     # accepts_str
-    assert cap.accepts_str('cap:in="media:void";op=test;ext=pdf;out="media:void"')
-    assert not cap.accepts_str('cap:in="media:void";op=different;out="media:void"')
+    assert cap.accepts_str('cap:in="media:void";test;ext=pdf;out="media:void"')
+    assert not cap.accepts_str('cap:in="media:void";different;out="media:void"')
 
     # conforms_to_str
-    assert cap.conforms_to_str('cap:in="media:void";op=test;out="media:void"')
+    assert cap.conforms_to_str('cap:in="media:void";test;out="media:void"')
 
     # Invalid URN string -> error
     with pytest.raises(Exception):
@@ -937,7 +937,7 @@ def test_649_wildcard_specificity_scoring():
 
 # TEST650: cap:in;out;op=test preserves other tags
 def test_650_wildcard_preserve_other_tags():
-    cap = CapUrn.from_string("cap:in;out;op=test")
+    cap = CapUrn.from_string("cap:in;out;test")
     assert cap.in_spec() == "media:"
     assert cap.out_spec() == "media:"
     assert cap.get_tag("op") == "test"
@@ -977,7 +977,7 @@ def test_652_wildcard_cap_identity_constant():
 # TEST653: Identity (no tags) does not match specific requests via routing
 def test_653_wildcard_identity_routing_isolation():
     identity = CapUrn.from_string("cap:")
-    specific_request = CapUrn.from_string('cap:in="media:void";op=test;out="media:void"')
+    specific_request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
 
     # For routing: request.accepts(registered_cap)
     # specific_request(op=test) rejects identity (missing op) -> NOT routed to identity
@@ -990,10 +990,10 @@ def test_653_wildcard_identity_routing_isolation():
 # TEST823: is_dispatchable — exact match provider dispatches request
 def test_823_dispatch_exact_match():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     assert provider.is_dispatchable(request)
 
@@ -1001,10 +1001,10 @@ def test_823_dispatch_exact_match():
 # TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
 def test_824_dispatch_contravariant_input():
     provider = CapUrn.from_string(
-        'cap:in="media:";op=analyze;out="media:record;textable"'
+        'cap:in="media:";analyze;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=analyze;out="media:record;textable"'
+        'cap:in="media:pdf";analyze;out="media:record;textable"'
     )
     assert provider.is_dispatchable(request)
 
@@ -1012,10 +1012,10 @@ def test_824_dispatch_contravariant_input():
 # TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true
 def test_825_dispatch_request_unconstrained_input():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=analyze;out="media:record;textable"'
+        'cap:in="media:pdf";analyze;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:";op=analyze;out="media:record;textable"'
+        'cap:in="media:";analyze;out="media:record;textable"'
     )
     assert provider.is_dispatchable(request), \
         "Request in=media: is unconstrained — axis is vacuously true"
@@ -1024,10 +1024,10 @@ def test_825_dispatch_request_unconstrained_input():
 # TEST826: is_dispatchable — provider output must satisfy request output (covariance)
 def test_826_dispatch_covariant_output():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:textable"'
     )
     assert provider.is_dispatchable(request), \
         "Provider output record;textable conforms to request output textable"
@@ -1036,10 +1036,10 @@ def test_826_dispatch_covariant_output():
 # TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
 def test_827_dispatch_generic_output_fails():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:"'
+        'cap:in="media:pdf";extract;out="media:"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     assert not provider.is_dispatchable(request), \
         "Provider out=media: cannot guarantee specific output"
@@ -1048,10 +1048,10 @@ def test_827_dispatch_generic_output_fails():
 # TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
 def test_828_dispatch_wildcard_requires_tag_presence():
     provider = CapUrn.from_string(
-        'cap:in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:in="media:model-spec";run-inference;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     assert not provider.is_dispatchable(request), \
         "Wildcard * means tag must be present — provider has no candle tag"
@@ -1060,10 +1060,10 @@ def test_828_dispatch_wildcard_requires_tag_presence():
 # TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
 def test_829_dispatch_wildcard_with_tag_present():
     provider = CapUrn.from_string(
-        'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:candle=metal;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     assert provider.is_dispatchable(request), \
         "Provider has candle=metal, request has candle=* — tag present, any value OK"
@@ -1072,10 +1072,10 @@ def test_829_dispatch_wildcard_with_tag_present():
 # TEST830: is_dispatchable — provider extra tags are refinement, always OK
 def test_830_dispatch_provider_extra_tags():
     provider = CapUrn.from_string(
-        'cap:candle=metal;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:candle=metal;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:in="media:model-spec";run-inference;out="media:record;textable"'
     )
     assert provider.is_dispatchable(request), \
         "Provider extra tag candle=metal is refinement — always OK"
@@ -1084,10 +1084,10 @@ def test_830_dispatch_provider_extra_tags():
 # TEST831: is_dispatchable — cross-backend mismatch prevented
 def test_831_dispatch_cross_backend_mismatch():
     gguf_provider = CapUrn.from_string(
-        'cap:gguf=q4_k_m;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:gguf=q4_k_m;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     candle_request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";op=run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
     )
     assert not gguf_provider.is_dispatchable(candle_request), \
         "GGUF provider has no candle tag — cross-backend mismatch"
@@ -1096,10 +1096,10 @@ def test_831_dispatch_cross_backend_mismatch():
 # TEST832: is_dispatchable is NOT symmetric
 def test_832_dispatch_asymmetric():
     broad = CapUrn.from_string(
-        'cap:in="media:";op=process;out="media:record;textable"'
+        'cap:in="media:";process;out="media:record;textable"'
     )
     narrow = CapUrn.from_string(
-        'cap:in="media:pdf";op=process;out="media:textable"'
+        'cap:in="media:pdf";process;out="media:textable"'
     )
     # broad provider CAN dispatch narrow request:
     #   input: provider in=media: accepts anything -> OK
@@ -1115,10 +1115,10 @@ def test_832_dispatch_asymmetric():
 # TEST833: is_comparable — both directions checked
 def test_833_comparable_symmetric():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:textable"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     assert a.is_comparable(b)
     assert b.is_comparable(a)
@@ -1127,10 +1127,10 @@ def test_833_comparable_symmetric():
 # TEST834: is_comparable — unrelated caps are NOT comparable
 def test_834_comparable_unrelated():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:textable"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:audio";op=transcribe;out="media:record;textable"'
+        'cap:in="media:audio";transcribe;out="media:record;textable"'
     )
     assert not a.is_comparable(b)
     assert not b.is_comparable(a)
@@ -1139,10 +1139,10 @@ def test_834_comparable_unrelated():
 # TEST835: is_equivalent — identical caps
 def test_835_equivalent_identical():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     assert a.is_equivalent(b)
     assert b.is_equivalent(a)
@@ -1151,10 +1151,10 @@ def test_835_equivalent_identical():
 # TEST836: is_equivalent — non-equivalent comparable caps
 def test_836_equivalent_non_equivalent():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:textable"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     assert a.is_comparable(b)
     assert not a.is_equivalent(b)
@@ -1163,10 +1163,10 @@ def test_836_equivalent_non_equivalent():
 # TEST837: is_dispatchable — op tag mismatch rejects
 def test_837_dispatch_op_mismatch():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=summarize;out="media:record;textable"'
+        'cap:in="media:pdf";summarize;out="media:record;textable"'
     )
     assert not provider.is_dispatchable(request)
 
@@ -1174,10 +1174,10 @@ def test_837_dispatch_op_mismatch():
 # TEST838: is_dispatchable — request with wildcard output accepts any provider output
 def test_838_dispatch_request_wildcard_output():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";op=extract;out="media:"'
+        'cap:in="media:pdf";extract;out="media:"'
     )
     assert provider.is_dispatchable(request), \
         "Request out=media: is unconstrained — any provider output accepted"
@@ -1186,40 +1186,40 @@ def test_838_dispatch_request_wildcard_output():
 # TEST890: Semantic direction matching - generic provider matches specific request
 def test_890_direction_semantic_matching():
     generic_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     pdf_request = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     assert generic_cap.accepts(pdf_request)
 
     epub_request = CapUrn.from_string(
-        'cap:in="media:epub";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:epub";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     assert generic_cap.accepts(epub_request)
 
     pdf_cap = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     generic_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     assert not pdf_cap.accepts(generic_request)
     assert not pdf_cap.accepts(epub_request)
 
     specific_out_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     generic_out_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image"'
+        'cap:in="media:";generate-thumbnail;out="media:image"'
     )
     assert specific_out_cap.accepts(generic_out_request)
 
     generic_out_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image"'
+        'cap:in="media:";generate-thumbnail;out="media:image"'
     )
     specific_out_request = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     assert not generic_out_cap.accepts(specific_out_request)
 
@@ -1227,10 +1227,10 @@ def test_890_direction_semantic_matching():
 # TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry
 def test_1100_cap_urn_normalizes_media_urn_tag_order():
     urn1 = CapUrn.from_string(
-        'cap:in=media:pdf;op=extract_metadata;out="media:file-metadata;record;textable"'
+        'cap:in=media:pdf;extract-metadata;out="media:file-metadata;record;textable"'
     )
     urn2 = CapUrn.from_string(
-        'cap:in=media:pdf;op=extract_metadata;out="media:file-metadata;textable;record"'
+        'cap:in=media:pdf;extract-metadata;out="media:file-metadata;textable;record"'
     )
 
     assert urn1.to_string() == urn2.to_string()
@@ -1240,9 +1240,9 @@ def test_1100_cap_urn_normalizes_media_urn_tag_order():
 
 # TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)
 def test_1103_is_dispatchable_uses_correct_directionality():
-    general_request = CapUrn.from_string("cap:in=media:pdf;op=extract;out=media:text")
+    general_request = CapUrn.from_string("cap:in=media:pdf;extract;out=media:text")
     specific_provider = CapUrn.from_string(
-        "cap:in=media:pdf;op=extract;out=media:text;version=2"
+        "cap:in=media:pdf;extract;out=media:text;version=2"
     )
 
     assert specific_provider.is_dispatchable(general_request)
@@ -1252,9 +1252,9 @@ def test_1103_is_dispatchable_uses_correct_directionality():
 # TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
 def test_1104_is_dispatchable_rejects_non_dispatchable():
     request = CapUrn.from_string(
-        "cap:in=media:pdf;op=extract;out=media:text;required=yes"
+        "cap:in=media:pdf;extract;out=media:text;required=yes"
     )
-    provider = CapUrn.from_string("cap:in=media:pdf;op=extract;out=media:text")
+    provider = CapUrn.from_string("cap:in=media:pdf;extract;out=media:text")
 
     assert not provider.is_dispatchable(request)
 
@@ -1262,10 +1262,10 @@ def test_1104_is_dispatchable_rejects_non_dispatchable():
 # TEST891: Semantic direction specificity - more media URN tags = higher specificity
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(
-        'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     specific_cap = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"'
     )
 
     # generic: wildcard(0) + image;png;thumbnail(3) + op(1) = 4
@@ -1276,7 +1276,7 @@ def test_891_direction_semantic_specificity():
     assert specific_cap.specificity() > generic_cap.specificity()
 
     pdf_request = CapUrn.from_string(
-        'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"'
     )
     caps = [generic_cap, specific_cap]
     best = CapMatcher.find_best_match(caps, pdf_request)
@@ -1286,9 +1286,9 @@ def test_891_direction_semantic_specificity():
 
 # TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node
 def test_920_cap_urn_total_order_basic():
-    a = CapUrn.from_string('cap:in="media:";op=a;out="media:"')
-    b = CapUrn.from_string('cap:in="media:";op=b;out="media:"')
-    c = CapUrn.from_string('cap:in="media:pdf";op=a;out="media:"')
+    a = CapUrn.from_string('cap:in="media:";a;out="media:"')
+    b = CapUrn.from_string('cap:in="media:";b;out="media:"')
+    c = CapUrn.from_string('cap:in="media:pdf";a;out="media:"')
 
     # Irreflexivity: a < a must be False
     assert not (a < a)
@@ -1314,8 +1314,8 @@ def test_920_cap_urn_total_order_basic():
 
 # TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
 def test_921_cap_urn_order_consistent_with_equality():
-    a = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
-    b = CapUrn.from_string('cap:in="media:pdf";op=convert;out="media:textable"')
+    a = CapUrn.from_string('cap:in="media:pdf";convert;out="media:textable"')
+    b = CapUrn.from_string('cap:in="media:pdf";convert;out="media:textable"')
     assert a == b
     assert not (a < b)
     assert not (b < a)
@@ -1326,10 +1326,10 @@ def test_921_cap_urn_order_consistent_with_equality():
 # TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly
 def test_922_cap_urn_list_sortable():
     urns = [
-        CapUrn.from_string('cap:in="media:pdf";op=z;out="media:"'),
-        CapUrn.from_string('cap:in="media:";op=a;out="media:"'),
-        CapUrn.from_string('cap:in="media:pdf";op=a;out="media:"'),
-        CapUrn.from_string('cap:in="media:";op=z;out="media:"'),
+        CapUrn.from_string('cap:in="media:pdf";z;out="media:"'),
+        CapUrn.from_string('cap:in="media:";a;out="media:"'),
+        CapUrn.from_string('cap:in="media:pdf";a;out="media:"'),
+        CapUrn.from_string('cap:in="media:";z;out="media:"'),
     ]
     sorted_once = sorted(urns)
     sorted_twice = sorted(urns)
@@ -1343,7 +1343,7 @@ def test_922_cap_urn_list_sortable():
 
 # TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation
 def test_923_cap_urn_order_returns_not_implemented_for_non_cap():
-    a = CapUrn.from_string('cap:in="media:";op=x;out="media:"')
+    a = CapUrn.from_string('cap:in="media:";x;out="media:"')
     result = a.__lt__("not a cap urn")
     assert result is NotImplemented
     result = a.__le__(42)

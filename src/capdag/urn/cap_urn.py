@@ -25,8 +25,8 @@ class CapUrn:
     fields specify the input and output media URNs respectively.
 
     Examples:
-    - `cap:in="media:binary";op=generate;out="media:binary";target=thumbnail`
-    - `cap:in="media:void";op=dimensions;out="media:integer"`
+    - `cap:in="media:binary";generate;out="media:binary";target=thumbnail`
+    - `cap:in="media:void";dimensions;out="media:integer"`
     - `cap:in="media:string";out="media:object";key="Value With Spaces"`
     """
 

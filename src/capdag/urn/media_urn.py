@@ -137,7 +137,7 @@ MEDIA_YAML_RECORD = "media:record;textable;yaml"
 MEDIA_YAML_LIST = "media:list;textable;yaml"
 MEDIA_YAML_LIST_RECORD = "media:list;record;textable;yaml"
 MEDIA_CSV = "media:csv;list;record;textable"
-MEDIA_CSV_LIST = "media:csv;list;textable"
+MEDIA_CSV_LIST = "media:csv;list;record;textable"
 
 # File path type — for arguments that represent filesystem paths.
 # There is a single media URN; cardinality (single file vs many) lives on
@@ -320,7 +320,7 @@ class MediaUrn:
         - Empty input -> media: (universal type)
         - Single input -> returned as-is
         - [media:pdf, media:pdf] -> media:pdf
-        - [media:pdf, media:png] -> media: (no common tags)
+        - [media:pdf, media:image;png] -> media: (no common tags)
         - [media:json;textable, media:csv;textable] -> media:textable
         """
         from tagged_urn import TaggedUrn

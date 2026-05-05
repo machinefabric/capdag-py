@@ -51,7 +51,7 @@ cap = CapUrnBuilder() \
     .tag("ext", "pdf") \
     .build()
 
-print(cap.to_string())  # cap:ext=pdf;in="media:textable";op=generate;out="media:record;textable"
+print(cap.to_string())  # cap:ext=pdf;in="media:textable";generate;out="media:record;textable"
 
 # Matching semantics
 request = CapUrn.from_string('cap:in="media:textable";out="media:record;textable";op=generate')
@@ -141,8 +141,8 @@ cap:in="<media-urn>";out="<media-urn>"[;key=value]*
 ```
 
 Examples:
-- `cap:in="media:void";op=test;out="media:void"` - No-op test capability
-- `cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"` - PDF thumbnail generator
+- `cap:in="media:void";test;out="media:void"` - No-op test capability
+- `cap:in="media:pdf;bytes";generate-thumbnail;out="media:image;png;bytes;thumbnail"` - PDF thumbnail generator
 
 ### Matching Semantics
 

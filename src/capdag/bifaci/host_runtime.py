@@ -19,7 +19,7 @@ Usage:
 from capdag.cartridge_host_runtime import CartridgeHost
 
 host = CartridgeHost()
-host.register_cartridge("/path/to/cartridge", ["cap:op=convert"])
+host.register_cartridge("/path/to/cartridge", ["cap:convert"])
 host.run(relay_reader, relay_writer, resource_fn=lambda: b"")
 ```
 """

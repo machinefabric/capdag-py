@@ -161,10 +161,10 @@ def test_181_hello_frame_with_manifest():
 def test_182_req_frame():
     """Test REQ frame creation"""
     id = MessageId.new_uuid()
-    frame = Frame.req(id, "cap:op=test", b"payload", "application/json")
+    frame = Frame.req(id, "cap:test", b"payload", "application/json")
     assert frame.frame_type == FrameType.REQ
     assert frame.id == id
-    assert frame.cap == "cap:op=test"
+    assert frame.cap == "cap:test"
     assert frame.payload == b"payload"
     assert frame.content_type == "application/json"
     assert frame.version == PROTOCOL_VERSION
@@ -274,7 +274,7 @@ def test_190_heartbeat_frame():
 # TEST191: Test error_code and error_message return None for non-Err frame types
 def test_191_error_accessors_on_non_err_frame():
     """Test error accessors return None for non-ERR frames"""
-    req = Frame.req(MessageId.new_uuid(), "cap:op=test", b"", "text/plain")
+    req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
     assert req.error_code() is None, "REQ must have no error_code"
     assert req.error_message() is None, "REQ must have no error_message"
 
@@ -285,7 +285,7 @@ def test_191_error_accessors_on_non_err_frame():
 # TEST192: Test log_level and log_message return None for non-Log frame types
 def test_192_log_accessors_on_non_log_frame():
     """Test log accessors return None for non-LOG frames"""
-    req = Frame.req(MessageId.new_uuid(), "cap:op=test", b"", "text/plain")
+    req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
     assert req.log_level() is None, "REQ must have no log_level"
     assert req.log_message() is None, "REQ must have no log_message"
 
@@ -414,7 +414,7 @@ def test_203_message_id_cross_variant_inequality():
 # TEST204: Test Frame::req with empty payload stores Some(empty vec) not None
 def test_204_req_frame_empty_payload():
     """Test REQ frame with empty payload"""
-    frame = Frame.req(MessageId.new_uuid(), "cap:op=test", b"", "text/plain")
+    frame = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
     assert frame.payload == b"", "empty payload is still bytes, not None"
 
 
@@ -492,7 +492,7 @@ def test_400_relay_state_discriminant_roundtrip():
 # TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them
 def test_401_relay_notify_factory_and_accessors():
     """Test relay_notify factory and accessor methods"""
-    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:op=test"]}]}'
+    manifest = b'{"cap_groups":[{"name":"default","caps":["cap:test"]}]}'
     max_frame = 2_000_000
     max_chunk = 128_000
 
@@ -512,7 +512,7 @@ def test_401_relay_notify_factory_and_accessors():
     assert extracted_limits.max_chunk == max_chunk
 
     # Test accessors on wrong frame type return None
-    req = Frame.req(MessageId.new_uuid(), "cap:op=test", b"", "text/plain")
+    req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
     assert req.relay_notify_manifest() is None
     assert req.relay_notify_limits() is None
 
@@ -588,7 +588,7 @@ def test_442_seq_assigner_monotonic_same_rid():
     assigner = SeqAssigner()
     rid = MessageId.random()
 
-    f0 = Frame.req(rid, "cap:op=test", b"", "")
+    f0 = Frame.req(rid, "cap:test", b"", "")
     f1 = Frame.stream_start(rid, "s0", "media:text")
     f2 = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f3 = Frame.end(rid)
@@ -610,10 +610,10 @@ def test_443_seq_assigner_independent_rids():
     rid_a = MessageId.random()
     rid_b = MessageId.random()
 
-    a0 = Frame.req(rid_a, "cap:op=a", b"", "")
+    a0 = Frame.req(rid_a, "cap:a", b"", "")
     a1 = Frame.stream_start(rid_a, "s0", "media:text")
     a2 = Frame.chunk(rid_a, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
-    b0 = Frame.req(rid_b, "cap:op=b", b"", "")
+    b0 = Frame.req(rid_b, "cap:b", b"", "")
     b1 = Frame.stream_start(rid_b, "s0", "media:text")
 
     assigner.assign(a0)
@@ -650,7 +650,7 @@ def test_445_seq_assigner_remove_by_flow_key():
     xid = MessageId.random()
 
     # Flow 1: (rid, no xid) — seq 0, 1
-    f0 = Frame.req(rid, "cap:op=test", b"", "")
+    f0 = Frame.req(rid, "cap:test", b"", "")
     f1 = Frame.stream_start(rid, "s0", "media:text")
     assigner.assign(f0)
     assigner.assign(f1)
@@ -658,7 +658,7 @@ def test_445_seq_assigner_remove_by_flow_key():
     assert f1.seq == 1
 
     # Flow 2: (rid, xid) — seq 0, 1
-    f2 = Frame.req(rid, "cap:op=test", b"", "")
+    f2 = Frame.req(rid, "cap:test", b"", "")
     f2.routing_id = xid
     f3 = Frame.stream_start(rid, "s0", "media:text")
     f3.routing_id = xid
@@ -691,7 +691,7 @@ def test_860_seq_assigner_same_rid_different_xids_independent():
     xid_b = MessageId.random()
 
     # Flow (rid, xid_a): 0, 1
-    fa0 = Frame.req(rid, "cap:op=a", b"", "")
+    fa0 = Frame.req(rid, "cap:a", b"", "")
     fa0.routing_id = xid_a
     fa1 = Frame.stream_start(rid, "s0", "media:text")
     fa1.routing_id = xid_a
@@ -701,13 +701,13 @@ def test_860_seq_assigner_same_rid_different_xids_independent():
     assert fa1.seq == 1
 
     # Flow (rid, xid_b): 0
-    fb0 = Frame.req(rid, "cap:op=b", b"", "")
+    fb0 = Frame.req(rid, "cap:b", b"", "")
     fb0.routing_id = xid_b
     assigner.assign(fb0)
     assert fb0.seq == 0
 
     # Flow (rid, None): 0
-    fn0 = Frame.req(rid, "cap:op=n", b"", "")
+    fn0 = Frame.req(rid, "cap:n", b"", "")
     assigner.assign(fn0)
     assert fn0.seq == 0
 
@@ -717,7 +717,7 @@ def test_446_seq_assigner_mixed_types():
     assigner = SeqAssigner()
     rid = MessageId.random()
 
-    f_req = Frame.req(rid, "cap:op=test", b"", "")
+    f_req = Frame.req(rid, "cap:test", b"", "")
     f_log = Frame.log(rid, "info", "log message")
     f_chunk = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f_end = Frame.end(rid)
@@ -738,7 +738,7 @@ def test_447_flow_key_with_xid():
     rid = MessageId.random()
     xid = MessageId.random()
 
-    frame = Frame.req(rid, "cap:op=test", b"", "")
+    frame = Frame.req(rid, "cap:test", b"", "")
     frame.routing_id = xid
 
     key = FlowKey.from_frame(frame)
@@ -750,7 +750,7 @@ def test_447_flow_key_with_xid():
 def test_448_flow_key_without_xid():
     rid = MessageId.random()
 
-    frame = Frame.req(rid, "cap:op=test", b"", "")
+    frame = Frame.req(rid, "cap:test", b"", "")
     key = FlowKey.from_frame(frame)
     assert key._rid == rid.to_string()
     assert key._xid == ""
@@ -1053,7 +1053,7 @@ def test_498_routing_id_cbor_roundtrip():
     req_id = MessageId.random()
     routing_id = MessageId.random()
 
-    frame = Frame.req(req_id, 'cap:in="media:void";op=test;out="media:void"', b"", "text/plain")
+    frame = Frame.req(req_id, 'cap:in="media:void";test;out="media:void"', b"", "text/plain")
     frame.routing_id = routing_id
 
     encoded = encode_frame(frame)
@@ -1433,7 +1433,7 @@ def test_520_reorder_buffer_per_flow_limit():
 
 # TEST521: RelayNotify CBOR roundtrip preserves manifest and limits
 def test_521_relay_notify_cbor_roundtrip():
-    manifest = b'{"caps":["cap:in=\\"media:void\\";op=convert;out=\\"media:image\\""}'
+    manifest = b'{"caps":["cap:in=\\"media:void\\";convert;out=\\"media:image\\""}'
     frame = Frame.relay_notify(manifest, 3_000_000, 256_000, 128)
 
     encoded = encode_frame(frame)

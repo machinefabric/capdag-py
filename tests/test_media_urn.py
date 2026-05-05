@@ -421,7 +421,7 @@ def test_852_lub_identical():
 # TEST853: LUB of URNs with no common tags returns media: (universal)
 def test_853_lub_no_common_tags():
     pdf = MediaUrn.from_string("media:pdf")
-    png = MediaUrn.from_string("media:png")
+    png = MediaUrn.from_string("media:image;png")
     lub = MediaUrn.least_upper_bound([pdf, png])
     universal = MediaUrn.from_string("media:")
     assert lub.is_equivalent(universal), \

@@ -21,7 +21,7 @@ def make_pipe():
 # TEST404: Slave sends RelayNotify on connect (initial_notify parameter)
 def test_404_slave_sends_relay_notify_on_connect():
     """Verify slave sends RelayNotify with manifest and limits on connect"""
-    manifest = b'{"caps":["cap:op=test"]}'
+    manifest = b'{"caps":["cap:test"]}'
     limits = Limits.default()
 
     master_read, slave_write = make_pipe()
@@ -55,7 +55,7 @@ def test_404_slave_sends_relay_notify_on_connect():
 # TEST405: Master reads RelayNotify and extracts manifest + limits
 def test_405_master_reads_relay_notify():
     """Verify master connects by reading initial RelayNotify"""
-    manifest = b'{"caps":["cap:op=convert"]}'
+    manifest = b'{"caps":["cap:convert"]}'
     limits = Limits(max_frame=1_000_000, max_chunk=64_000)
 
     master_read, slave_write = make_pipe()
@@ -133,7 +133,7 @@ def test_407_protocol_frames_pass_through():
     def master_write_thread():
         try:
             writer = FrameWriter(master_socket_write)
-            req = Frame.req(req_id, "cap:op=test", b"hello", "text/plain")
+            req = Frame.req(req_id, "cap:test", b"hello", "text/plain")
             writer.write(req)
             master_socket_write.close()
         except Exception as e:
@@ -187,7 +187,7 @@ def test_407_protocol_frames_pass_through():
     forwarded_req = runtime_reader.read()
     assert forwarded_req is not None
     assert forwarded_req.frame_type == FrameType.REQ
-    assert forwarded_req.cap == "cap:op=test"
+    assert forwarded_req.cap == "cap:test"
     assert forwarded_req.payload == b"hello"
 
     # Master reads the forwarded CHUNK
@@ -221,7 +221,7 @@ def test_408_relay_frames_not_forwarded():
             state = Frame.relay_state(b'{"memory":1024}')
             writer.write(state)
             # Then send a normal REQ
-            req = Frame.req(MessageId.new_uuid(), "cap:op=test", b"", "text/plain")
+            req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
             writer.write(req)
             master_socket_write.close()
         except Exception as e:
@@ -283,7 +283,7 @@ def test_409_slave_injects_relay_notify_midstream():
         limits = Limits.default()
 
         # First: send initial RelayNotify
-        initial = b'{"caps":["cap:op=test"]}'
+        initial = b'{"caps":["cap:test"]}'
         RelaySlave.send_notify(writer, initial, limits)
 
         # Then: a normal CHUNK
@@ -291,7 +291,7 @@ def test_409_slave_injects_relay_notify_midstream():
         writer.write(chunk)
 
         # Then: updated RelayNotify
-        updated = b'{"caps":["cap:op=test","cap:op=convert"]}'
+        updated = b'{"caps":["cap:test","cap:convert"]}'
         RelaySlave.send_notify(writer, updated, limits)
 
         slave_socket_write.close()
@@ -305,7 +305,7 @@ def test_409_slave_injects_relay_notify_midstream():
     f1 = reader.read()
     assert f1 is not None
     assert f1.frame_type == FrameType.RELAY_NOTIFY
-    assert f1.relay_notify_manifest() == b'{"caps":["cap:op=test"]}'
+    assert f1.relay_notify_manifest() == b'{"caps":["cap:test"]}'
 
     # Read CHUNK (passed through)
     f2 = reader.read()
@@ -316,7 +316,7 @@ def test_409_slave_injects_relay_notify_midstream():
     f3 = reader.read()
     assert f3 is not None
     assert f3.frame_type == FrameType.RELAY_NOTIFY
-    assert f3.relay_notify_manifest() == b'{"caps":["cap:op=test","cap:op=convert"]}'
+    assert f3.relay_notify_manifest() == b'{"caps":["cap:test","cap:convert"]}'
 
     master_socket_read.close()
     t.join()
@@ -333,7 +333,7 @@ def test_410_master_receives_updated_relay_notify():
         writer = FrameWriter(slave_socket_write)
 
         # Initial RelayNotify
-        initial = Frame.relay_notify(b'{"caps":["cap:op=a"]}', limits.max_frame, limits.max_chunk)
+        initial = Frame.relay_notify(b'{"caps":["cap:a"]}', limits.max_frame, limits.max_chunk)
         writer.write(initial)
 
         # Normal frame
@@ -342,7 +342,7 @@ def test_410_master_receives_updated_relay_notify():
 
         # Updated RelayNotify with new limits
         updated = Frame.relay_notify(
-            b'{"caps":["cap:op=a","cap:op=b"]}',
+            b'{"caps":["cap:a","cap:b"]}',
             3_000_000,
             200_000,
         )
@@ -361,7 +361,7 @@ def test_410_master_receives_updated_relay_notify():
     master = RelayMaster.connect(reader)
 
     # Initial state
-    assert master.manifest == b'{"caps":["cap:op=a"]}'
+    assert master.manifest == b'{"caps":["cap:a"]}'
     assert master.limits.max_frame == 2_000_000
 
     # First non-relay frame
@@ -375,7 +375,7 @@ def test_410_master_receives_updated_relay_notify():
     assert f2.frame_type == FrameType.END
 
     # Manifest and limits should be updated
-    assert master.manifest == b'{"caps":["cap:op=a","cap:op=b"]}'
+    assert master.manifest == b'{"caps":["cap:a","cap:b"]}'
     assert master.limits.max_frame == 3_000_000
     assert master.limits.max_chunk == 200_000
 
@@ -434,8 +434,8 @@ def test_412_bidirectional_concurrent_flow():
     def master_write():
         try:
             writer = FrameWriter(master_socket_write)
-            req1 = Frame.req(req_id1, "cap:op=a", b"data-a", "text/plain")
-            req2 = Frame.req(req_id2, "cap:op=b", b"data-b", "text/plain")
+            req1 = Frame.req(req_id1, "cap:a", b"data-a", "text/plain")
+            req2 = Frame.req(req_id2, "cap:b", b"data-b", "text/plain")
             writer.write(req1)
             writer.write(req2)
             master_socket_write.close()
