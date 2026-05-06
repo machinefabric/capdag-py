@@ -695,7 +695,7 @@ class CapUrnBuilder:
         self._tags[key.lower()] = value
         return self
 
-    def solo_tag(self, key: str) -> "CapUrnBuilder":
+    def marker(self, key: str) -> "CapUrnBuilder":
         """Add a tag with wildcard value ("*") without requiring explicit value parameter"""
         key_lower = key.lower()
         if key_lower in ("in", "out"):

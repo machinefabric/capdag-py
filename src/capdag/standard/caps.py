@@ -176,7 +176,7 @@ def coercion_urn(source_type: str, target_type: str) -> CapUrn:
     out_spec = media_urn_for_type(target_type)
     return (
         CapUrnBuilder()
-        .tag("op", "coerce")
+        .marker("coerce")
         .in_spec(in_spec)
         .out_spec(out_spec)
         .build()
@@ -230,7 +230,7 @@ def llm_generate_text_urn() -> str:
     """Build URN for LLM text generation capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "generate_text")
+        .marker("generate_text")
         .tag("llm", "*")
         .tag("ml-model", "*")
         .in_spec(MEDIA_STRING)
@@ -244,7 +244,7 @@ def llm_multiplechoice_urn(lang_code: str) -> CapUrn:
     """Build URN for multiplechoice capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "multiplechoice")
+        .marker("multiplechoice")
         .tag("constrained", "*")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -257,7 +257,7 @@ def llm_codegeneration_urn(lang_code: str) -> CapUrn:
     """Build URN for codegeneration capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "codegeneration")
+        .marker("codegeneration")
         .tag("constrained", "*")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -270,7 +270,7 @@ def llm_creative_urn(lang_code: str) -> CapUrn:
     """Build URN for creative capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "creative")
+        .marker("creative")
         .tag("constrained", "*")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -283,7 +283,7 @@ def llm_summarization_urn(lang_code: str) -> CapUrn:
     """Build URN for summarization capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "summarization")
+        .marker("summarization")
         .tag("constrained", "*")
         .tag("language", lang_code)
         .in_spec(MEDIA_STRING)
@@ -301,7 +301,7 @@ def embeddings_dimensions_urn() -> CapUrn:
     """Build URN for embeddings-dimensions capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "embeddings_dimensions")
+        .marker("embeddings_dimensions")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_MODEL_DIM)
         .build()
@@ -312,7 +312,7 @@ def embeddings_generation_urn() -> CapUrn:
     """Build URN for text embeddings-generation capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "generate_embeddings")
+        .marker("generate_embeddings")
         .in_spec(MEDIA_STRING)
         .out_spec(MEDIA_EMBEDDING_VECTOR)
         .build()
@@ -323,7 +323,7 @@ def image_embeddings_generation_urn() -> CapUrn:
     """Build URN for image embeddings-generation capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "generate_image_embeddings")
+        .marker("generate_image_embeddings")
         .tag("ml-model", "*")
         .tag("candle", "*")
         .in_spec(MEDIA_PNG)
@@ -341,7 +341,7 @@ def model_download_urn() -> CapUrn:
     """Build URN for model-download capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "download-model")
+        .marker("download-model")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_DOWNLOAD_OUTPUT)
         .build()
@@ -352,7 +352,7 @@ def model_list_urn() -> CapUrn:
     """Build URN for model-list capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "list-models")
+        .marker("list-models")
         .in_spec(MEDIA_MODEL_REPO)
         .out_spec(MEDIA_LIST_OUTPUT)
         .build()
@@ -363,7 +363,7 @@ def model_status_urn() -> CapUrn:
     """Build URN for model-status capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "model-status")
+        .marker("model-status")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_STATUS_OUTPUT)
         .build()
@@ -374,7 +374,7 @@ def model_contents_urn() -> CapUrn:
     """Build URN for model-contents capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "model-contents")
+        .marker("model-contents")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_CONTENTS_OUTPUT)
         .build()
@@ -385,7 +385,7 @@ def model_availability_urn() -> CapUrn:
     """Build URN for model-availability capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "model-availability")
+        .marker("model-availability")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_AVAILABILITY_OUTPUT)
         .build()
@@ -396,7 +396,7 @@ def model_path_urn() -> CapUrn:
     """Build URN for model-path capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "model-path")
+        .marker("model-path")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_PATH_OUTPUT)
         .build()
@@ -415,7 +415,7 @@ def render_page_image_urn(input_media: str) -> str:
     """
     return (
         CapUrnBuilder()
-        .tag("op", "render_page_image")
+        .marker("render_page_image")
         .in_spec(input_media)
         .out_spec(MEDIA_PNG)
         .build()
@@ -430,7 +430,7 @@ def disbind_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
     """
     return (
         CapUrnBuilder()
-        .tag("op", "disbind")
+        .marker("disbind")
         .in_spec(input_media)
         .out_spec(MEDIA_TEXTABLE_PAGE)
         .build()
@@ -446,7 +446,7 @@ def format_conversion_urn(in_media: str, out_media: str) -> str:
     """Build URN for a format conversion capability."""
     return (
         CapUrnBuilder()
-        .tag("op", "convert_format")
+        .marker("convert_format")
         .in_spec(in_media)
         .out_spec(out_media)
         .build()
@@ -531,7 +531,7 @@ def generate_json_urn(lang_code: str) -> CapUrn:
     """
     return (
         CapUrnBuilder()
-        .tag("op", "generate_json")
+        .marker("generate_json")
         .tag("language", lang_code)
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)
@@ -544,7 +544,7 @@ def make_decision_urn(lang_code: str) -> CapUrn:
     """Build URN for make-decision capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "make_decision")
+        .marker("make_decision")
         .tag("language", lang_code)
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)
@@ -557,7 +557,7 @@ def make_multiple_decisions_urn(lang_code: str) -> CapUrn:
     """Build URN for make-multiple-decisions capability"""
     return (
         CapUrnBuilder()
-        .tag("op", "make_multiple_decisions")
+        .marker("make_multiple_decisions")
         .tag("language", lang_code)
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)
