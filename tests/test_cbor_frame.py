@@ -1490,7 +1490,7 @@ def test_526_relay_state_empty_payload():
 
 # TEST527: RelayNotify with large manifest roundtrips correctly
 def test_527_relay_notify_large_manifest():
-    parts = [f'"cap:in=\\"media:void\\";op=op{i};out=\\"media:void\\""' for i in range(100)]
+    parts = [f'"cap:in=\\"media:void\\";op{i};out=\\"media:void\\""' for i in range(100)]
     large_manifest = ('{"cap_groups":[{"name":"default","caps":[' + ",".join(parts) + "]}]}").encode()
 
     frame = Frame.relay_notify(large_manifest, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK)

@@ -190,7 +190,7 @@ def test_142_normalize_handles_different_tag_orders():
     """Test that different tag orders normalize to same form"""
     # Different tag orders should normalize to the same canonical form
     urn1 = 'cap:test;in="media:string";out="media:object"'
-    urn2 = 'cap:in="media:string";out="media:object";op=test'
+    urn2 = 'cap:in=media:string;out=media:object;test'
 
     normalized1 = normalize_cap_urn(urn1)
     normalized2 = normalize_cap_urn(urn2)

@@ -28,7 +28,7 @@ def _test_urn(tags_part: str) -> str:
 # TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible
 def test_001_cap_urn_creation():
     cap = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
-    assert cap.get_tag("op") == "generate"
+    assert cap.has_marker_tag("generate")
     assert cap.get_tag("target") == "thumbnail"
     assert cap.get_tag("ext") == "pdf"
     # Direction specs are required and accessible
@@ -39,17 +39,17 @@ def test_001_cap_urn_creation():
 # TEST002: Test that missing 'in' or 'out' defaults to media: wildcard
 def test_002_direction_specs_default_to_wildcard():
     # Missing 'in' defaults to media:
-    cap = CapUrn.from_string(f'cap:out="{MEDIA_OBJECT}";op=test')
+    cap = CapUrn.from_string(f'cap:out="{MEDIA_OBJECT}";test')
     assert cap.in_spec() == "media:"
     assert cap.out_spec() == MEDIA_OBJECT
 
     # Missing 'out' defaults to media:
-    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";op=test')
+    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";test')
     assert cap.in_spec() == MEDIA_VOID
     assert cap.out_spec() == "media:"
 
     # Both present should succeed
-    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";op=test')
+    cap = CapUrn.from_string(f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";test')
     assert cap.in_spec() == MEDIA_VOID
     assert cap.out_spec() == MEDIA_OBJECT
 
@@ -88,7 +88,7 @@ def test_004_unquoted_values_lowercased():
     cap = CapUrn.from_string(_test_urn("OP=Generate;EXT=PDF;Target=Thumbnail"))
 
     # Keys are always lowercase
-    assert cap.get_tag("op") == "generate"
+    assert cap.has_marker_tag("generate")
     assert cap.get_tag("ext") == "pdf"
     assert cap.get_tag("target") == "thumbnail"
 
@@ -225,15 +225,15 @@ def test_014_round_trip_escapes():
 def test_015_cap_prefix_required():
     # Missing cap: prefix should fail
     with pytest.raises(CapUrnError):
-        CapUrn.from_string(f'in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";op=generate')
+        CapUrn.from_string(f'in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";generate')
 
     # Valid cap: prefix should work
     cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
-    assert cap.get_tag("op") == "generate"
+    assert cap.has_marker_tag("generate")
 
     # Case-insensitive prefix
-    cap2 = CapUrn.from_string(f'CAP:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";op=generate')
-    assert cap2.get_tag("op") == "generate"
+    cap2 = CapUrn.from_string(f'CAP:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";generate')
+    assert cap2.has_marker_tag("generate")
 
 
 # TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches)
@@ -270,7 +270,7 @@ def test_017_tag_matching():
     assert cap3.accepts(cap1), "cap3 missing ext is wildcard, accepts cap1 with ext"
 
     # Wildcard: cap has wildcard value -> can handle any value
-    cap4 = CapUrn.from_string(_test_urn("op=*;ext=pdf"))
+    cap4 = CapUrn.from_string(_test_urn("op;ext=pdf"))
     assert cap4.accepts(cap1)  # cap4 can handle cap1
 
     # Value mismatch
@@ -306,8 +306,8 @@ def test_019_missing_tag_handling():
 # TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
 def test_020_specificity_calculation():
     # More tags in direction specs = higher specificity
-    cap1 = CapUrn.from_string(f'cap:in="media:string";out="media:object";op=test')
-    cap2 = CapUrn.from_string(f'cap:in="media:textable";out="media:record;textable";op=test')
+    cap1 = CapUrn.from_string(f'cap:in=media:string;out=media:object;test')
+    cap2 = CapUrn.from_string(f'cap:in=media:textable;out="media:record;textable";test')
     # cap2 has more MediaUrn tags, so it's more specific
     assert cap2.specificity() > cap1.specificity()
 
@@ -329,7 +329,7 @@ def test_021_builder_creates_cap_urn():
     )
     assert cap.in_spec() == MEDIA_VOID
     assert cap.out_spec() == MEDIA_OBJECT
-    assert cap.get_tag("op") == "generate"
+    assert cap.has_marker_tag("generate")
     assert cap.get_tag("ext") == "pdf"
 
 
@@ -358,10 +358,10 @@ def test_023_builder_preserves_case():
         .build()
     )
     # Key should be lowercase
-    assert cap.get_tag("op") == "Generate"
+    assert cap.has_marker_tag("Generate")
     assert cap.get_tag("OP") == "Generate"  # Case-insensitive lookup
     # Value case should be preserved
-    assert cap.get_tag("op") == "Generate"
+    assert cap.has_marker_tag("Generate")
 
 
 # TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
@@ -397,7 +397,7 @@ def test_025_find_best_match():
     # This test requires implementing a find_best_match function
     # For now, we test the specificity and matching directly
     caps = [
-        CapUrn.from_string(_test_urn("op=*")),  # Generic
+        CapUrn.from_string(_test_urn("op")),  # Generic
         CapUrn.from_string(_test_urn("generate;ext=pdf")),  # Specific
     ]
     request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
@@ -416,13 +416,13 @@ def test_026_merge_and_subset():
 
     # Merge: cap2 takes precedence
     merged = cap1.merge(cap2)
-    assert merged.get_tag("op") == "convert"  # From cap2
+    assert merged.has_marker_tag("convert")  # From cap2
     assert merged.get_tag("ext") == "pdf"  # From cap1
     assert merged.get_tag("target") == "thumbnail"  # From cap2
 
     # Subset
     subset = cap1.subset(["op"])
-    assert subset.get_tag("op") == "generate"
+    assert subset.has_marker_tag("generate")
     assert subset.get_tag("ext") is None  # Not in subset
 
 
@@ -469,8 +469,8 @@ def test_030_extended_characters_in_values():
 # TEST031: Test wildcard rejected in keys but accepted in values
 def test_031_wildcard_in_keys_and_values():
     # Wildcard in value is accepted
-    cap = CapUrn.from_string(_test_urn("op=*"))
-    assert cap.get_tag("op") == "*"
+    cap = CapUrn.from_string(_test_urn("op"))
+    assert cap.has_marker_tag("*")
 
     # Wildcard in key should fail (handled by tagged-urn)
     with pytest.raises(CapUrnError):
@@ -669,7 +669,7 @@ def test_559_without_tag():
     )
     removed = cap.without_tag("ext")
     assert removed.get_tag("ext") is None
-    assert removed.get_tag("op") == "test"
+    assert removed.has_marker_tag("test")
 
     # Case-insensitive removal
     removed2 = cap.without_tag("EXT")
@@ -695,7 +695,7 @@ def test_560_with_in_out_spec():
     changed_in = cap.with_in_spec("media:")
     assert changed_in.in_spec() == "media:"
     assert changed_in.out_spec() == MEDIA_VOID
-    assert changed_in.get_tag("op") == "test"
+    assert changed_in.has_marker_tag("test")
 
     changed_out = cap.with_out_spec("media:string")
     assert changed_out.in_spec() == MEDIA_VOID
@@ -775,7 +775,7 @@ def test_563_find_all_matches():
     request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
     matches = CapMatcher.find_all_matches(caps, request)
 
-    # Should find 2 matches (op=test and test;ext=pdf), not op=different
+    # Should find 2 matches (test and test;ext=pdf), not different
     assert len(matches) == 2
     # Sorted by specificity descending: ext=pdf first (more specific)
     assert matches[0].specificity() >= matches[1].specificity()
@@ -794,10 +794,10 @@ def test_564_are_compatible():
         CapUrn.from_string('cap:in="media:void";different;out="media:void"'),
     ]
 
-    # caps1 (op=test) accepts caps2 (test;ext=pdf) -> compatible
+    # caps1 (test) accepts caps2 (test;ext=pdf) -> compatible
     assert CapMatcher.are_compatible(caps1, caps2)
 
-    # caps1 (op=test) vs caps3 (op=different) -> not compatible
+    # caps1 (test) vs caps3 (different) -> not compatible
     assert not CapMatcher.are_compatible(caps1, caps3)
 
     # Empty sets are not compatible
@@ -935,12 +935,12 @@ def test_649_wildcard_specificity_scoring():
     assert specific.specificity() > 0, "Specific cap should have non-zero specificity"
 
 
-# TEST650: cap:in;out;op=test preserves other tags
+# TEST650: cap:in=media:;out=media:;test preserves other tags
 def test_650_wildcard_preserve_other_tags():
     cap = CapUrn.from_string("cap:in;out;test")
     assert cap.in_spec() == "media:"
     assert cap.out_spec() == "media:"
-    assert cap.get_tag("op") == "test"
+    assert cap.has_marker_tag("test")
 
 
 # TEST651: All identity forms produce the same CapUrn
@@ -969,7 +969,7 @@ def test_652_wildcard_cap_identity_constant():
     assert identity.out_spec() == "media:"
 
     # Identity accepts anything (no tag constraints)
-    specific = CapUrn.from_string('cap:in=media:;out=media:text;op=convert')
+    specific = CapUrn.from_string('cap:convert;in=media:;out=media:text')
     assert identity.accepts(specific), "Identity should accept any cap"
     assert specific.conforms_to(identity), "Specific conforms to identity"
 
@@ -980,7 +980,7 @@ def test_653_wildcard_identity_routing_isolation():
     specific_request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
 
     # For routing: request.accepts(registered_cap)
-    # specific_request(op=test) rejects identity (missing op) -> NOT routed to identity
+    # specific_request(test) rejects identity (missing op) -> NOT routed to identity
     assert not specific_request.accepts(identity), "Specific request must not accept identity cap"
 
     # Identity (no tag constraints) accepts the specific request
@@ -1295,7 +1295,7 @@ def test_920_cap_urn_total_order_basic():
     assert not (b < b)
 
     # a and b differ only in op tag — canonical strings determine order
-    # op=a < op=b lexicographically
+    # a < b lexicographically
     if a < b:
         assert not (b < a), "antisymmetry violated"
         assert a <= b

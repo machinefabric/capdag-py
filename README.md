@@ -54,7 +54,7 @@ cap = CapUrnBuilder() \
 print(cap.to_string())  # cap:ext=pdf;in="media:textable";generate;out="media:record;textable"
 
 # Matching semantics
-request = CapUrn.from_string('cap:in="media:textable";out="media:record;textable";op=generate')
+request = CapUrn.from_string('cap:generate;in=media:textable;out="media:record;textable"')
 print(cap.accepts(request))  # True
 
 # Specificity

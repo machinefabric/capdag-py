@@ -93,7 +93,7 @@ def test_474_cap_discard_accepts_specific_void_cap():
     specific = CapUrn.from_string('cap:in="media:pdf";shred;out="media:void"')
 
     # discard (pattern) accepts specific (instance) — the specific cap
-    # IS more specific (has op=shred and specific input)
+    # IS more specific (has shred and specific input)
     assert discard.accepts(specific), \
         "CAP_DISCARD must accept a more specific cap with void output"
 
