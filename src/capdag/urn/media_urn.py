@@ -482,9 +482,22 @@ class MediaUrn:
         return self._urn.get_tag("bool") is not None
 
     def is_void(self) -> bool:
-        """Check if this represents a void (no data) type"""
+        """Check if this represents a void (no data) type — the
+        **unit type** in the type-theoretic reading. ``media:void`` is
+        the nullary value; a cap with ``media:void`` on a side has no
+        meaningful data on that side. NOT "invalid" or "absent".
+        """
         # Check for "void" marker tag
         return "void" in self._urn.tags
+
+    def is_top(self) -> bool:
+        """True if this is the **top** media URN — the universal
+        wildcard ``media:`` with no tags. Order-theoretically, every
+        other media URN ``conforms_to`` this one. Distinct from
+        ``is_void``: top means "any data type accepted here," void
+        means "no data flows here."
+        """
+        return len(self._urn.tags) == 0
 
     def is_file_path(self) -> bool:
         """True if this URN specializes `media:file-path`.

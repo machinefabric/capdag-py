@@ -109,6 +109,7 @@ from capdag.urn.cap_urn import (
     CapUrnError,
     CapUrnBuilder,
     CapMatcher,
+    CapKind,
 )
 
 # Cap module
@@ -358,6 +359,7 @@ __all__ = [
     "CapUrnError",
     "CapUrnBuilder",
     "CapMatcher",
+    "CapKind",
     # Response
     "ResponseWrapper",
     # Cap

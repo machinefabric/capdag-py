@@ -8,6 +8,7 @@ Cap URNs use the tagged URN format with "cap" prefix. Missing `in` or `out`
 tags default to "media:" (wildcard). Explicit "*" also expands to "media:".
 """
 
+from enum import Enum
 from typing import Dict, List, Optional
 from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
 from capdag.urn.media_urn import MediaUrn, MediaUrnError
@@ -16,6 +17,41 @@ from capdag.urn.media_urn import MediaUrn, MediaUrnError
 class CapUrnError(Exception):
     """Base exception for cap URN errors"""
     pass
+
+
+class CapKind(Enum):
+    """Functional category of a cap, derived from all three axes
+    (``in``, ``out``, and the remaining tags).
+
+    The classification is **logical** — the dispatch protocol does
+    not branch on ``CapKind``. Exposed so tools, UIs, planners, and
+    tests can reason about a cap's role without re-deriving the rules.
+
+    ``media:void`` is the **unit type** (the nullary value, no
+    meaningful data). ``media:`` is the **top type** (the universal
+    wildcard). With those anchors the five kinds fall out:
+
+    +-----------+--------------+--------------+------------+--------------+
+    | Kind      | in           | out          | other tags | reads as     |
+    +===========+==============+==============+============+==============+
+    | Identity  | ``media:``   | ``media:``   | none       | ``A → A``    |
+    | Source    | ``media:void``| not void    | any        | ``() → B``   |
+    | Sink      | not void     | ``media:void``| any       | ``A → ()``   |
+    | Effect    | ``media:void``| ``media:void``| any      | ``() → ()``  |
+    | Transform | anything else                                          |
+    +-----------+--------------+--------------+------------+--------------+
+
+    Identity is the **fully generic** cap on every axis: input wide
+    open, output wide open, no operation/metadata tags. Adding any tag
+    specifies something on the third axis and demotes the morphism to
+    a Transform whose in/out happen to be the wildcards.
+    """
+
+    IDENTITY = "identity"
+    SOURCE = "source"
+    SINK = "sink"
+    EFFECT = "effect"
+    TRANSFORM = "transform"
 
 
 class CapUrn:
@@ -161,11 +197,22 @@ class CapUrn:
     def _build_tagged_urn(self) -> TaggedUrn:
         """Build a TaggedUrn representation of this CapUrn
 
-        Internal helper for serialization and tag manipulation.
+        Internal helper for serialization and tag manipulation. The
+        ``in`` and ``out`` segments are emitted only when they refine
+        beyond the trivial wildcard ``media:``. A cap whose ``in``/
+        ``out`` are both ``media:`` and which carries no other tags has
+        the canonical form ``cap:`` — the bare identity URN. Same
+        morphism whether written as ``cap:`` or ``cap:in=media:;out=media:``;
+        the canonicalizer collapses to one representative so byte-equality
+        matches semantic identity.
         """
+        from .media_urn import MEDIA_IDENTITY
+
         builder = TaggedUrnBuilder(self.PREFIX)
-        builder.tag("in", self.in_urn)
-        builder.tag("out", self.out_urn)
+        if self.in_urn != MEDIA_IDENTITY:
+            builder.tag("in", self.in_urn)
+        if self.out_urn != MEDIA_IDENTITY:
+            builder.tag("out", self.out_urn)
 
         for k, v in self.tags.items():
             builder.tag(k, v)
@@ -218,6 +265,45 @@ class CapUrn:
     def out_media_urn(self) -> MediaUrn:
         """Get the output as a parsed MediaUrn"""
         return MediaUrn.from_string(self.out_urn)
+
+    def kind(self) -> CapKind:
+        """Functional category of this cap, derived from all three
+        axes (``in``, ``out``, and the remaining tags).
+
+        Identity requires every axis to be in its most generic form:
+        ``in`` is the top media URN (``media:``), ``out`` is the top
+        media URN, and there are no other tags. Source/Sink/Effect
+        are decided by ``media:void`` on either directional axis.
+        Anything else is Transform.
+
+        See :class:`CapKind` for the full taxonomy and the unit-vs-top
+        reading of ``media:void`` / ``media:``.
+
+        Raises ``MediaUrnError`` if either side is not a valid media
+        URN — this only happens on internally inconsistent state since
+        construction validates both sides.
+        """
+        in_media = self.in_media_urn()
+        out_media = self.out_media_urn()
+
+        in_void = in_media.is_void()
+        out_void = out_media.is_void()
+        in_top = in_media.is_top()
+        out_top = out_media.is_top()
+        # self.tags does NOT include in/out; those live in self.in_urn /
+        # self.out_urn. So `not self.tags` correctly tests "no tags
+        # beyond the directional axes."
+        no_extra_tags = not self.tags
+
+        if in_top and out_top and no_extra_tags:
+            return CapKind.IDENTITY
+        if in_void and out_void:
+            return CapKind.EFFECT
+        if in_void:
+            return CapKind.SOURCE
+        if out_void:
+            return CapKind.SINK
+        return CapKind.TRANSFORM
 
     def has_tag(self, key: str, value: str) -> bool:
         """Check if this cap has a specific tag with a specific value

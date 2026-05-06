@@ -10,6 +10,7 @@ from capdag import (
     CapUrnError,
     CapUrnBuilder,
     CapMatcher,
+    CapKind,
     MediaUrn,
     MEDIA_VOID,
     MEDIA_OBJECT,
@@ -1352,3 +1353,108 @@ def test_923_cap_urn_order_returns_not_implemented_for_non_cap():
     assert result is NotImplemented
     result = a.__ge__(object())
     assert result is NotImplemented
+
+
+# -------------------------------------------------------------------
+# CapKind classifier tests (test1800–test1805).
+#
+# Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+# JS) under the SAME numbers. Any divergence is a wire-level
+# inconsistency — the kind taxonomy is part of the protocol's public
+# surface, not a per-port detail.
+# -------------------------------------------------------------------
+
+
+# TEST1800: Identity classifier — only the bare cap: form qualifies.
+# `cap:` is the fully generic morphism on every axis; adding any tag
+# (even one that doesn't constrain in/out) demotes the cap to
+# Transform because the operation/metadata axis is no longer fully
+# generic.
+def test_1800_kind_identity_only_for_bare_cap():
+    identity = CapUrn.from_string("cap:")
+    assert identity.kind() == CapKind.IDENTITY
+
+    for spelling in [
+        "cap:in=media:;out=media:",
+        "cap:in=*;out=*",
+        "cap:in=media:",
+        "cap:out=media:",
+    ]:
+        cap = CapUrn.from_string(spelling)
+        assert cap.kind() == CapKind.IDENTITY, (
+            f"{spelling} should classify as Identity (canonical form is `cap:`)"
+        )
+
+    with_op = CapUrn.from_string("cap:passthrough")
+    assert with_op.kind() == CapKind.TRANSFORM, (
+        "cap:passthrough specifies the operation axis — not Identity"
+    )
+
+
+# TEST1801: Source classifier — in=media:void, out non-void. The y
+# dimension may carry any tags; void on the input alone is what
+# matters.
+def test_1801_kind_source_when_input_is_void():
+    warm = CapUrn.from_string('cap:in=media:void;out="media:model-artifact";warm')
+    assert warm.kind() == CapKind.SOURCE
+
+    gen = CapUrn.from_string("cap:in=media:void;out=media:textable")
+    assert gen.kind() == CapKind.SOURCE
+
+
+# TEST1802: Sink classifier — out=media:void, in non-void.
+def test_1802_kind_sink_when_output_is_void():
+    discard = CapUrn.from_string("cap:discard;in=media:;out=media:void")
+    assert discard.kind() == CapKind.SINK
+
+    log_cap = CapUrn.from_string('cap:in="media:json;textable";log;out=media:void')
+    assert log_cap.kind() == CapKind.SINK
+
+
+# TEST1803: Effect classifier — both sides void. Reads as `() → ()`.
+def test_1803_kind_effect_when_both_sides_void():
+    ping = CapUrn.from_string("cap:in=media:void;out=media:void;ping")
+    assert ping.kind() == CapKind.EFFECT
+
+    bare = CapUrn.from_string("cap:in=media:void;out=media:void")
+    assert bare.kind() == CapKind.EFFECT
+
+
+# TEST1804: Transform classifier — at least one side non-void, and
+# the cap is not the bare identity. The default kind for ordinary
+# data-processing caps.
+def test_1804_kind_transform_for_normal_data_processors():
+    extract = CapUrn.from_string('cap:extract;in=media:pdf;out="media:record;textable"')
+    assert extract.kind() == CapKind.TRANSFORM
+
+    labeled = CapUrn.from_string("cap:passthrough;in=media:;out=media:")
+    assert labeled.kind() == CapKind.TRANSFORM
+
+
+# TEST1805: Kind is invariant under canonicalization. The same
+# morphism written in many surface forms must classify the same way
+# once parsed. Pins the rule that kind is a property of the cap as a
+# structured object, not of any particular spelling.
+def test_1805_kind_invariant_under_canonical_spellings():
+    cases = [
+        ("cap:", "cap:in=media:;out=media:", CapKind.IDENTITY),
+        (
+            "cap:extract;in=media:pdf;out=media:textable",
+            'cap:extract;in="media:pdf";out="media:textable"',
+            CapKind.TRANSFORM,
+        ),
+        (
+            "cap:in=media:void;out=media:textable;warm",
+            "cap:warm;out=media:textable;in=media:void",
+            CapKind.SOURCE,
+        ),
+    ]
+
+    for a, b, expected in cases:
+        kind_a = CapUrn.from_string(a).kind()
+        kind_b = CapUrn.from_string(b).kind()
+        assert kind_a == expected, f"{a} should classify as {expected}, got {kind_a}"
+        assert kind_b == expected, f"{b} should classify as {expected}, got {kind_b}"
+        assert kind_a == kind_b, (
+            f"{a} and {b} parse to the same cap and must classify identically"
+        )
