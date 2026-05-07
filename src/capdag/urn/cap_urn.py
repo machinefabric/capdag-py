@@ -19,6 +19,14 @@ class CapUrnError(Exception):
     pass
 
 
+# Per-tag truth-table specificity scoring is owned by tagged_urn —
+# the same scorer applies uniformly to media-URN tags, cap-tag y-axis,
+# and any other Tagged URN dimension. We re-use the canonical
+# implementation rather than duplicate it; any drift here would be a
+# wire-level inconsistency.
+from tagged_urn import score_tag_value as _score_tag_value
+
+
 class CapKind(Enum):
     """Functional category of a cap, derived from all three axes
     (``in``, ``out``, and the remaining tags).
@@ -415,20 +423,15 @@ class CapUrn:
             if not cap_out.conforms_to(request_out):
                 return False
 
-        # Check all tags that the pattern (self) requires.
-        # The instance (request param) must satisfy every pattern constraint.
-        # Missing tag in instance → instance doesn't satisfy constraint → reject.
-        for self_key, self_value in self.tags.items():
-            req_value = request.tags.get(self_key)
-            if req_value is not None:
-                if self_value == "*":
-                    continue
-                if req_value == "*":
-                    continue
-                if self_value != req_value:
-                    return False
-            else:
-                # Instance missing a tag the pattern requires
+        # Y-axis: every tag's per-key match runs through the six-form
+        # truth table (TaggedUrn._values_match). Walk the union of
+        # all keys appearing on either side so missing-on-pattern and
+        # missing-on-instance cells both get evaluated.
+        all_keys = set(self.tags.keys()) | set(request.tags.keys())
+        for key in all_keys:
+            patt = self.tags.get(key)     # self is the pattern
+            inst = request.tags.get(key)  # request is the instance
+            if not TaggedUrn._values_match(inst, patt):
                 return False
 
         return True
@@ -578,28 +581,51 @@ class CapUrn:
         cap = CapUrn.from_string(cap_str)
         return self.conforms_to(cap)
 
+    # Per-axis weights for cap-URN specificity. Two orders of
+    # magnitude separate each axis to keep them in distinct digit
+    # slots while folding into a single comparable integer.
+    WEIGHT_OUT = 10_000
+    WEIGHT_IN = 100
+
     def specificity(self) -> int:
-        """Calculate specificity score for cap matching
+        """Calculate specificity score for cap matching.
 
-        More specific caps have higher scores and are preferred.
-        Direction specs contribute their MediaUrn tag count (more tags = more specific).
-        Other tags contribute 1 per non-wildcard value.
+        Weighted sum of the per-tag truth-table score across the
+        three axes (``out``, ``in``, ``y``):
+
+        .. code-block:: text
+
+            spec_C(c) = WEIGHT_OUT * spec_U(c.out)
+                      + WEIGHT_IN  * spec_U(c.in)
+                      +              spec_U(c.y)
+
+        Per-tag scoring (see :func:`tagged_urn.score_tag_value`):
+
+        +--------------------+-------+----------------------+
+        | Stored tag value   | Score | Form                 |
+        +====================+=======+======================+
+        | ``"?"``            | 0     | ``?x`` no constraint |
+        | starts with ``?=`` | 1     | ``x?=v``             |
+        | ``"*"``            | 2     | ``x`` (``x=*``)      |
+        | starts with ``!=`` | 3     | ``x!=v``             |
+        | exact value        | 4     | ``x=v``              |
+        | ``"!"``            | 5     | ``!x``               |
+        +--------------------+-------+----------------------+
+
+        The lexicographic priority ``(out, in, y)`` reflects the
+        routing intent: producing different things is the largest
+        semantic difference between two caps; consuming different
+        things is next; descriptive y-axis metadata is last.
         """
-        count = 0
+        in_media = MediaUrn.from_string(self.in_urn)
+        out_media = MediaUrn.from_string(self.out_urn)
 
-        # "media:" is the wildcard (contributes 0 to specificity)
-        if self.in_urn != "media:":
-            in_media = MediaUrn.from_string(self.in_urn)
-            count += len(in_media.inner().tags)
-
-        if self.out_urn != "media:":
-            out_media = MediaUrn.from_string(self.out_urn)
-            count += len(out_media.inner().tags)
-
-        # Count non-wildcard tags
-        count += sum(1 for v in self.tags.values() if v != "*")
-
-        return count
+        y_score = sum(_score_tag_value(v) for v in self.tags.values())
+        return (
+            CapUrn.WEIGHT_OUT * out_media.inner().specificity()
+            + CapUrn.WEIGHT_IN * in_media.inner().specificity()
+            + y_score
+        )
 
     def is_more_specific_than(self, other: "CapUrn") -> bool:
         """Check if this cap is more specific than another"""

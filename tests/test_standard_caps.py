@@ -27,18 +27,18 @@ from capdag.urn.media_urn import (
 )
 
 
-# TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs
+# TEST307: Test model_availability_urn builds valid cap URN with correct marker and media specs
 def test_307_model_availability_urn():
     urn = model_availability_urn()
-    assert urn.has_tag("op", "model-availability"), "URN must have model-availability"
+    assert urn.has_marker_tag("model-availability"), "URN must have model-availability marker"
     assert urn.in_spec() == MEDIA_MODEL_SPEC, "input must be model-spec"
     assert urn.out_spec() == MEDIA_AVAILABILITY_OUTPUT, "output must be availability output"
 
 
-# TEST308: Test model_path_urn builds valid cap URN with correct op and media specs
+# TEST308: Test model_path_urn builds valid cap URN with correct marker and media specs
 def test_308_model_path_urn():
     urn = model_path_urn()
-    assert urn.has_tag("op", "model-path"), "URN must have model-path"
+    assert urn.has_marker_tag("model-path"), "URN must have model-path marker"
     assert urn.in_spec() == MEDIA_MODEL_SPEC, "input must be model-spec"
     assert urn.out_spec() == MEDIA_PATH_OUTPUT, "output must be path output"
 
@@ -54,7 +54,7 @@ def test_309_model_availability_and_path_are_distinct():
 def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"
-    assert urn.has_tag("op", "generate_text"), "must have generate-text"
+    assert urn.has_marker_tag("generate_text"), "must have generate_text marker"
     assert MediaUrn.from_string(urn.in_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
     assert MediaUrn.from_string(urn.out_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
 
@@ -110,8 +110,8 @@ def test_605_all_coercion_paths_build_valid_urns():
 
     for source, target in paths:
         urn = coercion_urn(source, target)
-        assert urn.has_tag("op", "coerce"), \
-            f"Coercion URN for {source}→{target} must have coerce"
+        assert urn.has_marker_tag("coerce"), \
+            f"Coercion URN for {source}→{target} must have coerce marker"
 
         # Verify roundtrip through string parsing
         urn_str = urn.to_string()

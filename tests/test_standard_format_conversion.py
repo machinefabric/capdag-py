@@ -12,7 +12,7 @@ def test_850_all_format_conversion_paths_build_valid_urns():
 
     for path in paths:
         urn = CapUrn.from_string(format_conversion_urn(path.in_media, path.out_media))
-        assert urn.has_tag("op", "convert_format")
+        assert urn.has_marker_tag("convert_format")
 
         urn_str = urn.to_string()
         reparsed = CapUrn.from_string(urn_str)

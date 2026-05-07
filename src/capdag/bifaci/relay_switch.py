@@ -118,17 +118,34 @@ class InstalledCartridgeRecord:
 
     def cap_urns(self) -> List[str]:
         """Flat de-duplicated cap-URN view across this cartridge's
-        groups, preserving first-seen order."""
+        groups, preserving first-seen order. Each URN is parsed and
+        re-serialized so the returned strings are in canonical form
+        regardless of how the cartridge authored them on the wire.
+        Canonical form is what `find_master_for_cap` matches against
+        — without this, two-equal-but-differently-spelled URNs route
+        independently and dispatch silently misses the provider."""
         seen = set()
         out: List[str] = []
         for group in self.cap_groups:
             caps = group.get("caps", []) if isinstance(group, dict) else []
             for cap in caps:
-                urn = cap.get("urn", "") if isinstance(cap, dict) else ""
-                if not urn or urn in seen:
+                raw = cap.get("urn", "") if isinstance(cap, dict) else ""
+                if not raw:
                     continue
-                seen.add(urn)
-                out.append(urn)
+                # Canonicalize via parse + re-serialize. Failure here
+                # means the cartridge advertised an invalid URN —
+                # surface it loudly rather than silently passing the
+                # raw string through.
+                try:
+                    canonical = CapUrn.from_string(raw).to_string()
+                except Exception:
+                    raise ProtocolError(
+                        f"installed_cartridges entry advertises invalid cap URN: {raw!r}"
+                    )
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
+                out.append(canonical)
         return out
 
 
@@ -231,10 +248,12 @@ class RelaySwitch:
             )
             self._masters.append(master_conn)
 
-        # Build initial routing tables
+        # Build initial routing tables. Order matters:
+        # `_rebuild_capabilities` reads `_aggregate_installed_cartridges`
+        # so the aggregate must be rebuilt first.
         self._rebuild_cap_table()
-        self._rebuild_capabilities()
         self._rebuild_installed_cartridges()
+        self._rebuild_capabilities()
         self._rebuild_limits()
 
     def _reader_loop(self, master_idx: int, reader: FrameReader):
@@ -259,8 +278,8 @@ class RelaySwitch:
                             self._masters[master_idx].caps = caps
                             self._masters[master_idx].installed_cartridges = installed_cartridges
                             self._rebuild_cap_table()
-                            self._rebuild_capabilities()
                             self._rebuild_installed_cartridges()
+                            self._rebuild_capabilities()
                             self._rebuild_limits()
                     continue
 
@@ -561,10 +580,13 @@ class RelaySwitch:
                 self._peer_requests.discard(req_id)
                 self._peer_call_parents.pop(req_id, None)
 
-            # Rebuild cap table without dead master
+            # Rebuild cap table without dead master.
+            # `_rebuild_installed_cartridges` must run before
+            # `_rebuild_capabilities` so the latter sees the
+            # current aggregate.
             self._rebuild_cap_table()
-            self._rebuild_capabilities()
             self._rebuild_installed_cartridges()
+            self._rebuild_capabilities()
             self._rebuild_limits()
 
     def _rebuild_cap_table(self):
@@ -706,13 +728,47 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
                 f"installed_cartridges entry `cap_groups` must be array, "
                 f"got {type(cap_groups_raw)}"
             )
+        # Canonicalize every cap URN inside the cap_groups before
+        # storing. The wire format permits authored aliases (e.g.
+        # `cap:in=media:;out=media:` for the bare identity), but
+        # the engine's downstream lookups are keyed on canonical
+        # strings — leaving raw forms in place causes silent dispatch
+        # misses where two-equal-but-differently-spelled URNs route
+        # independently. Canonicalize at ingestion so the rest of
+        # the engine never has to re-canonicalize.
+        cap_groups_canonical: List[Any] = []
+        for group in cap_groups_raw:
+            if not isinstance(group, dict):
+                cap_groups_canonical.append(group)
+                continue
+            new_group = dict(group)
+            new_caps: List[Any] = []
+            for cap in group.get("caps", []) or []:
+                if not isinstance(cap, dict):
+                    new_caps.append(cap)
+                    continue
+                raw_urn = cap.get("urn", "")
+                if not raw_urn:
+                    new_caps.append(cap)
+                    continue
+                try:
+                    canonical = CapUrn.from_string(raw_urn).to_string()
+                except Exception:
+                    raise ProtocolError(
+                        f"installed_cartridges entry advertises invalid cap URN: {raw_urn!r}"
+                    )
+                new_cap = dict(cap)
+                new_cap["urn"] = canonical
+                new_caps.append(new_cap)
+            new_group["caps"] = new_caps
+            cap_groups_canonical.append(new_group)
         installed_cartridges.append(InstalledCartridgeRecord(
             registry_url=registry_url_raw,
             id=str(item.get("id", "")),
             channel=str(channel),
             version=str(item.get("version", "")),
             sha256=str(item.get("sha256", "")),
-            cap_groups=cap_groups_raw,
+            cap_groups=cap_groups_canonical,
         ))
 
     # Derive the flat cap-urn union from cap_groups across all installed

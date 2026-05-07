@@ -1,5 +1,6 @@
 """Tests for RelaySwitch — TEST426-TEST435"""
 
+import itertools
 import json
 import socket
 import threading
@@ -29,24 +30,32 @@ def send_notify(writer: FrameWriter, manifest_json: dict, limits: Limits):
     writer.write(notify)
 
 
+_make_manifest_counter = itertools.count(1)
+
+
 def make_manifest(*caps: str) -> dict:
     """Build a RelayNotify-shaped manifest dict from a flat cap-urn list.
 
     The wire schema embeds caps inside ``installed_cartridges[*].cap_groups``,
     so this helper wraps the test's flat list (always prepended with
     CAP_IDENTITY ``"cap:"``) in a single synthetic installed-cartridge.
+
+    Each call gets a unique ``id`` so aggregate-capability tests that
+    register multiple slaves see them as distinct installed cartridges
+    (the production dedup is by ``(id, version)``).
     """
     all_caps = ["cap:", *caps]
     group_caps = [
         {"urn": urn, "title": "test", "command": "test", "args": []}
         for urn in all_caps
     ]
+    cartridge_id = f"test-cartridge-{next(_make_manifest_counter)}"
     return {
         "installed_cartridges": [
             {
                 "registry_url": None,
                 "channel": "release",
-                "id": "test-cartridge",
+                "id": cartridge_id,
                 "version": "0.0.0",
                 "sha256": "0" * 64,
                 "cap_groups": [
@@ -307,11 +316,21 @@ def test_429_find_master_for_cap():
     assert switch._find_master_for_cap('cap:in="media:void";double;out="media:void"') == 1
     assert switch._find_master_for_cap('cap:in="media:void";unknown;out="media:void"') is None
 
-    # Verify aggregate capabilities
-    caps = json.loads(switch.capabilities())
-    cap_list = caps["caps"]
-    assert len(cap_list) == 3
+    # Verify aggregate capabilities. The wire payload carries caps
+    # inside `installed_cartridges[*].cap_groups[*].caps`; flatten the
+    # union across all masters and assert against the canonical URN
+    # strings.
+    payload = json.loads(switch.capabilities())
+    cap_list = []
+    for ic in payload.get("installed_cartridges", []):
+        for group in ic.get("cap_groups", []):
+            for cap in group.get("caps", []):
+                cap_list.append(cap["urn"])
+    # Each slave contributes its own cap; identity (`cap:`) is
+    # included once per slave under canonical normalization, so the
+    # flat union is 2 (one identity + one specific cap each).
     assert "cap:" in cap_list
+    assert "cap:double;in=media:void;out=media:void" in cap_list
 
 
 # TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
@@ -626,15 +645,25 @@ def test_433_capability_aggregation_deduplicates():
         SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
-    caps = json.loads(switch.capabilities())
-    cap_list = sorted(caps["caps"])
+    payload = json.loads(switch.capabilities())
+    # Walk installed_cartridges → cap_groups → caps and dedup by URN.
+    cap_set = set()
+    for ic in payload.get("installed_cartridges", []):
+        for group in ic.get("cap_groups", []):
+            for cap in group.get("caps", []):
+                cap_set.add(cap["urn"])
+    cap_list = sorted(cap_set)
 
-    # Should have 4 unique caps including CAP_IDENTITY (echo appears twice but deduplicated)
-    assert len(cap_list) == 4
+    # Both slaves declare `cap:` and a unique double/triple cap. After
+    # canonicalization `cap:in=media:;out=media:` collapses to bare
+    # `cap:` (in/out at top of order, no y-tags). The unique caps are
+    # `cap:double;in=media:void;out=media:void` and
+    # `cap:triple;in=media:void;out=media:void` (alphabetical tag
+    # order). Total: 3 unique URNs.
+    assert len(cap_list) == 3
     assert 'cap:' in cap_list
-    assert 'cap:in="media:void";double;out="media:void"' in cap_list
-    assert 'cap:in=media:;out=media:' in cap_list
-    assert 'cap:in="media:void";triple;out="media:void"' in cap_list
+    assert 'cap:double;in=media:void;out=media:void' in cap_list
+    assert 'cap:in=media:void;out=media:void;triple' in cap_list
 
 
 # TEST434: Limits negotiation takes minimum

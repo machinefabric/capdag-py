@@ -393,19 +393,35 @@ def test_1235_disc_1_plain_text_eliminates_model_specs(tmp_path: Path):
         assert "model-spec" not in survivor
 
 
-# TEST1236: Colon-delimited model spec text survives TXT candidate discrimination.
-def test_1236_disc_2_model_spec_content_survives_pattern(tmp_path: Path):
+# TEST1236: Discrimination matches a candidate's validation pattern
+# against the file content. media:model-spec is a value type with no
+# associated file extension, so it does NOT appear among txt
+# candidates. When passed in explicitly as a candidate, content that
+# matches its `^(scheme):\S+$` regex must survive; content that
+# doesn't (plain prose) must be filtered out.
+def test_1236_disc_2_model_spec_validation_pattern_filters_content(tmp_path: Path):
     registry = _create_test_media_registry(tmp_path)
-    all_txt_urns = registry.media_urns_for_extension("txt")
     from capdag.input_resolver.resolver import discriminate_candidates_by_validation
 
+    candidates = ["media:model-spec;textable"]
+
+    # Spec-shaped content survives the regex filter.
     survivors = discriminate_candidates_by_validation(
         b"hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
-        all_txt_urns,
+        candidates,
         registry,
-        "media:textable;txt",
+        "media:textable",
     )
-    assert any("model-spec" in survivor for survivor in survivors)
+    assert "media:model-spec;textable" in survivors
+
+    # Plain prose with internal whitespace is rejected by the same regex.
+    survivors_prose = discriminate_candidates_by_validation(
+        b"this is not a model spec",
+        candidates,
+        registry,
+        "media:textable",
+    )
+    assert "media:model-spec;textable" not in survivors_prose
 
 
 # TEST1237: Empty candidates -> empty result

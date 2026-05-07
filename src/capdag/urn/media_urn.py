@@ -268,13 +268,25 @@ class MediaUrn:
     PREFIX = "media"
 
     def __init__(self, urn: TaggedUrn):
-        """Create a new MediaUrn from a TaggedUrn
+        """Create a new MediaUrn from a TaggedUrn.
 
-        Raises MediaUrnError if the TaggedUrn doesn't have the "media" prefix.
+        Raises MediaUrnError if:
+        - The TaggedUrn doesn't have the "media" prefix.
+        - The ``void`` marker tag is combined with any other tag.
+          ``media:void`` is the type-theoretic unit ``()`` and admits
+          no refinements; reasons or labels belong on cap-tags or
+          args, not as media URN tags.
         """
         if urn.get_prefix() != self.PREFIX:
             raise MediaUrnError(
                 f"Invalid prefix: expected '{self.PREFIX}', got '{urn.get_prefix()}'"
+            )
+        if "void" in urn.tags and len(urn.tags) > 1:
+            extras = sorted(k for k in urn.tags if k != "void")
+            raise MediaUrnError(
+                "media:void is atomic and cannot be refined; got extra tag(s): "
+                f"{', '.join(extras)}. Move why/how this void is used into "
+                "cap-tags or args, not the media URN."
             )
         self._urn = urn
 

@@ -13,6 +13,7 @@ import json
 import io
 import socket
 import threading
+from typing import List
 import time
 
 import pytest
@@ -20,7 +21,6 @@ import pytest
 from capdag.bifaci.host_runtime import (
     CartridgeHost,
     _parse_cap_groups_from_manifest,
-    _flatten_cap_urns,
 )
 from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
 from capdag.bifaci.io import (
@@ -129,14 +129,6 @@ def test_480_parse_cap_groups_rejects_manifest_without_identity():
     assert "CAP_IDENTITY" in str(exc_info.value)
 
 
-def test_480_flatten_cap_urns_round_trips():
-    cap_groups = [
-        {"caps": [{"urn": "cap:"}, {"urn": "cap:test"}]},
-        {"caps": [{"urn": "cap:other"}]},
-    ]
-    assert _flatten_cap_urns(cap_groups) == ["cap:", "cap:test", "cap:other"]
-
-
 # TEST485: attach_cartridge completes identity verification with working cartridge
 def test_485_attach_cartridge_identity_verification_succeeds():
     manifest = '{"name":"IdentityTest","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:test"}]}]}'
@@ -150,9 +142,11 @@ def test_485_attach_cartridge_identity_verification_succeeds():
 
     assert idx == 0
     with host._lock:
-        assert host._cartridges[0].running
-        assert "cap:" in host._cartridges[0].caps
-        assert "cap:test" in host._cartridges[0].caps
+        cartridge = host._cartridges[0]
+        assert cartridge.running
+        urns = cartridge.cap_urns()
+        assert "cap:" in urns
+        assert "cap:test" in urns
 
     cleanup(hs, ps)
     t.join(timeout=2)
@@ -319,7 +313,14 @@ def test_490_identity_verification_multiple_cartridges():
 # TEST413: Register cartridge adds entries to cap_table
 def test_413_register_cartridge_adds_cap_table():
     host = CartridgeHost()
-    host.register_cartridge("/path/to/converter", ["cap:convert", "cap:analyze"])
+    host.register_cartridge("/path/to/converter", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:convert", "title": "Convert", "command": "convert", "args": []},
+            {"urn": "cap:analyze", "title": "Analyze", "command": "analyze", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
 
     with host._lock:
         assert len(host._cap_table) == 2, "must have 2 cap table entries"
@@ -331,18 +332,41 @@ def test_413_register_cartridge_adds_cap_table():
         assert not host._cartridges[0].running, "registered cartridge must not be running"
 
 
-# TEST414: capabilities() returns empty JSON initially (no running cartridges)
+# TEST414: capabilities() with registered cartridge advertises after a
+# rebuild. Mirrors Rust: registration populates cap_groups, then a
+# call to `_rebuild_capabilities` materialises the inventory snapshot.
+# The run loop normally drives rebuild as cartridges attach/die; for a
+# unit test that drives registration directly we trigger it explicitly.
 def test_414_capabilities_empty_initially():
     host = CartridgeHost()
     assert host.capabilities() is None, "no cartridges → None capabilities"
-    host.register_cartridge("/path/to/cartridge", ["cap:test"])
-    assert host.capabilities() is None, "registered but not running → None capabilities"
+    host.register_cartridge("/path/to/cartridge", [{
+        "name": "default",
+        "caps": [{"urn": "cap:test", "title": "Test", "command": "test", "args": []}],
+        "adapter_urns": [],
+    }])
+    with host._lock:
+        host._rebuild_capabilities()
+    payload = json.loads(host.capabilities())
+    advertised = [
+        cap["urn"]
+        for ic in payload["installed_cartridges"]
+        for group in ic["cap_groups"]
+        for cap in group["caps"]
+    ]
+    assert "cap:test" in advertised, (
+        "registered cartridge's caps must be advertised even before spawn"
+    )
 
 
 # TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 def test_415_req_triggers_spawn():
     host = CartridgeHost()
-    host.register_cartridge("/nonexistent/cartridge/binary", ["cap:test"])
+    host.register_cartridge("/nonexistent/cartridge/binary", [{
+        "name": "default",
+        "caps": [{"urn": "cap:test", "title": "Test", "command": "test", "args": []}],
+        "adapter_urns": [],
+    }])
 
     hr, hw, pr, pw, hs, ps = make_conn()
     err_frame = [None]
@@ -386,8 +410,9 @@ def test_416_attach_cartridge_handshake():
 
     assert idx == 0
     with host._lock:
-        assert host._cartridges[0].running
-        assert host._cartridges[0].caps == ["cap:"]
+        cartridge = host._cartridges[0]
+        assert cartridge.running
+        assert cartridge.cap_urns() == ["cap:"]
 
     caps = host.capabilities()
     assert caps is not None
@@ -876,7 +901,11 @@ def test_424_concurrent_requests_same_cartridge():
 # TEST425: find_cartridge_for_cap returns None for unregistered cap
 def test_425_find_cartridge_for_cap_unknown():
     host = CartridgeHost()
-    host.register_cartridge("/path/to/cartridge", ["cap:known"])
+    host.register_cartridge("/path/to/cartridge", [{
+        "name": "default",
+        "caps": [{"urn": "cap:known", "title": "Known", "command": "known", "args": []}],
+        "adapter_urns": [],
+    }])
 
     idx = host.find_cartridge_for_cap("cap:known")
     assert idx is not None, "known cap must be found"
@@ -886,16 +915,38 @@ def test_425_find_cartridge_for_cap_unknown():
     assert idx2 is None, "unknown cap must not be found"
 
 
+def _aggregate_cap_urns(capabilities_json: bytes) -> List[str]:
+    """Walk the new wire shape (`installed_cartridges[*].cap_groups[*].caps[*].urn`)
+    and return the flat list of cap URN strings the host is advertising."""
+    payload = json.loads(capabilities_json)
+    out: List[str] = []
+    for ic in payload.get("installed_cartridges", []):
+        for group in ic.get("cap_groups", []):
+            for cap in group.get("caps", []):
+                out.append(cap["urn"])
+    return out
+
+
 # TEST661: Cartridge death keeps known_caps advertised for on-demand respawn
 def test_661_cartridge_death_keeps_known_caps_advertised():
     host = CartridgeHost()
-    known_caps = ["cap:", 'cap:in="media:pdf";thumbnail;out="media:image;png"']
-    host.register_cartridge("/fake/cartridge", known_caps)
+    cap_groups = [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {
+                "urn": 'cap:in="media:pdf";thumbnail;out="media:image;png"',
+                "title": "Thumbnail",
+                "command": "thumbnail",
+                "args": [],
+            },
+        ],
+        "adapter_urns": [],
+    }]
+    host.register_cartridge("/fake/cartridge", cap_groups)
 
     with host._lock:
-        cartridge = host._cartridges[0]
-        cartridge.running = True
-        cartridge.caps = list(known_caps)
+        host._cartridges[0].running = True
 
     relay_writer = FrameWriter(io.BytesIO())
     host._handle_cartridge_death(0, relay_writer)
@@ -903,33 +954,60 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
     with host._lock:
         advertised = [entry.cap_urn for entry in host._cap_table]
 
+    # cap_table is the routing source of truth — death keeps caps
+    # routable so on-demand respawn can dispatch to them.
     assert "cap:" in advertised
     assert any("thumbnail" in cap for cap in advertised)
 
-    caps = json.loads(host.capabilities())
-    assert "cap:" in caps["caps"]
-    assert any("thumbnail" in cap for cap in caps["caps"])
+    # Inventory advertised to the engine: same cap_groups, identity-
+    # filtered (synthesised cartridge-{idx} ID is always present).
+    caps = _aggregate_cap_urns(host.capabilities())
+    assert "cap:" in caps
+    assert any("thumbnail" in cap for cap in caps)
 
 
-# TEST662: rebuild_capabilities includes non-running cartridges' known_caps
+# TEST662: rebuild_capabilities includes non-running cartridges' caps.
+# cap_groups is the source of truth (set at registration, refreshed on
+# HELLO), and advertisement does not gate on `running`.
 def test_662_rebuild_capabilities_includes_non_running_cartridges():
     host = CartridgeHost()
-    host.register_cartridge("/fake/cartridge1", ["cap:", 'cap:in="media:pdf";extract;out="media:text"'])
-    host.register_cartridge("/fake/cartridge2", ["cap:", 'cap:in="media:image";ocr;out="media:text"'])
+    host.register_cartridge("/fake/cartridge1", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
+    host.register_cartridge("/fake/cartridge2", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
 
     with host._lock:
         host._rebuild_capabilities()
 
-    caps = json.loads(host.capabilities())
-    assert "cap:" in caps["caps"]
-    assert any("extract" in cap for cap in caps["caps"])
-    assert any("ocr" in cap for cap in caps["caps"])
+    caps = _aggregate_cap_urns(host.capabilities())
+    assert "cap:" in caps
+    assert any("extract" in cap for cap in caps)
+    assert any("ocr" in cap for cap in caps)
 
 
 # TEST663: Cartridge with hello_failed is permanently removed from capabilities
 def test_663_hello_failed_cartridge_removed_from_capabilities():
     host = CartridgeHost()
-    host.register_cartridge("/fake/broken", ["cap:", 'cap:in="media:void";broken;out="media:void"'])
+    host.register_cartridge("/fake/broken", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:void";broken;out="media:void"', "title": "Broken", "command": "broken", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
 
     with host._lock:
         host._cartridges[0].hello_failed = True
@@ -938,21 +1016,38 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
         advertised = [entry.cap_urn for entry in host._cap_table]
 
     assert not any("broken" in cap for cap in advertised)
-    caps = host.capabilities()
-    if caps is not None:
-        payload = json.loads(caps)
-        assert not any("broken" in cap for cap in payload["caps"])
+    caps_json = host.capabilities()
+    if caps_json is not None:
+        caps = _aggregate_cap_urns(caps_json)
+        assert not any("broken" in cap for cap in caps)
 
 
-# TEST664: Running cartridge uses manifest caps, not known_caps
+# TEST664: Running cartridge uses manifest caps; the post-HELLO
+# cap_groups overwrite the registration-time ones.
 def test_664_running_cartridge_uses_manifest_caps():
     host = CartridgeHost()
-    host.register_cartridge("/fake/path", ["cap:", 'cap:in="media:pdf";extract;out="media:text"'])
+    host.register_cartridge("/fake/path", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
 
     with host._lock:
         cartridge = host._cartridges[0]
         cartridge.running = True
-        cartridge.caps = ["cap:", 'cap:in="media:text";uppercase;out="media:text"']
+        # Simulate post-HELLO refresh — manifest cap_groups overwrite
+        # the registration-time groups.
+        cartridge.cap_groups = [{
+            "name": "default",
+            "caps": [
+                {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+                {"urn": 'cap:in="media:text";uppercase;out="media:text"', "title": "Uppercase", "command": "uppercase", "args": []},
+            ],
+            "adapter_urns": [],
+        }]
         host._update_cap_table()
         host._rebuild_capabilities()
         advertised = [entry.cap_urn for entry in host._cap_table]
@@ -960,20 +1055,46 @@ def test_664_running_cartridge_uses_manifest_caps():
     assert any("uppercase" in cap for cap in advertised)
     assert not any("extract" in cap for cap in advertised)
 
-    caps = json.loads(host.capabilities())
-    assert any("uppercase" in cap for cap in caps["caps"])
-    assert not any("extract" in cap for cap in caps["caps"])
+    caps = _aggregate_cap_urns(host.capabilities())
+    assert any("uppercase" in cap for cap in caps)
+    assert not any("extract" in cap for cap in caps)
 
 
-# TEST665: Cap table uses manifest caps for running, known_caps for non-running
+# TEST665: Cap table aggregates caps from every healthy cartridge —
+# running cartridges contribute their post-HELLO cap_groups, registered
+# but-not-yet-spawned cartridges contribute their probe-time
+# cap_groups. The cap_table is rebuilt from cap_groups uniformly.
 def test_665_cap_table_mixed_running_and_non_running():
     host = CartridgeHost()
-    host.register_cartridge("/fake/running", ["cap:", 'cap:in="media:void";stale;out="media:void"'])
-    host.register_cartridge("/fake/stopped", ["cap:", 'cap:in="media:image";ocr;out="media:text"'])
+    host.register_cartridge("/fake/running", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:void";stale;out="media:void"', "title": "Stale", "command": "stale", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
+    host.register_cartridge("/fake/stopped", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
 
     with host._lock:
+        # Simulate post-HELLO: running cartridge replaces its
+        # registration-time cap_groups with the manifest's cap_groups.
         host._cartridges[0].running = True
-        host._cartridges[0].caps = ["cap:", 'cap:in="media:text";running-op;out="media:text"']
+        host._cartridges[0].cap_groups = [{
+            "name": "default",
+            "caps": [
+                {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+                {"urn": 'cap:in="media:text";running-op;out="media:text"', "title": "RunningOp", "command": "running-op", "args": []},
+            ],
+            "adapter_urns": [],
+        }]
         host._update_cap_table()
         advertised = [entry.cap_urn for entry in host._cap_table]
 

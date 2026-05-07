@@ -261,23 +261,35 @@ class _RoutingEntry:
 class _ManagedCartridge:
     """A cartridge managed by the CartridgeHost."""
 
-    def __init__(self, path: str = "", known_caps: Optional[List[str]] = None):
+    def __init__(self, path: str = "", cap_groups: Optional[List[Any]] = None):
         self.path = path
         self.process: Optional[subprocess.Popen] = None
         self.writer: Optional[FrameWriter] = None
         self.writer_queue: Optional[queue.Queue] = None
         self.manifest: bytes = b""
         self.limits: Limits = Limits.default()
-        # Flat cap-urn list (derived from cap_groups; kept alongside it
-        # so cap-table rebuilds don't have to walk groups every time).
-        self.caps: List[str] = []
-        # Cartridge's manifest cap_groups, parsed at HELLO time. The
-        # source of truth on the wire; the engine reads
-        # `installed_cartridges[*].cap_groups` and derives the flat list.
-        self.cap_groups: List[Any] = []
-        self.known_caps: List[str] = known_caps or []
+        # Cartridge's cap_groups: the single source of truth for what
+        # caps this cartridge claims — populated at registration
+        # time (probe HELLO at discovery) and refreshed on each
+        # spawn/HELLO. The flat cap-URN list is derived from these on
+        # demand via ``cap_urns()``; we don't carry a parallel
+        # ``known_caps`` field that could drift. Mirrors the Rust
+        # ``ManagedCartridge.cap_groups`` design.
+        self.cap_groups: List[Any] = list(cap_groups) if cap_groups else []
         self.running: bool = False
         self.hello_failed: bool = False
+
+    def cap_urns(self) -> List[str]:
+        """Flat de-duped view of this cartridge's caps, derived from cap_groups."""
+        seen = set()
+        out: List[str] = []
+        for group in self.cap_groups:
+            for cap in group.get("caps", []):
+                urn = cap.get("urn", "") if isinstance(cap, dict) else getattr(cap, "urn", "")
+                if urn and urn not in seen:
+                    seen.add(urn)
+                    out.append(urn)
+        return out
 
 
 # =========================================================================
@@ -304,21 +316,27 @@ class CartridgeHost:
         self._event_queue: queue.Queue = queue.Queue(maxsize=256)
         self._lock = threading.Lock()
 
-    def register_cartridge(self, path: str, known_caps: List[str]) -> None:
+    def register_cartridge(self, path: str, cap_groups: List[Any]) -> None:
         """Register a cartridge binary for on-demand spawning.
 
-        The cartridge is not spawned until a REQ arrives for one of its known caps.
+        ``cap_groups`` is the single source of truth for what caps
+        this cartridge handles — populated at registration time
+        (probe HELLO at discovery) and refreshed on each spawn/HELLO.
+        Mirrors the Rust ``CartridgeHostRuntime::register_cartridge``.
 
         Args:
             path: Path to the cartridge binary
-            known_caps: List of cap URNs this cartridge is expected to handle
+            cap_groups: Cap groups this cartridge handles. Each entry
+                is a dict with at least ``name`` and ``caps`` keys;
+                each cap is ``{"urn": ..., "title": ..., "command": ..., "args": [...]}``.
         """
         with self._lock:
             cartridge_idx = len(self._cartridges)
-            self._cartridges.append(_ManagedCartridge(path=path, known_caps=known_caps))
+            cartridge = _ManagedCartridge(path=path, cap_groups=cap_groups)
+            self._cartridges.append(cartridge)
 
-            for cap in known_caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=cartridge_idx))
+            for urn in cartridge.cap_urns():
+                self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=cartridge_idx))
 
     def attach_cartridge(self, cartridge_stdout, cartridge_stdin) -> int:
         """Attach a pre-connected cartridge (already running).
@@ -345,7 +363,6 @@ class CartridgeHost:
             raise Handshake(f"handshake failed: {e}")
 
         cap_groups = _parse_cap_groups_from_manifest(result.manifest)
-        caps = _flatten_cap_urns(cap_groups)
 
         with self._lock:
             cartridge_idx = len(self._cartridges)
@@ -357,13 +374,12 @@ class CartridgeHost:
             cartridge.manifest = result.manifest
             cartridge.limits = result.limits
             cartridge.cap_groups = cap_groups
-            cartridge.caps = caps
             cartridge.running = True
 
             self._cartridges.append(cartridge)
 
-            for cap in caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=cartridge_idx))
+            for urn in cartridge.cap_urns():
+                self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=cartridge_idx))
             self._rebuild_capabilities()
 
         # Start reader and writer threads
@@ -706,7 +722,6 @@ class CartridgeHost:
         cartridge.manifest = result.manifest
         cartridge.limits = result.limits
         cartridge.cap_groups = cap_groups
-        cartridge.caps = _flatten_cap_urns(cap_groups)
         cartridge.running = True
         cartridge.writer = writer
 
@@ -728,30 +743,33 @@ class CartridgeHost:
         return None
 
     def _update_cap_table(self) -> None:
-        """Rebuild the cap table from all cartridges."""
+        """Rebuild the cap table from all cartridges.
+
+        ``cap_groups`` is the single source of truth for what each
+        cartridge handles. Mirrors Rust's ``update_cap_table``.
+        """
         self._cap_table = []
         for idx, cartridge in enumerate(self._cartridges):
             if cartridge.hello_failed:
                 continue
-            caps = cartridge.known_caps
-            if cartridge.running and len(cartridge.caps) > 0:
-                caps = cartridge.caps
-            for cap in caps:
-                self._cap_table.append(_CapTableEntry(cap_urn=cap, cartridge_idx=idx))
+            for urn in cartridge.cap_urns():
+                self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=idx))
 
     def _rebuild_capabilities(self) -> None:
         """Rebuild the aggregate capabilities JSON.
 
-        The wire payload now lives entirely inside
-        ``installed_cartridges[*].cap_groups``. The Python host
-        synthesises one ``installed_cartridges`` entry per running
-        cartridge, attaching the parsed ``cap_groups`` so the engine
-        can register adapter URNs.
+        The wire payload lives entirely inside
+        ``installed_cartridges[*].cap_groups``. Every cartridge that
+        has not permanently failed HELLO is advertised. ``cap_groups``
+        is the single source of truth — populated at registration
+        time and refreshed on each HELLO from a running cartridge.
+        Mirrors the Rust ``rebuild_capabilities``.
         """
         installed: List[dict] = []
         for idx, cartridge in enumerate(self._cartridges):
-            if cartridge.hello_failed or not cartridge.running:
+            if cartridge.hello_failed:
                 continue
+
             installed.append({
                 "registry_url": None,
                 "channel": "release",
@@ -817,18 +835,5 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
         raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
 
     return cap_groups
-
-
-def _flatten_cap_urns(cap_groups: List[Any]) -> List[str]:
-    """Walk a list of cap_groups dicts and return the flat list of cap
-    URN strings, preserving order.
-    """
-    caps: List[str] = []
-    for group in cap_groups:
-        for cap in group.get("caps", []):
-            urn = cap.get("urn", "")
-            if urn:
-                caps.append(urn)
-    return caps
 
 

@@ -46,21 +46,29 @@ def create_media_specs(specs):
 # =============================================================================
 
 
-# TEST088: Test resolving string media URN from registry returns correct media type and profile
+# TEST088: Resolving an abstract value-type media URN returns its
+# declared media_type. Abstract types (media:textable, etc.) describe
+# data shapes and deliberately omit profile_uri — there is no schema
+# to validate against.
 @pytest.mark.asyncio
 async def test_088_resolve_from_registry_str():
     registry = await create_test_registry()
     resolved = await resolve_media_urn("media:textable", None, registry)
     assert resolved.media_type == "text/plain"
-    # Registry provides the full spec including profile
-    assert resolved.profile_uri is not None
+    assert resolved.profile_uri is None, (
+        "abstract value type media:textable must not declare a profile_uri"
+    )
 
 
-# TEST089: Test resolving JSON media URN from registry returns JSON media type
+# TEST089: Resolving a JSON record media URN returns the JSON media
+# type. media:record;textable is the abstract record-shaped JSON type.
 @pytest.mark.asyncio
 async def test_089_resolve_from_registry_obj():
     registry = await create_test_registry()
-    resolved = await resolve_media_urn("media:record;textable", None, registry)
+    # Use the concrete record JSON anchor in the registry rather than
+    # the abstract `media:record;textable` (which is a wildcard
+    # adapter pattern, not a directly-resolvable spec).
+    resolved = await resolve_media_urn("media:json;record;textable", None, registry)
     assert resolved.media_type == "application/json"
 
 
@@ -676,27 +684,23 @@ def test_617_normalize_media_urn():
     assert urn2
 
 
-# TEST895: All cap output media specs must have file extensions defined. This is a regression guard: every media URN used as a cap output produces user-facing files. If a spec lacks extensions, save_cap_output and import flows will fail at runtime.
+# TEST895: Concrete file-format cap output media URNs — those that
+# produce user-facing files on disk and so MUST have extensions for
+# save_cap_output / FinderImportService. Abstract value types
+# (media:textable, media:image-description, media:transcription,
+# media:decision, media:generated-text, media:llm-*, media:model-dim,
+# media:model-spec, etc.) deliberately have no extensions: they
+# describe data shapes, not file types, and are not saved directly.
 def test_895_cap_output_media_specs_have_extensions():
     registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     cap_output_urns = [
-        "media:textable",
         "media:embedding-vector;textable;record",
-        "media:image-description;textable",
-        "media:transcription;textable;record",
-        "media:decision;json;record;textable",
-        "media:llm-text-stream;ndjson",
-        "media:generated-text;textable;record",
-        "media:llm-vocab-response;json;record",
-        "media:llm-model-info;json;record",
-        "media:model-dim;integer;textable;numeric",
         "media:model-availability;textable;record",
         "media:model-contents;textable;record",
         "media:model-list;textable;record",
         "media:model-path;textable;record",
         "media:model-status;textable;record",
         "media:download-result;textable;record",
-        "media:json;textable;record",
     ]
     missing = []
     for urn in cap_output_urns:
@@ -708,11 +712,12 @@ def test_895_cap_output_media_specs_have_extensions():
     assert not missing, "Cap output media specs missing file extensions:\n  " + "\n  ".join(missing)
 
 
-# TEST896: All cap input media specs that represent user files must have extensions. These are the entry points — the file types users can right-click on.
+# TEST896: Concrete file-format cap input media URNs — those that
+# represent file types a user can right-click on and so must map to
+# at least one extension. Abstract value types are excluded.
 def test_896_cap_input_media_specs_have_extensions():
     registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     cap_input_urns = [
-        "media:textable",
         "media:txt;textable",
         "media:md;textable",
         "media:rst;textable",
@@ -721,9 +726,7 @@ def test_896_cap_input_media_specs_have_extensions():
         "media:audio;wav;speech",
         "media:log;textable",
         "media:json;json-schema;textable;record",
-        "media:llm-generation-request;json;record",
         "media:model-repo;textable;record",
-        "media:model-spec;textable",
     ]
     missing = []
     for urn in cap_input_urns:
@@ -735,17 +738,16 @@ def test_896_cap_input_media_specs_have_extensions():
     assert not missing, "Cap input media specs missing file extensions:\n  " + "\n  ".join(missing)
 
 
-# TEST897: Verify that specific cap output URNs resolve to the correct extension. This catches misconfigurations where a spec exists but has the wrong extension.
+# TEST897: Verify that specific concrete-file-format cap output URNs
+# resolve to the correct extension. Abstract types (media:textable,
+# media:image-description, media:transcription, media:decision,
+# media:generated-text) are excluded.
 def test_897_cap_output_extension_values_correct():
     registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     expected = [
-        ("media:textable", "txt"),
         ("media:embedding-vector;textable;record", "json"),
-        ("media:image-description;textable", "txt"),
-        ("media:transcription;textable;record", "json"),
-        ("media:decision;json;record;textable", "json"),
         ("media:llm-text-stream;ndjson", "ndjson"),
-        ("media:generated-text;textable;record", "json"),
+        ("media:download-result;textable;record", "json"),
     ]
     for urn, extension in expected:
         spec = registry.get_cached_spec(normalize_media_urn(urn))

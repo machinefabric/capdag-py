@@ -508,3 +508,30 @@ def test_1271_media_adapter_selection_constant():
         f"Must have json tag, got: {urn.to_string()}"
     assert urn.has_marker_tag("record"), \
         f"Must have record tag, got: {urn.to_string()}"
+
+
+# TEST1810: media:void is atomic — refinements are parse errors.
+#
+# Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+# JS) under the SAME number. Any divergence is a wire-level
+# inconsistency — the unit type's atomicity is part of the protocol's
+# deepest layer, not a per-port detail.
+def test_1810_media_void_is_atomic():
+    # Bare void: must parse successfully.
+    bare = MediaUrn.from_string("media:void")
+    assert bare.is_void()
+
+    bad_inputs = [
+        "media:void;text",
+        "media:void;pdf",
+        "media:void;audio",
+        "media:void;reason=warmup",
+        "media:void;heartbeat",
+        "media:void;manual",
+        # Order must not matter — the parser canonicalizes tags.
+        "media:warmup;void",
+        "media:reason=foo;void",
+    ]
+    for s in bad_inputs:
+        with pytest.raises(MediaUrnError, match="atomic"):
+            MediaUrn.from_string(s)

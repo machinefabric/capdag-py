@@ -85,19 +85,20 @@ def test_003_direction_matching():
 
 # TEST004: Test that unquoted keys and values are normalized to lowercase
 def test_004_unquoted_values_lowercased():
-    # Unquoted values are normalized to lowercase
-    cap = CapUrn.from_string(_test_urn("OP=Generate;EXT=PDF;Target=Thumbnail"))
+    # Mixed-case keyed tags + a marker. Both keys and unquoted values
+    # are lowercased on parse.
+    cap = CapUrn.from_string(_test_urn("Generate;EXT=PDF;Target=Thumbnail"))
 
-    # Keys are always lowercase
     assert cap.has_marker_tag("generate")
     assert cap.get_tag("ext") == "pdf"
     assert cap.get_tag("target") == "thumbnail"
 
-    # Key lookup is case-insensitive
-    assert cap.get_tag("OP") == "generate"
-    assert cap.get_tag("Op") == "generate"
+    # Key lookup is case-insensitive: uppercase variants of an
+    # existing key resolve to the same keyed tag.
+    assert cap.get_tag("EXT") == "pdf"
+    assert cap.get_tag("Ext") == "pdf"
 
-    # Both URNs parse to same lowercase values (same tags, same values)
+    # Both URNs parse to same canonical form (same tags, same values).
     cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
     assert cap.to_string() == cap2.to_string()
     assert cap == cap2
@@ -264,17 +265,20 @@ def test_017_tag_matching():
     cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap1.accepts(cap2)
 
-    # cap1(op,ext) as pattern rejects cap3(op) missing ext
+    # cap1(generate,ext) as pattern rejects cap3(generate) missing ext
     cap3 = CapUrn.from_string(_test_urn("generate"))  # Missing ext tag
     assert not cap1.accepts(cap3), "Pattern rejects instance missing required tag"
-    # Routing: cap3(op) accepts cap1(op,ext) — instance has op → match
+    # Routing: cap3(generate) accepts cap1(generate,ext) — instance has the
+    # `generate` marker; pattern is silent on `ext` (no constraint) so the
+    # extra ext on the instance does not disqualify the match.
     assert cap3.accepts(cap1), "cap3 missing ext is wildcard, accepts cap1 with ext"
 
-    # Wildcard: cap has wildcard value -> can handle any value
-    cap4 = CapUrn.from_string(_test_urn("op;ext=pdf"))
-    assert cap4.accepts(cap1)  # cap4 can handle cap1
+    # Pattern with `ext=*` (must-have-any) accepts an instance whose
+    # `ext` is exactly `pdf` — any value satisfies must-have-any.
+    cap4 = CapUrn.from_string(_test_urn("generate;ext=*"))
+    assert cap4.accepts(cap1)
 
-    # Value mismatch
+    # Value mismatch on `ext` — pattern requires pdf, instance has docx.
     cap5 = CapUrn.from_string(_test_urn("generate;ext=docx"))
     assert not cap1.accepts(cap5)
 
@@ -304,15 +308,21 @@ def test_019_missing_tag_handling():
     assert not cap2.accepts(request2)
 
 
-# TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
+# TEST020: Specificity is the sum of per-tag truth-table scores
+# across in/out/y. Marker tags (bare segments and `key=*`) score 2
+# (must-have-any), exact `key=value` tags score 3, missing/`?` score
+# 0, `!` scores 1.
 def test_020_specificity_calculation():
-    # More tags in direction specs = higher specificity
-    cap1 = CapUrn.from_string(f'cap:in=media:string;out=media:object;test')
-    cap2 = CapUrn.from_string(f'cap:in=media:textable;out="media:record;textable";test')
-    # cap2 has more MediaUrn tags, so it's more specific
+    # Cap-URN spec is 10000*spec_U(out) + 100*spec_U(in) + spec_U(y),
+    # so out-axis differences dominate, then in, then y.
+    cap1 = CapUrn.from_string("cap:in=media:string;out=media:object;test")
+    cap2 = CapUrn.from_string('cap:in=media:textable;out="media:record;textable";test')
+    # cap1: out=object(2), in=string(2), y=test(2) -> 20202
+    # cap2: out=record+textable(4), in=textable(2), y=test(2) -> 40202
     assert cap2.specificity() > cap1.specificity()
 
-    # Wildcards in tags don't count
+    # Tightening `*` to an exact value strictly increases the y-axis
+    # score (must-have-any 2 → must-have-this-value 4).
     cap3 = CapUrn.from_string(_test_urn("generate;ext=*"))
     cap4 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     assert cap4.specificity() > cap3.specificity()
@@ -324,7 +334,7 @@ def test_021_builder_creates_cap_urn():
         CapUrnBuilder()
         .in_spec(MEDIA_VOID)
         .out_spec(MEDIA_OBJECT)
-        .tag("op", "generate")
+        .marker("generate")
         .tag("ext", "pdf")
         .build()
     )
@@ -349,20 +359,21 @@ def test_022_builder_requires_direction_specs():
     assert cap is not None
 
 
-# TEST023: Test builder lowercases keys but preserves value case
+# TEST023: Test builder lowercases keys but preserves quoted-value case
 def test_023_builder_preserves_case():
     cap = (
         CapUrnBuilder()
         .in_spec(MEDIA_VOID)
         .out_spec(MEDIA_OBJECT)
-        .tag("OP", "Generate")  # Key uppercase, value mixed case
+        .tag("OP", "Generate")  # Key uppercase, quoted value preserves case
         .build()
     )
-    # Key should be lowercase
-    assert cap.has_marker_tag("Generate")
-    assert cap.get_tag("OP") == "Generate"  # Case-insensitive lookup
-    # Value case should be preserved
-    assert cap.has_marker_tag("Generate")
+    # Key is normalized to lowercase; case-insensitive lookup resolves
+    # to the same keyed tag.
+    assert cap.get_tag("op") == "Generate"
+    assert cap.get_tag("OP") == "Generate"
+    # Quoted values preserve case exactly.
+    assert cap.has_tag("op", "Generate")
 
 
 # TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
@@ -395,15 +406,16 @@ def test_024_directional_accepts():
 
 # TEST025: Test find_best_match returns most specific matching cap
 def test_025_find_best_match():
-    # This test requires implementing a find_best_match function
-    # For now, we test the specificity and matching directly
+    # Two patterns of differing specificity. The more general pattern
+    # (just `generate`) and the more specific pattern (with `ext=pdf`)
+    # both accept a request that has both tags.
     caps = [
-        CapUrn.from_string(_test_urn("op")),  # Generic
-        CapUrn.from_string(_test_urn("generate;ext=pdf")),  # Specific
+        CapUrn.from_string(_test_urn("generate")),               # Generic
+        CapUrn.from_string(_test_urn("generate;ext=pdf")),       # Specific
     ]
     request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
 
-    # Both accept, but the second is more specific
+    # Both patterns accept; the second is the more specific provider.
     matching = [c for c in caps if c.accepts(request)]
     assert len(matching) == 2
     best = max(matching, key=lambda c: c.specificity())
@@ -415,16 +427,18 @@ def test_026_merge_and_subset():
     cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     cap2 = CapUrn.from_string(_test_urn("convert;target=thumbnail"))
 
-    # Merge: cap2 takes precedence
+    # Merge: cap2 takes precedence on overlapping keys; non-overlapping
+    # tags from both sides survive.
     merged = cap1.merge(cap2)
-    assert merged.has_marker_tag("convert")  # From cap2
-    assert merged.get_tag("ext") == "pdf"  # From cap1
-    assert merged.get_tag("target") == "thumbnail"  # From cap2
+    assert merged.has_marker_tag("convert")
+    assert merged.has_marker_tag("generate")
+    assert merged.get_tag("ext") == "pdf"
+    assert merged.get_tag("target") == "thumbnail"
 
-    # Subset
-    subset = cap1.subset(["op"])
+    # Subset by key list keeps only the named keys.
+    subset = cap1.subset(["generate"])
     assert subset.has_marker_tag("generate")
-    assert subset.get_tag("ext") is None  # Not in subset
+    assert subset.get_tag("ext") is None  # Dropped from subset
 
 
 # TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
@@ -469,9 +483,10 @@ def test_030_extended_characters_in_values():
 
 # TEST031: Test wildcard rejected in keys but accepted in values
 def test_031_wildcard_in_keys_and_values():
-    # Wildcard in value is accepted
+    # Bare key parses as a marker (must-have-any) — value is "*".
     cap = CapUrn.from_string(_test_urn("op"))
-    assert cap.has_marker_tag("*")
+    assert cap.has_marker_tag("op")
+    assert cap.get_tag("op") == "*"
 
     # Wildcard in key should fail (handled by tagged-urn)
     with pytest.raises(CapUrnError):
@@ -481,7 +496,8 @@ def test_031_wildcard_in_keys_and_values():
 # TEST032: Test duplicate keys are rejected with DuplicateKey error
 def test_032_duplicate_keys_rejected():
     with pytest.raises(CapUrnError, match="Duplicate"):
-        CapUrn.from_string(_test_urn("generate;convert"))
+        # `op` repeats with a value the second time — duplicate key.
+        CapUrn.from_string(_test_urn("op;op=convert"))
 
 
 # TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed
@@ -1260,7 +1276,10 @@ def test_1104_is_dispatchable_rejects_non_dispatchable():
     assert not provider.is_dispatchable(request)
 
 
-# TEST891: Semantic direction specificity - more media URN tags = higher specificity
+# TEST891: Semantic direction specificity — more constraints in
+# either axis means a higher score under the truth-table-driven sum.
+# media: (top, no tags) scores 0; each marker tag scores 2; each
+# exact tag scores 3.
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
@@ -1269,10 +1288,18 @@ def test_891_direction_semantic_specificity():
         'cap:in="media:pdf";generate-thumbnail;out="media:image;png;thumbnail"'
     )
 
-    # generic: wildcard(0) + image;png;thumbnail(3) + op(1) = 4
-    assert generic_cap.specificity() == 4
-    # specific: pdf(1) + image;png;thumbnail(3) + op(1) = 5
-    assert specific_cap.specificity() == 5
+    # generic:
+    #   out=media:image;png;thumbnail -> 2+2+2 = 6
+    #   in=media:                     -> 0
+    #   y: generate-thumbnail marker  -> 2
+    #   spec_C = 10000*6 + 100*0 + 2 = 60002
+    assert generic_cap.specificity() == 10000*6 + 100*0 + 2
+    # specific:
+    #   out=media:image;png;thumbnail -> 6
+    #   in=media:pdf                  -> 2
+    #   y: generate-thumbnail marker  -> 2
+    #   spec_C = 10000*6 + 100*2 + 2 = 60202
+    assert specific_cap.specificity() == 10000*6 + 100*2 + 2
 
     assert specific_cap.specificity() > generic_cap.specificity()
 
@@ -1458,3 +1485,232 @@ def test_1805_kind_invariant_under_canonical_spellings():
         assert kind_a == kind_b, (
             f"{a} and {b} parse to the same cap and must classify identically"
         )
+
+
+# -------------------------------------------------------------------
+# Truth-table specificity tests (test1820–test1824).
+#
+# Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+# JS) under the SAME numbers. Specificity must be the truth-table
+# sum across all three axes using the six-form ladder:
+#
+#   ?x or missing     -> 0   (no constraint)
+#   x?=v              -> 1   (absent OR not v)
+#   x (=x=*) marker   -> 2   (must-have-any)
+#   x!=v              -> 3   (present and not v)
+#   x=v exact         -> 4   (must-have-this-value)
+#   !x                -> 5   (must-not-have)
+# -------------------------------------------------------------------
+
+
+# TEST1820: A `?`-valued cap-tag scores 0. Same as missing.
+def test_1820_specificity_question_is_zero():
+    bare = CapUrn.from_string("cap:")
+    assert bare.specificity() == 0
+
+    with_q = CapUrn.from_string("cap:?target")
+    assert with_q.specificity() == 0, (
+        "?x must score 0 (explicit no-constraint, same as missing)"
+    )
+
+
+# TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain).
+def test_1821_specificity_must_not_have_is_five():
+    cap = CapUrn.from_string("cap:!constrained")
+    assert cap.specificity() == 5, "!constrained (must-not-have) must score 5"
+
+
+# TEST1822: A `*`-valued cap-tag (including bare markers) scores 2.
+def test_1822_specificity_must_have_any_is_two():
+    bare_marker = CapUrn.from_string("cap:extract")
+    assert bare_marker.specificity() == 2, (
+        "bare `extract` parses as extract=* (must-have-any) and scores 2"
+    )
+
+    explicit_star = CapUrn.from_string("cap:extract=*")
+    assert explicit_star.specificity() == 2, (
+        "explicit key=* must score 2 (same as bare marker)"
+    )
+
+    assert bare_marker.specificity() == explicit_star.specificity(), (
+        "bare marker and explicit key=* are the same form and must score identically"
+    )
+
+
+# TEST1823: An exact-valued cap-tag scores 4.
+def test_1823_specificity_exact_value_is_four():
+    cap = CapUrn.from_string("cap:target=metadata")
+    assert cap.specificity() == 4, "target=metadata (exact value) must score 4"
+
+
+# TEST1824: All six forms compose additively on a single cap.
+# y combining 0+1+2+3+4+5 must sum to 15.
+def test_1824_specificity_combined_y_axis():
+    cap = CapUrn.from_string(
+        "cap:!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft"
+    )
+    assert cap.specificity() == 15, (
+        "y combining all six forms (0+1+2+3+4+5) must sum to 15"
+    )
+
+
+# -------------------------------------------------------------------
+# Six-form canonicalization tests (test1830–test1835).
+#
+# Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
+# JS) under the SAME numbers.
+# -------------------------------------------------------------------
+
+
+# TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x.
+def test_1830_canonicalize_no_constraint():
+    canonical = "cap:?x"
+    for input_str in ["cap:?x", "cap:x?", "cap:x=?"]:
+        cap = CapUrn.from_string(input_str)
+        assert cap.to_string() == canonical, (
+            f"input {input_str!r} must canonicalize to {canonical!r}"
+        )
+
+
+# TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third
+# hypothetical form `x=?v` is NOT recognized as a qualifier — a
+# value starting with `?` is just an exact value beginning with
+# a `?` character.
+def test_1831_canonicalize_absent_or_not_value():
+    canonical = "cap:x?=foo"
+    for input_str in ["cap:?x=foo", "cap:x?=foo"]:
+        cap = CapUrn.from_string(input_str)
+        assert cap.to_string() == canonical, (
+            f"input {input_str!r} must canonicalize to {canonical!r}"
+        )
+
+    # `x=?foo` is a plain exact tag whose value is the string `?foo`
+    # — NOT a canonicalization alias.
+    exact = CapUrn.from_string("cap:x=?foo")
+    assert exact.to_string() == "cap:x=?foo"
+    assert exact.get_tag("x") == "?foo"
+
+
+# TEST1832: x ≡ x=* both canonicalize to bare x.
+def test_1832_canonicalize_must_have_any():
+    canonical = "cap:x"
+    for input_str in ["cap:x", "cap:x=*"]:
+        cap = CapUrn.from_string(input_str)
+        assert cap.to_string() == canonical, (
+            f"input {input_str!r} must canonicalize to {canonical!r}"
+        )
+
+
+# TEST1833: !x=v and x!=v both canonicalize to x!=v. The third
+# hypothetical form `x=!v` is NOT recognized as a qualifier — a
+# value starting with `!` is just an exact value beginning with
+# a `!` character.
+def test_1833_canonicalize_present_not_value():
+    canonical = "cap:x!=foo"
+    for input_str in ["cap:!x=foo", "cap:x!=foo"]:
+        cap = CapUrn.from_string(input_str)
+        assert cap.to_string() == canonical, (
+            f"input {input_str!r} must canonicalize to {canonical!r}"
+        )
+
+    # `x=!foo` is a plain exact tag whose value is the string `!foo`
+    # — NOT a canonicalization alias.
+    exact = CapUrn.from_string("cap:x=!foo")
+    assert exact.to_string() == "cap:x=!foo"
+    assert exact.get_tag("x") == "!foo"
+
+
+# TEST1834: x=v stays as x=v.
+def test_1834_canonicalize_exact_value():
+    cap = CapUrn.from_string("cap:x=foo")
+    assert cap.to_string() == "cap:x=foo"
+
+
+# TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x.
+def test_1835_canonicalize_must_not_have():
+    canonical = "cap:!x"
+    for input_str in ["cap:!x", "cap:x!", "cap:x=!"]:
+        cap = CapUrn.from_string(input_str)
+        assert cap.to_string() == canonical, (
+            f"input {input_str!r} must canonicalize to {canonical!r}"
+        )
+
+
+# TEST1842: Full 6×6 truth table — every cell must match the matrix
+# in 04-PREDICATES.md §2.5.
+def test_1842_truth_table_full_cross_product():
+    forms = ["", "?x", "x?=v", "x", "x!=v", "x=v", "!x"]
+    expected = [
+        # miss   ?x    x?=v   x      x!=v   x=v    !x
+        [True, True, True, False, False, False, True],   # missing
+        [True, True, True, True, True, True, True],      # ?x
+        [True, True, True, False, False, False, True],   # x?=v
+        [True, True, True, True, True, True, False],     # x
+        [True, True, True, True, True, False, False],    # x!=v
+        [True, True, False, True, False, True, False],   # x=v
+        [True, True, True, False, False, False, True],   # !x
+    ]
+    for i, inst_form in enumerate(forms):
+        for j, patt_form in enumerate(forms):
+            inst_str = "cap:" + inst_form if inst_form else "cap:"
+            patt_str = "cap:" + patt_form if patt_form else "cap:"
+            inst = CapUrn.from_string(inst_str)
+            patt = CapUrn.from_string(patt_str)
+            actual = patt.accepts(inst)
+            assert actual == expected[i][j], (
+                f"cell (inst={inst_form!r}, patt={patt_form!r}) "
+                f"expected {expected[i][j]} got {actual}"
+            )
+
+
+# TEST1843: Invalid qualifier combinations must be rejected.
+def test_1843_reject_invalid_combinations():
+    invalid = [
+        "cap:?x?=v",
+        "cap:!x!=v",
+        "cap:?!x",
+        "cap:!?x",
+        "cap:?x=*",
+        "cap:!x=*",
+        "cap:?x=?",
+        "cap:?x=!",
+        "cap:!x=?",
+        "cap:!x=!",
+        "cap:?",
+        "cap:!",
+    ]
+    for input_str in invalid:
+        with pytest.raises((CapUrnError, Exception)):
+            CapUrn.from_string(input_str)
+
+
+# TEST1844: out-axis difference dominates combined in+y differences.
+def test_1844_axis_weighting_out_dominates():
+    big_out = CapUrn.from_string('cap:in=media:;out="media:record;textable"')
+    big_in_and_y = CapUrn.from_string(
+        "cap:in=media:pdf;out=media:record;!constrained;?target;extract;"
+        "stage!=alpha;target2=metadata;ver?=draft"
+    )
+    assert big_out.specificity() > big_in_and_y.specificity(), (
+        "out-axis difference must dominate combined in+y differences"
+    )
+
+
+# TEST1845: With equal out, in-axis dominates over y-axis.
+def test_1845_axis_weighting_in_dominates_y():
+    big_in = CapUrn.from_string("cap:in=media:pdf;out=media:record")
+    big_y = CapUrn.from_string(
+        "cap:in=media:;out=media:record;!constrained;?target;extract;"
+        "stage!=alpha;target2=metadata;ver?=draft"
+    )
+    assert big_in.specificity() > big_y.specificity(), (
+        "in-axis difference must dominate y-axis"
+    )
+
+
+# TEST1846: Decoded layout — 10000*out + 100*in + y.
+def test_1846_axis_weighting_decoded_layout():
+    cap = CapUrn.from_string('cap:in="media:a;b";out="media:a;b;c;d";extract')
+    # out=4 markers (8), in=2 markers (4), y=1 marker (2)
+    # 10000*8 + 100*4 + 2 = 80402
+    assert cap.specificity() == 10000 * 8 + 100 * 4 + 2
