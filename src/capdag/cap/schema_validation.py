@@ -83,42 +83,35 @@ class SchemaValidator:
             else:
                 raise ArgumentValidationError(name, error_details)
 
-    def validate_argument(self, cap, arg_def, value: Any) -> None:
-        """Validate a single argument against its schema from cap's media_specs"""
-        # Look for schema in cap's media_specs (stored as dicts)
-        media_specs = cap.get_media_specs()
-        schema = None
+    async def validate_argument(self, arg_def, value: Any, registry) -> None:
+        """Validate a single argument against its registry-resolved schema.
 
-        for spec in media_specs:
-            if spec["urn"] == arg_def.media_urn:
-                schema = spec.get("schema")
-                break
+        The cap's referenced media URNs land in the registry as part of
+        the atomic cap fetch, so resolution failure here is a real
+        problem — surface it instead of silently skipping validation.
+        Specs without a schema return early as a normal no-op.
+        """
+        from capdag.media.spec import resolve_media_urn
 
-        # If no schema found, skip validation
+        resolved = await resolve_media_urn(arg_def.media_urn, registry)
+        schema = resolved.schema
         if schema is None:
             return
-
         self.validate_value_against_schema(arg_def.media_urn, value, schema)
 
-    def validate_output(self, cap, output_def, value: Any) -> None:
-        """Validate output against its schema from cap's media_specs"""
-        # Look for schema in cap's media_specs (stored as dicts)
-        media_specs = cap.get_media_specs()
-        schema = None
+    async def validate_output(self, output_def, value: Any, registry) -> None:
+        """Validate output against its registry-resolved schema."""
+        from capdag.media.spec import resolve_media_urn
 
-        for spec in media_specs:
-            if spec["urn"] == output_def.media_urn:
-                schema = spec.get("schema")
-                break
-
-        # If no schema found, skip validation
+        resolved = await resolve_media_urn(output_def.media_urn, registry)
+        schema = resolved.schema
         if schema is None:
             return
-
         self.validate_value_against_schema("output", value, schema)
 
-    def validate_arguments(self, cap, arguments: list) -> None:
-        """Validate all positional arguments for a capability"""
+    async def validate_arguments(self, cap, arguments: list, registry) -> None:
+        """Validate all positional arguments for a capability against the
+        schemas resolved through the unified ``FabricRegistry``."""
         from capdag.cap.definition import PositionSource
 
         args = cap.get_args()
@@ -133,8 +126,6 @@ class SchemaValidator:
 
         positional_args.sort(key=lambda x: x[1])
 
-        # Validate each positional argument
         for arg_def, position in positional_args:
             if position < len(arguments):
-                arg_value = arguments[position]
-                self.validate_argument(cap, arg_def, arg_value)
+                await self.validate_argument(arg_def, arguments[position], registry)

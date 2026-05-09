@@ -16,7 +16,7 @@ from capdag.orchestrator.types import (
     InvalidGraphError,
     CapUrnParseError,
     MediaUrnParseError,
-    RegistryError,
+    FabricRegistryError,
     StructureMismatchError,
     ResolvedEdge,
     ResolvedGraph,
@@ -50,7 +50,7 @@ __all__ = [
     "InvalidGraphError",
     "CapUrnParseError",
     "MediaUrnParseError",
-    "RegistryError",
+    "FabricRegistryError",
     "StructureMismatchError",
     # Data types
     "ResolvedEdge",

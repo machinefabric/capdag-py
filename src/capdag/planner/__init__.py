@@ -16,7 +16,7 @@ from capdag.planner.error import (
     InvalidInputError,
     InternalError,
     NotFoundError,
-    RegistryError,
+    FabricRegistryError,
     ExecutionError,
     InvalidPathError,
 )
@@ -97,7 +97,7 @@ __all__ = [
     "InvalidInputError",
     "InternalError",
     "NotFoundError",
-    "RegistryError",
+    "FabricRegistryError",
     "ExecutionError",
     "InvalidPathError",
     # Cardinality

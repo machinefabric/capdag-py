@@ -28,7 +28,7 @@ from capdag.input_resolver import (
 from capdag.input_resolver.adapters.registry import MediaAdapterRegistry
 from capdag.input_resolver.value_adapter import ValueAdapter
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
-from capdag.media.registry import MediaUrnRegistry
+from capdag.media.registry import FabricRegistry
 from capdag.urn.media_urn import MediaUrn
 
 
@@ -286,8 +286,8 @@ def test_1288_structure_from_marker_tags():
     assert structure_from_marker_tags(list_record) == ContentStructure.LIST_RECORD
 
 
-def _create_test_media_registry(tmp_path: Path) -> MediaUrnRegistry:
-    return MediaUrnRegistry.new_for_test(tmp_path / "media-cache")
+def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
+    return FabricRegistry.new_for_test(tmp_path / "media-cache")
 
 
 class _MockInvoker:

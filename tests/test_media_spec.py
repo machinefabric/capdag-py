@@ -19,7 +19,7 @@ from capdag.media.spec import (
     DuplicateMediaUrn,
 )
 from capdag.media.registry import (
-    MediaUrnRegistry,
+    FabricRegistry,
     StoredMediaSpec,
     normalize_media_urn,
     ExtensionNotFoundError,
@@ -32,7 +32,7 @@ async def create_test_registry():
     temp_dir = Path(tempfile.mkdtemp())
     cache_dir = temp_dir / "media"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return MediaUrnRegistry.new_for_test(cache_dir)
+    return FabricRegistry.new_for_test(cache_dir)
 
 
 # Helper to create media specs vec for tests
@@ -568,7 +568,7 @@ async def test_894_multiple_extensions():
 
 # TEST607: media_urns_for_extension returns error for unknown extension
 def test_607_media_urns_for_extension_unknown():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     with pytest.raises(ExtensionNotFoundError) as exc_info:
         registry.media_urns_for_extension("zzzzunknown")
     assert "zzzzunknown" in str(exc_info.value)
@@ -576,7 +576,7 @@ def test_607_media_urns_for_extension_unknown():
 
 # TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
 def test_608_media_urns_for_extension_populated():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     spec = StoredMediaSpec(
         urn="media:pdf",
@@ -599,7 +599,7 @@ def test_608_media_urns_for_extension_populated():
 
 # TEST609: get_extension_mappings returns all registered extension->URN pairs
 def test_609_get_extension_mappings():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     for urn_str, ext in [("media:pdf", "pdf"), ("media:epub", "epub")]:
         spec = StoredMediaSpec(
@@ -620,10 +620,10 @@ def test_609_get_extension_mappings():
 
 # TEST610: get_cached_spec returns None for unknown and Some for known
 def test_610_get_cached_spec():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     # Unknown spec
-    assert registry.get_cached_spec("media:nonexistent;xyzzy") is None
+    assert registry.get_cached_media_spec("media:nonexistent;xyzzy") is None
 
     # Add a spec and verify we can retrieve it
     spec = StoredMediaSpec(
@@ -634,7 +634,7 @@ def test_610_get_cached_spec():
     normalized = normalize_media_urn(spec.urn)
     registry.cached_specs[normalized] = spec
 
-    retrieved = registry.get_cached_spec("media:test;spec;textable")
+    retrieved = registry.get_cached_media_spec("media:test;spec;textable")
     assert retrieved is not None, "Should find spec by URN"
     assert retrieved.title == "Test Spec"
 
@@ -642,13 +642,13 @@ def test_610_get_cached_spec():
 # TEST614: Verify registry creation succeeds and cache directory exists
 def test_614_registry_creation():
     cache_dir = Path(tempfile.mkdtemp()) / "media"
-    registry = MediaUrnRegistry.new_for_test(cache_dir)
+    registry = FabricRegistry.new_for_test(cache_dir)
     assert registry.cache_dir.exists()
 
 
 # TEST615: Verify cache key generation is deterministic and distinct for different URNs
 def test_615_cache_key_generation():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     key1 = registry._cache_key("media:textable")
     key2 = registry._cache_key("media:textable")
     key3 = registry._cache_key("media:integer")
@@ -692,7 +692,7 @@ def test_617_normalize_media_urn():
 # media:model-spec, etc.) deliberately have no extensions: they
 # describe data shapes, not file types, and are not saved directly.
 def test_895_cap_output_media_specs_have_extensions():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     cap_output_urns = [
         "media:embedding-vector;textable;record",
         "media:model-availability;textable;record",
@@ -704,7 +704,7 @@ def test_895_cap_output_media_specs_have_extensions():
     ]
     missing = []
     for urn in cap_output_urns:
-        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
         if spec is None:
             missing.append(f"{urn} (spec not found in registry)")
         elif not spec.extensions:
@@ -716,7 +716,7 @@ def test_895_cap_output_media_specs_have_extensions():
 # represent file types a user can right-click on and so must map to
 # at least one extension. Abstract value types are excluded.
 def test_896_cap_input_media_specs_have_extensions():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     cap_input_urns = [
         "media:txt;textable",
         "media:md;textable",
@@ -730,7 +730,7 @@ def test_896_cap_input_media_specs_have_extensions():
     ]
     missing = []
     for urn in cap_input_urns:
-        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
         if spec is None:
             missing.append(f"{urn} (spec not found in registry)")
         elif not spec.extensions:
@@ -743,13 +743,13 @@ def test_896_cap_input_media_specs_have_extensions():
 # media:image-description, media:transcription, media:decision,
 # media:generated-text) are excluded.
 def test_897_cap_output_extension_values_correct():
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
     expected = [
         ("media:embedding-vector;textable;record", "json"),
         ("media:llm-text-stream;ndjson", "ndjson"),
         ("media:download-result;textable;record", "json"),
     ]
     for urn, extension in expected:
-        spec = registry.get_cached_spec(normalize_media_urn(urn))
+        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
         assert spec is not None, f"{urn} should exist in standard registry"
         assert extension in spec.extensions, f"{urn} should include extension {extension!r}, got {spec.extensions!r}"

@@ -12,7 +12,7 @@ import pytest
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.machine.graph import (
     EdgeAssignmentBinding,
     MachineEdge,
@@ -71,8 +71,8 @@ def _simple_cap(cap_urn_str: str, stdin_urn: str, out_urn: str) -> Cap:
     return _build_cap(cap_urn_str, "cap", [stdin_urn], [stdin_urn], out_urn)
 
 
-def _registry_with(caps: list) -> CapRegistry:
-    reg = CapRegistry.new_for_test()
+def _registry_with(caps: list) -> FabricRegistry:
+    reg = FabricRegistry.new_for_test()
     reg.add_caps_to_cache(caps)
     return reg
 
@@ -714,7 +714,7 @@ _URN_EXTRACT = 'cap:in=media:pdf;extract;out="media:txt;textable"'
 _URN_EMBED = 'cap:in=media:textable;embed;out="media:vec;record"'
 
 
-def _pdf_extract_embed_registry() -> "CapRegistry":
+def _pdf_extract_embed_registry() -> "FabricRegistry":
     cap_e = _simple_cap(_URN_EXTRACT, "media:pdf", "media:txt;textable")
     cap_b = _simple_cap(_URN_EMBED, "media:textable", "media:vec;record")
     return _registry_with([cap_e, cap_b])

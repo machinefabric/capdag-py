@@ -32,7 +32,7 @@ from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
 if TYPE_CHECKING:
-    from capdag.cap.registry import CapRegistry
+    from capdag.cap.registry import FabricRegistry
     from capdag.planner.live_cap_fab import Strand
 
 # NodeId is a dense integer index into a MachineStrand's nodes list.
@@ -256,7 +256,7 @@ class Machine:
         return cls(strands)
 
     @classmethod
-    def from_strand(cls, strand: "Strand", registry: "CapRegistry") -> "Machine":
+    def from_strand(cls, strand: "Strand", registry: "FabricRegistry") -> "Machine":
         """Build a Machine containing exactly one MachineStrand from a planner Strand.
 
         The cap registry is consulted to look up each cap's args list for
@@ -270,7 +270,7 @@ class Machine:
 
     @classmethod
     def from_strands(
-        cls, strands: List["Strand"], registry: "CapRegistry"
+        cls, strands: List["Strand"], registry: "FabricRegistry"
     ) -> "Machine":
         """Build a Machine from N planner Strands, one MachineStrand per input.
 
@@ -313,7 +313,7 @@ class Machine:
         return True
 
     @classmethod
-    def from_string(cls, input_str: str, registry: "CapRegistry") -> "Machine":
+    def from_string(cls, input_str: str, registry: "FabricRegistry") -> "Machine":
         """Parse machine notation into a Machine.
 
         Delegates to parse_machine. Raises MachineParseError on any failure.

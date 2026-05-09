@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.planner.plan import MachinePlan, ExecutionNodeType
 
 from capdag.orchestrator.types import (
@@ -34,7 +34,7 @@ from capdag.orchestrator.types import (
 
 async def plan_to_resolved_graph(
     plan: MachinePlan,
-    registry: CapRegistry,
+    registry: FabricRegistry,
 ) -> ResolvedGraph:
     """Convert a MachinePlan to a ResolvedGraph for execution.
 

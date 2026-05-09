@@ -141,23 +141,20 @@ from capdag.cap.caller import (
     CapResult,
     CapResultKind,
 )
-from capdag.cap.registry import (
-    CapRegistry,
+# Unified registry (merged from former cap.registry and media.registry).
+from capdag.fabric.registry import (
+    FabricRegistry,
+    FabricRegistryError,
     RegistryConfig,
-    RegistryError,
+    StoredMediaSpec,
     HttpError,
     NotFoundError,
     ParseError,
     CacheError,
-    normalize_cap_urn,
-)
-
-# Media module
-from capdag.media.registry import (
-    MediaUrnRegistry,
-    StoredMediaSpec,
-    MediaRegistryError,
+    NetworkBlockedError,
+    ValidationError,
     ExtensionNotFoundError,
+    normalize_cap_urn,
     normalize_media_urn,
 )
 from capdag.media.spec import (
@@ -234,7 +231,7 @@ from capdag.machine import (
     parse_machine,
 )
 
-# Orchestrator module (imported as submodule to avoid name collisions with RegistryError)
+# Orchestrator module (imported as submodule to avoid name collisions with FabricRegistryError)
 import capdag.orchestrator  # noqa: F401
 
 # Standard module
@@ -399,20 +396,19 @@ __all__ = [
     "CapArgumentValue",
     "CapResult",
     "CapResultKind",
-    # Registry
-    "CapRegistry",
+    # Unified fabric registry
+    "FabricRegistry",
+    "FabricRegistryError",
     "RegistryConfig",
-    "RegistryError",
+    "StoredMediaSpec",
     "HttpError",
     "NotFoundError",
     "ParseError",
     "CacheError",
-    "normalize_cap_urn",
-    # Media Registry
-    "MediaUrnRegistry",
-    "StoredMediaSpec",
-    "MediaRegistryError",
+    "NetworkBlockedError",
+    "ValidationError",
     "ExtensionNotFoundError",
+    "normalize_cap_urn",
     "normalize_media_urn",
     # Media Spec
     "MediaValidation",

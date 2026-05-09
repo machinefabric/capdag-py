@@ -4,7 +4,7 @@ import json
 
 from capdag import MEDIA_FILE_PATH
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
-from capdag.cap.registry import CapRegistry
+from capdag.fabric.registry import FabricRegistry
 from capdag.media.spec import MediaValidation
 from capdag.planner.plan_builder import (
     ArgumentInfo,
@@ -31,7 +31,7 @@ def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
 
 
 def _test_builder() -> MachinePlanBuilder:
-    return MachinePlanBuilder.new_for_test(CapRegistry.new_for_test())
+    return MachinePlanBuilder.new_for_test(FabricRegistry.new_for_test())
 
 
 # TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None

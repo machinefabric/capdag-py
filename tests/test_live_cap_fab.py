@@ -5,7 +5,7 @@ import json
 import pytest
 
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.planner.live_cap_fab import LiveCapFab, StrandStepType
 from capdag.standard.caps import identity_urn
 from capdag.urn.cap_urn import CapUrn
@@ -242,7 +242,7 @@ def test_790_identity_urn_is_specific():
 # TEST791: Tests sync_from_cap_urns actually adds edges
 @pytest.mark.asyncio
 async def test_791_sync_from_cap_urns_adds_edges():
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
     disbind = _make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF")
     choose = _make_test_cap(
         "media:textable",

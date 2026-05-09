@@ -73,7 +73,7 @@ def parse_machine(input_str: str, registry) -> Machine:
 
     Args:
         input_str: Machine notation string.
-        registry: CapRegistry — caps referenced in headers must be pre-loaded.
+        registry: FabricRegistry — caps referenced in headers must be pre-loaded.
 
     Returns:
         A fully-resolved Machine.

@@ -66,14 +66,6 @@ class MediaSpecValidationError(ValidationError):
         self.actual_value = actual
 
 
-class InlineMediaSpecRedefinesRegistryError(ValidationError):
-    """Inline media spec attempts to redefine a registry-owned spec."""
-
-    def __init__(self, media_urn: str):
-        super().__init__(
-            f"Inline media spec redefines existing registry spec '{media_urn}'"
-        )
-        self.media_urn = media_urn
 
 
 # Reserved CLI flags that cannot be used
@@ -213,47 +205,6 @@ def validate_cap_args(cap) -> None:
         flag_set.add(flag)
 
 
-def _looks_like_registry_has_media_urn(media_registry, media_urn: str) -> bool:
-    cached = getattr(media_registry, "cached_specs", None)
-    if isinstance(cached, dict) and media_urn in cached:
-        return True
-
-    by_ext = getattr(media_registry, "extension_index", None)
-    if isinstance(by_ext, dict):
-        for urns in by_ext.values():
-            if media_urn in urns:
-                return True
-
-    # Fallback for registries that expose standard media via methods/attrs later.
-    return False
-
-
-def validate_no_inline_media_spec_redefinition(cap, media_registry) -> None:
-    """Reject inline media_specs that redefine a media URN already owned by the registry."""
-    for spec in cap.get_media_specs():
-        media_urn = spec["urn"]
-        if _looks_like_registry_has_media_urn(media_registry, media_urn):
-            raise InlineMediaSpecRedefinesRegistryError(media_urn)
-
-
-def _expected_json_type_for_argument(cap, arg_def) -> Optional[str]:
-    for spec in cap.get_media_specs():
-        if spec.get("urn") != arg_def.media_urn:
-            continue
-        schema = spec.get("schema")
-        if isinstance(schema, dict) and isinstance(schema.get("type"), str):
-            return schema["type"]
-
-    media_urn = arg_def.media_urn
-    if media_urn == "media:integer":
-        return "integer"
-    if media_urn == "media:boolean":
-        return "boolean"
-    if media_urn == "media:string":
-        return "string"
-    return None
-
-
 def _matches_expected_type(expected: str, value: Any) -> bool:
     if expected == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
@@ -270,20 +221,27 @@ def _matches_expected_type(expected: str, value: Any) -> bool:
     return True
 
 
-def validate_positional_arguments(cap, arguments: List[Any]) -> None:
-    """Validate positional arguments against cap definition
+async def validate_positional_arguments(cap, arguments: List[Any], registry) -> None:
+    """Validate positional arguments against the cap's argument definitions.
 
     Checks:
-    - Correct number of arguments
-    - Required arguments are provided
-    - Basic type checking
+      - argument count matches the cap's positional arg count;
+      - required arguments are provided;
+      - each provided value matches the JSON Schema ``type`` declared
+        on the registry-resolved spec for the argument's media URN.
+
+    Type information comes from the registry — there is no built-in
+    URN-to-type fallback. If the resolved spec carries a JSON
+    Schema with a top-level ``type``, the value is checked against
+    it. Specs without a schema or without a ``type`` produce no type
+    constraint and the value passes through.
     """
     from capdag.cap.definition import PositionSource
+    from capdag.media.spec import resolve_media_urn
 
     cap_urn = cap.urn_string()
     args = cap.get_args()
 
-    # Get positional args sorted by position
     positional_args = [
         (arg, source.position)
         for arg in args
@@ -292,24 +250,24 @@ def validate_positional_arguments(cap, arguments: List[Any]) -> None:
     ]
     positional_args.sort(key=lambda x: x[1])
 
-    # Check if too many arguments provided
     if len(arguments) > len(positional_args):
         raise TooManyArgumentsError(cap_urn, len(positional_args), len(arguments))
 
-    # Validate each positional argument
     for index, (arg_def, _) in enumerate(positional_args):
         if index >= len(arguments):
-            # Missing argument - check if required
             if arg_def.required:
                 raise MissingRequiredArgumentError(cap_urn, arg_def.media_urn)
             continue
 
-        # Basic validation (could be extended with schema validation)
         value = arguments[index]
         if value is None and arg_def.required:
             raise MissingRequiredArgumentError(cap_urn, arg_def.media_urn)
 
-        expected_type = _expected_json_type_for_argument(cap, arg_def)
+        resolved = await resolve_media_urn(arg_def.media_urn, registry)
+        schema = resolved.schema
+        expected_type: Optional[str] = (
+            schema.get("type") if isinstance(schema, dict) else None
+        )
         if expected_type is not None and not _matches_expected_type(expected_type, value):
             actual_type = type(value).__name__
             raise InvalidArgumentTypeError(

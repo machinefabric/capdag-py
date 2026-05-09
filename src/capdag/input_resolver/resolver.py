@@ -18,14 +18,14 @@ from capdag.input_resolver.types import (
     ResolvedFile,
     ResolvedInputSet,
 )
-from capdag.media.registry import ExtensionNotFoundError, MediaUrnRegistry
+from capdag.media.registry import ExtensionNotFoundError, FabricRegistry
 from capdag.urn.media_urn import MediaUrn
 
 
 def discriminate_candidates_by_validation(
     content: bytes,
     candidate_urns: list[str],
-    media_registry: MediaUrnRegistry,
+    media_registry: FabricRegistry,
     baseline_urn: str,
 ) -> list[str]:
     """Filter candidate URNs using validation rules and baseline specificity."""
@@ -37,7 +37,7 @@ def discriminate_candidates_by_validation(
     survivors: list[str] = []
 
     for urn_str in candidate_urns:
-        spec = media_registry.get_cached_spec(urn_str)
+        spec = media_registry.get_cached_media_spec(urn_str)
         if spec is None:
             survivors.append(urn_str)
             continue
@@ -73,11 +73,11 @@ def resolve_paths(paths: list[str]) -> ResolvedInputSet:
 
 
 def detect_file(path: Path) -> ResolvedFile:
-    registry = MediaUrnRegistry.new_for_test(Path(tempfile.gettempdir()) / "capdag_media_registry")
+    registry = FabricRegistry.new_for_test(Path(tempfile.gettempdir()) / "capdag_media_registry")
     return detect_file_with_media_registry(path, registry)
 
 
-def detect_file_with_media_registry(path: Path, media_registry: MediaUrnRegistry) -> ResolvedFile:
+def detect_file_with_media_registry(path: Path, media_registry: FabricRegistry) -> ResolvedFile:
     stat = path.stat()
     ext = path.suffix[1:].lower() if path.suffix.startswith(".") else None
 

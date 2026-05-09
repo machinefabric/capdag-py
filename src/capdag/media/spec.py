@@ -304,6 +304,23 @@ class MediaSpecDef:
         self.metadata = metadata
         self.extensions = extensions or []
 
+    def to_stored(self) -> "StoredMediaSpec":
+        """Convert this MediaSpecDef into a StoredMediaSpec for registry seeding."""
+        from capdag.media.registry import StoredMediaSpec
+
+        return StoredMediaSpec(
+            urn=self.urn,
+            media_type=self.media_type,
+            title=self.title,
+            profile_uri=self.profile_uri,
+            schema=self.schema,
+            description=self.description,
+            documentation=self.documentation,
+            validation=self.validation,
+            metadata=self.metadata,
+            extensions=self.extensions,
+        )
+
     def get_documentation(self) -> Optional[str]:
         """Get the long-form markdown documentation, if any."""
         return self.documentation
@@ -549,48 +566,19 @@ class DuplicateMediaUrn(MediaSpecError):
 
 async def resolve_media_urn(
     media_urn: str,
-    media_specs: Optional[List[MediaSpecDef]],
-    registry: "capdag.media_registry.MediaUrnRegistry",
+    registry: "capdag.media_registry.FabricRegistry",
 ) -> ResolvedMediaSpec:
     """Resolve a media URN to a full media spec definition.
 
-    This is the SINGLE resolution path for all media URN lookups.
-
-    Resolution order:
-    1. Cap's local `media_specs` array (HIGHEST - cap-specific definitions)
-    2. Registry's local cache (bundled standard specs)
-    3. Online registry fetch (with graceful degradation if unreachable)
-    4. If none resolve → Error
+    Caps no longer carry inline media specs; the registry is the only source.
 
     Args:
-        media_urn: The media URN to resolve (e.g., "media:textable")
-        media_specs: Optional media_specs array from the cap definition
-        registry: The MediaUrnRegistry for cache and remote lookups
-
-    Returns:
-        The resolved media spec
+        media_urn: The media URN to resolve.
+        registry: The FabricRegistry for cache and remote lookups.
 
     Raises:
-        UnresolvableMediaUrn: If the media URN cannot be resolved from any source
+        UnresolvableMediaUrn: If the media URN cannot be resolved.
     """
-    # 1. First, try cap's local media_specs (highest priority - cap-specific definitions)
-    if media_specs:
-        for spec_def in media_specs:
-            if spec_def.urn == media_urn:
-                return ResolvedMediaSpec(
-                    media_urn=spec_def.urn,
-                    media_type=spec_def.media_type,
-                    profile_uri=spec_def.profile_uri,
-                    schema=spec_def.schema,
-                    title=spec_def.title,
-                    description=spec_def.description,
-                    documentation=spec_def.documentation,
-                    validation=spec_def.validation,
-                    metadata=spec_def.metadata,
-                    extensions=spec_def.extensions,
-                )
-
-    # 2. Try registry (checks local cache first, then online with graceful degradation)
     try:
         stored_spec = await registry.get_media_spec(media_urn)
         return ResolvedMediaSpec(
@@ -610,17 +598,9 @@ async def resolve_media_urn(
             extensions=stored_spec.extensions,
         )
     except Exception as e:
-        # Registry lookup failed (not in cache, online unreachable or not found)
-        # Log and continue to error
-        print(
-            f"[WARN] Media URN '{media_urn}' not found in registry: {e} - "
-            f"ensure it's defined in capfab/src/media/"
+        raise UnresolvableMediaUrn(
+            f"cannot resolve media URN '{media_urn}' via registry: {e}"
         )
-
-    # Fail - not found in any source
-    raise UnresolvableMediaUrn(
-        f"cannot resolve media URN '{media_urn}' - not found in cap's media_specs or registry"
-    )
 
 
 def validate_media_specs_no_duplicates(media_specs: List[MediaSpecDef]) -> None:

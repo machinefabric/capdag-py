@@ -5,7 +5,7 @@ transformation paths. It provides:
 
 - A strand-based, anchor-realized graph model with semantic equivalence
 - A compact textual format for serialization
-- Resolution via CapRegistry for source-to-arg bipartite matching
+- Resolution via FabricRegistry for source-to-arg bipartite matching
 
 Format:
 

@@ -15,14 +15,11 @@ Key types:
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from tempfile import mkdtemp
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from capdag.cap.definition import Cap, StdinSource
-from capdag.cap.registry import CapRegistry
-from capdag.media.registry import MediaUrnRegistry
+from capdag.fabric.registry import FabricRegistry
 from capdag.media.spec import resolve_media_urn
 from capdag.urn.media_urn import MediaUrn
 from capdag.planner.argument_binding import ArgumentBinding, ArgumentBindings
@@ -160,9 +157,8 @@ class MachinePlanBuilder:
     a MachinePlan DAG ready for execution.
     """
 
-    def __init__(self, cap_registry: CapRegistry, media_registry: MediaUrnRegistry) -> None:
-        self._cap_registry = cap_registry
-        self._media_registry = media_registry
+    def __init__(self, fabric_registry: FabricRegistry) -> None:
+        self._fabric_registry = fabric_registry
 
     @staticmethod
     def check_for_duplicate_caps(caps: List[Cap]) -> int:
@@ -189,12 +185,9 @@ class MachinePlanBuilder:
         return edge_count
 
     @classmethod
-    def new_for_test(cls, cap_registry: CapRegistry) -> "MachinePlanBuilder":
-        """Create a test builder with a fresh test media registry."""
-        media_registry = MediaUrnRegistry.new_for_test(
-            Path(mkdtemp(prefix="capdag_test_media_"))
-        )
-        return cls(cap_registry, media_registry)
+    def new_for_test(cls, fabric_registry: FabricRegistry) -> "MachinePlanBuilder":
+        """Create a test builder backed by the supplied unified registry."""
+        return cls(fabric_registry)
 
     @staticmethod
     def _find_file_path_arg(cap: Cap) -> Optional[str]:
@@ -236,7 +229,7 @@ class MachinePlanBuilder:
         plan = MachinePlan(name)
 
         try:
-            caps = await self._cap_registry.get_cached_caps()
+            caps = await self._fabric_registry.get_cached_caps()
         except Exception as e:
             raise RegistryError(f"Failed to get cached caps: {e}")
 
@@ -426,7 +419,7 @@ class MachinePlanBuilder:
     ) -> PathArgumentRequirements:
         """Analyze all argument requirements for a path."""
         try:
-            caps = await self._cap_registry.get_cached_caps()
+            caps = await self._fabric_registry.get_cached_caps()
         except Exception as e:
             raise RegistryError(f"Failed to get cached caps: {e}")
 
@@ -454,13 +447,13 @@ class MachinePlanBuilder:
                     cap_step_index, arg.required, arg.default_value,
                 )
 
-                # Resolve media validation
+                # Resolve media validation through the registry. Caps no
+                # longer carry inline media specs.
                 validation_json: Optional[Any] = None
                 try:
                     resolved_spec = await resolve_media_urn(
                         arg.media_urn,
-                        cap.media_specs if cap.media_specs else None,
-                        self._media_registry,
+                        self._fabric_registry,
                     )
                     if resolved_spec.validation is not None:
                         validation_json = self._validation_to_json(resolved_spec.validation)

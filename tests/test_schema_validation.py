@@ -4,8 +4,9 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 """
 
 import pytest
-import json
-from capdag import CapUrn, Cap, CapArg, CapOutput
+import tempfile
+from pathlib import Path
+from capdag import CapArg, CapOutput
 from capdag.cap.definition import PositionSource, MediaSpecDef
 from capdag.cap.schema_validation import (
     SchemaValidator,
@@ -13,16 +14,20 @@ from capdag.cap.schema_validation import (
     OutputValidationError,
     SchemaCompilationError,
 )
-from capdag.urn.media_urn import MEDIA_STRING, MEDIA_VOID, MEDIA_OBJECT
+from capdag.media.registry import FabricRegistry
+from capdag.urn.media_urn import MEDIA_STRING
 
 
-def _test_urn(tags: str) -> str:
-    """Helper to build cap URN with standard in/out for testing"""
-    return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
+@pytest.fixture
+def registry():
+    """A clean, in-memory FabricRegistry for tests to seed via ``add_spec``."""
+    cache_dir = Path(tempfile.mkdtemp(prefix="capdag-fabric-"))
+    return FabricRegistry.new_for_test(cache_dir)
 
 
 # TEST163: Test argument schema validation succeeds with valid JSON matching schema
-def test_163_argument_schema_validation_success():
+@pytest.mark.asyncio
+async def test_163_argument_schema_validation_success(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -35,25 +40,24 @@ def test_163_argument_schema_validation_success():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:user-data",
         media_type="application/json",
         title="User Data",
         profile_uri="https://example.com/schema/user-data",
         schema=schema,
-    ))
+    ).to_stored())
 
     arg = CapArg("media:user-data", True, [PositionSource(0)])
 
     valid_value = {"name": "John", "age": 30}
     # Should succeed without raising
-    validator.validate_argument(cap, arg, valid_value)
+    await validator.validate_argument(arg, valid_value, registry)
 
 
 # TEST164: Test argument schema validation fails with JSON missing required fields
-def test_164_argument_schema_validation_failure():
+@pytest.mark.asyncio
+async def test_164_argument_schema_validation_failure(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -65,28 +69,27 @@ def test_164_argument_schema_validation_failure():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:user-data",
         media_type="application/json",
         title="User Data",
         profile_uri="https://example.com/schema/user-data",
         schema=schema,
-    ))
+    ).to_stored())
 
     arg = CapArg("media:user-data", True, [PositionSource(0)])
 
     invalid_value = {"age": 30}  # Missing required "name"
 
     with pytest.raises(ArgumentValidationError) as exc_info:
-        validator.validate_argument(cap, arg, invalid_value)
+        await validator.validate_argument(arg, invalid_value, registry)
 
     assert "name" in exc_info.value.details.lower() or "required" in exc_info.value.details.lower()
 
 
 # TEST165: Test output schema validation succeeds with valid JSON matching schema
-def test_165_output_schema_validation_success():
+@pytest.mark.asyncio
+async def test_165_output_schema_validation_success(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -99,59 +102,75 @@ def test_165_output_schema_validation_success():
     }
 
     # Create cap with media_specs containing the schema
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:query-result",
         media_type="application/json",
         title="Query Result",
         profile_uri="https://example.com/schema/query-result",
         schema=schema,
-    ))
+    ).to_stored())
 
     output = CapOutput("media:query-result", "Query result")
 
     valid_value = {"result": "success", "timestamp": "2023-01-01T00:00:00Z"}
     # Should succeed without raising
-    validator.validate_output(cap, output, valid_value)
+    await validator.validate_output(output, valid_value, registry)
 
 
 # TEST166: Test validation skipped when resolved media spec has no schema
-def test_166_skip_validation_without_schema():
+@pytest.mark.asyncio
+async def test_166_skip_validation_without_schema(registry):
+    """A spec resolves but has no schema → validate_argument is a no-op.
+
+    Mirrors the Rust ``test166_skip_validation_without_schema``: a media
+    spec without a ``schema`` field is a successful resolution and
+    yields no validation, distinct from the unresolvable case.
+    """
     validator = SchemaValidator()
 
-    # Create cap without media_specs
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
+    # Seed a spec for MEDIA_STRING with NO schema. Resolve succeeds,
+    # validate_argument has nothing to validate against, returns cleanly.
+    registry.add_spec(MediaSpecDef(
+        urn=MEDIA_STRING,
+        media_type="text/plain",
+        title="String",
+        profile_uri="https://capdag.com/schema/string",
+    ).to_stored())
 
-    # Argument using media URN with no schema in media_specs
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
 
-    value = "any string value"
-    # Should succeed - no schema means validation is skipped
-    validator.validate_argument(cap, arg, value)
+    # Should succeed — spec has no schema, so validation is a no-op.
+    await validator.validate_argument(arg, "any string value", registry)
 
 
-# TEST167: Test validation fails hard when media URN cannot be resolved from any source
-def test_167_unresolved_media_urn_skips_validation():
+# TEST167: Test validation fails hard when media URN cannot be resolved.
+@pytest.mark.asyncio
+async def test_167_unresolvable_media_urn_fails_hard(registry):
+    """An unresolvable media URN is a real problem — fail hard.
+
+    Caps' referenced media URNs land in the registry as part of the
+    atomic cap fetch, so a missing spec at validation time is an
+    invariant violation. Surfacing the failure is the only honest
+    behaviour.
+    """
     validator = SchemaValidator()
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
+    arg = CapArg(
+        "media:completely-unknown-urn-that-does-not-exist",
+        True,
+        [PositionSource(0)],
+    )
 
-    # Argument with unknown media URN - not in media_specs
-    arg = CapArg("media:completely-unknown-urn", True, [PositionSource(0)])
-
-    value = "test"
-    # Should succeed - no schema found means validation is skipped
-    validator.validate_argument(cap, arg, value)
+    with pytest.raises(Exception):
+        await validator.validate_argument(arg, "test", registry)
 
 
 # Additional comprehensive schema validation tests
 
 
 # TEST126: Schema validation with nested object schemas
-def test_126_nested_object_schema_validation():
+@pytest.mark.asyncio
+async def test_126_nested_object_schema_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -170,14 +189,12 @@ def test_126_nested_object_schema_validation():
         "required": ["user"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:user-event",
         media_type="application/json",
         title="User Event",
         schema=schema,
-    ))
+    ).to_stored())
 
     arg = CapArg("media:user-event", True, [PositionSource(0)])
 
@@ -189,7 +206,7 @@ def test_126_nested_object_schema_validation():
         },
         "timestamp": 1234567890
     }
-    validator.validate_argument(cap, arg, valid_value)
+    await validator.validate_argument(arg, valid_value, registry)
 
     # Invalid nested object (missing email)
     invalid_value = {
@@ -200,11 +217,12 @@ def test_126_nested_object_schema_validation():
     }
 
     with pytest.raises(ArgumentValidationError):
-        validator.validate_argument(cap, arg, invalid_value)
+        await validator.validate_argument(arg, invalid_value, registry)
 
 
 # TEST127: Schema validation with array schemas including minItems and item constraints
-def test_127_array_schema_validation():
+@pytest.mark.asyncio
+async def test_127_array_schema_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -220,14 +238,12 @@ def test_127_array_schema_validation():
         "minItems": 1
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:item-list",
         media_type="application/json",
         title="Item List",
         schema=schema,
-    ))
+    ).to_stored())
 
     arg = CapArg("media:item-list", True, [PositionSource(0)])
 
@@ -236,19 +252,20 @@ def test_127_array_schema_validation():
         {"id": 1, "name": "Item 1"},
         {"id": 2, "name": "Item 2"}
     ]
-    validator.validate_argument(cap, arg, valid_value)
+    await validator.validate_argument(arg, valid_value, registry)
 
     # Invalid array (empty - violates minItems)
     with pytest.raises(ArgumentValidationError):
-        validator.validate_argument(cap, arg, [])
+        await validator.validate_argument(arg, [], registry)
 
     # Invalid array (item missing required id)
     with pytest.raises(ArgumentValidationError):
-        validator.validate_argument(cap, arg, [{"name": "Item 1"}])
+        await validator.validate_argument(arg, [{"name": "Item 1"}], registry)
 
 
 # TEST128: Schema validation with type constraints (integer, number, boolean)
-def test_128_type_constraint_validation():
+@pytest.mark.asyncio
+async def test_128_type_constraint_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -261,29 +278,28 @@ def test_128_type_constraint_validation():
         "required": ["count"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:product",
         media_type="application/json",
         title="Product",
         schema=schema,
-    ))
+    ).to_stored())
 
     arg = CapArg("media:product", True, [PositionSource(0)])
 
     # Valid types
     valid_value = {"count": 5, "price": 9.99, "active": True}
-    validator.validate_argument(cap, arg, valid_value)
+    await validator.validate_argument(arg, valid_value, registry)
 
     # Invalid type (count is string instead of integer)
     invalid_value = {"count": "five"}
     with pytest.raises(ArgumentValidationError):
-        validator.validate_argument(cap, arg, invalid_value)
+        await validator.validate_argument(arg, invalid_value, registry)
 
 
 # TEST129: Schema validation with multiple arguments validates each independently
-def test_129_validate_multiple_arguments():
+@pytest.mark.asyncio
+async def test_129_validate_multiple_arguments(registry):
     validator = SchemaValidator()
 
     schema1 = {
@@ -297,20 +313,18 @@ def test_129_validate_multiple_arguments():
         "maximum": 100
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:name",
         media_type="text/plain",
         title="Name",
         schema=schema1,
-    ))
-    cap.add_media_spec(MediaSpecDef(
+    ).to_stored())
+    registry.add_spec(MediaSpecDef(
         urn="media:score",
         media_type="application/json",
         title="Score",
         schema=schema2,
-    ))
+    ).to_stored())
 
     # Add arguments
     arg1 = CapArg("media:name", True, [PositionSource(0)])
@@ -332,7 +346,8 @@ def test_129_validate_multiple_arguments():
 
 
 # TEST130: Output validation surfaces schema violation details
-def test_130_output_validation_with_details():
+@pytest.mark.asyncio
+async def test_130_output_validation_with_details(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -344,14 +359,12 @@ def test_130_output_validation_with_details():
         "required": ["status"]
     }
 
-    urn = CapUrn.from_string(_test_urn("type=test;validate"))
-    cap = Cap(urn, "Test", "test")
-    cap.add_media_spec(MediaSpecDef(
+    registry.add_spec(MediaSpecDef(
         urn="media:response",
         media_type="application/json",
         title="Response",
         schema=schema,
-    ))
+    ).to_stored())
 
     output = CapOutput("media:response", "Response")
 
@@ -359,7 +372,7 @@ def test_130_output_validation_with_details():
     invalid_value = {"status": "pending"}
 
     with pytest.raises(OutputValidationError) as exc_info:
-        validator.validate_output(cap, output, invalid_value)
+        await validator.validate_output(output, invalid_value, registry)
 
     # Error should contain validation details
     assert exc_info.value.details

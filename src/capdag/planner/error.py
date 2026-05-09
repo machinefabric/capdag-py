@@ -26,7 +26,7 @@ class NotFoundError(PlannerError):
     pass
 
 
-class RegistryError(PlannerError):
+class FabricRegistryError(PlannerError):
     """Error from the capability registry."""
     pass
 

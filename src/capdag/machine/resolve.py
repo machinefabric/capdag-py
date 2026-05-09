@@ -4,7 +4,7 @@ Turns either a planner-produced Strand (linear cap-step sequence, one
 source per step) or a parser-produced wiring set (potentially
 multi-source per wiring) into a fully-resolved MachineStrand.
 
-Resolution requires CapRegistry access to look up each cap's full
+Resolution requires FabricRegistry access to look up each cap's full
 argument list (cap.args) so the matching algorithm has the per-arg
 media URN identities to match against.
 
@@ -32,7 +32,7 @@ from capdag.machine.error import (
 )
 
 if TYPE_CHECKING:
-    from capdag.cap.registry import CapRegistry
+    from capdag.cap.registry import FabricRegistry
     from capdag.planner.live_cap_fab import Strand
 
 
@@ -62,7 +62,7 @@ class PreInternedWiring:
 
 def resolve_strand(
     strand: "Strand",
-    registry: "CapRegistry",
+    registry: "FabricRegistry",
     strand_index: int,
 ) -> MachineStrand:
     """Resolve a planner-produced Strand into a single MachineStrand.
@@ -126,7 +126,7 @@ def resolve_strand(
 def resolve_pre_interned(
     nodes: List[MediaUrn],
     wirings: List[PreInternedWiring],
-    registry: "CapRegistry",
+    registry: "FabricRegistry",
     strand_index: int,
 ) -> MachineStrand:
     """Resolve a pre-interned wiring set into a MachineStrand.

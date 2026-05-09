@@ -13,7 +13,7 @@ from capdag.urn.media_urn import MediaUrn
 from capdag.planner.cardinality import InputStructure
 from capdag.machine.parser import _PARSER, parse_machine
 
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.orchestrator.types import (
     ParseOrchestrationError,
     MachineSyntaxParseFailedError,
@@ -139,7 +139,7 @@ def _parse_source_names(pair) -> List[str]:
 
 async def parse_machine_to_cap_dag(
     notation: str,
-    registry: CapRegistry,
+    registry: FabricRegistry,
 ) -> ResolvedGraph:
     """Parse machine notation and produce a validated orchestration graph.
 

@@ -84,6 +84,18 @@ CAP_DISCARD = "cap:in=media:;out=media:void"
 # that returns {"media_urns": [...]}.
 CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;record"'
 
+# Fabric registry lookup caps. Implemented by netaccesscartridge.
+# CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
+# cap definition; CAP_LOOKUP_MEDIA_SPEC_FABRIC does the same for media specs.
+CAP_LOOKUP_CAP_FABRIC = (
+    'cap:in="media:cap-urn;textable";fabric;lookup-cap;'
+    'out="media:cap-definition;json;record;textable"'
+)
+CAP_LOOKUP_MEDIA_SPEC_FABRIC = (
+    'cap:in="media:media-urn;textable";fabric;lookup-media-spec;'
+    'out="media:media-spec-definition;json;record;textable"'
+)
+
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -579,7 +591,7 @@ async def format_conversion_cap(registry, in_media: str, out_media: str) -> Cap:
     """Get a single format conversion cap from the registry.
 
     Args:
-        registry: CapRegistry instance
+        registry: FabricRegistry instance
         in_media: Input media URN
         out_media: Output media URN
 
@@ -587,7 +599,7 @@ async def format_conversion_cap(registry, in_media: str, out_media: str) -> Cap:
         The Cap for this format conversion
 
     Raises:
-        RegistryError: If the cap is not found
+        FabricRegistryError: If the cap is not found
     """
     urn = format_conversion_urn(in_media, out_media)
     return await registry.get_cap(urn)
@@ -600,13 +612,13 @@ async def all_format_conversion_caps(registry) -> List[Tuple[str, str, Cap]]:
     Fails if any conversion cap is missing from the registry.
 
     Args:
-        registry: CapRegistry instance
+        registry: FabricRegistry instance
 
     Returns:
         List of (in_media, out_media, Cap) tuples
 
     Raises:
-        RegistryError: If any conversion cap is missing
+        FabricRegistryError: If any conversion cap is missing
     """
     caps = []
     for path in all_format_conversion_paths():

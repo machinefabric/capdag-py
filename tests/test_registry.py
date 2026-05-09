@@ -11,7 +11,7 @@ from pathlib import Path
 from capdag import Cap, CapUrn, CapArg
 from capdag.cap.definition import PositionSource, StdinSource
 from capdag.cap.registry import (
-    CapRegistry,
+    FabricRegistry,
     RegistryConfig,
     normalize_cap_urn,
     HttpError,
@@ -34,7 +34,7 @@ def test_135_registry_creation():
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir = Path(temp_dir)
         config = RegistryConfig()
-        registry = CapRegistry(cache_dir, config, None)
+        registry = FabricRegistry(cache_dir, config, None)
 
         assert registry.cache_dir == cache_dir
         assert registry.cache_dir.exists()
@@ -42,7 +42,7 @@ def test_135_registry_creation():
 
 # TEST136: Test cache key generation produces consistent hashes for same URN
 def test_136_cache_key_generation():
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
 
     urn1 = 'cap:in="media:void";extract;out="media:record;textable";target=metadata'
     urn2 = 'cap:in="media:void";extract;out="media:record;textable";target=metadata'
@@ -131,58 +131,65 @@ def test_138_parse_registry_json_with_stdin():
     assert cap.get_stdin_media_urn() == "media:pdf"  # As specified in JSON
 
 
-# TEST139: Test URL construction keeps cap prefix literal and only encodes tags part
-def test_139_url_keeps_cap_prefix_literal():
-    """Test that URL keeps 'cap:' literal, not encoded as 'cap%3A'"""
-    from urllib.parse import quote as url_encode
-
+# TEST139: Per-cap URLs use SHA-256 of the canonical URN as the path key.
+# The path scheme is /caps/<sha256-hex> — no colons, no quotes, no
+# percent-encoding gymnastics. Same hash function across every capdag
+# implementation guarantees a single bucket key per equivalence class.
+def test_139_per_cap_url_uses_sha256():
+    """Per-cap lookup URL is /caps/<sha256-of-canonical-urn>"""
+    import hashlib
     config = RegistryConfig()
     urn = 'cap:in="media:string";test;out="media:object"'
     normalized = normalize_cap_urn(urn)
-    tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
-    encoded_tags = url_encode(tags_part, safe='')
-    url = f"{config.registry_base_url}/cap:{encoded_tags}"
+    digest = hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+    url = f"{config.registry_base_url}/caps/{digest}"
 
-    # URL must contain literal '/cap:' not encoded
-    assert "/cap:" in url
-    assert "cap%3A" not in url
-
-
-# TEST140: Test URL encodes media URNs with proper percent encoding for special characters
-def test_140_url_encodes_quoted_media_urns():
-    """Test that special characters in URNs are percent-encoded"""
-    from urllib.parse import quote as url_encode
-
-    config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
-    normalized = normalize_cap_urn(urn)
-    tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
-    encoded_tags = url_encode(tags_part, safe='')
-    url = f"{config.registry_base_url}/cap:{encoded_tags}"
-
-    # Equals must be encoded as %3D
-    assert "%3D" in url
-    # Semicolons must be encoded as %3B
-    assert "%3B" in url
-    # Colons in media URNs must be encoded as %3A
-    assert "%3A" in url
+    assert "/caps/" in url
+    # The URL must NOT contain any URN-grammar characters now that
+    # hashing replaces percent-encoding entirely.
+    assert "cap:" not in url[len(config.registry_base_url):]
+    assert "%3A" not in url
+    assert "%3B" not in url
+    assert "%3D" not in url
+    # The hash is 64 hex chars.
+    assert len(digest) == 64
+    assert all(c in "0123456789abcdef" for c in digest)
 
 
-# TEST141: Test exact URL format contains properly encoded media URN components
-def test_141_exact_url_format():
-    """Test exact URL format for registry requests"""
-    from urllib.parse import quote as url_encode
+# TEST140: Different URN spellings of the same cap (different tag order,
+# whitespace, quoting) MUST produce the same SHA-256 hash, because the
+# canonicaliser reduces them to the same string before hashing. This is
+# the property that makes cross-language lookups land at the same
+# registry key regardless of which capdag implementation issued the
+# request.
+def test_140_same_cap_different_spellings_same_hash():
+    """Equivalent URNs hash identically after canonicalisation"""
+    import hashlib
+    urn_a = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
+    urn_b = 'cap:out="media:task;id";in="media:listing-id";use-grinder'
 
-    config = RegistryConfig()
-    urn = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
-    normalized = normalize_cap_urn(urn)
-    tags_part = normalized[4:] if normalized.startswith("cap:") else normalized
-    encoded_tags = url_encode(tags_part, safe='')
-    url = f"{config.registry_base_url}/cap:{encoded_tags}"
+    canonical_a = normalize_cap_urn(urn_a)
+    canonical_b = normalize_cap_urn(urn_b)
 
-    # Verify URL contains encoded media URNs
-    assert "media%3Alisting-id" in url or "media%3A" in url
-    assert "media%3Atask-id" in url or "media%3A" in url
+    digest_a = hashlib.sha256(canonical_a.encode('utf-8')).hexdigest()
+    digest_b = hashlib.sha256(canonical_b.encode('utf-8')).hexdigest()
+
+    assert canonical_a == canonical_b, f"canonical forms diverged: {canonical_a!r} vs {canonical_b!r}"
+    assert digest_a == digest_b, f"hashes diverged: {digest_a} vs {digest_b}"
+
+
+# TEST141: Two genuinely different caps must hash to different keys. If
+# the canonical-form algorithm ever drifts to coalesce non-equivalent
+# URNs (e.g. by stripping a tag that has functional meaning), this test
+# fails immediately.
+def test_141_different_caps_different_hashes():
+    """Non-equivalent URNs must NOT collide under SHA-256"""
+    import hashlib
+    urn_a = 'cap:in="media:string";name=summarize;out="media:summary"'
+    urn_b = 'cap:in="media:string";name=translate;out="media:summary"'
+    digest_a = hashlib.sha256(normalize_cap_urn(urn_a).encode('utf-8')).hexdigest()
+    digest_b = hashlib.sha256(normalize_cap_urn(urn_b).encode('utf-8')).hexdigest()
+    assert digest_a != digest_b
 
 
 # TEST142: Test normalize handles different tag orders producing same canonical form
@@ -198,13 +205,18 @@ def test_142_normalize_handles_different_tag_orders():
     assert normalized1 == normalized2
 
 
-# TEST143: Test default config uses capdag.com or environment variable values
+# TEST143: Default config points at https://fabric.capdag.com or the
+# CAPDAG_REGISTRY_URL env-var override.
 def test_143_default_config():
     """Test default configuration"""
     config = RegistryConfig()
 
-    # Default should use capdag.com (unless env var is set)
-    assert "capdag.com" in config.registry_base_url or os.getenv("CAPDAG_REGISTRY_URL") is not None
+    # Default points at the canonical registry host. The env-var
+    # override path stays open for tests / staging deploys.
+    if os.getenv("CAPDAG_REGISTRY_URL") is None:
+        assert config.registry_base_url == "https://fabric.capdag.com"
+    else:
+        assert config.registry_base_url == os.getenv("CAPDAG_REGISTRY_URL")
     assert "/schema" in config.schema_base_url
 
 
@@ -220,7 +232,7 @@ def test_144_custom_registry_url():
 # TEST908: Cached caps remain accessible when offline
 @pytest.mark.asyncio
 async def test_908_cached_caps_accessible_when_offline():
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
     cap = Cap.from_dict(
         json.loads(
             '{"urn":"cap:in=media:void;test-offline;out=media:void","command":"test","title":"Test Cap","args":[]}'
@@ -237,7 +249,7 @@ async def test_908_cached_caps_accessible_when_offline():
 # TEST909: set_offline(false) restores fetch ability (would fail with HTTP error, not NetworkBlocked)
 @pytest.mark.asyncio
 async def test_909_set_offline_false_restores_fetch(monkeypatch):
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
     registry.set_offline(True)
 
     with pytest.raises(NetworkBlockedError):
@@ -280,7 +292,7 @@ def test_146_schema_url_not_overwritten_when_explicit():
 def test_147_registry_for_test_with_config():
     """Test creating test registry with custom configuration"""
     config = RegistryConfig().with_registry_url("https://test-registry.local")
-    registry = CapRegistry.new_for_test_with_config(config)
+    registry = FabricRegistry.new_for_test_with_config(config)
 
     assert registry.config.registry_base_url == "https://test-registry.local"
 
@@ -288,7 +300,7 @@ def test_147_registry_for_test_with_config():
 # TEST123: Test adding caps to the registry cache and retrieving them
 @pytest.mark.asyncio
 async def test_123_registry_add_caps_to_cache():
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
 
     urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test Cap", "test-command")

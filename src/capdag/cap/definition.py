@@ -323,7 +323,6 @@ class Cap:
         self.args: List[CapArg] = []
         self.output: Optional[CapOutput] = None
         self.metadata: Dict[str, str] = {}
-        self.media_specs: List[Dict[str, Any]] = []
         self._metadata_json: Optional[Any] = None
         self._registered_by: Optional["RegisteredBy"] = None
         self.supported_model_types: List[str] = []
@@ -360,7 +359,6 @@ class Cap:
         cap_description: Optional[str],
         metadata: Dict[str, str],
         command: str,
-        media_specs: List[Any],
         args: List[CapArg],
         output: Optional[CapOutput] = None,
         metadata_json: Optional[Any] = None,
@@ -374,8 +372,6 @@ class Cap:
         cap.args = args
         cap.output = output
         cap._metadata_json = metadata_json
-        if media_specs:
-            cap.set_media_specs(media_specs)
         return cap
 
     def urn_string(self) -> str:
@@ -485,28 +481,6 @@ class Cap:
                     return source.stdin_media_urn()
         return None
 
-    def add_media_spec(self, spec: MediaSpecDef):
-        """Add an inline media spec"""
-        if hasattr(spec, "to_dict"):
-            self.media_specs.append(spec.to_dict())
-            return
-        raise ValueError(f"Invalid media spec type: {type(spec)}")
-
-    def set_media_specs(self, media_specs: List[Any]):
-        """Set inline media specs (accepts MediaSpecDef or dict)"""
-        self.media_specs = []
-        for spec in media_specs:
-            if hasattr(spec, "to_dict"):
-                self.media_specs.append(spec.to_dict())
-            elif isinstance(spec, dict):
-                self.media_specs.append(spec)
-            else:
-                raise ValueError(f"Invalid media spec type: {type(spec)}")
-
-    def get_media_specs(self) -> List[Dict[str, Any]]:
-        """Get inline media specs as dicts"""
-        return self.media_specs
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
         result = {
@@ -529,9 +503,6 @@ class Cap:
 
         if self.metadata:
             result["metadata"] = self.metadata
-
-        if self.media_specs:
-            result["media_specs"] = self.media_specs
 
         if self._metadata_json is not None:
             result["metadata_json"] = self._metadata_json
@@ -570,9 +541,6 @@ class Cap:
 
         if "metadata" in data:
             cap.metadata = data["metadata"]
-
-        if "media_specs" in data:
-            cap.media_specs = data["media_specs"]
 
         if "metadata_json" in data:
             cap._metadata_json = data["metadata_json"]

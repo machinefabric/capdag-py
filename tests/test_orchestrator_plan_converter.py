@@ -3,7 +3,7 @@
 import pytest
 
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.orchestrator.plan_converter import plan_to_resolved_graph
 from capdag.planner.cardinality import InputCardinality
 from capdag.planner.plan import ExecutionNodeType, MachineNode, MachinePlan, MachinePlanEdge
@@ -27,8 +27,8 @@ def _build_cap(cap_urn_str: str, title: str) -> Cap:
     return cap
 
 
-def _registry_with_caps(cap_urns: list[str]) -> CapRegistry:
-    registry = CapRegistry.new_for_test()
+def _registry_with_caps(cap_urns: list[str]) -> FabricRegistry:
+    registry = FabricRegistry.new_for_test()
     registry.add_caps_to_cache(
         [_build_cap(cap_urn, f"Test Cap {index}") for index, cap_urn in enumerate(cap_urns)]
     )

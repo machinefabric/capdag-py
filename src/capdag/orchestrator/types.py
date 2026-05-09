@@ -67,7 +67,7 @@ class MediaUrnParseError(ParseOrchestrationError):
         super().__init__(f"Failed to parse Media URN: {message}")
 
 
-class RegistryError(ParseOrchestrationError):
+class FabricRegistryError(ParseOrchestrationError):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(f"Registry error: {message}")
@@ -181,6 +181,6 @@ class ResolvedGraph:
         return f"ResolvedGraph(nodes={len(self.nodes)}, edges={len(self.edges)})"
 
 
-# CapRegistryTrait is gone. The orchestrator parser and plan converter take
-# CapRegistry directly. Tests use CapRegistry.new_for_test() +
+# FabricRegistryTrait is gone. The orchestrator parser and plan converter take
+# FabricRegistry directly. Tests use FabricRegistry.new_for_test() +
 # ensure_identity_cap() / add_caps_to_cache() instead of a hand-built mock.

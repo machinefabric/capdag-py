@@ -4,21 +4,29 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 """
 
 import pytest
+import tempfile
+from pathlib import Path
 from capdag import CapUrn, Cap, CapArg
 from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
 from capdag.media.spec import MediaSpecDef
+from capdag.media.registry import FabricRegistry
 from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,
-    validate_no_inline_media_spec_redefinition,
     MissingRequiredArgumentError,
     InvalidArgumentTypeError,
     InvalidCapSchemaError,
-    InlineMediaSpecRedefinesRegistryError,
     TooManyArgumentsError,
     RESERVED_CLI_FLAGS,
 )
 from capdag.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_OBJECT
+
+
+@pytest.fixture
+def registry():
+    """A clean, in-memory FabricRegistry for tests to seed via ``add_spec``."""
+    cache_dir = Path(tempfile.mkdtemp(prefix="capdag-fabric-"))
+    return FabricRegistry.new_for_test(cache_dir)
 
 
 def _test_urn(tags: str) -> str:
@@ -32,9 +40,20 @@ def _test_urn_with_input(tags: str) -> str:
 
 
 # TEST051: Test input validation succeeds with valid positional argument
-def test_051_input_validation_success():
+@pytest.mark.asyncio
+async def test_051_input_validation_success(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
+
+    # The unified registry resolves the arg's media URN at validation
+    # time; seed the spec the cap references.
+    registry.add_spec(MediaSpecDef(
+        urn=MEDIA_STRING,
+        media_type="text/plain",
+        title="String",
+        profile_uri="https://capdag.com/schema/string",
+        schema={"type": "string"},
+    ).to_stored())
 
     arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
     cap.add_arg(arg)
@@ -42,11 +61,12 @@ def test_051_input_validation_success():
     input_args = ["/path/to/file.txt"]
 
     # Should succeed without raising
-    validate_positional_arguments(cap, input_args)
+    await validate_positional_arguments(cap, input_args, registry)
 
 
 # TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
-def test_052_input_validation_missing_required():
+@pytest.mark.asyncio
+async def test_052_input_validation_missing_required(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -56,14 +76,15 @@ def test_052_input_validation_missing_required():
     input_args = []  # Missing required argument
 
     with pytest.raises(MissingRequiredArgumentError) as exc_info:
-        validate_positional_arguments(cap, input_args)
+        await validate_positional_arguments(cap, input_args, registry)
 
     assert exc_info.value.argument_name == MEDIA_STRING
     assert exc_info.value.cap_urn == cap.urn_string()
 
 
 # TEST131: Input validation succeeds when optional positional argument is omitted
-def test_131_input_validation_optional_arg():
+@pytest.mark.asyncio
+async def test_131_input_validation_optional_arg(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -71,11 +92,12 @@ def test_131_input_validation_optional_arg():
     cap.add_arg(arg)
 
     input_args = []  # Not providing optional argument — must succeed
-    validate_positional_arguments(cap, input_args)
+    await validate_positional_arguments(cap, input_args, registry)
 
 
 # TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied
-def test_132_input_validation_too_many_args():
+@pytest.mark.asyncio
+async def test_132_input_validation_too_many_args(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -85,87 +107,35 @@ def test_132_input_validation_too_many_args():
     input_args = ["arg1", "arg2", "arg3"]  # Too many
 
     with pytest.raises(TooManyArgumentsError) as exc_info:
-        validate_positional_arguments(cap, input_args)
+        await validate_positional_arguments(cap, input_args, registry)
 
     assert exc_info.value.max_expected == 1
     assert exc_info.value.actual_count == 3
 
 
-class _StubMediaRegistry:
-    def __init__(self, *media_urns):
-        self.cached_specs = {urn: object() for urn in media_urns}
-        self.extension_index = {}
-
-
 # TEST053: Test input validation fails with InvalidArgumentType when wrong type provided
-def test_053_input_validation_wrong_type():
+@pytest.mark.asyncio
+async def test_053_input_validation_wrong_type(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.set_media_specs(
-        [
-            MediaSpecDef(
-                urn=MEDIA_INTEGER,
-                media_type="text/plain",
-                title="Integer",
-                profile_uri="https://capdag.com/schema/integer",
-                schema={"type": "integer"},
-                description="Integer value",
-            )
-        ]
-    )
+    registry.add_spec(MediaSpecDef(
+        urn=MEDIA_INTEGER,
+        media_type="text/plain",
+        title="Integer",
+        profile_uri="https://capdag.com/schema/integer",
+        schema={"type": "integer"},
+        description="Integer value",
+    ).to_stored())
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [PositionSource(0)]))
 
     with pytest.raises(InvalidArgumentTypeError):
-        validate_positional_arguments(cap, ["not_a_number"])
+        await validate_positional_arguments(cap, ["not_a_number"], registry)
 
 
-# TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
-def test_054_xv5_inline_spec_redefinition_detected():
-    urn = CapUrn.from_string(_test_urn("type=test;cap"))
-    cap = Cap(urn, "Test Capability", "test-command")
-    cap.set_media_specs(
-        [
-            MediaSpecDef(
-                urn=MEDIA_STRING,
-                media_type="text/plain",
-                title="My Custom String",
-                profile_uri="https://example.com/my-string",
-                description="Trying to redefine string",
-            )
-        ]
-    )
-
-    with pytest.raises(InlineMediaSpecRedefinesRegistryError) as exc_info:
-        validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
-
-    assert exc_info.value.media_urn == MEDIA_STRING
-
-
-# TEST055: XV5 - Test new inline media spec (not in registry) is allowed
-def test_055_xv5_new_inline_spec_allowed():
-    urn = CapUrn.from_string(_test_urn("type=test;cap"))
-    cap = Cap(urn, "Test Capability", "test-command")
-    cap.set_media_specs(
-        [
-            MediaSpecDef(
-                urn="media:my-unique-custom-type-xyz123",
-                media_type="application/json",
-                title="My Custom Output",
-                profile_uri="https://example.com/my-custom-output",
-                schema={"type": "object"},
-                description="A custom output type",
-            )
-        ]
-    )
-
-    validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
-
-
-# TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
-def test_056_xv5_empty_media_specs_allowed():
-    urn = CapUrn.from_string(_test_urn("type=test;cap"))
-    cap = Cap(urn, "Test Capability", "test-command")
-    validate_no_inline_media_spec_redefinition(cap, _StubMediaRegistry(MEDIA_STRING))
+# TESTs 054/055/056 (XV5: inline media-spec redefinition) were removed in the
+# Rust regime: inline cap-local media specs no longer exist, so the situation
+# the rule guarded against is structurally impossible. The corresponding tests
+# are obsolete and intentionally left out.
 
 
 # TEST578: RULE1 - duplicate media_urns rejected

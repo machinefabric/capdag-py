@@ -3,7 +3,7 @@
 import pytest
 
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
-from capdag.cap.registry import CapRegistry
+from capdag.cap.registry import FabricRegistry
 from capdag.orchestrator.parser import parse_machine_to_cap_dag
 from capdag.orchestrator.types import (
     CapNotFoundError,
@@ -28,9 +28,9 @@ def _build_cap(cap_urn_str: str, stdin_urns: list, out_urn: str) -> Cap:
     return cap
 
 
-def _build_registry(specs: list) -> CapRegistry:
+def _build_registry(specs: list) -> FabricRegistry:
     """Build a registry from (cap_urn_str, stdin_urns_list, out_urn) tuples."""
-    registry = CapRegistry.new_for_test()
+    registry = FabricRegistry.new_for_test()
     caps = [_build_cap(urn_str, stdins, out) for urn_str, stdins, out in specs]
     registry.add_caps_to_cache(caps)
     return registry

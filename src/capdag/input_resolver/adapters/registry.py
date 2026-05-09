@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from capdag.media.registry import ExtensionNotFoundError, MediaUrnRegistry
+from capdag.media.registry import ExtensionNotFoundError, FabricRegistry
 from capdag.urn.media_urn import MediaUrn
 
 
@@ -42,12 +42,12 @@ class RegisteredAdapter:
 class MediaAdapterRegistry:
     """Tracks cartridge-provided content inspection adapters."""
 
-    def __init__(self, media_registry: MediaUrnRegistry) -> None:
+    def __init__(self, media_registry: FabricRegistry) -> None:
         self._media_registry = media_registry
         self._registered_adapters: list[RegisteredAdapter] = []
 
     @property
-    def media_registry(self) -> MediaUrnRegistry:
+    def media_registry(self) -> FabricRegistry:
         return self._media_registry
 
     def register_cap_group(

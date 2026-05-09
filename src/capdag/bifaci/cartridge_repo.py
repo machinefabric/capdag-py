@@ -140,7 +140,7 @@ class RegistryCapGroup:
 
 @dataclass
 class CartridgeDistributionInfo:
-    """Distribution file info (package). `url` is the absolute R2 URL of
+    """Distribution file info (package). `url` is the absolute URL of
     the package — every consumer downloads from that URL directly.
     There is no derived URL pattern any more."""
 
@@ -176,7 +176,7 @@ class CartridgeBuild:
 class CartridgeVersionData:
     """A cartridge version's data (v5.0 schema).
 
-    `notes_url` is the absolute R2 URL of the version's release-notes
+    `notes_url` is the absolute URL of the version's release-notes
     Markdown file, when one was uploaded at publish time. Optional —
     cartridges historically did not ship per-version notes.
     """
