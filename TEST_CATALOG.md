@@ -1,8 +1,8 @@
 # Python Test Catalog
 
-**Total Tests:** 979
+**Total Tests:** 980
 
-**Numbered Tests:** 979
+**Numbered Tests:** 980
 
 **Unnumbered Tests:** 0
 
@@ -32,40 +32,40 @@ This catalog lists all tests in the Python codebase.
 | test014 | `test_014_round_trip_escapes` | TEST014: Test that escape sequences round-trip correctly | tests/test_cap_urn.py:217 |
 | test015 | `test_015_cap_prefix_required` | TEST015: Test that cap: prefix is required and case-insensitive | tests/test_cap_urn.py:227 |
 | test016 | `test_016_trailing_semicolon_equivalence` | TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches) | tests/test_cap_urn.py:242 |
-| test017 | `test_017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | tests/test_cap_urn.py:262 |
-| test018 | `test_018_quoted_values_case_sensitive` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | tests/test_cap_urn.py:287 |
-| test019 | `test_019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | tests/test_cap_urn.py:294 |
-| test020 | `test_020_specificity_calculation` | TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. | tests/test_cap_urn.py:315 |
-| test021 | `test_021_builder_creates_cap_urn` | TEST021: Test builder creates cap URN with correct tags and direction specs | tests/test_cap_urn.py:332 |
-| test022 | `test_022_builder_requires_direction_specs` | TEST022: Test builder requires both in_spec and out_spec | tests/test_cap_urn.py:348 |
-| test023 | `test_023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves quoted-value case | tests/test_cap_urn.py:363 |
-| test024 | `test_024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | tests/test_cap_urn.py:380 |
-| test025 | `test_025_find_best_match` | TEST025: Test find_best_match returns most specific matching cap | tests/test_cap_urn.py:408 |
-| test026 | `test_026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | tests/test_cap_urn.py:426 |
-| test027 | `test_027_with_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | tests/test_cap_urn.py:445 |
-| test028 | `test_028_empty_cap_urn_defaults` | TEST028: Test empty cap URN defaults to media: wildcard | tests/test_cap_urn.py:462 |
-| test029 | `test_029_minimal_valid_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | tests/test_cap_urn.py:470 |
-| test030 | `test_030_extended_characters_in_values` | TEST030: Test extended characters (forward slashes, colons) in tag values | tests/test_cap_urn.py:478 |
-| test031 | `test_031_wildcard_in_keys_and_values` | TEST031: Test wildcard rejected in keys but accepted in values | tests/test_cap_urn.py:485 |
-| test032 | `test_032_duplicate_keys_rejected` | TEST032: Test duplicate keys are rejected with DuplicateKey error | tests/test_cap_urn.py:497 |
-| test033 | `test_033_numeric_keys` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | tests/test_cap_urn.py:504 |
-| test034 | `test_034_empty_values_rejected` | TEST034: Test empty values are rejected | tests/test_cap_urn.py:519 |
-| test035 | `test_035_has_tag_behavior` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | tests/test_cap_urn.py:526 |
-| test036 | `test_036_with_tag_preserves_case` | TEST036: Test with_tag preserves value case | tests/test_cap_urn.py:545 |
-| test037 | `test_037_with_tag_rejects_empty` | TEST037: Test with_tag rejects empty value | tests/test_cap_urn.py:552 |
-| test038 | `test_038_semantic_equivalence_quoted_unquoted` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | tests/test_cap_urn.py:559 |
-| test039 | `test_039_get_tag_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | tests/test_cap_urn.py:568 |
-| test040 | `test_040_matching_semantics_exact_match` | TEST040: Matching semantics - exact match succeeds | tests/test_cap_urn.py:592 |
-| test041 | `test_041_matching_semantics_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | tests/test_cap_urn.py:599 |
-| test042 | `test_042_matching_semantics_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | tests/test_cap_urn.py:606 |
-| test043 | `test_043_matching_semantics_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | tests/test_cap_urn.py:616 |
-| test044 | `test_044_matching_semantics_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | tests/test_cap_urn.py:623 |
-| test045 | `test_045_matching_semantics_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | tests/test_cap_urn.py:630 |
-| test046 | `test_046_matching_semantics_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | tests/test_cap_urn.py:637 |
-| test047 | `test_047_matching_semantics_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | tests/test_cap_urn.py:645 |
-| test048 | `test_048_matching_semantics_wildcard_direction` | TEST048: Matching semantics - wildcard direction matches anything | tests/test_cap_urn.py:653 |
-| test049 | `test_049_matching_semantics_cross_dimension` | TEST049: Non-overlapping tags — neither direction accepts | tests/test_cap_urn.py:660 |
-| test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:669 |
+| test017 | `test_017_tag_matching` | TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch | tests/test_cap_urn.py:293 |
+| test018 | `test_018_quoted_values_case_sensitive` | TEST018: Test that quoted values with different case do NOT match (case-sensitive) | tests/test_cap_urn.py:318 |
+| test019 | `test_019_missing_tag_handling` | TEST019: Missing tag in instance causes rejection — pattern's tags are constraints | tests/test_cap_urn.py:325 |
+| test020 | `test_020_specificity_calculation` | TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. | tests/test_cap_urn.py:346 |
+| test021 | `test_021_builder_creates_cap_urn` | TEST021: Test builder creates cap URN with correct tags and direction specs | tests/test_cap_urn.py:363 |
+| test022 | `test_022_builder_requires_direction_specs` | TEST022: Test builder requires both in_spec and out_spec | tests/test_cap_urn.py:379 |
+| test023 | `test_023_builder_preserves_case` | TEST023: Test builder lowercases keys but preserves quoted-value case | tests/test_cap_urn.py:394 |
+| test024 | `test_024_directional_accepts` | TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy | tests/test_cap_urn.py:411 |
+| test025 | `test_025_find_best_match` | TEST025: Test find_best_match returns most specific matching cap | tests/test_cap_urn.py:439 |
+| test026 | `test_026_merge_and_subset` | TEST026: Test merge combines tags from both caps, subset keeps only specified tags | tests/test_cap_urn.py:457 |
+| test027 | `test_027_with_wildcard_tag` | TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out | tests/test_cap_urn.py:476 |
+| test028 | `test_028_empty_cap_urn_defaults` | TEST028: Test empty cap URN defaults to media: wildcard | tests/test_cap_urn.py:493 |
+| test029 | `test_029_minimal_valid_cap_urn` | TEST029: Test minimal valid cap URN has just in and out, empty tags | tests/test_cap_urn.py:501 |
+| test030 | `test_030_extended_characters_in_values` | TEST030: Test extended characters (forward slashes, colons) in tag values | tests/test_cap_urn.py:509 |
+| test031 | `test_031_wildcard_in_keys_and_values` | TEST031: Test wildcard rejected in keys but accepted in values | tests/test_cap_urn.py:516 |
+| test032 | `test_032_duplicate_keys_rejected` | TEST032: Test duplicate keys are rejected with DuplicateKey error | tests/test_cap_urn.py:528 |
+| test033 | `test_033_numeric_keys` | TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed | tests/test_cap_urn.py:535 |
+| test034 | `test_034_empty_values_rejected` | TEST034: Test empty values are rejected | tests/test_cap_urn.py:550 |
+| test035 | `test_035_has_tag_behavior` | TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out | tests/test_cap_urn.py:557 |
+| test036 | `test_036_with_tag_preserves_case` | TEST036: Test with_tag preserves value case | tests/test_cap_urn.py:576 |
+| test037 | `test_037_with_tag_rejects_empty` | TEST037: Test with_tag rejects empty value | tests/test_cap_urn.py:583 |
+| test038 | `test_038_semantic_equivalence_quoted_unquoted` | TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values | tests/test_cap_urn.py:590 |
+| test039 | `test_039_get_tag_direction_specs` | TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup | tests/test_cap_urn.py:599 |
+| test040 | `test_040_matching_semantics_exact_match` | TEST040: Matching semantics - exact match succeeds | tests/test_cap_urn.py:623 |
+| test041 | `test_041_matching_semantics_cap_missing_tag` | TEST041: Matching semantics - cap missing tag matches (implicit wildcard) | tests/test_cap_urn.py:630 |
+| test042 | `test_042_matching_semantics_cap_has_extra_tag` | TEST042: Pattern rejects instance missing required tags | tests/test_cap_urn.py:637 |
+| test043 | `test_043_matching_semantics_request_has_wildcard` | TEST043: Matching semantics - request wildcard matches specific cap value | tests/test_cap_urn.py:647 |
+| test044 | `test_044_matching_semantics_cap_has_wildcard` | TEST044: Matching semantics - cap wildcard matches specific request value | tests/test_cap_urn.py:654 |
+| test045 | `test_045_matching_semantics_value_mismatch` | TEST045: Matching semantics - value mismatch does not match | tests/test_cap_urn.py:661 |
+| test046 | `test_046_matching_semantics_fallback_pattern` | TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) | tests/test_cap_urn.py:668 |
+| test047 | `test_047_matching_semantics_thumbnail_void_input` | TEST047: Matching semantics - thumbnail fallback with void input | tests/test_cap_urn.py:676 |
+| test048 | `test_048_matching_semantics_wildcard_direction` | TEST048: Matching semantics - wildcard direction matches anything | tests/test_cap_urn.py:684 |
+| test049 | `test_049_matching_semantics_cross_dimension` | TEST049: Non-overlapping tags — neither direction accepts | tests/test_cap_urn.py:691 |
+| test050 | `test_050_matching_semantics_direction_mismatch` | TEST050: Matching semantics - direction mismatch prevents matching | tests/test_cap_urn.py:700 |
 | test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:44 |
 | test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:69 |
 | test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:118 |
@@ -489,16 +489,16 @@ This catalog lists all tests in the Python codebase.
 | test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:361 |
 | test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:370 |
 | test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | tests/test_media_urn.py:379 |
-| test559 | `test_559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | tests/test_cap_urn.py:683 |
-| test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:707 |
-| test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:728 |
-| test562 | `test_562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | tests/test_cap_urn.py:748 |
-| test563 | `test_563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | tests/test_cap_urn.py:785 |
-| test564 | `test_564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | tests/test_cap_urn.py:803 |
-| test565 | `test_565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | tests/test_cap_urn.py:826 |
-| test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:838 |
-| test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:851 |
-| test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | tests/test_cap_urn.py:767 |
+| test559 | `test_559_without_tag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | tests/test_cap_urn.py:714 |
+| test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:738 |
+| test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:759 |
+| test562 | `test_562_canonical_option` | TEST562: canonical_option returns None for None input, canonical string for Some | tests/test_cap_urn.py:779 |
+| test563 | `test_563_find_all_matches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | tests/test_cap_urn.py:816 |
+| test564 | `test_564_are_compatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | tests/test_cap_urn.py:834 |
+| test565 | `test_565_tags_to_string` | TEST565: tags_to_string returns only tags portion without prefix | tests/test_cap_urn.py:857 |
+| test566 | `test_566_with_tag_ignores_in_out` | TEST566: with_tag silently ignores in/out keys | tests/test_cap_urn.py:869 |
+| test567 | `test_567_str_variants` | TEST567: conforms_to_str and accepts_str work with string arguments | tests/test_cap_urn.py:882 |
+| test568 | `test_568_dispatch_output_tag_order` | TEST568: is_dispatchable with different tag order in output spec | tests/test_cap_urn.py:798 |
 | test578 | `test_578_rule1_duplicate_media_urns` | TEST578: RULE1 - duplicate media_urns rejected | tests/test_validation.py:142 |
 | test579 | `test_579_rule2_empty_sources` | TEST579: RULE2 - empty sources rejected | tests/test_validation.py:155 |
 | test580 | `test_580_rule3_different_stdin_urns` | TEST580: RULE3 - multiple stdin sources with different URNs rejected | tests/test_validation.py:167 |
@@ -558,21 +558,21 @@ This catalog lists all tests in the Python codebase.
 | test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes cleanly (the null_as_empty_string deserializer is the only tolerated coercion). | tests/test_cartridge_repo.py:656 |
 | test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:677 |
 | test638 | `test_638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
-| test639 | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) defaults to in=media:;out=media: | tests/test_cap_urn.py:876 |
-| test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults out to media: | tests/test_cap_urn.py:884 |
-| test641 | `test_641_wildcard_out_only_defaults_in` | TEST641: cap:out defaults in to media: | tests/test_cap_urn.py:891 |
-| test642 | `test_642_wildcard_in_out_no_values` | TEST642: cap:in;out both become media: | tests/test_cap_urn.py:898 |
-| test643 | `test_643_wildcard_explicit_asterisk` | TEST643: cap:in=*;out=* becomes media: | tests/test_cap_urn.py:905 |
-| test644 | `test_644_wildcard_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | tests/test_cap_urn.py:912 |
-| test645 | `test_645_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | tests/test_cap_urn.py:919 |
-| test646 | `test_646_wildcard_invalid_in_spec` | TEST646: cap:in=foo fails (invalid media URN) | tests/test_cap_urn.py:926 |
-| test647 | `test_647_wildcard_invalid_out_spec` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | tests/test_cap_urn.py:932 |
-| test648 | `test_648_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | tests/test_cap_urn.py:938 |
-| test649 | `test_649_wildcard_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | tests/test_cap_urn.py:947 |
-| test650 | `test_650_wildcard_preserve_other_tags` | TEST650: cap:in=media:;out=media:;test preserves other tags | tests/test_cap_urn.py:956 |
-| test651 | `test_651_wildcard_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | tests/test_cap_urn.py:964 |
-| test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:982 |
-| test653 | `test_653_wildcard_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | tests/test_cap_urn.py:995 |
+| test639 | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) defaults to in=media:;out=media: | tests/test_cap_urn.py:907 |
+| test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults out to media: | tests/test_cap_urn.py:915 |
+| test641 | `test_641_wildcard_out_only_defaults_in` | TEST641: cap:out defaults in to media: | tests/test_cap_urn.py:922 |
+| test642 | `test_642_wildcard_in_out_no_values` | TEST642: cap:in;out both become media: | tests/test_cap_urn.py:929 |
+| test643 | `test_643_wildcard_explicit_asterisk` | TEST643: cap:in=*;out=* becomes media: | tests/test_cap_urn.py:936 |
+| test644 | `test_644_wildcard_specific_in_wildcard_out` | TEST644: cap:in=media:;out=* has specific in, wildcard out | tests/test_cap_urn.py:943 |
+| test645 | `test_645_wildcard_in_specific_out` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | tests/test_cap_urn.py:950 |
+| test646 | `test_646_wildcard_invalid_in_spec` | TEST646: cap:in=foo fails (invalid media URN) | tests/test_cap_urn.py:957 |
+| test647 | `test_647_wildcard_invalid_out_spec` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | tests/test_cap_urn.py:963 |
+| test648 | `test_648_wildcard_accepts_specific` | TEST648: Wildcard in/out match specific caps | tests/test_cap_urn.py:969 |
+| test649 | `test_649_wildcard_specificity_scoring` | TEST649: Specificity - wildcard has 0, specific has tag count | tests/test_cap_urn.py:978 |
+| test650 | `test_650_wildcard_preserve_other_tags` | TEST650: cap:in=media:;out=media:;test preserves other tags | tests/test_cap_urn.py:987 |
+| test651 | `test_651_wildcard_identity_forms_equivalent` | TEST651: All identity forms produce the same CapUrn | tests/test_cap_urn.py:995 |
+| test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:1013 |
+| test653 | `test_653_wildcard_identity_routing_isolation` | TEST653: Identity (no tags) does not match specific requests via routing | tests/test_cap_urn.py:1026 |
 | test661 | `test_661_cartridge_death_keeps_known_caps_advertised` | TEST661: Cartridge death keeps known_caps advertised for on-demand respawn | tests/test_cartridge_host.py:931 |
 | test662 | `test_662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth (set at registration, refreshed on HELLO), and advertisement does not gate on `running`. | tests/test_cartridge_host.py:972 |
 | test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1001 |
@@ -714,22 +714,22 @@ This catalog lists all tests in the Python codebase.
 | test820 | `test_820_extract_json_path_with_boolean` | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values | tests/test_executor.py:119 |
 | test821 | `test_821_extract_json_path_with_nested_arrays` | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays | tests/test_executor.py:126 |
 | test822 | `test_822_extract_json_path_invalid_array_index` | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error | tests/test_executor.py:132 |
-| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable — exact match provider dispatches request | tests/test_cap_urn.py:1008 |
-| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) | tests/test_cap_urn.py:1019 |
-| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true | tests/test_cap_urn.py:1030 |
-| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable — provider output must satisfy request output (covariance) | tests/test_cap_urn.py:1042 |
-| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable — provider with generic output cannot satisfy specific request | tests/test_cap_urn.py:1054 |
-| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject | tests/test_cap_urn.py:1066 |
-| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept | tests/test_cap_urn.py:1078 |
-| test830 | `test_830_dispatch_provider_extra_tags` | TEST830: is_dispatchable — provider extra tags are refinement, always OK | tests/test_cap_urn.py:1090 |
-| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | tests/test_cap_urn.py:1102 |
-| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | tests/test_cap_urn.py:1114 |
-| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable — both directions checked | tests/test_cap_urn.py:1133 |
-| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | tests/test_cap_urn.py:1145 |
-| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent — identical caps | tests/test_cap_urn.py:1157 |
-| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | tests/test_cap_urn.py:1169 |
-| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | tests/test_cap_urn.py:1181 |
-| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any provider output | tests/test_cap_urn.py:1192 |
+| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable — exact match provider dispatches request | tests/test_cap_urn.py:1039 |
+| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable — provider with broader input handles specific request (contravariance) | tests/test_cap_urn.py:1050 |
+| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true | tests/test_cap_urn.py:1061 |
+| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable — provider output must satisfy request output (covariance) | tests/test_cap_urn.py:1073 |
+| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable — provider with generic output cannot satisfy specific request | tests/test_cap_urn.py:1085 |
+| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject | tests/test_cap_urn.py:1097 |
+| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept | tests/test_cap_urn.py:1109 |
+| test830 | `test_830_dispatch_provider_extra_tags` | TEST830: is_dispatchable — provider extra tags are refinement, always OK | tests/test_cap_urn.py:1121 |
+| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | tests/test_cap_urn.py:1133 |
+| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | tests/test_cap_urn.py:1145 |
+| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable — both directions checked | tests/test_cap_urn.py:1164 |
+| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | tests/test_cap_urn.py:1176 |
+| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent — identical caps | tests/test_cap_urn.py:1188 |
+| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | tests/test_cap_urn.py:1200 |
+| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | tests/test_cap_urn.py:1212 |
+| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any provider output | tests/test_cap_urn.py:1223 |
 | test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | tests/test_cartridge_runtime.py:2119 |
 | test840 | `test_840_peer_response_collect_bytes_discards_logs` | TEST840: PeerResponse::collect_bytes discards LOG frames | tests/test_cartridge_runtime.py:2170 |
 | test841 | `test_841_peer_response_collect_value_discards_logs` | TEST841: PeerResponse::collect_value discards LOG frames | tests/test_cartridge_runtime.py:2200 |
@@ -754,8 +754,8 @@ This catalog lists all tests in the Python codebase.
 | test860 | `test_860_seq_assigner_same_rid_different_xids_independent` | TEST860: Same RID with different XIDs get independent seq counters | tests/test_cbor_frame.py:687 |
 | test880 | `test_880_no_duplicates_with_unique_caps` | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | tests/test_plan_builder.py:167 |
 | test886 | `test_886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | tests/test_plan_builder.py:294 |
-| test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | tests/test_cap_urn.py:1204 |
-| test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1283 |
+| test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | tests/test_cap_urn.py:1235 |
+| test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1314 |
 | test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:373 |
 | test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_spec.py:395 |
 | test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media spec | tests/test_media_spec.py:417 |
@@ -764,10 +764,10 @@ This catalog lists all tests in the Python codebase.
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
 | test907 | `test_907_cbor_rejects_stream_end_without_chunk_count` | TEST907: Offline flag blocks fetch_from_registry without making HTTP request | tests/test_cbor_frame.py:1547 |
 | test908 | `test_908_cached_caps_accessible_when_offline` | TEST908: Cached caps remain accessible when offline | tests/test_registry.py:241 |
-| test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1316 |
-| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1344 |
-| test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1355 |
-| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation | tests/test_cap_urn.py:1373 |
+| test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1347 |
+| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1375 |
+| test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1386 |
+| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation | tests/test_cap_urn.py:1404 |
 | test924 | `test_924_validate_invalid_edge` | TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node | tests/test_plan.py:437 |
 | test925 | `test_925_topological_order_diamond` | TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last) | tests/test_plan.py:446 |
 | test926 | `test_926_topological_order_detects_cycle` | TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error | tests/test_plan.py:465 |
@@ -783,6 +783,7 @@ This catalog lists all tests in the Python codebase.
 | test936 | `test_936_has_foreach` | TEST936: has_foreach detects ForEach nodes | tests/test_plan.py:391 |
 | test937 | `test_937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | tests/test_plan.py:413 |
 | test938 | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:192 |
+| test939 | `test_939_cap_urn_canonical_form_drops_wildcard_in_out` | TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form. | tests/test_cap_urn.py:271 |
 | test953 | `test_953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | tests/test_orchestrator_plan_converter.py:144 |
 | test954 | `test_954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through | tests/test_orchestrator_plan_converter.py:173 |
 | test955 | `test_955_split_map_array` | TEST955: split_cbor_array with nested maps | tests/test_cbor_util.py:67 |
@@ -850,9 +851,9 @@ This catalog lists all tests in the Python codebase.
 | test1093 | `test_1093_dir_single_file` | TEST1093: 1 dir with 1 file -> is_sequence=false | tests/test_input_resolver.py:248 |
 | test1094 | `test_1094_dir_multiple_files` | TEST1094: 1 dir with 3 files -> is_sequence=true | tests/test_input_resolver.py:256 |
 | test1098 | `test_1098_extension_based_pdf` | TEST1098: Extension-based detection picks up pdf tag for .pdf files | tests/test_input_resolver.py:266 |
-| test1100 | `test_1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry | tests/test_cap_urn.py:1245 |
-| test1103 | `test_1103_is_dispatchable_uses_correct_directionality` | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request) | tests/test_cap_urn.py:1259 |
-| test1104 | `test_1104_is_dispatchable_rejects_non_dispatchable` | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request | tests/test_cap_urn.py:1270 |
+| test1100 | `test_1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry | tests/test_cap_urn.py:1276 |
+| test1103 | `test_1103_is_dispatchable_uses_correct_directionality` | TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request) | tests/test_cap_urn.py:1290 |
+| test1104 | `test_1104_is_dispatchable_rejects_non_dispatchable` | TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request | tests/test_cap_urn.py:1301 |
 | test1105 | `test_1105_two_steps_same_cap_urn_different_slot_values` | TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve. | tests/test_planner_argument_binding.py:84 |
 | test1106 | `test_1106_slot_falls_through_to_cap_settings_shared` | TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value. | tests/test_planner_argument_binding.py:112 |
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:133 |
@@ -972,29 +973,29 @@ This catalog lists all tests in the Python codebase.
 | test1309 | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:363 |
 | test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:472 |
 | test1311 | `test_1311_machine_from_string_delegates_to_parse_machine` | TEST1311: Machine.from_string is an alias for parse_machine — both produce equivalent results (Python-specific coverage). | tests/test_machine.py:533 |
-| test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — only the bare cap: form qualifies. `cap:` is the fully generic morphism on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic. | tests/test_cap_urn.py:1400 |
-| test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1424 |
-| test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1433 |
-| test1803 | `test_1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | tests/test_cap_urn.py:1442 |
-| test1804 | `test_1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | tests/test_cap_urn.py:1453 |
-| test1805 | `test_1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. Pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | tests/test_cap_urn.py:1465 |
+| test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — only the bare cap: form qualifies. `cap:` is the fully generic morphism on every axis; adding any tag (even one that doesn't constrain in/out) demotes the cap to Transform because the operation/metadata axis is no longer fully generic. | tests/test_cap_urn.py:1431 |
+| test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1455 |
+| test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1464 |
+| test1803 | `test_1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | tests/test_cap_urn.py:1473 |
+| test1804 | `test_1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | tests/test_cap_urn.py:1484 |
+| test1805 | `test_1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. Pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | tests/test_cap_urn.py:1496 |
 | test1810 | `test_1810_media_void_is_atomic` | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. | tests/test_media_urn.py:519 |
-| test1820 | `test_1820_specificity_question_is_zero` | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. | tests/test_cap_urn.py:1507 |
-| test1821 | `test_1821_specificity_must_not_have_is_five` | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). | tests/test_cap_urn.py:1518 |
-| test1822 | `test_1822_specificity_must_have_any_is_two` | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. | tests/test_cap_urn.py:1524 |
-| test1823 | `test_1823_specificity_exact_value_is_four` | TEST1823: An exact-valued cap-tag scores 4. | tests/test_cap_urn.py:1541 |
-| test1824 | `test_1824_specificity_combined_y_axis` | TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15. | tests/test_cap_urn.py:1548 |
-| test1830 | `test_1830_canonicalize_no_constraint` | TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x. | tests/test_cap_urn.py:1566 |
-| test1831 | `test_1831_canonicalize_absent_or_not_value` | TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character. | tests/test_cap_urn.py:1579 |
-| test1832 | `test_1832_canonicalize_must_have_any` | TEST1832: x ≡ x=* both canonicalize to bare x. | tests/test_cap_urn.py:1595 |
-| test1833 | `test_1833_canonicalize_present_not_value` | TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character. | tests/test_cap_urn.py:1608 |
-| test1834 | `test_1834_canonicalize_exact_value` | TEST1834: x=v stays as x=v. | tests/test_cap_urn.py:1624 |
-| test1835 | `test_1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | tests/test_cap_urn.py:1630 |
-| test1842 | `test_1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. | tests/test_cap_urn.py:1641 |
-| test1843 | `test_1843_reject_invalid_combinations` | TEST1843: Invalid qualifier combinations must be rejected. | tests/test_cap_urn.py:1667 |
-| test1844 | `test_1844_axis_weighting_out_dominates` | TEST1844: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1688 |
-| test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out, in-axis dominates over y-axis. | tests/test_cap_urn.py:1700 |
-| test1846 | `test_1846_axis_weighting_decoded_layout` | TEST1846: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1712 |
+| test1820 | `test_1820_specificity_question_is_zero` | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. | tests/test_cap_urn.py:1538 |
+| test1821 | `test_1821_specificity_must_not_have_is_five` | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). | tests/test_cap_urn.py:1549 |
+| test1822 | `test_1822_specificity_must_have_any_is_two` | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. | tests/test_cap_urn.py:1555 |
+| test1823 | `test_1823_specificity_exact_value_is_four` | TEST1823: An exact-valued cap-tag scores 4. | tests/test_cap_urn.py:1572 |
+| test1824 | `test_1824_specificity_combined_y_axis` | TEST1824: All six forms compose additively on a single cap. y combining 0+1+2+3+4+5 must sum to 15. | tests/test_cap_urn.py:1579 |
+| test1830 | `test_1830_canonicalize_no_constraint` | TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x. | tests/test_cap_urn.py:1597 |
+| test1831 | `test_1831_canonicalize_absent_or_not_value` | TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character. | tests/test_cap_urn.py:1610 |
+| test1832 | `test_1832_canonicalize_must_have_any` | TEST1832: x ≡ x=* both canonicalize to bare x. | tests/test_cap_urn.py:1626 |
+| test1833 | `test_1833_canonicalize_present_not_value` | TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character. | tests/test_cap_urn.py:1639 |
+| test1834 | `test_1834_canonicalize_exact_value` | TEST1834: x=v stays as x=v. | tests/test_cap_urn.py:1655 |
+| test1835 | `test_1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | tests/test_cap_urn.py:1661 |
+| test1842 | `test_1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. | tests/test_cap_urn.py:1672 |
+| test1843 | `test_1843_reject_invalid_combinations` | TEST1843: Invalid qualifier combinations must be rejected. | tests/test_cap_urn.py:1698 |
+| test1844 | `test_1844_axis_weighting_out_dominates` | TEST1844: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1719 |
+| test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out, in-axis dominates over y-axis. | tests/test_cap_urn.py:1731 |
+| test1846 | `test_1846_axis_weighting_decoded_layout` | TEST1846: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1743 |
 ---
 
 ## Numbered Tests Missing Descriptions
@@ -1007,8 +1008,8 @@ These tests still participate in numeric indexing, but the cataloger did not fin
 ---
 
 *Generated from Python source tree*
-*Total tests: 979*
-*Total numbered tests: 979*
+*Total tests: 980*
+*Total numbered tests: 980*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 2*
 *Total numbering mismatches: 0*
