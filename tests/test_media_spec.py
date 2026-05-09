@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 
 from capdag.media.spec import (
-    MediaValidation,
     MediaSpecDef,
     ResolvedMediaSpec,
     resolve_media_urn,
@@ -35,155 +34,63 @@ async def create_test_registry():
     return FabricRegistry.new_for_test(cache_dir)
 
 
-# Helper to create media specs vec for tests
-def create_media_specs(specs):
-    """Create media specs list"""
-    return specs
-
-
 # =============================================================================
 # Media URN resolution tests
 # =============================================================================
 
 
-# TEST088: Resolving an abstract value-type media URN returns its
-# declared media_type. Abstract types (media:textable, etc.) describe
-# data shapes and deliberately omit profile_uri — there is no schema
-# to validate against.
+# TEST088: Resolving a media URN seeded into the registry returns the
+# seeded spec verbatim. A regression in the registry-resolution path
+# would surface as a `None`-shaped result here, since there is no
+# local-override fallback to mask it. Mirrors Rust test088.
 @pytest.mark.asyncio
-async def test_088_resolve_from_registry_str():
+async def test_088_resolve_seeded_spec():
     registry = await create_test_registry()
-    resolved = await resolve_media_urn("media:textable", None, registry)
+    registry.add_spec(StoredMediaSpec(
+        urn="media:textable",
+        media_type="text/plain",
+        title="Textable",
+    ))
+    resolved = await resolve_media_urn("media:textable", registry)
     assert resolved.media_type == "text/plain"
-    assert resolved.profile_uri is None, (
-        "abstract value type media:textable must not declare a profile_uri"
-    )
+    assert resolved.profile_uri is None
 
 
-# TEST089: Resolving a JSON record media URN returns the JSON media
-# type. media:record;textable is the abstract record-shaped JSON type.
+# TEST089: A seeded record-shaped media spec carries its schema and
+# profile_uri intact through resolution. Catches a regression that
+# dropped optional fields when copying into ResolvedMediaSpec.
+# Mirrors Rust test089.
 @pytest.mark.asyncio
-async def test_089_resolve_from_registry_obj():
-    registry = await create_test_registry()
-    # Use the concrete record JSON anchor in the registry rather than
-    # the abstract `media:record;textable` (which is a wildcard
-    # adapter pattern, not a directly-resolvable spec).
-    resolved = await resolve_media_urn("media:json;record;textable", None, registry)
-    assert resolved.media_type == "application/json"
-
-
-# TEST090: Test resolving binary media URN returns octet-stream and is_binary true
-@pytest.mark.asyncio
-async def test_090_resolve_from_registry_binary():
-    registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:",
-            media_type="application/octet-stream",
-            title="Bytes",
-            profile_uri="https://capdag.com/schema/bytes",
-            schema=None,
-            description="Raw byte sequence.",
-            validation=None,
-            metadata=None,
-            extensions=[],
-        )
-    ])
-    resolved = await resolve_media_urn("media:", media_specs, registry)
-    assert resolved.media_type == "application/octet-stream"
-    assert resolved.is_binary()
-
-
-# TEST091: Test resolving custom media URN from local media_specs takes precedence over registry
-@pytest.mark.asyncio
-async def test_091_resolve_custom_media_spec():
-    registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:custom-spec;json",
-            media_type="application/json",
-            title="Custom Spec",
-            profile_uri="https://example.com/schema",
-            schema=None,
-            description=None,
-            validation=None,
-            metadata=None,
-            extensions=[],
-        )
-    ])
-
-    # Local media_specs takes precedence over registry
-    resolved = await resolve_media_urn("media:custom-spec;json", media_specs, registry)
-    assert resolved.media_urn == "media:custom-spec;json"
-    assert resolved.media_type == "application/json"
-    assert resolved.profile_uri == "https://example.com/schema"
-    assert resolved.schema is None
-
-
-# TEST092: Test resolving custom record media spec with schema from local media_specs
-@pytest.mark.asyncio
-async def test_092_resolve_custom_with_schema():
+async def test_089_resolve_seeded_record_spec():
     registry = await create_test_registry()
     schema = {
         "type": "object",
-        "properties": {
-            "name": {"type": "string"}
-        }
+        "properties": {"name": {"type": "string"}},
     }
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:output-spec;json;record",
-            media_type="application/json",
-            title="Output Spec",
-            profile_uri="https://example.com/schema/output",
-            schema=schema,
-            description=None,
-            validation=None,
-            metadata=None,
-            extensions=[],
-        )
-    ])
-
-    resolved = await resolve_media_urn("media:output-spec;json;record", media_specs, registry)
-    assert resolved.media_urn == "media:output-spec;json;record"
+    registry.add_spec(StoredMediaSpec(
+        urn="media:json;output-spec;record",
+        media_type="application/json",
+        title="Output Spec",
+        profile_uri="https://example.com/schema/output",
+        schema=schema,
+    ))
+    resolved = await resolve_media_urn("media:json;output-spec;record", registry)
     assert resolved.media_type == "application/json"
     assert resolved.profile_uri == "https://example.com/schema/output"
     assert resolved.schema == schema
 
 
-# TEST093: Test resolving unknown media URN fails with UnresolvableMediaUrn error
+# TEST093: Resolving a URN that is neither in the registry cache nor
+# available online fails hard. A regression that made the fail path
+# silently return a stub `ResolvedMediaSpec` would surface here as a
+# missing error. Mirrors Rust test093.
 @pytest.mark.asyncio
 async def test_093_resolve_unresolvable_fails_hard():
     registry = await create_test_registry()
-    # URN not in local media_specs and not in registry
+    registry.set_offline(True)
     with pytest.raises(UnresolvableMediaUrn) as exc_info:
-        await resolve_media_urn("media:completely-unknown-urn-not-in-registry", None, registry)
+        await resolve_media_urn("media:completely-unknown-urn-not-in-registry", registry)
     assert "media:completely-unknown-urn-not-in-registry" in str(exc_info.value)
-
-
-# TEST094: Test local media_specs definition overrides registry definition for same URN
-@pytest.mark.asyncio
-async def test_094_local_overrides_registry():
-    registry = await create_test_registry()
-    # Custom definition in media_specs takes precedence over registry
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:textable",
-            media_type="application/json",  # Override: normally text/plain
-            title="Custom String",
-            profile_uri="https://custom.example.com/str",
-            schema=None,
-            description=None,
-            validation=None,
-            metadata=None,
-            extensions=[],
-        )
-    ])
-
-    resolved = await resolve_media_urn("media:textable", media_specs, registry)
-    # Custom definition used, not registry
-    assert resolved.media_type == "application/json"
-    assert resolved.profile_uri == "https://custom.example.com/str"
 
 
 # =============================================================================
@@ -394,24 +301,19 @@ def test_104_resolved_is_text():
 @pytest.mark.asyncio
 async def test_105_metadata_propagation():
     registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:custom-setting",
-            media_type="text/plain",
-            title="Custom Setting",
-            profile_uri="https://example.com/schema",
-            schema=None,
-            description="A custom setting",
-            validation=None,
-            metadata={
-                "category_key": "interface",
-                "ui_type": "SETTING_UI_TYPE_CHECKBOX"
-            },
-            extensions=[],
-        )
-    ])
+    registry.add_spec(StoredMediaSpec(
+        urn="media:custom-setting",
+        media_type="text/plain",
+        title="Custom Setting",
+        profile_uri="https://example.com/schema",
+        description="A custom setting",
+        metadata={
+            "category_key": "interface",
+            "ui_type": "SETTING_UI_TYPE_CHECKBOX",
+        },
+    ))
 
-    resolved = await resolve_media_urn("media:custom-setting", media_specs, registry)
+    resolved = await resolve_media_urn("media:custom-setting", registry)
     assert resolved.metadata is not None
     assert resolved.metadata.get("category_key") == "interface"
     assert resolved.metadata.get("ui_type") == "SETTING_UI_TYPE_CHECKBOX"
@@ -421,31 +323,19 @@ async def test_105_metadata_propagation():
 @pytest.mark.asyncio
 async def test_106_metadata_with_validation():
     registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:bounded-number;numeric",
-            media_type="text/plain",
-            title="Bounded Number",
-            profile_uri="https://example.com/schema",
-            schema=None,
-            description=None,
-            validation=MediaValidation(
-                min=0.0,
-                max=100.0,
-                min_length=None,
-                max_length=None,
-                pattern=None,
-                allowed_values=None,
-            ),
-            metadata={
-                "category_key": "inference",
-                "ui_type": "SETTING_UI_TYPE_SLIDER"
-            },
-            extensions=[],
-        )
-    ])
+    registry.add_spec(StoredMediaSpec(
+        urn="media:bounded-number;numeric",
+        media_type="text/plain",
+        title="Bounded Number",
+        profile_uri="https://example.com/schema",
+        validation={"min": 0.0, "max": 100.0},
+        metadata={
+            "category_key": "inference",
+            "ui_type": "SETTING_UI_TYPE_SLIDER",
+        },
+    ))
 
-    resolved = await resolve_media_urn("media:bounded-number;numeric", media_specs, registry)
+    resolved = await resolve_media_urn("media:bounded-number;numeric", registry)
 
     # Verify validation
     assert resolved.validation is not None
@@ -462,25 +352,20 @@ async def test_106_metadata_with_validation():
 # =============================================================================
 
 
-# TEST107: Test extensions field propagates from media spec def to resolved
+# TEST107: Test extensions field propagates from registry spec to resolved
 @pytest.mark.asyncio
 async def test_107_extensions_propagation():
     registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:custom-pdf",
-            media_type="application/pdf",
-            title="PDF Document",
-            profile_uri="https://capdag.com/schema/pdf",
-            schema=None,
-            description="A PDF document",
-            validation=None,
-            metadata=None,
-            extensions=["pdf"],
-        )
-    ])
+    registry.add_spec(StoredMediaSpec(
+        urn="media:custom-pdf",
+        media_type="application/pdf",
+        title="PDF Document",
+        profile_uri="https://capdag.com/schema/pdf",
+        description="A PDF document",
+        extensions=["pdf"],
+    ))
 
-    resolved = await resolve_media_urn("media:custom-pdf", media_specs, registry)
+    resolved = await resolve_media_urn("media:custom-pdf", registry)
     assert resolved.extensions == ["pdf"]
 
 
@@ -509,28 +394,17 @@ def test_892_extensions_serialization():
 @pytest.mark.asyncio
 async def test_893_extensions_with_metadata_and_validation():
     registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:custom-output;json",
-            media_type="application/json",
-            title="Custom Output",
-            profile_uri="https://example.com/schema",
-            schema=None,
-            description=None,
-            validation=MediaValidation(
-                min=None,
-                max=None,
-                min_length=1,
-                max_length=1000,
-                pattern=None,
-                allowed_values=None,
-            ),
-            metadata={"category": "output"},
-            extensions=["json"],
-        )
-    ])
+    registry.add_spec(StoredMediaSpec(
+        urn="media:custom-output;json",
+        media_type="application/json",
+        title="Custom Output",
+        profile_uri="https://example.com/schema",
+        validation={"min_length": 1, "max_length": 1000},
+        metadata={"category": "output"},
+        extensions=["json"],
+    ))
 
-    resolved = await resolve_media_urn("media:custom-output;json", media_specs, registry)
+    resolved = await resolve_media_urn("media:custom-output;json", registry)
 
     # Verify all fields are present
     assert resolved.validation is not None
@@ -542,21 +416,16 @@ async def test_893_extensions_with_metadata_and_validation():
 @pytest.mark.asyncio
 async def test_894_multiple_extensions():
     registry = await create_test_registry()
-    media_specs = create_media_specs([
-        MediaSpecDef(
-            urn="media:image;jpeg",
-            media_type="image/jpeg",
-            title="JPEG Image",
-            profile_uri="https://capdag.com/schema/jpeg",
-            schema=None,
-            description="JPEG image data",
-            validation=None,
-            metadata=None,
-            extensions=["jpg", "jpeg"],
-        )
-    ])
+    registry.add_spec(StoredMediaSpec(
+        urn="media:image;jpeg",
+        media_type="image/jpeg",
+        title="JPEG Image",
+        profile_uri="https://capdag.com/schema/jpeg",
+        description="JPEG image data",
+        extensions=["jpg", "jpeg"],
+    ))
 
-    resolved = await resolve_media_urn("media:image;jpeg", media_specs, registry)
+    resolved = await resolve_media_urn("media:image;jpeg", registry)
     assert resolved.extensions == ["jpg", "jpeg"]
     assert len(resolved.extensions) == 2
 
@@ -646,15 +515,10 @@ def test_614_registry_creation():
     assert registry.cache_dir.exists()
 
 
-# TEST615: Verify cache key generation is deterministic and distinct for different URNs
-def test_615_cache_key_generation():
-    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-    key1 = registry._cache_key("media:textable")
-    key2 = registry._cache_key("media:textable")
-    key3 = registry._cache_key("media:integer")
-
-    assert key1 == key2
-    assert key1 != key3
+# TEST615 (deleted): exercised the private `_cache_key` method that
+# does not exist on the unified FabricRegistry. The on-disk cache key
+# scheme is an implementation detail of the persistence layer; no
+# user-observable behavior depends on a particular hashing strategy.
 
 
 # TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields
@@ -684,72 +548,11 @@ def test_617_normalize_media_urn():
     assert urn2
 
 
-# TEST895: Concrete file-format cap output media URNs — those that
-# produce user-facing files on disk and so MUST have extensions for
-# save_cap_output / FinderImportService. Abstract value types
-# (media:textable, media:image-description, media:transcription,
-# media:decision, media:generated-text, media:llm-*, media:model-dim,
-# media:model-spec, etc.) deliberately have no extensions: they
-# describe data shapes, not file types, and are not saved directly.
-def test_895_cap_output_media_specs_have_extensions():
-    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-    cap_output_urns = [
-        "media:embedding-vector;textable;record",
-        "media:model-availability;textable;record",
-        "media:model-contents;textable;record",
-        "media:model-list;textable;record",
-        "media:model-path;textable;record",
-        "media:model-status;textable;record",
-        "media:download-result;textable;record",
-    ]
-    missing = []
-    for urn in cap_output_urns:
-        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
-        if spec is None:
-            missing.append(f"{urn} (spec not found in registry)")
-        elif not spec.extensions:
-            missing.append(f"{urn} (found spec but extensions is empty)")
-    assert not missing, "Cap output media specs missing file extensions:\n  " + "\n  ".join(missing)
-
-
-# TEST896: Concrete file-format cap input media URNs — those that
-# represent file types a user can right-click on and so must map to
-# at least one extension. Abstract value types are excluded.
-def test_896_cap_input_media_specs_have_extensions():
-    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-    cap_input_urns = [
-        "media:txt;textable",
-        "media:md;textable",
-        "media:rst;textable",
-        "media:pdf",
-        "media:image;png",
-        "media:audio;wav;speech",
-        "media:log;textable",
-        "media:json;json-schema;textable;record",
-        "media:model-repo;textable;record",
-    ]
-    missing = []
-    for urn in cap_input_urns:
-        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
-        if spec is None:
-            missing.append(f"{urn} (spec not found in registry)")
-        elif not spec.extensions:
-            missing.append(f"{urn} (found spec but extensions is empty)")
-    assert not missing, "Cap input media specs missing file extensions:\n  " + "\n  ".join(missing)
-
-
-# TEST897: Verify that specific concrete-file-format cap output URNs
-# resolve to the correct extension. Abstract types (media:textable,
-# media:image-description, media:transcription, media:decision,
-# media:generated-text) are excluded.
-def test_897_cap_output_extension_values_correct():
-    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-    expected = [
-        ("media:embedding-vector;textable;record", "json"),
-        ("media:llm-text-stream;ndjson", "ndjson"),
-        ("media:download-result;textable;record", "json"),
-    ]
-    for urn, extension in expected:
-        spec = registry.get_cached_media_spec(normalize_media_urn(urn))
-        assert spec is not None, f"{urn} should exist in standard registry"
-        assert extension in spec.extensions, f"{urn} should include extension {extension!r}, got {spec.extensions!r}"
+# TESTs 895-897 (deleted): asserted that a freshly-created
+# `FabricRegistry.new_for_test()` was pre-populated with every
+# concrete-file-format spec in the standard library. The unified
+# registry deliberately starts empty in test mode — there is no
+# bundled standard catalog — so these assertions belong in the
+# publisher (capfab) regression suite, not the cap library. They
+# were deleted from the Rust and Go mirrors for the same reason;
+# this Python deletion brings the mirror back into parity.

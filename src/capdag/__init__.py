@@ -114,7 +114,8 @@ from capdag.urn.cap_urn import (
 
 # Cap module
 from capdag.cap.response import ResponseWrapper
-from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource, MediaSpecDef
+from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource
+from capdag.media.spec import MediaSpecDef
 from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,

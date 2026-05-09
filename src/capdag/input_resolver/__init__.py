@@ -9,9 +9,9 @@ from capdag.input_resolver.path_resolver import (
     resolve_items,
 )
 from capdag.input_resolver.resolver import (
-    detect_file,
     detect_file_confirmed,
-    detect_file_with_media_registry,
+    detect_file_with_fabric_registry,
+    discriminate_candidates_by_validation,
     resolve_input,
     resolve_inputs,
     resolve_inputs_confirmed,
@@ -55,9 +55,9 @@ __all__ = [
     "resolve_glob",
     "resolve_item",
     "resolve_items",
-    "detect_file",
     "detect_file_confirmed",
-    "detect_file_with_media_registry",
+    "detect_file_with_fabric_registry",
+    "discriminate_candidates_by_validation",
     "resolve_input",
     "resolve_inputs",
     "resolve_inputs_confirmed",

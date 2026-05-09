@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tempfile
 import re
 
 from capdag.input_resolver.adapter import CartridgeAdapterInvoker
@@ -25,7 +24,7 @@ from capdag.urn.media_urn import MediaUrn
 def discriminate_candidates_by_validation(
     content: bytes,
     candidate_urns: list[str],
-    media_registry: FabricRegistry,
+    fabric_registry: FabricRegistry,
     baseline_urn: str,
 ) -> list[str]:
     """Filter candidate URNs using validation rules and baseline specificity."""
@@ -37,7 +36,7 @@ def discriminate_candidates_by_validation(
     survivors: list[str] = []
 
     for urn_str in candidate_urns:
-        spec = media_registry.get_cached_media_spec(urn_str)
+        spec = fabric_registry.get_cached_media_spec(urn_str)
         if spec is None:
             survivors.append(urn_str)
             continue
@@ -56,28 +55,32 @@ def discriminate_candidates_by_validation(
     return survivors
 
 
-def resolve_input(item: InputItem) -> ResolvedInputSet:
-    return resolve_inputs([item])
+def resolve_input(item: InputItem, fabric_registry: FabricRegistry) -> ResolvedInputSet:
+    return resolve_inputs([item], fabric_registry)
 
 
-def resolve_inputs(items: list[InputItem]) -> ResolvedInputSet:
+def resolve_inputs(
+    items: list[InputItem],
+    fabric_registry: FabricRegistry,
+) -> ResolvedInputSet:
     paths = resolve_items(items)
-    files = [detect_file(path) for path in paths]
+    files = [detect_file_with_fabric_registry(path, fabric_registry) for path in paths]
     if not files:
         raise NoFilesResolvedError()
     return ResolvedInputSet.new(files)
 
 
-def resolve_paths(paths: list[str]) -> ResolvedInputSet:
-    return resolve_inputs([InputItem.from_string(path) for path in paths])
+def resolve_paths(
+    paths: list[str],
+    fabric_registry: FabricRegistry,
+) -> ResolvedInputSet:
+    return resolve_inputs(
+        [InputItem.from_string(path) for path in paths],
+        fabric_registry,
+    )
 
 
-def detect_file(path: Path) -> ResolvedFile:
-    registry = FabricRegistry.new_for_test(Path(tempfile.gettempdir()) / "capdag_media_registry")
-    return detect_file_with_media_registry(path, registry)
-
-
-def detect_file_with_media_registry(path: Path, media_registry: FabricRegistry) -> ResolvedFile:
+def detect_file_with_fabric_registry(path: Path, fabric_registry: FabricRegistry) -> ResolvedFile:
     stat = path.stat()
     ext = path.suffix[1:].lower() if path.suffix.startswith(".") else None
 
@@ -85,7 +88,7 @@ def detect_file_with_media_registry(path: Path, media_registry: FabricRegistry) 
     content_structure = ContentStructure.SCALAR_OPAQUE
     if ext:
         try:
-            urns = media_registry.media_urns_for_extension(ext)
+            urns = fabric_registry.media_urns_for_extension(ext)
         except ExtensionNotFoundError:
             urns = []
         best: MediaUrn | None = None

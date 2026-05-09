@@ -25,7 +25,7 @@ from capdag.urn.media_urn import MediaUrn
 from capdag.planner.argument_binding import ArgumentBinding, ArgumentBindings
 from capdag.planner.cardinality import InputCardinality
 from capdag.planner.error import (
-    InternalError, InvalidPathError, NotFoundError, RegistryError,
+    InternalError, InvalidPathError, NotFoundError, FabricRegistryError,
 )
 from capdag.planner.live_cap_fab import Strand, StrandStep, StrandStepType
 from capdag.planner.plan import MachinePlanEdge, MachinePlan, MachineNode
@@ -231,7 +231,7 @@ class MachinePlanBuilder:
         try:
             caps = await self._fabric_registry.get_cached_caps()
         except Exception as e:
-            raise RegistryError(f"Failed to get cached caps: {e}")
+            raise FabricRegistryError(f"Failed to get cached caps: {e}")
 
         # Build file-path info: cap_urn -> (file_path_arg_name, stdin_chainable)
         file_path_info: Dict[str, Tuple[Optional[str], bool]] = {}
@@ -421,7 +421,7 @@ class MachinePlanBuilder:
         try:
             caps = await self._fabric_registry.get_cached_caps()
         except Exception as e:
-            raise RegistryError(f"Failed to get cached caps: {e}")
+            raise FabricRegistryError(f"Failed to get cached caps: {e}")
 
         step_requirements: List[StepArgumentRequirements] = []
         cap_step_index = 0

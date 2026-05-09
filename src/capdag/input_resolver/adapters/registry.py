@@ -42,13 +42,13 @@ class RegisteredAdapter:
 class MediaAdapterRegistry:
     """Tracks cartridge-provided content inspection adapters."""
 
-    def __init__(self, media_registry: FabricRegistry) -> None:
-        self._media_registry = media_registry
+    def __init__(self, fabric_registry: FabricRegistry) -> None:
+        self._fabric_registry = fabric_registry
         self._registered_adapters: list[RegisteredAdapter] = []
 
     @property
-    def media_registry(self) -> FabricRegistry:
-        return self._media_registry
+    def fabric_registry(self) -> FabricRegistry:
+        return self._fabric_registry
 
     def register_cap_group(
         self,
@@ -95,7 +95,7 @@ class MediaAdapterRegistry:
 
     def find_adapters_for_extension(self, ext: str) -> list[tuple[str, MediaUrn]]:
         try:
-            candidate_strings = self._media_registry.media_urns_for_extension(ext)
+            candidate_strings = self._fabric_registry.media_urns_for_extension(ext)
         except ExtensionNotFoundError:
             return []
         if not candidate_strings:

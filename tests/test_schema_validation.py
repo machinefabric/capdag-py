@@ -6,8 +6,9 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 import tempfile
 from pathlib import Path
-from capdag import CapArg, CapOutput
-from capdag.cap.definition import PositionSource, MediaSpecDef
+from capdag import Cap, CapArg, CapOutput, CapUrn
+from capdag.cap.definition import PositionSource
+from capdag.media.spec import MediaSpecDef
 from capdag.cap.schema_validation import (
     SchemaValidator,
     ArgumentValidationError,
@@ -326,23 +327,28 @@ async def test_129_validate_multiple_arguments(registry):
         schema=schema2,
     ).to_stored())
 
-    # Add arguments
+    # Build a cap carrying the two positional arguments. The
+    # validator drives off cap.get_args() and the registry — there
+    # is no separate "arg list" parameter to validate against.
     arg1 = CapArg("media:name", True, [PositionSource(0)])
     arg2 = CapArg("media:score", True, [PositionSource(1)])
-    cap.add_arg(arg1)
-    cap.add_arg(arg2)
+    cap = Cap.with_args(
+        CapUrn.from_string('cap:in="media:void";multi-arg-test;out="media:void"'),
+        "Multi-arg test",
+        "test",
+        [arg1, arg2],
+    )
 
     # Valid arguments
-    arguments = ["John", 85]
-    validator.validate_arguments(cap, arguments)
+    await validator.validate_arguments(cap, ["John", 85], registry)
 
-    # Invalid first argument
+    # Invalid first argument (empty string fails minLength=1).
     with pytest.raises(ArgumentValidationError):
-        validator.validate_arguments(cap, ["", 85])  # Empty string
+        await validator.validate_arguments(cap, ["", 85], registry)
 
-    # Invalid second argument
+    # Invalid second argument (150 exceeds maximum=100).
     with pytest.raises(ArgumentValidationError):
-        validator.validate_arguments(cap, ["John", 150])  # Exceeds maximum
+        await validator.validate_arguments(cap, ["John", 150], registry)
 
 
 # TEST130: Output validation surfaces schema violation details

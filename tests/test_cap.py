@@ -316,7 +316,6 @@ def test_596_with_full_definition_constructor():
         cap_description="Description",
         metadata=metadata,
         command="full-cmd",
-        media_specs=[],
         args=args,
         output=output,
         metadata_json=json_meta,

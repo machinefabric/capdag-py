@@ -14,8 +14,8 @@ from capdag.input_resolver import (
     InputItem,
     InvalidGlobError,
     NotFoundError,
-    detect_file,
     detect_file_confirmed,
+    detect_file_with_fabric_registry,
     resolve_directory,
     resolve_file,
     resolve_glob,
@@ -222,7 +222,7 @@ def test_1029_normal_files_not_excluded():
 def test_977_os_files_excluded_integration(tmp_path: Path):
     (tmp_path / ".DS_Store").write_text("")
     (tmp_path / "real.txt").write_text("content")
-    result = resolve_paths([str(tmp_path)])
+    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert "real.txt" in str(result.files[0].path)
 
@@ -230,7 +230,7 @@ def test_977_os_files_excluded_integration(tmp_path: Path):
 # TEST1090: 1 file -> is_sequence=false
 def test_1090_single_file_scalar(tmp_path: Path):
     (tmp_path / "only.txt").write_text("hello")
-    result = resolve_paths([str(tmp_path / "only.txt")])
+    result = resolve_paths([str(tmp_path / "only.txt")], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert not result.is_sequence
 
@@ -239,7 +239,7 @@ def test_1090_single_file_scalar(tmp_path: Path):
 def test_1092_two_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("a")
     (tmp_path / "b.txt").write_text("b")
-    result = resolve_paths([str(tmp_path / "a.txt"), str(tmp_path / "b.txt")])
+    result = resolve_paths([str(tmp_path / "a.txt"), str(tmp_path / "b.txt")], _create_test_media_registry(tmp_path))
     assert len(result.files) == 2
     assert result.is_sequence
 
@@ -247,7 +247,7 @@ def test_1092_two_files(tmp_path: Path):
 # TEST1093: 1 dir with 1 file -> is_sequence=false
 def test_1093_dir_single_file(tmp_path: Path):
     (tmp_path / "only.pdf").write_text("%PDF-1.4")
-    result = resolve_paths([str(tmp_path)])
+    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert not result.is_sequence
 
@@ -257,7 +257,7 @@ def test_1094_dir_multiple_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("hello")
     (tmp_path / "b.txt").write_text("world")
     (tmp_path / "c.txt").write_text("test")
-    result = resolve_paths([str(tmp_path)])
+    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 3
     assert result.is_sequence
 
@@ -266,14 +266,13 @@ def test_1094_dir_multiple_files(tmp_path: Path):
 def test_1098_extension_based_pdf(tmp_path: Path):
     path = tmp_path / "doc.pdf"
     path.write_text("%PDF-1.4")
-    resolved = detect_file(path)
+    resolved = detect_file_with_fabric_registry(path, _create_test_media_registry(tmp_path))
     urn = MediaUrn.from_string(resolved.media_urn)
     assert urn.has_marker_tag("pdf")
 
 
 # TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure
 def test_1288_structure_from_marker_tags():
-    assert detect_file  # keep import used; actual structure mapping is exercised indirectly
     scalar_opaque = MediaUrn.from_string("media:text")
     scalar_record = MediaUrn.from_string("media:text;record")
     list_opaque = MediaUrn.from_string("media:text;list")
@@ -287,7 +286,46 @@ def test_1288_structure_from_marker_tags():
 
 
 def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
-    return FabricRegistry.new_for_test(tmp_path / "media-cache")
+    """Build a `FabricRegistry` pre-seeded with the media specs the
+    input-resolver tests reference. The registry hydrates extension
+    lookups from spec arrival — there is no compiled-in fallback
+    table — so tests must seed every spec they exercise.
+    """
+    from capdag.fabric.registry import StoredMediaSpec
+
+    registry = FabricRegistry.new_for_test(tmp_path / "media-cache")
+
+    registry.add_spec(StoredMediaSpec(
+        urn="media:pdf",
+        media_type="application/pdf",
+        title="PDF",
+        extensions=["pdf"],
+    ))
+    registry.add_spec(StoredMediaSpec(
+        urn="media:json;record;textable",
+        media_type="application/json",
+        title="JSON",
+        extensions=["json"],
+    ))
+    registry.add_spec(StoredMediaSpec(
+        urn="media:list;textable;txt",
+        media_type="text/plain",
+        title="Text",
+        extensions=["txt"],
+    ))
+    # `media:model-spec` is a value-type URN with no file extension.
+    # Discrimination tests pass the bare URN explicitly as a
+    # candidate. The validation pattern matches the canonical
+    # `scheme:rest` shape so plain prose is filtered out.
+    registry.add_spec(StoredMediaSpec(
+        urn="media:model-spec;textable",
+        media_type="text/plain",
+        title="Model spec",
+        validation={
+            "pattern": r"^[A-Za-z0-9._-]+:\S+$",
+        },
+    ))
+    return registry
 
 
 class _MockInvoker:

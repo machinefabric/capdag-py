@@ -11,60 +11,6 @@ from capdag.urn.cap_urn import CapUrn
 
 
 @dataclass
-class MediaSpecDef:
-    """Media spec definition for inline schemas
-
-    Represents a media URN specification with optional JSON schema,
-    validation rules, and metadata.
-    """
-    urn: str
-    media_type: str
-    title: str
-    profile_uri: Optional[str] = None
-    schema: Optional[Dict[str, Any]] = None
-    description: Optional[str] = None
-    validation: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    extensions: List[str] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to JSON-serializable dict"""
-        result = {
-            "urn": self.urn,
-            "media_type": self.media_type,
-            "title": self.title,
-        }
-        if self.profile_uri is not None:
-            result["profile_uri"] = self.profile_uri
-        if self.schema is not None:
-            result["schema"] = self.schema
-        if self.description is not None:
-            result["description"] = self.description
-        if self.validation is not None:
-            result["validation"] = self.validation
-        if self.metadata is not None:
-            result["metadata"] = self.metadata
-        if self.extensions:
-            result["extensions"] = self.extensions
-        return result
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MediaSpecDef":
-        """Parse from dict"""
-        return cls(
-            urn=data["urn"],
-            media_type=data["media_type"],
-            title=data["title"],
-            profile_uri=data.get("profile_uri"),
-            schema=data.get("schema"),
-            description=data.get("description"),
-            validation=data.get("validation"),
-            metadata=data.get("metadata"),
-            extensions=data.get("extensions", []),
-        )
-
-
-@dataclass
 class ArgSource:
     """Source specification for argument input
 
