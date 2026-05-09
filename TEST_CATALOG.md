@@ -123,7 +123,7 @@ This catalog lists all tests in the Python codebase.
 | test127 | `test_127_array_schema_validation` | TEST127: Schema validation with array schemas including minItems and item constraints | tests/test_schema_validation.py:226 |
 | test128 | `test_128_type_constraint_validation` | TEST128: Schema validation with type constraints (integer, number, boolean) | tests/test_schema_validation.py:269 |
 | test129 | `test_129_validate_multiple_arguments` | TEST129: Schema validation with multiple arguments validates each independently | tests/test_schema_validation.py:303 |
-| test130 | `test_130_output_validation_with_details` | TEST130: Output validation surfaces schema violation details | tests/test_schema_validation.py:351 |
+| test130 | `test_130_output_validation_with_details` | TEST130: Output validation surfaces schema violation details | tests/test_schema_validation.py:356 |
 | test131 | `test_131_input_validation_optional_arg` | TEST131: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:87 |
 | test132 | `test_132_input_validation_too_many_args` | TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:100 |
 | test135 | `test_135_registry_creation` | TEST135: Test registry creation with temporary cache directory succeeds | tests/test_registry.py:31 |
