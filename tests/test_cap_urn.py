@@ -258,6 +258,37 @@ def test_016_trailing_semicolon_equivalence():
     assert cap2.accepts(cap1)
 
 
+# TEST939: The canonical form drops `in=media:` and `out=media:`
+# segments. Every spelling of "the same cap with wildcard in/out"
+# collapses to one byte-identical canonical string. This is the
+# contract that makes registry lookups work: the cap-publisher hashes
+# `<canonical-urn>` to compute the cache key, and every language port
+# (Rust, Go, Python, JS, ObjC) must agree on the canonical form for
+# cross-language lookups to land on the same key. A regression that
+# emitted the wildcard segments would silently move the published cap
+# to a different SHA-256 bucket, 404'ing every reader that hashes the
+# canonical form.
+def test_939_cap_urn_canonical_form_drops_wildcard_in_out():
+    canonical = "cap:decimate-sequence"
+    variants = [
+        "cap:decimate-sequence",
+        "cap:decimate-sequence;in=media:;out=media:",
+        "cap:in=media:;out=media:;decimate-sequence",
+        "cap:in=media:;decimate-sequence;out=media:",
+    ]
+    for v in variants:
+        parsed = CapUrn.from_string(v)
+        assert parsed.to_string() == canonical, (
+            f"input {v!r} canonicalized to {parsed.to_string()!r}, "
+            f"expected {canonical!r} — wildcard in/out segments must be "
+            f"elided so the registry SHA-256 key is stable across input "
+            f"spellings"
+        )
+    # Bare-identity round-trip.
+    identity = CapUrn.from_string("cap:in=media:;out=media:")
+    assert identity.to_string() == "cap:"
+
+
 # TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
 def test_017_tag_matching():
     # Exact match
