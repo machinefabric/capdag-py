@@ -1,10 +1,10 @@
 # Python Test Catalog
 
-**Total Tests:** 980
+**Total Tests:** 983
 
 **Numbered Tests:** 980
 
-**Unnumbered Tests:** 0
+**Unnumbered Tests:** 3
 
 **Numbered Tests Missing Descriptions:** 2
 
@@ -996,6 +996,20 @@ This catalog lists all tests in the Python codebase.
 | test1844 | `test_1844_axis_weighting_out_dominates` | TEST1844: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1719 |
 | test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out, in-axis dominates over y-axis. | tests/test_cap_urn.py:1731 |
 | test1846 | `test_1846_axis_weighting_decoded_layout` | TEST1846: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1743 |
+| | | | |
+| unnumbered | `test_add_master_with_duplicate_healthy_id_errors` |  | tests/test_relay_switch.py:927 |
+| unnumbered | `test_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:859 |
+| unnumbered | `test_relay_switch_init_rejects_duplicate_ids` |  | tests/test_relay_switch.py:966 |
+---
+
+## Unnumbered Tests
+
+The following tests are cataloged but do not currently participate in numeric test indexing.
+
+- `test_add_master_with_duplicate_healthy_id_errors` — tests/test_relay_switch.py:927
+- `test_reattach_by_id_preserves_slot_index` — tests/test_relay_switch.py:859
+- `test_relay_switch_init_rejects_duplicate_ids` — tests/test_relay_switch.py:966
+
 ---
 
 ## Numbered Tests Missing Descriptions
@@ -1008,8 +1022,8 @@ These tests still participate in numeric indexing, but the cataloger did not fin
 ---
 
 *Generated from Python source tree*
-*Total tests: 980*
+*Total tests: 983*
 *Total numbered tests: 980*
-*Total unnumbered tests: 0*
+*Total unnumbered tests: 3*
 *Total numbered tests missing descriptions: 2*
 *Total numbering mismatches: 0*
