@@ -2653,10 +2653,41 @@ class CartridgeRuntime:
                 if stdin_data is not None:
                     return stdin_data, True
 
-        # Try default value
+        # Try default value.
+        #
+        # The wire contract for an arg stream is "bytes of the typed
+        # media URN". For a `media:textable`-shaped arg that's plain
+        # UTF-8 text — NOT a JSON-encoded form. A naive
+        # `json.dumps(default).encode('utf-8')` would corrupt every
+        # string default by wrapping it in `"…"` quotes — the
+        # handler's UTF-8 decode would surface a literal quoted
+        # string and downstream parsers (model-spec, system-prompt,
+        # etc.) would silently choke. Encode each scalar JSON
+        # value as its lexical wire form, matching exactly what
+        # the same value typed at the CLI flag would produce.
+        # Composite defaults (list, dict) ARE JSON on the wire by
+        # design and route through `json.dumps`.
         if arg_def.default_value is not None:
+            default = arg_def.default_value
             try:
-                return json.dumps(arg_def.default_value).encode('utf-8'), False
+                # `bool` is a subclass of `int` in Python; check it
+                # first or `True` falls into the integer branch and
+                # serialises as `b"1"` instead of `b"true"`.
+                if isinstance(default, bool):
+                    return (b'true' if default else b'false'), False
+                if isinstance(default, str):
+                    return default.encode('utf-8'), False
+                if isinstance(default, (int, float)):
+                    # JSON's numeric grammar matches Python's
+                    # `json.dumps` here — and consumers parse via
+                    # `int()` / `float()` which accept the same
+                    # forms. Route through `json.dumps` so the wire
+                    # form is exactly the JSON representation.
+                    return json.dumps(default).encode('utf-8'), False
+                if default is None:
+                    return b'', False
+                # list / dict / nested structures — JSON on the wire.
+                return json.dumps(default).encode('utf-8'), False
             except Exception as e:
                 raise SerializeError(str(e))
 

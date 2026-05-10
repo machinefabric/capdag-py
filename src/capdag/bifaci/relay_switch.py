@@ -77,7 +77,16 @@ class AllMastersUnhealthyError(RelaySwitchError):
 
 @dataclass
 class SocketPair:
-    """Socket pair for master connection"""
+    """Socket pair for master connection.
+
+    ``id`` is the stable identity of the cardinality slot this socket
+    fills. The relay's ``add_master`` reattach-by-id contract uses it
+    on subsequent reconnects to find the slot to reattach to —
+    preserving slot indices across the death-and-reconnect cycle.
+    Re-adding the same id while the slot is still healthy is a
+    wiring bug and is rejected.
+    """
+    id: str
     read: object  # file-like object for reading
     write: object  # file-like object for writing
 
@@ -182,14 +191,36 @@ class RelaySwitch:
     def __init__(self, sockets: List[SocketPair]):
         """Create a RelaySwitch from socket pairs.
 
+        Each ``SocketPair`` carries an ``id`` that is the stable
+        identity of its cardinality slot. ``add_master`` uses the id
+        to reattach a reconnecting host to the same slot index —
+        preserving the routing entries keyed by index. Duplicate
+        ids in the constructor list are a wiring bug and surface as
+        a hard ``ProtocolError`` (without this guard the first
+        reconnect would reattach to whichever slot is found first
+        by the linear scan, leaving the other stuck unhealthy
+        forever — the exact bug class this contract closes).
+
         Args:
-            sockets: List of socket pairs (one per master)
+            sockets: List of socket pairs (one per master). Each
+                pair's ``id`` must be unique within the list.
 
         Raises:
-            RelaySwitchError: If construction fails
+            RelaySwitchError: If construction fails (including
+                duplicate ids).
         """
         if not sockets:
             raise ProtocolError("RelaySwitch requires at least one master")
+
+        # Reject duplicate ids up front.
+        seen_ids = set()
+        for sp in sockets:
+            if sp.id in seen_ids:
+                raise ProtocolError(
+                    f"RelaySwitch.__init__: duplicate master id {sp.id!r} in cardinality list — "
+                    f"each slot must have a unique stable id"
+                )
+            seen_ids.add(sp.id)
 
         self._masters: List[_MasterConnection] = []
         self._cap_table: List[Tuple[str, int]] = []  # (cap_urn, master_idx)
@@ -200,6 +231,10 @@ class RelaySwitch:
         self._aggregate_installed_cartridges: List[InstalledCartridgeRecord] = []
         self._negotiated_limits: Limits = Limits.default()
         self._lock = threading.Lock()
+        # Serialises ``add_master`` calls so the master_idx reservation
+        # for an append is race-free, and so the reattach branch sees a
+        # stable ``self._masters`` snapshot across the I/O.
+        self._add_master_lock = threading.Lock()
 
         # Channel for reader threads to send frames
         self._frame_queue: queue.Queue = queue.Queue()
@@ -238,6 +273,7 @@ class RelaySwitch:
             reader_thread.start()
 
             master_conn = _MasterConnection(
+                id=sock_pair.id,
                 socket_writer=writer,
                 manifest=manifest,
                 limits=limits,
@@ -255,6 +291,131 @@ class RelaySwitch:
         self._rebuild_installed_cartridges()
         self._rebuild_capabilities()
         self._rebuild_limits()
+
+    def add_master(self, sock_pair: SocketPair) -> int:
+        """Attach a (re)connecting host to a slot.
+
+        ``sock_pair.id`` is the stable identity of the cardinality
+        slot:
+
+        - **Existing slot, currently UNHEALTHY** → reattach in place
+          at the existing slot index. The dead master's reader
+          thread has already exited on EOF; the new connection
+          installs a fresh writer / reader thread and clears the
+          unhealthy flag. ``request_routing`` and ``cap_table``
+          entries keyed by ``master_idx`` stay coherent because the
+          index does not change.
+
+        - **Existing slot, currently HEALTHY** → caller bug
+          (the same master must not be added twice). Surface as a
+          ``ProtocolError`` so the wiring mistake is fixed
+          instead of silently growing zombie slots.
+
+        - **No existing slot with that id** → append a fresh slot
+          at ``len(self._masters)``. The reader thread is spawned
+          with that index baked in.
+
+        Returns the slot index (stable across reattach).
+        """
+        with self._add_master_lock:
+            # Existing-slot lookup under the lock so the linear scan
+            # observes a stable ``self._masters``.
+            existing_idx: Optional[int] = None
+            with self._lock:
+                for idx, master in enumerate(self._masters):
+                    if master.id == sock_pair.id:
+                        if master.healthy:
+                            raise ProtocolError(
+                                f"add_master: id {sock_pair.id!r} is already attached to a "
+                                f"healthy slot at index {idx} — cardinality violation "
+                                f"(each id may only be attached once at a time)"
+                            )
+                        existing_idx = idx
+                        break
+
+            # Reserve the slot index. For the append case this is
+            # the current length under ``_add_master_lock``; for
+            # reattach it is the existing slot index. The reader
+            # thread captures this value so per-frame routing
+            # always carries the right index.
+            with self._lock:
+                master_idx = existing_idx if existing_idx is not None else len(self._masters)
+
+            # Handshake (read RelayNotify + verify identity).
+            reader = FrameReader(sock_pair.read)
+            writer = FrameWriter(sock_pair.write)
+            frame = reader.read()
+            if frame is None or frame.frame_type != FrameType.RELAY_NOTIFY:
+                raise ProtocolError("Expected RelayNotify during handshake")
+            manifest = frame.relay_notify_manifest()
+            limits = frame.relay_notify_limits()
+            if manifest is None or limits is None:
+                raise ProtocolError("RelayNotify missing manifest or limits")
+            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+            reader.set_limits(limits)
+            writer.set_limits(limits)
+            try:
+                verify_identity(reader, writer)
+            except Exception as e:
+                raise ProtocolError(f"identity verification failed: {e}") from e
+
+            # Spawn reader thread bound to master_idx.
+            reader_thread = threading.Thread(
+                target=self._reader_loop,
+                args=(master_idx, reader),
+                daemon=True,
+            )
+            reader_thread.start()
+
+            # Commit the connection state into the slot.
+            with self._lock:
+                if existing_idx is None:
+                    # Append. The captured ``master_idx`` MUST equal
+                    # the new length; if not, a concurrent appender
+                    # bypassed ``_add_master_lock``, which is a
+                    # protocol violation.
+                    if len(self._masters) != master_idx:
+                        raise ProtocolError(
+                            f"add_master: append-index race for id {sock_pair.id!r}: "
+                            f"reserved {master_idx} but len(masters) is now {len(self._masters)} "
+                            f"(a concurrent caller bypassed _add_master_lock)"
+                        )
+                    self._masters.append(_MasterConnection(
+                        id=sock_pair.id,
+                        socket_writer=writer,
+                        manifest=manifest,
+                        limits=limits,
+                        caps=caps,
+                        installed_cartridges=installed_cartridges,
+                        healthy=True,
+                        reader_handle=reader_thread,
+                    ))
+                else:
+                    slot = self._masters[master_idx]
+                    if slot.id != sock_pair.id:
+                        raise ProtocolError(
+                            f"add_master: reattach-id mismatch at index {master_idx}: "
+                            f"expected {sock_pair.id!r} but found {slot.id!r}"
+                        )
+                    # In-place mutation. The dead master's reader
+                    # thread has already exited on EOF (Python
+                    # threads can't be safely cancelled; we rely on
+                    # the natural EOF exit). The new reader thread
+                    # is wired in and the slot is marked healthy.
+                    slot.socket_writer = writer
+                    slot.manifest = manifest
+                    slot.limits = limits
+                    slot.caps = caps
+                    slot.installed_cartridges = installed_cartridges
+                    slot.healthy = True
+                    slot.reader_handle = reader_thread
+
+                self._rebuild_cap_table()
+                self._rebuild_installed_cartridges()
+                self._rebuild_capabilities()
+                self._rebuild_limits()
+
+            return master_idx
 
     def _reader_loop(self, master_idx: int, reader: FrameReader):
         """Reader thread loop for a master"""
@@ -665,7 +826,14 @@ class RelaySwitch:
 
 @dataclass
 class _MasterConnection:
-    """Connection to a single RelayMaster"""
+    """Connection to a single RelayMaster.
+
+    ``id`` is the stable identity of this slot. Once set at slot
+    creation it is never overwritten; reattach-by-id matches against
+    it. Re-adding the same id while ``healthy`` is rejected at the
+    add path.
+    """
+    id: str
     socket_writer: FrameWriter
     manifest: bytes
     limits: Limits

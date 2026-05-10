@@ -134,7 +134,7 @@ def test_426_single_master_req_response():
     done.wait(timeout=2)
 
     # Create RelaySwitch
-    switch = RelaySwitch([SocketPair(read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
 
     # Send REQ
     req = Frame.req(
@@ -208,8 +208,8 @@ def test_427_multi_master_cap_routing():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-1", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-2", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     # Send REQ for echo cap → routes to master 1
@@ -258,7 +258,7 @@ def test_428_unknown_cap_returns_error():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-3", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
 
     # Send REQ for unknown cap
     req = Frame.req(
@@ -307,8 +307,8 @@ def test_429_find_master_for_cap():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-4", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-5", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     # Verify routing
@@ -363,8 +363,8 @@ def test_437_preferred_cap_routes_to_generic():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-6", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-7", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     assert switch._find_master_for_cap(
@@ -403,8 +403,8 @@ def test_438_preferred_cap_falls_back_when_not_comparable():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-8", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-9", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     assert switch._find_master_for_cap(
@@ -443,8 +443,8 @@ def test_439_generic_provider_can_dispatch_specific_request():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-10", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-11", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     assert switch._find_master_for_cap('cap:in=\"media:pdf\";out=media:') == 1
@@ -511,8 +511,8 @@ def test_430_tie_breaking_same_cap_multiple_masters():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-12", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-13", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     # Send first request - should go to master 0 (first match)
@@ -569,7 +569,7 @@ def test_431_continuation_frame_routing():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-14", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
 
     req_id = MessageId(1)
 
@@ -641,8 +641,8 @@ def test_433_capability_aggregation_deduplicates():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-15", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-16", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     payload = json.loads(switch.capabilities())
@@ -702,8 +702,8 @@ def test_434_limits_negotiation_minimum():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
-        SocketPair(read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
+        SocketPair(id="test-master-17", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
+        SocketPair(id="test-master-18", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
     # Should take minimum of each limit
@@ -743,7 +743,7 @@ def test_435_urn_matching_exact_and_accepts():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-19", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
 
     # Exact match should work
     req1 = Frame.req(MessageId(1), registered_cap, bytes(), "text/plain")
@@ -778,7 +778,7 @@ def test_487_relay_switch_identity_verification_succeeds():
 
     threading.Thread(target=slave_thread, daemon=True).start()
 
-    switch = RelaySwitch([SocketPair(read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+    switch = RelaySwitch([SocketPair(id="test-master-20", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
     assert switch._find_master_for_cap('cap:in="media:void";test;out="media:void"') == 0
 
 
@@ -800,7 +800,7 @@ def test_488_relay_switch_identity_verification_fails():
     threading.Thread(target=slave_thread, daemon=True).start()
 
     with pytest.raises(ProtocolError) as exc_info:
-        RelaySwitch([SocketPair(read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+        RelaySwitch([SocketPair(id="test-master-21", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
     assert "identity verification failed" in str(exc_info.value)
 
 
@@ -837,11 +837,143 @@ def test_666_preferred_cap_routing():
     done2.wait(timeout=2)
 
     switch = RelaySwitch([
-        SocketPair(read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
-        SocketPair(read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb")),
+        SocketPair(id="test-master-22", read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
+        SocketPair(id="test-master-23", read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb")),
     ])
 
     request = 'cap:in="media:pdf";out=media:'
     assert switch._find_master_for_cap(request) == 1
     assert switch._find_master_for_cap(request, preferred_cap=specific_cap) == 1
     assert switch._find_master_for_cap(request, preferred_cap=generic_cap) == 0
+
+
+# ============================================================
+# Reattach-by-id tests for the cardinality-stable slot model.
+#
+# When a master dies and the host reconnects, the new socket MUST
+# attach to the same slot index — preserving routing entries
+# keyed by index. Accumulating zombie slots on each reconnect was
+# the bug class these tests guard against.
+
+
+def test_reattach_by_id_preserves_slot_index():
+    """After ``handle_master_death`` the slot stays in place, and a
+    reconnect via ``add_master`` with the same id MUST land back in
+    the same slot index — not append a new slot."""
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    done1 = threading.Event()
+
+    def slave1_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done1.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave1_thread, daemon=True).start()
+    done1.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
+    ])
+    assert len(switch._masters) == 1
+    assert switch._masters[0].id == "xpc-service"
+    assert switch._masters[0].healthy is True
+
+    # Simulate master death via the same code path the frame loop
+    # uses on EOF. Bypassing the frame loop keeps the test focused
+    # on the reattach contract itself.
+    switch._handle_master_death(0)
+    assert len(switch._masters) == 1, (
+        "_handle_master_death must NOT remove the slot — reattach depends on it staying in place"
+    )
+    assert switch._masters[0].healthy is False
+
+    # Reconnect: build a fresh slave + socket pair under the SAME id.
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+
+    done2 = threading.Event()
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile("rb"))
+        writer = FrameWriter(slave_write2.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done2.wait(timeout=2)
+
+    new_idx = switch.add_master(SocketPair(
+        id="xpc-service",
+        read=engine_read2.makefile("rb"),
+        write=engine_write2.makefile("wb"),
+    ))
+    assert new_idx == 0, (
+        "reattach MUST return the same slot index (0), not append a new slot"
+    )
+    assert len(switch._masters) == 1, (
+        "reattach MUST NOT grow the slot count — that was the zombie-slot bug"
+    )
+    assert switch._masters[0].healthy is True
+    assert switch._masters[0].id == "xpc-service", (
+        "slot id MUST be preserved across reattach"
+    )
+
+
+def test_add_master_with_duplicate_healthy_id_errors():
+    """Adding a master with the id of an already-healthy slot is a
+    wiring bug; surface as a hard ProtocolError."""
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    done = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in=media:;out=media:'), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
+    ])
+    assert switch._masters[0].healthy is True
+
+    # Try to add a second master with the same id while healthy.
+    # The duplicate-id check fires BEFORE any I/O on the dummy
+    # socket, so the dummy never has to go through a handshake.
+    dummy_a, dummy_b = socket.socketpair()
+    with pytest.raises(ProtocolError) as exc_info:
+        switch.add_master(SocketPair(
+            id="xpc-service",
+            read=dummy_a.makefile("rb"),
+            write=dummy_b.makefile("wb"),
+        ))
+    assert "already attached to a healthy slot" in str(exc_info.value)
+    assert len(switch._masters) == 1, (
+        "no slot should be created when the duplicate-id check fires"
+    )
+
+
+def test_relay_switch_init_rejects_duplicate_ids():
+    """The constructor rejects duplicate ids before any I/O. Without
+    this guard the first reconnect would reattach to whichever slot
+    is found first by the linear scan, leaving the other stuck
+    unhealthy forever."""
+    a_read, a_other = socket.socketpair()
+    b_read, b_other = socket.socketpair()
+
+    with pytest.raises(ProtocolError) as exc_info:
+        RelaySwitch([
+            SocketPair(id="dup-id", read=a_read.makefile("rb"), write=a_other.makefile("wb")),
+            SocketPair(id="dup-id", read=b_read.makefile("rb"), write=b_other.makefile("wb")),
+        ])
+    assert "duplicate master id 'dup-id'" in str(exc_info.value)

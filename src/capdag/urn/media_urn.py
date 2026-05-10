@@ -145,7 +145,7 @@ MEDIA_CSV_LIST = "media:csv;list;record;textable"
 MEDIA_FILE_PATH = "media:file-path;textable"
 
 # Media URN for extracted page text
-MEDIA_TEXTABLE_PAGE = "media:textable;page"
+MEDIA_TEXTABLE_PAGE = "media:page;plain-text;textable;txt"
 
 # Semantic text input types - distinguished by their purpose/context
 # Media URN for model spec (provider:model format, HuggingFace name, etc.)
@@ -213,10 +213,16 @@ MEDIA_AVAILABILITY_OUTPUT = "media:model-availability;record;textable"
 MEDIA_PATH_OUTPUT = "media:model-path;record;textable"
 # Media URN for embedding vector output - record structure
 MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;record;textable"
-# Media URN for LLM inference output - record structure
-MEDIA_LLM_INFERENCE_OUTPUT = "media:generated-text;record;textable"
-# Media URN for image description output - textable (renamed from MEDIA_CAPTION_OUTPUT)
-MEDIA_IMAGE_DESCRIPTION = "media:image-description;textable"
+# Media URN for vision inference output — a concrete textable terminal.
+# Carries `image-description` (the vision-specific marker), `plain-text`
+# (the finalised-text marker that opts into cap:save-as-txt's persistence
+# path), and `file-type=txt` (binds the URN to the `.txt` extension).
+MEDIA_IMAGE_DESCRIPTION = "media:image-description;plain-text;textable;txt"
+# Media URN for finalised plain text — the canonical input/output of cap:save-as-txt.
+# Producers of user-facing prose (LLM text-generation, OCR's extracted text,
+# summarisation) declare this URN as their `out` so the planner restricts the .txt
+# persistence path to those caps. See fabric/media/plain-text.toml.
+MEDIA_PLAIN_TEXT = "media:plain-text;textable;txt"
 # Media URN for transcription output - record structure
 MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG

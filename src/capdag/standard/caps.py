@@ -49,7 +49,6 @@ from capdag.urn.media_urn import (
     MEDIA_PATH_OUTPUT,
     MEDIA_EMBEDDING_VECTOR,
     MEDIA_JSON,
-    MEDIA_LLM_INFERENCE_OUTPUT,
     MEDIA_DECISION,
     # Format conversion types (JSON, YAML, CSV variants)
     MEDIA_JSON_VALUE,
@@ -249,58 +248,6 @@ def llm_generate_text_urn() -> str:
         .out_spec(MEDIA_STRING)
         .build()
         .to_string()
-    )
-
-
-def llm_multiplechoice_urn(lang_code: str) -> CapUrn:
-    """Build URN for multiplechoice capability"""
-    return (
-        CapUrnBuilder()
-        .marker("multiplechoice")
-        .tag("constrained", "*")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-    )
-
-
-def llm_codegeneration_urn(lang_code: str) -> CapUrn:
-    """Build URN for codegeneration capability"""
-    return (
-        CapUrnBuilder()
-        .marker("codegeneration")
-        .tag("constrained", "*")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-    )
-
-
-def llm_creative_urn(lang_code: str) -> CapUrn:
-    """Build URN for creative capability"""
-    return (
-        CapUrnBuilder()
-        .marker("creative")
-        .tag("constrained", "*")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
-    )
-
-
-def llm_summarization_urn(lang_code: str) -> CapUrn:
-    """Build URN for summarization capability"""
-    return (
-        CapUrnBuilder()
-        .marker("summarization")
-        .tag("constrained", "*")
-        .tag("language", lang_code)
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_LLM_INFERENCE_OUTPUT)
-        .build()
     )
 
 
