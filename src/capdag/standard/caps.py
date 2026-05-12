@@ -83,7 +83,7 @@ CAP_DISCARD = "cap:in=media:;out=media:void"
 # that returns {"media_urns": [...]}.
 CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;record"'
 
-# Fabric registry lookup caps. Implemented by netaccesscartridge.
+# Fabric registry lookup caps. Implemented by fetchcartridge.
 # CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
 # cap definition; CAP_LOOKUP_MEDIA_SPEC_FABRIC does the same for media specs.
 CAP_LOOKUP_CAP_FABRIC = (

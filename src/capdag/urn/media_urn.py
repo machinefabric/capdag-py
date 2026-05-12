@@ -231,7 +231,7 @@ MEDIA_DECISION = "media:decision;json;record;textable"
 MEDIA_ADAPTER_SELECTION = "media:adapter-selection;json;record"
 
 # Fabric registry lookup wire types (consumed/produced by cap:lookup-cap;fabric
-# and cap:lookup-media-spec;fabric, both implemented by netaccesscartridge).
+# and cap:lookup-media-spec;fabric, both implemented by fetchcartridge).
 MEDIA_CAP_URN = "media:cap-urn;textable"
 MEDIA_MEDIA_URN = "media:media-urn;textable"
 MEDIA_CAP_DEFINITION = "media:cap-definition;json;record;textable"
