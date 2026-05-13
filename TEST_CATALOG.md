@@ -109,8 +109,8 @@ This catalog lists all tests in the Python codebase.
 | test112 | `test_112_cap_with_output` | TEST112: Test cap equality based on URN and title matching | tests/test_cap.py:81 |
 | test113 | `test_113_cap_with_metadata` | TEST113: Test cap stdin support via args with stdin source and serialization roundtrip | tests/test_cap.py:97 |
 | test114 | `test_114_cap_json_serialization` | TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors | tests/test_cap.py:110 |
-| test115 | `test_115_cap_json_roundtrip` | TEST115: Test CapArg serialization and deserialization with multiple sources | tests/test_cap.py:143 |
-| test116 | `test_116_cap_arg_multiple_sources` | TEST116: Test CapArg constructor methods basic and with_description create args correctly | tests/test_cap.py:168 |
+| test115 | `test_115_cap_arg_serialization` | TEST115: CapArg JSON roundtrip preserves multiple sources plus typed `default_value` / `metadata` payloads without stringifying them. | tests/test_cap.py:143 |
+| test116 | `test_116_cap_arg_constructors` | TEST116: Basic CapArg construction leaves optional fields absent; described construction preserves an explicit description and typed default. | tests/test_cap.py:168 |
 | test117 | `test_117_cap_manifest_channel_roundtrip` | TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults. | tests/test_manifest.py:46 |
 | test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:92 |
 | test119 | `test_119_concatenated_vs_final_payload_divergence` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk | tests/test_cartridge_host_runtime.py:265 |
@@ -140,7 +140,7 @@ This catalog lists all tests in the Python codebase.
 | test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:290 |
 | test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:20 |
 | test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:110 |
-| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:126 |
+| test150 | `test_150_cap_manifest_json_serialization` | TEST150: CapManifest JSON roundtrip preserves typed CapArg defaults inside cap_groups, including numeric, boolean, and metadata JSON values. | tests/test_manifest.py:126 |
 | test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:155 |
 | test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:162 |
 | test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:186 |
@@ -518,7 +518,7 @@ This catalog lists all tests in the Python codebase.
 | test594 | `test_594_metadata_json_lifecycle` | TEST594: metadata_json lifecycle — set, get, clear | tests/test_cap.py:264 |
 | test595 | `test_595_with_args_constructor` | TEST595: with_args constructor stores args correctly | tests/test_cap.py:282 |
 | test596 | `test_596_with_full_definition_constructor` | TEST596: with_full_definition constructor stores all fields | tests/test_cap.py:306 |
-| test597 | `test_597_cap_arg_with_full_definition` | TEST597: CapArg::with_full_definition stores all fields including optional ones | tests/test_cap.py:337 |
+| test597 | `test_597_cap_arg_with_full_definition` | TEST597: CapArg::with_full_definition preserves object-shaped `default_value` JSON and optional metadata without narrowing them to strings. | tests/test_cap.py:337 |
 | test598 | `test_598_cap_output_lifecycle` | TEST598: CapOutput lifecycle — set_output, set/clear metadata | tests/test_cap.py:366 |
 | test599 | `test_599_is_empty` | TEST599: is_empty returns true for empty response, false for non-empty | tests/test_response.py:61 |
 | test600 | `test_600_size` | TEST600: size returns exact byte count for all content types | tests/test_response.py:76 |

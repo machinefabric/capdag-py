@@ -132,6 +132,21 @@ def test_150_cap_manifest_json_serialization():
         required=True,
         sources=[StdinSource("media:pdf")],
     ))
+    cap.add_arg(CapArg(
+        media_urn="media:chunk-size;textable;numeric",
+        required=False,
+        sources=[CliFlagSource("--chunk-size")],
+        arg_description="Chunk size",
+        default_value=400,
+        metadata={"unit": "words"},
+    ))
+    cap.add_arg(CapArg(
+        media_urn="media:timestamps;textable;bool",
+        required=False,
+        sources=[CliFlagSource("--timestamps")],
+        arg_description="Include timestamps",
+        default_value=False,
+    ))
 
     manifest = CapManifest(
         name="TestComponent",
@@ -149,6 +164,10 @@ def test_150_cap_manifest_json_serialization():
     deserialized = CapManifest.from_json(json_str)
     assert deserialized.name == manifest.name
     assert len(deserialized.all_caps()) == len(manifest.all_caps())
+    decoded_cap = deserialized.all_caps()[0]
+    assert decoded_cap.args[1].default_value == 400
+    assert decoded_cap.args[1].metadata == {"unit": "words"}
+    assert decoded_cap.args[2].default_value is False
 
 
 # TEST151: Missing required fields fail

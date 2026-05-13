@@ -140,55 +140,54 @@ def test_114_cap_json_serialization():
 
 
 # TEST115: Test CapArg serialization and deserialization with multiple sources
-def test_115_cap_json_roundtrip():
-    urn = CapUrn.from_string(_test_urn("convert"))
-    cap = Cap(urn, "Convert", "convert-cmd")
-
-    stdin_arg = CapArg(
-        media_urn="media:pdf",
+def test_115_cap_arg_serialization():
+    arg = CapArg(
+        media_urn="media:string",
         required=True,
-        sources=[StdinSource("media:pdf")],
+        sources=[CliFlagSource("--name"), PositionSource(0)],
+        arg_description="The name argument",
+        default_value=400,
+        metadata={"kind": "example", "flags": [True, False]},
     )
-    cap.add_arg(stdin_arg)
 
-    # Serialize and deserialize
-    cap_dict = cap.to_dict()
-    json_str = json.dumps(cap_dict)
+    json_str = json.dumps(arg.to_dict())
     parsed_dict = json.loads(json_str)
-    restored_cap = Cap.from_dict(parsed_dict)
+    restored_arg = CapArg.from_dict(parsed_dict)
 
-    assert restored_cap.title == cap.title
-    assert restored_cap.command == cap.command
-    assert restored_cap.urn_string() == cap.urn_string()
-    assert len(restored_cap.get_args()) == len(cap.get_args())
-    assert restored_cap.get_stdin_media_urn() == cap.get_stdin_media_urn()
+    assert restored_arg.media_urn == arg.media_urn
+    assert restored_arg.required == arg.required
+    assert restored_arg.arg_description == arg.arg_description
+    assert restored_arg.default_value == 400
+    assert restored_arg.metadata == {"kind": "example", "flags": [True, False]}
+    assert len(restored_arg.sources) == 2
+    assert isinstance(restored_arg.sources[0], CliFlagSource)
+    assert isinstance(restored_arg.sources[1], PositionSource)
 
 
 # TEST116: Test CapArg constructor methods basic and with_description create args correctly
-def test_116_cap_arg_multiple_sources():
-    sources = [
-        StdinSource("media:"),
-        PositionSource(0),
-        CliFlagSource("--input"),
-    ]
-
-    arg = CapArg(
-        media_urn=MEDIA_STRING,
+def test_116_cap_arg_constructors():
+    basic_arg = CapArg(
+        media_urn="media:string",
         required=True,
-        sources=sources,
+        sources=[CliFlagSource("--name")],
     )
+    assert basic_arg.media_urn == "media:string"
+    assert basic_arg.required is True
+    assert len(basic_arg.sources) == 1
+    assert basic_arg.arg_description is None
+    assert basic_arg.default_value is None
 
-    assert len(arg.sources) == 3
-    assert isinstance(arg.sources[0], StdinSource)
-    assert isinstance(arg.sources[1], PositionSource)
-    assert isinstance(arg.sources[2], CliFlagSource)
-
-    # Test serialization
-    arg_dict = arg.to_dict()
-    assert len(arg_dict["sources"]) == 3
-    assert "stdin" in arg_dict["sources"][0]
-    assert "position" in arg_dict["sources"][1]
-    assert "cli_flag" in arg_dict["sources"][2]
+    described_arg = CapArg(
+        media_urn="media:integer",
+        required=False,
+        sources=[PositionSource(0)],
+        arg_description="The count argument",
+        default_value=10,
+    )
+    assert described_arg.media_urn == "media:integer"
+    assert described_arg.required is False
+    assert described_arg.arg_description == "The count argument"
+    assert described_arg.default_value == 10
 
 
 # TEST591: is_more_specific_than returns true when self has more tags for same request
@@ -335,7 +334,7 @@ def test_596_with_full_definition_constructor():
 
 # TEST597: CapArg::with_full_definition stores all fields including optional ones
 def test_597_cap_arg_with_full_definition():
-    default_val = "default_text"
+    default_val = {"chunk_size": 400, "timestamps": False}
     meta = {"hint": "enter name"}
 
     arg = CapArg.with_full_definition(
