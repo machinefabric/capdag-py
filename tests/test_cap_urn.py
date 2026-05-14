@@ -800,7 +800,7 @@ def test_568_dispatch_output_tag_order():
         'cap:in="media:model-spec;textable";download-model;out="media:download-result;record;textable"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:model-spec;textable";download-model;out="media:download-result;textable;record"'
+        'cap:in="media:model-spec;textable";download-model;out="media:download-result;record;textable"'
     )
 
     # After parsing, both should be normalized to same canonical form
