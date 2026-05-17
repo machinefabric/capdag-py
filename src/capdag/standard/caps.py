@@ -70,8 +70,8 @@ from capdag.urn.media_urn import (
 # =============================================================================
 
 # Identity capability — the categorical identity morphism. MANDATORY in every capset.
-# Accepts any media type as input and outputs any media type.
-CAP_IDENTITY = "cap:"
+# Accepts any media type as input and preserves the runtime media identity.
+CAP_IDENTITY = "cap:effect=none"
 
 # Discard capability — the terminal morphism. Standard, NOT mandatory.
 # Accepts any media type as input and produces void output.

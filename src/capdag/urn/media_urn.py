@@ -268,6 +268,11 @@ class MediaUrnError(Exception):
     pass
 
 
+class MediaUrnCoordinateDelta:
+    def __init__(self, inner):
+        self.inner = inner
+
+
 class MediaUrn:
     """A media URN representing a data type specification
 
@@ -423,6 +428,17 @@ class MediaUrn:
         """
         return self._urn.specificity()
 
+    def delta_from(self, base: "MediaUrn") -> MediaUrnCoordinateDelta:
+        if base is None:
+            raise MediaUrnError("cannot derive delta from null base media URN")
+        return MediaUrnCoordinateDelta(self._urn.delta_from(base._urn))
+
+    def apply_delta(self, delta: MediaUrnCoordinateDelta) -> "MediaUrn":
+        if delta is None:
+            raise MediaUrnError("cannot apply null media delta")
+        next_urn = self._urn.apply_delta(delta.inner)
+        return MediaUrn(next_urn)
+
     def has_marker_tag(self, tag_name: str) -> bool:
         """Check if a marker tag is present (has wildcard value).
 
@@ -543,6 +559,9 @@ class MediaUrn:
 
     def __repr__(self) -> str:
         return f"MediaUrn('{self.to_string()}')"
+
+    def _cmp_key(self) -> tuple:
+        return (self._urn.prefix, tuple(sorted(self._urn.tags.items())))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MediaUrn):

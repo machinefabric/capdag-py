@@ -62,6 +62,13 @@ class CapKind(Enum):
     TRANSFORM = "transform"
 
 
+class CapEffect(Enum):
+    DECLARED = "declared"
+    NONE = "none"
+    PATCH = "patch"
+    ANY = "?"
+
+
 class CapUrn:
     """A cap URN using flat, ordered tags with required direction specifiers
 
@@ -76,7 +83,7 @@ class CapUrn:
 
     PREFIX = "cap"
 
-    def __init__(self, in_urn: str, out_urn: str, tags: Dict[str, str]):
+    def __init__(self, in_urn: str, out_urn: str, tags: Dict[str, str], effect: str = "declared"):
         """Create a new cap URN from direction specs and additional tags
 
         Keys are normalized to lowercase; values are preserved as-is.
@@ -102,13 +109,63 @@ class CapUrn:
             except Exception as e:
                 raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
         # Filter out 'in' and 'out' from tags, normalize remaining keys
-        self.in_urn = in_urn
-        self.out_urn = out_urn
+        self.in_urn = "media:" if in_urn in ("", "*") else in_urn
+        self.out_urn = "media:" if out_urn in ("", "*") else out_urn
+        self.effect = self._normalize_effect_value(effect)
         self.tags: Dict[str, str] = {
             k.lower(): v
             for k, v in tags.items()
-            if k.lower() not in ("in", "out")
+            if k.lower() not in ("in", "out", "effect")
         }
+        self._validate_non_structural_tags(self.tags)
+        self._validate_admissible()
+
+    @staticmethod
+    def _normalize_effect_value(raw: Optional[str]) -> str:
+        if raw is None:
+            return CapEffect.DECLARED.value
+        if raw in ("*", "?"):
+            return CapEffect.ANY.value
+        if raw in (CapEffect.DECLARED.value, CapEffect.NONE.value, CapEffect.PATCH.value):
+            return raw
+        if raw == "":
+            raise CapUrnError("Empty value for 'effect' tag is not allowed")
+        raise CapUrnError(
+            f"Unsupported effect '{raw}'. Supported values are declared, none, patch, or explicit unconstrained ?effect/effect=*"
+        )
+
+    @staticmethod
+    def _validate_non_structural_tags(tags: Dict[str, str]) -> None:
+        TaggedUrn.from_string(TaggedUrn("cap", tags).to_string())
+
+    def _validate_admissible(self) -> None:
+        in_media = self.in_media_urn()
+        out_media = self.out_media_urn()
+        if (
+            in_media.is_top()
+            and out_media.is_top()
+            and not self.tags
+            and self.effect_kind() == CapEffect.DECLARED
+        ):
+            raise CapUrnError(
+                "illegal bare top cap; use cap:effect=none for identity, or declare a non-vacuous input/output/effect/tag"
+            )
+        if self.effect_kind() in (CapEffect.DECLARED, CapEffect.ANY):
+            return
+        if self.effect_kind() == CapEffect.NONE:
+            if not in_media.conforms_to(out_media):
+                raise CapUrnError(
+                    f"effect=none requires declared input '{in_media}' to conform to declared output '{out_media}'"
+                )
+            return
+        if self.effect_kind() == CapEffect.PATCH:
+            delta = out_media.delta_from(in_media)
+            witness = in_media.apply_delta(delta)
+            if not witness.conforms_to(out_media):
+                raise CapUrnError(
+                    f"effect=patch witness '{witness}' does not conform to declared output '{out_media}'"
+                )
+            return
 
     @classmethod
     def from_tags(cls, tags: Dict[str, str]) -> "CapUrn":
@@ -118,15 +175,10 @@ class CapUrn:
         Raises CapUrnError if 'in' or 'out' is missing.
         """
         tags_copy = tags.copy()
-        in_urn = tags_copy.pop("in", None)
-        out_urn = tags_copy.pop("out", None)
-
-        if in_urn is None:
-            raise CapUrnError("Missing required 'in' spec - caps must declare their input type")
-        if out_urn is None:
-            raise CapUrnError("Missing required 'out' spec - caps must declare their output type")
-
-        return cls(in_urn, out_urn, tags_copy)
+        in_urn = tags_copy.pop("in", "media:")
+        out_urn = tags_copy.pop("out", "media:")
+        effect = tags_copy.pop("effect", "declared")
+        return cls(in_urn, out_urn, tags_copy, effect=effect)
 
     @staticmethod
     def _process_direction_tag(tagged: TaggedUrn, tag_name: str) -> str:
@@ -197,22 +249,18 @@ class CapUrn:
             except Exception as e:
                 raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
 
-        # Collect remaining tags (excluding in/out)
-        tags = {k: v for k, v in tagged.tags.items() if k not in ("in", "out")}
-
-        return cls(in_urn, out_urn, tags)
+        effect = cls._normalize_effect_value(tagged.tags.get("effect"))
+        tags = {k: v for k, v in tagged.tags.items() if k not in ("in", "out", "effect")}
+        return cls(in_urn, out_urn, tags, effect=effect)
 
     def _build_tagged_urn(self) -> TaggedUrn:
         """Build a TaggedUrn representation of this CapUrn
 
-        Internal helper for serialization and tag manipulation. The
-        ``in`` and ``out`` segments are emitted only when they refine
-        beyond the trivial wildcard ``media:``. A cap whose ``in``/
-        ``out`` are both ``media:`` and which carries no other tags has
-        the canonical form ``cap:`` — the bare identity URN. Same
-        morphism whether written as ``cap:`` or ``cap:in=media:;out=media:``;
-        the canonicalizer collapses to one representative so byte-equality
-        matches semantic identity.
+        Internal helper for serialization and tag manipulation. ``in`` and
+        ``out`` are emitted only when they refine beyond the trivial wildcard
+        ``media:``. ``effect=declared`` is omitted because it is the default
+        on admissible caps. ``effect=none`` is never omitted; identity is the
+        explicit ``cap:effect=none``, never bare ``cap:``.
         """
         from .media_urn import MEDIA_IDENTITY
 
@@ -221,6 +269,8 @@ class CapUrn:
             builder.tag("in", self.in_urn)
         if self.out_urn != MEDIA_IDENTITY:
             builder.tag("out", self.out_urn)
+        if self.effect != CapEffect.DECLARED.value:
+            builder.tag("effect", self.effect)
 
         for k, v in self.tags.items():
             builder.tag(k, v)
@@ -248,13 +298,15 @@ class CapUrn:
         """Get a specific tag value
 
         Key is normalized to lowercase for lookup.
-        For 'in' and 'out', returns the direction spec fields.
+        For structural coordinates, returns the dedicated fields.
         """
         key_lower = key.lower()
         if key_lower == "in":
             return self.in_urn
         elif key_lower == "out":
             return self.out_urn
+        elif key_lower == "effect":
+            return self.effect
         else:
             return self.tags.get(key_lower)
 
@@ -266,6 +318,12 @@ class CapUrn:
         """Get the output media URN string"""
         return self.out_urn
 
+    def effect_spec(self) -> str:
+        return self.effect
+
+    def effect_kind(self) -> CapEffect:
+        return CapEffect(self.effect)
+
     def in_media_urn(self) -> MediaUrn:
         """Get the input as a parsed MediaUrn"""
         return MediaUrn.from_string(self.in_urn)
@@ -275,22 +333,6 @@ class CapUrn:
         return MediaUrn.from_string(self.out_urn)
 
     def kind(self) -> CapKind:
-        """Functional category of this cap, derived from all three
-        axes (``in``, ``out``, and the remaining tags).
-
-        Identity requires every axis to be in its most generic form:
-        ``in`` is the top media URN (``media:``), ``out`` is the top
-        media URN, and there are no other tags. Source/Sink/Effect
-        are decided by ``media:void`` on either directional axis.
-        Anything else is Transform.
-
-        See :class:`CapKind` for the full taxonomy and the unit-vs-top
-        reading of ``media:void`` / ``media:``.
-
-        Raises ``MediaUrnError`` if either side is not a valid media
-        URN — this only happens on internally inconsistent state since
-        construction validates both sides.
-        """
         in_media = self.in_media_urn()
         out_media = self.out_media_urn()
 
@@ -303,7 +345,7 @@ class CapUrn:
         # beyond the directional axes."
         no_extra_tags = not self.tags
 
-        if in_top and out_top and no_extra_tags:
+        if in_top and out_top and no_extra_tags and self.effect_kind() == CapEffect.NONE:
             return CapKind.IDENTITY
         if in_void and out_void:
             return CapKind.EFFECT
@@ -317,13 +359,15 @@ class CapUrn:
         """Check if this cap has a specific tag with a specific value
 
         Key is normalized to lowercase; value comparison is case-sensitive.
-        For 'in' and 'out', checks the direction spec fields.
+        For structural coordinates, checks the dedicated fields.
         """
         key_lower = key.lower()
         if key_lower == "in":
             return self.in_urn == value
         elif key_lower == "out":
             return self.out_urn == value
+        elif key_lower == "effect":
+            return self.effect == value
         else:
             return self.tags.get(key_lower) == value
 
@@ -338,62 +382,48 @@ class CapUrn:
         """Add or update a tag
 
         Key is normalized to lowercase; value is preserved as-is.
-        Note: Cannot modify 'in' or 'out' tags - use with_in_spec/with_out_spec.
+        Note: Cannot modify structural coordinates here.
         Returns error if value is empty (use "*" for wildcard).
         """
         if not value:
             raise CapUrnError(f"Empty value for key '{key}' (use '*' for wildcard)")
 
         key_lower = key.lower()
-        if key_lower in ("in", "out"):
-            # Silently ignore attempts to set in/out via with_tag
-            # Use with_in_spec/with_out_spec instead
-            return CapUrn(self.in_urn, self.out_urn, self.tags)
+        if key_lower in ("in", "out", "effect"):
+            raise CapUrnError(
+                f"reserved structural key '{key_lower}' must be changed via dedicated CapUrn accessors"
+            )
 
         new_tags = self.tags.copy()
         new_tags[key_lower] = value
-        return CapUrn(self.in_urn, self.out_urn, new_tags)
+        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def with_in_spec(self, in_urn: str) -> "CapUrn":
         """Create a new cap URN with a different input spec"""
-        updated = CapUrn(self.in_urn, self.out_urn, self.tags)
-        if in_urn not in ("media:", "*"):
-            if not in_urn.startswith("media:"):
-                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}'")
-            try:
-                MediaUrn.from_string(in_urn)
-            except Exception as e:
-                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}': {e}") from e
-        updated.in_urn = in_urn
-        return updated
+        return CapUrn(in_urn, self.out_urn, self.tags, effect=self.effect)
 
     def with_out_spec(self, out_urn: str) -> "CapUrn":
         """Create a new cap URN with a different output spec"""
-        updated = CapUrn(self.in_urn, self.out_urn, self.tags)
-        if out_urn not in ("media:", "*"):
-            if not out_urn.startswith("media:"):
-                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}'")
-            try:
-                MediaUrn.from_string(out_urn)
-            except Exception as e:
-                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
-        updated.out_urn = out_urn
-        return updated
+        return CapUrn(self.in_urn, out_urn, self.tags, effect=self.effect)
+
+    def with_effect(self, effect: CapEffect) -> "CapUrn":
+        return CapUrn(self.in_urn, self.out_urn, self.tags, effect=effect.value)
 
     def without_tag(self, key: str) -> "CapUrn":
         """Remove a tag
 
         Key is normalized to lowercase for case-insensitive removal.
-        Note: Cannot remove 'in' or 'out' tags - they are required.
+        Note: Cannot remove structural coordinates.
         """
         key_lower = key.lower()
-        if key_lower in ("in", "out"):
-            # Silently ignore attempts to remove in/out
-            return CapUrn(self.in_urn, self.out_urn, self.tags)
+        if key_lower in ("in", "out", "effect"):
+            raise CapUrnError(
+                f"CapUrn.without_tag cannot remove reserved structural key '{key_lower}'"
+            )
 
         new_tags = self.tags.copy()
         new_tags.pop(key_lower, None)
-        return CapUrn(self.in_urn, self.out_urn, new_tags)
+        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def accepts(self, request: "CapUrn") -> bool:
         """Check if this cap (pattern/handler) accepts the given request (instance).
@@ -422,6 +452,9 @@ class CapUrn:
             request_out = MediaUrn.from_string(request.out_urn)
             if not cap_out.conforms_to(request_out):
                 return False
+
+        if self.effect != CapEffect.ANY.value and self.effect != request.effect:
+            return False
 
         # Y-axis: every tag's per-key match runs through the six-form
         # truth table (TaggedUrn._values_match). Walk the union of
@@ -512,27 +545,16 @@ class CapUrn:
         Wildcard (*) in request means any value acceptable.
         Wildcard (*) in provider means provider can handle any value.
         """
-        # Every explicit request tag must be satisfied by provider
-        for key, request_value in request.tags.items():
+        all_keys = set(self.tags.keys()) | set(request.tags.keys())
+        for key in all_keys:
             provider_value = self.tags.get(key)
-            if provider_value is not None:
-                # Both have the tag - check compatibility
-                if request_value == "*":
-                    continue  # request wildcard accepts anything
-                if provider_value == "*":
-                    continue  # provider wildcard handles anything
-                if request_value != provider_value:
-                    return False  # value conflict
-            else:
-                # Provider missing a tag that request specifies.
-                # Even wildcard (*) means "any value is fine" — the tag
-                # must still be present. Without this, a GGUF cartridge
-                # (no candle tag) would match a registry cap that
-                # requires candle=*, causing cross-backend mismatches.
+            request_value = request.tags.get(key)
+            if not TaggedUrn._values_match(provider_value, request_value):
                 return False
-
-        # Provider may have extra tags not in request - refinement, always OK
         return True
+
+    def _effect_dispatchable(self, request: "CapUrn") -> bool:
+        return request.effect == CapEffect.ANY.value or self.effect == request.effect
 
     def is_dispatchable(self, request: "CapUrn") -> bool:
         """Check if this provider can dispatch (handle) the given request.
@@ -551,6 +573,8 @@ class CapUrn:
             return False
         if not self._output_dispatchable(request):
             return False
+        if not self._effect_dispatchable(request):
+            return False
         if not self._cap_tags_dispatchable(request):
             return False
         return True
@@ -558,18 +582,16 @@ class CapUrn:
     def is_comparable(self, other: "CapUrn") -> bool:
         """Check if two cap URNs are comparable in the order-theoretic sense.
 
-        Two URNs are comparable if either one can dispatch the other.
-        This is the symmetric closure of the is_dispatchable relation.
+        Two URNs are comparable if either one accepts the other.
         """
-        return self.is_dispatchable(other) or other.is_dispatchable(self)
+        return self.accepts(other) or other.accepts(self)
 
     def is_equivalent(self, other: "CapUrn") -> bool:
         """Check if two cap URNs are equivalent in the order-theoretic sense.
 
-        Two URNs are equivalent if each can dispatch the other.
-        This means they have the same position in the specificity lattice.
+        Two URNs are equivalent if each accepts the other.
         """
-        return self.is_dispatchable(other) and other.is_dispatchable(self)
+        return self.accepts(other) and other.accepts(self)
 
     def accepts_str(self, request_str: str) -> bool:
         """Check if this cap accepts a string-specified request"""
@@ -580,6 +602,28 @@ class CapUrn:
         """Check if this cap conforms to a string-specified cap"""
         cap = CapUrn.from_string(cap_str)
         return self.conforms_to(cap)
+
+    def infer_runtime_output_media(self, runtime_input: MediaUrn) -> MediaUrn:
+        declared_in = self.in_media_urn()
+        declared_out = self.out_media_urn()
+        if not runtime_input.conforms_to(declared_in):
+            raise CapUrnError(
+                f"Runtime input '{runtime_input}' does not conform to declared input '{declared_in}'"
+            )
+        if self.effect_kind() == CapEffect.DECLARED:
+            runtime_out = declared_out
+        elif self.effect_kind() == CapEffect.NONE:
+            runtime_out = runtime_input
+        elif self.effect_kind() == CapEffect.PATCH:
+            delta = declared_out.delta_from(declared_in)
+            runtime_out = runtime_input.apply_delta(delta)
+        else:
+            raise CapUrnError("Cannot infer runtime output for an unconstrained effect request")
+        if not runtime_out.conforms_to(declared_out):
+            raise CapUrnError(
+                f"Inferred runtime output '{runtime_out}' does not conform to declared output '{declared_out}'"
+            )
+        return runtime_out
 
     # Per-axis weights for cap-URN specificity. Two orders of
     # magnitude separate each axis to keep them in distinct digit
@@ -634,37 +678,38 @@ class CapUrn:
     def with_wildcard_tag(self, key: str) -> "CapUrn":
         """Create a wildcard version by replacing specific values with wildcards
 
-        For 'in' or 'out', sets the corresponding direction spec to wildcard.
+        For structural coordinates, sets the explicit unconstrained value.
         """
         key_lower = key.lower()
 
         if key_lower == "in":
-            return CapUrn("*", self.out_urn, self.tags)
+            return CapUrn("media:", self.out_urn, self.tags, effect=self.effect)
         elif key_lower == "out":
-            return CapUrn(self.in_urn, "*", self.tags)
+            return CapUrn(self.in_urn, "media:", self.tags, effect=self.effect)
+        elif key_lower == "effect":
+            return CapUrn(self.in_urn, self.out_urn, self.tags, effect=CapEffect.ANY.value)
         else:
             if key_lower in self.tags:
                 new_tags = self.tags.copy()
                 new_tags[key_lower] = "*"
-                return CapUrn(self.in_urn, self.out_urn, new_tags)
+                return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
             else:
-                return CapUrn(self.in_urn, self.out_urn, self.tags)
+                return CapUrn(self.in_urn, self.out_urn, self.tags, effect=self.effect)
 
     def subset(self, keys: List[str]) -> "CapUrn":
         """Create a subset cap with only specified tags
 
-        Note: 'in' and 'out' are always included as they are required.
+        Structural coordinates remain intact; y-axis tags are filtered.
         """
         new_tags = {}
         for key in keys:
             key_lower = key.lower()
-            # Skip in/out as they're handled separately
-            if key_lower in ("in", "out"):
+            if key_lower in ("in", "out", "effect"):
                 continue
             if key_lower in self.tags:
                 new_tags[key_lower] = self.tags[key_lower]
 
-        return CapUrn(self.in_urn, self.out_urn, new_tags)
+        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def merge(self, other: "CapUrn") -> "CapUrn":
         """Merge with another cap (other takes precedence for conflicts)
@@ -674,7 +719,7 @@ class CapUrn:
         new_tags = self.tags.copy()
         new_tags.update(other.tags)
 
-        return CapUrn(other.in_urn, other.out_urn, new_tags)
+        return CapUrn(other.in_urn, other.out_urn, new_tags, effect=other.effect)
 
     @staticmethod
     def canonical(cap_urn: str) -> str:
@@ -702,11 +747,12 @@ class CapUrn:
         return (
             self.in_urn == other.in_urn
             and self.out_urn == other.out_urn
+            and self.effect == other.effect
             and self.tags == other.tags
         )
 
     def __hash__(self) -> int:
-        return hash((self.in_urn, self.out_urn, tuple(sorted(self.tags.items()))))
+        return hash((self.in_urn, self.out_urn, self.effect, tuple(sorted(self.tags.items()))))
 
     def _cmp_key(self) -> tuple:
         """Return a comparison key for structural total ordering.
@@ -726,7 +772,12 @@ class CapUrn:
         give wrong results for URNs whose canonical representations differ
         only in tag ordering.
         """
-        return (self.in_urn, self.out_urn, tuple(sorted(self.tags.items())))
+        return (
+            self.in_media_urn()._cmp_key(),
+            self.out_media_urn()._cmp_key(),
+            self.effect,
+            tuple(sorted(self.tags.items())),
+        )
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, CapUrn):
@@ -785,6 +836,7 @@ class CapUrnBuilder:
         """Create a new builder (in_spec and out_spec are required)"""
         self._in_urn: Optional[str] = None
         self._out_urn: Optional[str] = None
+        self._effect: str = CapEffect.DECLARED.value
         self._tags: Dict[str, str] = {}
 
     def in_spec(self, in_urn: str) -> "CapUrnBuilder":
@@ -797,6 +849,10 @@ class CapUrnBuilder:
         self._out_urn = out_urn
         return self
 
+    def effect(self, effect: CapEffect) -> "CapUrnBuilder":
+        self._effect = effect.value
+        return self
+
     def tag(self, key: str, value: str) -> "CapUrnBuilder":
         """Add a tag with key (normalized to lowercase) and value (preserved as-is)
 
@@ -804,14 +860,20 @@ class CapUrnBuilder:
         """
         if not value:
             raise CapUrnError(f"Empty value for key '{key}' (use '*' for wildcard)")
+        if key.lower() in ("in", "out", "effect"):
+            raise CapUrnError(
+                f"CapUrnBuilder.tag cannot set reserved structural key '{key.lower()}'; use in_spec/out_spec/effect"
+            )
         self._tags[key.lower()] = value
         return self
 
     def marker(self, key: str) -> "CapUrnBuilder":
         """Add a tag with wildcard value ("*") without requiring explicit value parameter"""
         key_lower = key.lower()
-        if key_lower in ("in", "out"):
-            return self
+        if key_lower in ("in", "out", "effect"):
+            raise CapUrnError(
+                f"CapUrnBuilder.marker cannot set reserved structural key '{key_lower}'; use in_spec/out_spec/effect"
+            )
         self._tags[key_lower] = "*"
         return self
 
@@ -825,4 +887,4 @@ class CapUrnBuilder:
         if self._out_urn is None:
             raise CapUrnError("Missing required 'out' spec - use out_spec() to set it")
 
-        return CapUrn(self._in_urn, self._out_urn, self._tags)
+        return CapUrn(self._in_urn, self._out_urn, self._tags, effect=self._effect)
