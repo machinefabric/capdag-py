@@ -58,7 +58,7 @@ def test_137_parse_registry_json():
         "title": "Create Grinder Tool Task",
         "cap_description": "Create a task for initial document analysis",
         "metadata": {},
-        "media_specs": [
+        "media_defs": [
             {
                 "urn": "media:listing-id",
                 "media_type": "text/plain",

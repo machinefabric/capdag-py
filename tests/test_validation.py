@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from capdag import CapUrn, Cap, CapArg
 from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
-from capdag.media.spec import MediaSpecDef
+from capdag.media.spec import MediaDef
 from capdag.media.registry import FabricRegistry
 from capdag.cap.validation import (
     validate_cap_args,
@@ -47,7 +47,7 @@ async def test_051_input_validation_success(registry):
 
     # The unified registry resolves the arg's media URN at validation
     # time; seed the spec the cap references.
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn=MEDIA_STRING,
         media_type="text/plain",
         title="String",
@@ -118,7 +118,7 @@ async def test_132_input_validation_too_many_args(registry):
 async def test_053_input_validation_wrong_type(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn=MEDIA_INTEGER,
         media_type="text/plain",
         title="Integer",
@@ -132,8 +132,8 @@ async def test_053_input_validation_wrong_type(registry):
         await validate_positional_arguments(cap, ["not_a_number"], registry)
 
 
-# TESTs 054/055/056 (XV5: inline media-spec redefinition) were removed in the
-# Rust regime: inline cap-local media specs no longer exist, so the situation
+# TESTs 054/055/056 (XV5: inline media-def redefinition) were removed in the
+# Rust regime: inline cap-local media defs no longer exist, so the situation
 # the rule guarded against is structurally impossible. The corresponding tests
 # are obsolete and intentionally left out.
 

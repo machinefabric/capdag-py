@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from capdag import Cap, CapArg, CapOutput, CapUrn
 from capdag.cap.definition import PositionSource
-from capdag.media.spec import MediaSpecDef
+from capdag.media.spec import MediaDef
 from capdag.cap.schema_validation import (
     SchemaValidator,
     ArgumentValidationError,
@@ -40,8 +40,8 @@ async def test_163_argument_schema_validation_success(registry):
         "required": ["name"]
     }
 
-    # Create cap with media_specs containing the schema
-    registry.add_spec(MediaSpecDef(
+    # Create cap with media_defs containing the schema
+    registry.add_spec(MediaDef(
         urn="media:user-data",
         media_type="application/json",
         title="User Data",
@@ -69,8 +69,8 @@ async def test_164_argument_schema_validation_failure(registry):
         "required": ["name"]
     }
 
-    # Create cap with media_specs containing the schema
-    registry.add_spec(MediaSpecDef(
+    # Create cap with media_defs containing the schema
+    registry.add_spec(MediaDef(
         urn="media:user-data",
         media_type="application/json",
         title="User Data",
@@ -102,8 +102,8 @@ async def test_165_output_schema_validation_success(registry):
         "required": ["result"]
     }
 
-    # Create cap with media_specs containing the schema
-    registry.add_spec(MediaSpecDef(
+    # Create cap with media_defs containing the schema
+    registry.add_spec(MediaDef(
         urn="media:query-result",
         media_type="application/json",
         title="Query Result",
@@ -118,7 +118,7 @@ async def test_165_output_schema_validation_success(registry):
     await validator.validate_output(output, valid_value, registry)
 
 
-# TEST166: Test validation skipped when resolved media spec has no schema
+# TEST166: Test validation skipped when resolved media def has no schema
 @pytest.mark.asyncio
 async def test_166_skip_validation_without_schema(registry):
     """A spec resolves but has no schema → validate_argument is a no-op.
@@ -131,7 +131,7 @@ async def test_166_skip_validation_without_schema(registry):
 
     # Seed a spec for MEDIA_STRING with NO schema. Resolve succeeds,
     # validate_argument has nothing to validate against, returns cleanly.
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn=MEDIA_STRING,
         media_type="text/plain",
         title="String",
@@ -190,7 +190,7 @@ async def test_126_nested_object_schema_validation(registry):
         "required": ["user"]
     }
 
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:user-event",
         media_type="application/json",
         title="User Event",
@@ -239,7 +239,7 @@ async def test_127_array_schema_validation(registry):
         "minItems": 1
     }
 
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:item-list",
         media_type="application/json",
         title="Item List",
@@ -279,7 +279,7 @@ async def test_128_type_constraint_validation(registry):
         "required": ["count"]
     }
 
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:product",
         media_type="application/json",
         title="Product",
@@ -314,13 +314,13 @@ async def test_129_validate_multiple_arguments(registry):
         "maximum": 100
     }
 
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:name",
         media_type="text/plain",
         title="Name",
         schema=schema1,
     ).to_stored())
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:score",
         media_type="application/json",
         title="Score",
@@ -365,7 +365,7 @@ async def test_130_output_validation_with_details(registry):
         "required": ["status"]
     }
 
-    registry.add_spec(MediaSpecDef(
+    registry.add_spec(MediaDef(
         urn="media:response",
         media_type="application/json",
         title="Response",

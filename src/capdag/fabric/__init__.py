@@ -1,4 +1,4 @@
-"""Unified fabric registry — merged cap and media-spec lookup/cache."""
+"""Unified fabric registry — merged cap and media-def lookup/cache."""
 
 from capdag.fabric.registry import (
     CACHE_DURATION_HOURS,
@@ -14,7 +14,7 @@ from capdag.fabric.registry import (
     NotFoundError,
     ParseError,
     RegistryConfig,
-    StoredMediaSpec,
+    StoredMediaDef,
     ValidationError,
     normalize_cap_urn,
     normalize_media_urn,
@@ -34,7 +34,7 @@ __all__ = [
     "NotFoundError",
     "ParseError",
     "RegistryConfig",
-    "StoredMediaSpec",
+    "StoredMediaDef",
     "ValidationError",
     "normalize_cap_urn",
     "normalize_media_urn",

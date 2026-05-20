@@ -18,7 +18,7 @@ git mv src/capdag/validation.py src/capdag/cap/validation.py
 git mv src/capdag/schema_validation.py src/capdag/cap/schema_validation.py
 
 # Media module
-git mv src/capdag/media_spec.py src/capdag/media/spec.py
+git mv src/capdag/media_def.py src/capdag/media/spec.py
 git mv src/capdag/media_registry.py src/capdag/media/registry.py
 
 # Bifaci module

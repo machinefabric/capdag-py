@@ -1,6 +1,6 @@
 """Profile Schema Registry
 
-Registry for JSON Schema profiles. Validates data against media spec type
+Registry for JSON Schema profiles. Validates data against media def type
 definitions.
 
 Schemas are not bundled into the library — callers seed the in-memory cache

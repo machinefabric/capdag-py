@@ -76,8 +76,8 @@ def test_774_get_reachable_targets_finds_all_targets():
     graph.add_cap(_make_test_cap("media:a", "media:d", "step3", "A to D"))
 
     targets = graph.get_reachable_targets(_media("media:a"), False, 5)
-    assert any(t.media_spec.is_equivalent(_media("media:b")) for t in targets)
-    assert any(t.media_spec.is_equivalent(_media("media:d")) for t in targets)
+    assert any(t.media_def.is_equivalent(_media("media:b")) for t in targets)
+    assert any(t.media_def.is_equivalent(_media("media:d")) for t in targets)
 
 
 # TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
@@ -119,12 +119,12 @@ def test_779_get_reachable_targets_respects_type_matching():
     graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     png_targets = graph.get_reachable_targets(_media("media:image;png"), False, 5)
-    assert any(t.media_spec.is_equivalent(_media("media:thumbnail")) for t in png_targets)
-    assert not any(t.media_spec.is_equivalent(_media("media:textable")) for t in png_targets)
+    assert any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in png_targets)
+    assert not any(t.media_def.is_equivalent(_media("media:textable")) for t in png_targets)
 
     pdf_targets = graph.get_reachable_targets(_media("media:pdf"), False, 5)
-    assert any(t.media_spec.is_equivalent(_media("media:textable")) for t in pdf_targets)
-    assert not any(t.media_spec.is_equivalent(_media("media:thumbnail")) for t in pdf_targets)
+    assert any(t.media_def.is_equivalent(_media("media:textable")) for t in pdf_targets)
+    assert not any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in pdf_targets)
 
 
 # TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
@@ -282,7 +282,7 @@ def test_1289_bfs_reachable_includes_source_roundtrip():
 
     source = _media("media:textable")
     targets = graph.get_reachable_targets(source, False, 5)
-    assert any(t.media_spec.is_equivalent(source) for t in targets)
+    assert any(t.media_def.is_equivalent(source) for t in targets)
 
 
 # TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target.
@@ -346,7 +346,7 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
 
     source = _media("media:a")
     bfs_targets = graph.get_reachable_targets(source, False, 5)
-    assert any(t.media_spec.is_equivalent(source) for t in bfs_targets)
+    assert any(t.media_def.is_equivalent(source) for t in bfs_targets)
 
     paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
     assert paths
@@ -381,7 +381,7 @@ def test_1150_add_cap_and_basic_traversal():
 
     extracted_text = _media("media:extracted-text")
     cap_target = next(
-        (t for t in targets if t.media_spec.is_equivalent(extracted_text)),
+        (t for t in targets if t.media_def.is_equivalent(extracted_text)),
         None
     )
     assert cap_target is not None, "extracted-text should be reachable"

@@ -29,6 +29,8 @@ from capdag.bifaci.io import (
     handshake_accept,
 )
 
+CAP_IDENTITY = "cap:effect=none"
+
 
 def make_conn():
     """Create a bidirectional connection using socket pairs.
@@ -83,7 +85,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
         return
 
     assert req.frame_type == FrameType.REQ
-    if req.cap == "cap:":
+    if req.cap == CAP_IDENTITY:
         ss = reader.read()
         chunk = reader.read()
         se = reader.read()
@@ -116,7 +118,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
         handler(reader, writer)
 
 
-IDENTITY_CAP_JSON = '{"urn":"cap:","title":"Identity","command":"identity","args":[]}'
+IDENTITY_CAP_JSON = '{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}'
 
 
 # TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
@@ -145,7 +147,7 @@ def test_485_attach_cartridge_identity_verification_succeeds():
         cartridge = host._cartridges[0]
         assert cartridge.running
         urns = cartridge.cap_urns()
-        assert "cap:" in urns
+        assert CAP_IDENTITY in urns
         assert "cap:test" in urns
 
     cleanup(hs, ps)
@@ -412,11 +414,11 @@ def test_416_attach_cartridge_handshake():
     with host._lock:
         cartridge = host._cartridges[0]
         assert cartridge.running
-        assert cartridge.cap_urns() == ["cap:"]
+        assert cartridge.cap_urns() == [CAP_IDENTITY]
 
     caps = host.capabilities()
     assert caps is not None
-    assert b"cap:" in caps
+    assert CAP_IDENTITY.encode("utf-8") in caps
     cleanup(hs, ps)
     t.join(timeout=5)
 
@@ -933,7 +935,7 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
     cap_groups = [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {
                 "urn": 'cap:in="media:pdf";thumbnail;out="media:image;png"',
                 "title": "Thumbnail",
@@ -956,13 +958,13 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
 
     # cap_table is the routing source of truth — death keeps caps
     # routable so on-demand respawn can dispatch to them.
-    assert "cap:" in advertised
+    assert CAP_IDENTITY in advertised
     assert any("thumbnail" in cap for cap in advertised)
 
     # Inventory advertised to the engine: same cap_groups, identity-
     # filtered (synthesised cartridge-{idx} ID is always present).
     caps = _aggregate_cap_urns(host.capabilities())
-    assert "cap:" in caps
+    assert CAP_IDENTITY in caps
     assert any("thumbnail" in cap for cap in caps)
 
 
@@ -974,7 +976,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
     host.register_cartridge("/fake/cartridge1", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
         ],
         "adapter_urns": [],
@@ -982,7 +984,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
     host.register_cartridge("/fake/cartridge2", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
         ],
         "adapter_urns": [],
@@ -992,7 +994,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
         host._rebuild_capabilities()
 
     caps = _aggregate_cap_urns(host.capabilities())
-    assert "cap:" in caps
+    assert CAP_IDENTITY in caps
     assert any("extract" in cap for cap in caps)
     assert any("ocr" in cap for cap in caps)
 
@@ -1003,7 +1005,7 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
     host.register_cartridge("/fake/broken", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:void";broken;out="media:void"', "title": "Broken", "command": "broken", "args": []},
         ],
         "adapter_urns": [],
@@ -1029,7 +1031,7 @@ def test_664_running_cartridge_uses_manifest_caps():
     host.register_cartridge("/fake/path", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
         ],
         "adapter_urns": [],
@@ -1043,7 +1045,7 @@ def test_664_running_cartridge_uses_manifest_caps():
         cartridge.cap_groups = [{
             "name": "default",
             "caps": [
-                {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+                {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
                 {"urn": 'cap:in="media:text";uppercase;out="media:text"', "title": "Uppercase", "command": "uppercase", "args": []},
             ],
             "adapter_urns": [],
@@ -1069,7 +1071,7 @@ def test_665_cap_table_mixed_running_and_non_running():
     host.register_cartridge("/fake/running", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:void";stale;out="media:void"', "title": "Stale", "command": "stale", "args": []},
         ],
         "adapter_urns": [],
@@ -1077,7 +1079,7 @@ def test_665_cap_table_mixed_running_and_non_running():
     host.register_cartridge("/fake/stopped", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
         ],
         "adapter_urns": [],
@@ -1090,7 +1092,7 @@ def test_665_cap_table_mixed_running_and_non_running():
         host._cartridges[0].cap_groups = [{
             "name": "default",
             "caps": [
-                {"urn": "cap:", "title": "Identity", "command": "identity", "args": []},
+                {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
                 {"urn": 'cap:in="media:text";running-op;out="media:text"', "title": "RunningOp", "command": "running-op", "args": []},
             ],
             "adapter_urns": [],

@@ -31,6 +31,7 @@ from capdag.bifaci.io import (
 
 # Test manifest JSON - cartridges MUST include manifest in HELLO response
 TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
+CAP_GENERIC = "cap:echo"
 
 
 def create_socket_pair():
@@ -99,7 +100,7 @@ def test_285_request_response_simple():
         frame = reader.read()
         assert frame is not None
         assert frame.frame_type == FrameType.REQ
-        assert frame.cap == "cap:in=media:;out=media:"
+        assert frame.cap == CAP_GENERIC
         assert frame.payload == b"hello"
 
         writer.write(Frame.end(frame.id, b"hello back"))
@@ -113,7 +114,7 @@ def test_285_request_response_simple():
     # handshake already sets limits on reader/writer
 
     request_id = MessageId.new_uuid()
-    writer.write(Frame.req(request_id, "cap:in=media:;out=media:", b"hello", "application/json"))
+    writer.write(Frame.req(request_id, CAP_GENERIC, b"hello", "application/json"))
 
     response = reader.read()
     assert response is not None

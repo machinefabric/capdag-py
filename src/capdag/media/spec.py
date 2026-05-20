@@ -1,16 +1,16 @@
-"""MediaSpec parsing and media URN resolution
+"""MediaDef parsing and media URN resolution
 
 This module provides:
-- Media URN resolution (e.g., `media:string` → resolved media spec)
-- MediaSpec parsing (canonical form: `text/plain; profile=https://...`)
-- MediaSpecDef for defining specs in cap definitions
+- Media URN resolution (e.g., `media:string` → resolved media def)
+- MediaDef parsing (canonical form: `text/plain; profile=https://...`)
+- MediaDef for defining specs in cap definitions
 - MediaValidation for validation rules inherent to media types
 
 ## Media URN Format
 Media URNs are tagged URNs with "media" prefix, e.g., `media:string`
 Built-in primitives are available without explicit declaration.
 
-## MediaSpec Format
+## MediaDef Format
 Canonical form: `<media-type>; profile=<url>`
 Example: `text/plain; profile=https://capdag.com/schema/str`
 """
@@ -146,7 +146,7 @@ PROFILE_CAPDAG_QUESTIONS_ARRAY = "https://capdag.com/schema/questions-array"
 
 
 # =============================================================================
-# MEDIA VALIDATION (for media spec definitions)
+# MEDIA VALIDATION (for media definitions)
 # =============================================================================
 
 
@@ -154,7 +154,7 @@ class MediaValidation:
     """Validation rules for media types
 
     These rules are inherent to the semantic media type and are defined
-    in the media spec, not on individual arguments or outputs.
+    in the media def, not on individual arguments or outputs.
     """
 
     def __init__(
@@ -249,19 +249,19 @@ class MediaValidation:
 
 
 # =============================================================================
-# MEDIA SPEC DEFINITION (for cap definitions)
+# MEDIA DEFINITION DEFINITION (for cap definitions)
 # =============================================================================
 
 
-class MediaSpecDef:
-    """Media spec definition - can be string (compact) or object (rich)
+class MediaDef:
+    """Media definition - can be string (compact) or object (rich)
 
-    Used in the `media_specs` map of a cap definition.
+    Used in the `media_defs` map of a cap definition.
 
-    Media spec definition for inline media_specs in cap definitions.
+    Media definition for inline media_defs in cap definitions.
 
-    This is the same structure as media spec JSON files in the registry.
-    Each media spec has a unique URN that identifies it.
+    This is the same structure as media def JSON files in the registry.
+    Each media def has a unique URN that identifies it.
     """
 
     def __init__(
@@ -277,7 +277,7 @@ class MediaSpecDef:
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
     ):
-        """Create a new media spec definition
+        """Create a new media definition
 
         Args:
             urn: The media URN identifier (e.g., "media:pdf;binary")
@@ -288,7 +288,7 @@ class MediaSpecDef:
             description: Optional short plain-text description of the media type
             documentation: Optional long-form markdown documentation. Rendered in
                 media info panels, the cap navigator, capdag-dot-com, and anywhere
-                else a rich-text explanation of the media spec is useful.
+                else a rich-text explanation of the media def is useful.
             validation: Optional validation rules for this media type
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
@@ -304,11 +304,11 @@ class MediaSpecDef:
         self.metadata = metadata
         self.extensions = extensions or []
 
-    def to_stored(self) -> "StoredMediaSpec":
-        """Convert this MediaSpecDef into a StoredMediaSpec for registry seeding."""
-        from capdag.media.registry import StoredMediaSpec
+    def to_stored(self) -> "StoredMediaDef":
+        """Convert this MediaDef into a StoredMediaDef for registry seeding."""
+        from capdag.media.registry import StoredMediaDef
 
-        return StoredMediaSpec(
+        return StoredMediaDef(
             urn=self.urn,
             media_type=self.media_type,
             title=self.title,
@@ -357,7 +357,7 @@ class MediaSpecDef:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "MediaSpecDef":
+    def from_dict(cls, data: Dict) -> "MediaDef":
         """Parse from dict"""
         validation = None
         if "validation" in data:
@@ -377,7 +377,7 @@ class MediaSpecDef:
         )
 
     def __eq__(self, other) -> bool:
-        if not isinstance(other, MediaSpecDef):
+        if not isinstance(other, MediaDef):
             return False
         return (
             self.urn == other.urn
@@ -394,14 +394,14 @@ class MediaSpecDef:
 
 
 # =============================================================================
-# RESOLVED MEDIA SPEC
+# RESOLVED MEDIA DEFINITION
 # =============================================================================
 
 
-class ResolvedMediaSpec:
-    """Fully resolved media spec with all fields populated
+class ResolvedMediaDef:
+    """Fully resolved media def with all fields populated
 
-    This is the result of resolving a media URN through the media_specs table
+    This is the result of resolving a media URN through the media_defs table
     or from a built-in definition.
     """
 
@@ -418,7 +418,7 @@ class ResolvedMediaSpec:
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
     ):
-        """Create a resolved media spec
+        """Create a resolved media def
 
         Args:
             media_urn: The media URN that was resolved
@@ -428,7 +428,7 @@ class ResolvedMediaSpec:
             title: Display-friendly title for the media type
             description: Optional short plain-text description of the media type
             documentation: Optional long-form markdown documentation
-            validation: Optional validation rules from the media spec definition
+            validation: Optional validation rules from the media definition
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
         """
@@ -529,7 +529,7 @@ class ResolvedMediaSpec:
         return self._parse_media_urn().is_bool()
 
     def __eq__(self, other) -> bool:
-        if not isinstance(other, ResolvedMediaSpec):
+        if not isinstance(other, ResolvedMediaDef):
             return False
         return (
             self.media_urn == other.media_urn
@@ -549,28 +549,28 @@ class ResolvedMediaSpec:
 # =============================================================================
 
 
-class MediaSpecError(Exception):
-    """Base exception for media spec errors"""
+class MediaDefError(Exception):
+    """Base exception for media def errors"""
     pass
 
 
-class UnresolvableMediaUrn(MediaSpecError):
-    """Media URN cannot be resolved (not in media_specs and not in registry)"""
+class UnresolvableMediaUrn(MediaDefError):
+    """Media URN cannot be resolved (not in media_defs and not in registry)"""
     pass
 
 
-class DuplicateMediaUrn(MediaSpecError):
-    """Duplicate media URN in media_specs array"""
+class DuplicateMediaUrn(MediaDefError):
+    """Duplicate media URN in media_defs array"""
     pass
 
 
 async def resolve_media_urn(
     media_urn: str,
     registry: "capdag.media_registry.FabricRegistry",
-) -> ResolvedMediaSpec:
-    """Resolve a media URN to a full media spec definition.
+) -> ResolvedMediaDef:
+    """Resolve a media URN to a full media definition.
 
-    Caps no longer carry inline media specs; the registry is the only source.
+    Caps no longer carry inline media defs; the registry is the only source.
 
     Args:
         media_urn: The media URN to resolve.
@@ -580,8 +580,8 @@ async def resolve_media_urn(
         UnresolvableMediaUrn: If the media URN cannot be resolved.
     """
     try:
-        stored_spec = await registry.get_media_spec(media_urn)
-        return ResolvedMediaSpec(
+        stored_spec = await registry.get_media_def(media_urn)
+        return ResolvedMediaDef(
             media_urn=media_urn,
             media_type=stored_spec.media_type,
             profile_uri=stored_spec.profile_uri,
@@ -603,17 +603,17 @@ async def resolve_media_urn(
         )
 
 
-def validate_media_specs_no_duplicates(media_specs: List[MediaSpecDef]) -> None:
-    """Validate that media_specs array has no duplicate URNs.
+def validate_media_defs_no_duplicates(media_defs: List[MediaDef]) -> None:
+    """Validate that media_defs array has no duplicate URNs.
 
     Args:
-        media_specs: The media_specs array to validate
+        media_defs: The media_defs array to validate
 
     Raises:
         DuplicateMediaUrn: If any URN appears more than once
     """
     seen = set()
-    for spec in media_specs:
+    for spec in media_defs:
         if spec.urn in seen:
             raise DuplicateMediaUrn(spec.urn)
         seen.add(spec.urn)

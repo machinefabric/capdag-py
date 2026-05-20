@@ -6,7 +6,7 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 import json
 from capdag import CapUrn
-from capdag.cap.definition import Cap, CapArg, StdinSource
+from capdag.cap.definition import Cap, CapArg, StdinSource, CliFlagSource
 from capdag.bifaci.manifest import CapManifest, CapGroup, default_group
 from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT
 

@@ -91,8 +91,8 @@ def _strand_with_cap_steps(steps_data: list) -> Strand:
     last = steps[-1] if steps else None
     return Strand(
         steps=steps,
-        source_spec=first.from_spec if first else _media("media:"),
-        target_spec=last.to_spec if last else _media("media:"),
+        source_media_urn=first.from_spec if first else _media("media:"),
+        target_media_urn=last.to_spec if last else _media("media:"),
         total_steps=len(steps),
         cap_step_count=len(steps),
         description="test strand",
@@ -504,7 +504,7 @@ def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
         step_type=StrandStepType.FOR_EACH,
         from_spec=_media("media:list;textable"),
         to_spec=_media("media:textable"),
-        media_spec=_media("media:textable"),
+        media_def=_media("media:textable"),
     )
     cap_step = StrandStep(
         step_type=StrandStepType.CAP,
@@ -514,8 +514,8 @@ def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
     )
     strand = Strand(
         steps=[foreach_step, cap_step],
-        source_spec=_media("media:list;textable"),
-        target_spec=_media("media:vec;record"),
+        source_media_urn=_media("media:list;textable"),
+        target_media_urn=_media("media:vec;record"),
         total_steps=2,
         cap_step_count=1,
         description="foreach embed",

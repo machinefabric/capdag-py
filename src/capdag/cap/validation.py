@@ -30,7 +30,7 @@ class InvalidArgumentTypeError(ValidationError):
         super().__init__(msg)
         self.cap_urn = cap_urn
         self.argument_name = argument_name
-        self.expected_media_spec = expected
+        self.expected_media_def = expected
         self.actual_value = actual
         self.schema_errors = errors
 
@@ -52,11 +52,11 @@ class InvalidCapSchemaError(ValidationError):
         self.issue = issue
 
 
-class MediaSpecValidationError(ValidationError):
-    """Media spec validation rule violation"""
+class MediaDefValidationError(ValidationError):
+    """Media def validation rule violation"""
     def __init__(self, cap_urn: str, argument_name: str, media_urn: str, rule: str, actual: Any):
         super().__init__(
-            f"Cap '{cap_urn}' argument '{argument_name}' failed media spec '{media_urn}' "
+            f"Cap '{cap_urn}' argument '{argument_name}' failed media def '{media_urn}' "
             f"validation rule '{rule}' with value: {actual}"
         )
         self.cap_urn = cap_urn

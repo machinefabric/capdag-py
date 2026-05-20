@@ -97,7 +97,7 @@ class StrandStep:
     __slots__ = (
         "step_type", "from_spec", "to_spec",
         "cap_urn", "step_title", "specificity_val",
-        "media_spec",
+        "media_def",
         "input_is_sequence", "output_is_sequence",
     )
 
@@ -109,7 +109,7 @@ class StrandStep:
         cap_urn: Optional[CapUrn] = None,
         step_title: str = "",
         specificity_val: int = 0,
-        media_spec: Optional[MediaUrn] = None,
+        media_def: Optional[MediaUrn] = None,
         input_is_sequence: bool = False,
         output_is_sequence: bool = False,
     ):
@@ -119,7 +119,7 @@ class StrandStep:
         self.cap_urn = cap_urn
         self.step_title = step_title
         self.specificity_val = specificity_val
-        self.media_spec = media_spec
+        self.media_def = media_def
         self.input_is_sequence = input_is_sequence
         self.output_is_sequence = output_is_sequence
 
@@ -150,22 +150,22 @@ class Strand:
     """Information about a complete capability chain path."""
 
     __slots__ = (
-        "steps", "source_spec", "target_spec",
+        "steps", "source_media_urn", "target_media_urn",
         "total_steps", "cap_step_count", "description",
     )
 
     def __init__(
         self,
         steps: List[StrandStep],
-        source_spec: MediaUrn,
-        target_spec: MediaUrn,
+        source_media_urn: MediaUrn,
+        target_media_urn: MediaUrn,
         total_steps: int,
         cap_step_count: int,
         description: str,
     ):
         self.steps = steps
-        self.source_spec = source_spec
-        self.target_spec = target_spec
+        self.source_media_urn = source_media_urn
+        self.target_media_urn = target_media_urn
         self.total_steps = total_steps
         self.cap_step_count = cap_step_count
         self.description = description
@@ -190,16 +190,16 @@ class Strand:
 class ReachableTargetInfo:
     """Information about a reachable target from a source media type."""
 
-    __slots__ = ("media_spec", "display_name", "min_path_length", "path_count")
+    __slots__ = ("media_def", "display_name", "min_path_length", "path_count")
 
     def __init__(
         self,
-        media_spec: MediaUrn,
+        media_def: MediaUrn,
         display_name: str,
         min_path_length: int,
         path_count: int,
     ):
-        self.media_spec = media_spec
+        self.media_def = media_def
         self.display_name = display_name
         self.min_path_length = min_path_length
         self.path_count = path_count
@@ -437,7 +437,7 @@ class LiveCapFab:
                     info.min_path_length = depth
             else:
                 visited[current_key] = ReachableTargetInfo(
-                    media_spec=current_urn,
+                    media_def=current_urn,
                     display_name=current_key,
                     min_path_length=depth,
                     path_count=1,
@@ -588,8 +588,8 @@ class LiveCapFab:
                     desc = " → ".join(step.title() for step in steps)
                     results.append(Strand(
                         steps=steps,
-                        source_spec=original_source,
-                        target_spec=target,
+                        source_media_urn=original_source,
+                        target_media_urn=target,
                         total_steps=len(steps),
                         cap_step_count=cap_count,
                         description=desc,
@@ -648,13 +648,13 @@ class LiveCapFab:
                 step_type=StrandStepType.FOR_EACH,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
-                media_spec=edge.from_spec,
+                media_def=edge.from_spec,
             )
         elif edge.edge_type == LiveMachinePlanEdgeType.COLLECT:
             return StrandStep(
                 step_type=StrandStepType.COLLECT,
                 from_spec=edge.from_spec,
                 to_spec=edge.to_spec,
-                media_spec=edge.from_spec,
+                media_def=edge.from_spec,
             )
         raise ValueError(f"Unknown edge type: {edge.edge_type}")

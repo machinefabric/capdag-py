@@ -36,7 +36,7 @@ def discriminate_candidates_by_validation(
     survivors: list[str] = []
 
     for urn_str in candidate_urns:
-        spec = fabric_registry.get_cached_media_spec(urn_str)
+        spec = fabric_registry.get_cached_media_def(urn_str)
         if spec is None:
             survivors.append(urn_str)
             continue

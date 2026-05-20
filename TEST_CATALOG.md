@@ -86,22 +86,22 @@ This catalog lists all tests in the Python codebase.
 | test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | tests/test_media_urn.py:222 |
 | test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:236 |
 | test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:245 |
-| test088 | `test_088_resolve_seeded_spec` | TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. Mirrors Rust test088. | tests/test_media_spec.py:47 |
-| test089 | `test_089_resolve_seeded_record_spec` | TEST089: A seeded record-shaped media spec carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaSpec. Mirrors Rust test089. | tests/test_media_spec.py:64 |
-| test093 | `test_093_resolve_unresolvable_fails_hard` | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaSpec` would surface here as a missing error. Mirrors Rust test093. | tests/test_media_spec.py:88 |
-| test095 | `test_095_media_spec_def_serialize` | TEST095: Test MediaSpecDef serializes with required fields and skips None fields | tests/test_media_spec.py:102 |
-| test096 | `test_096_media_spec_def_deserialize` | TEST096: Test deserializing MediaSpecDef from JSON object | tests/test_media_spec.py:126 |
-| test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST097: Test duplicate URN validation catches duplicates | tests/test_media_spec.py:145 |
-| test098 | `test_098_validate_no_duplicate_urns_passes_for_unique` | TEST098: Test duplicate URN validation passes for unique URNs | tests/test_media_spec.py:164 |
-| test099 | `test_099_resolved_is_binary` | TEST099: Test ResolvedMediaSpec is_binary returns true when textable tag is absent | tests/test_media_spec.py:187 |
-| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaSpec is_record returns true when record marker is present | tests/test_media_spec.py:205 |
-| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaSpec is_scalar returns true when list marker is absent | tests/test_media_spec.py:224 |
-| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaSpec is_list returns true when list marker is present | tests/test_media_spec.py:242 |
-| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaSpec is_json returns true when json tag is present | tests/test_media_spec.py:260 |
-| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaSpec is_text returns true when textable tag is present | tests/test_media_spec.py:278 |
-| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media spec def to resolved media spec | tests/test_media_spec.py:302 |
-| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media spec definition | tests/test_media_spec.py:324 |
-| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from registry spec to resolved | tests/test_media_spec.py:357 |
+| test088 | `test_088_resolve_seeded_spec` | TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. Mirrors Rust test088. | tests/test_media_def.py:47 |
+| test089 | `test_089_resolve_seeded_record_spec` | TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. Mirrors Rust test089. | tests/test_media_def.py:64 |
+| test093 | `test_093_resolve_unresolvable_fails_hard` | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. Mirrors Rust test093. | tests/test_media_def.py:88 |
+| test095 | `test_095_media_def_def_serialize` | TEST095: Test MediaDef serializes with required fields and skips None fields | tests/test_media_def.py:102 |
+| test096 | `test_096_media_def_def_deserialize` | TEST096: Test deserializing MediaDef from JSON object | tests/test_media_def.py:126 |
+| test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST097: Test duplicate URN validation catches duplicates | tests/test_media_def.py:145 |
+| test098 | `test_098_validate_no_duplicate_urns_passes_for_unique` | TEST098: Test duplicate URN validation passes for unique URNs | tests/test_media_def.py:164 |
+| test099 | `test_099_resolved_is_binary` | TEST099: Test ResolvedMediaDef is_binary returns true when textable tag is absent | tests/test_media_def.py:187 |
+| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present | tests/test_media_def.py:205 |
+| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent | tests/test_media_def.py:224 |
+| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present | tests/test_media_def.py:242 |
+| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present | tests/test_media_def.py:260 |
+| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaDef is_text returns true when textable tag is present | tests/test_media_def.py:278 |
+| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media def def to resolved media def | tests/test_media_def.py:302 |
+| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media definition | tests/test_media_def.py:324 |
+| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from registry spec to resolved | tests/test_media_def.py:357 |
 | test108 | `test_108_cap_creation` | TEST108: Test creating new cap with URN, title, and command verifies correct initialization | tests/test_cap.py:19 |
 | test109 | `test_109_cap_with_args` | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly | tests/test_cap.py:30 |
 | test110 | `test_110_cap_with_stdin` | TEST110: Test cap matching with subset semantics for request fulfillment | tests/test_cap.py:49 |
@@ -156,7 +156,7 @@ This catalog lists all tests in the Python codebase.
 | test163 | `test_163_argument_schema_validation_success` | TEST163: Test argument schema validation succeeds with valid JSON matching schema | tests/test_schema_validation.py:31 |
 | test164 | `test_164_argument_schema_validation_failure` | TEST164: Test argument schema validation fails with JSON missing required fields | tests/test_schema_validation.py:61 |
 | test165 | `test_165_output_schema_validation_success` | TEST165: Test output schema validation succeeds with valid JSON matching schema | tests/test_schema_validation.py:93 |
-| test166 | `test_166_skip_validation_without_schema` | TEST166: Test validation skipped when resolved media spec has no schema | tests/test_schema_validation.py:123 |
+| test166 | `test_166_skip_validation_without_schema` | TEST166: Test validation skipped when resolved media def has no schema | tests/test_schema_validation.py:123 |
 | test167 | `test_167_unresolvable_media_urn_fails_hard` | TEST167: Test validation fails hard when media URN cannot be resolved. | tests/test_schema_validation.py:149 |
 | test168 | `test_168_json_response` | TEST168: Test ResponseWrapper from JSON deserializes to correct structured type | tests/test_response.py:20 |
 | test169 | `test_169_primitive_types` | TEST169: Test ResponseWrapper converts to primitive types integer, float, boolean, string | tests/test_response.py:31 |
@@ -283,8 +283,8 @@ This catalog lists all tests in the Python codebase.
 | test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:256 |
 | test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:264 |
 | test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:272 |
-| test307 | `test_307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct marker and media specs | tests/test_standard_caps.py:31 |
-| test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct marker and media specs | tests/test_standard_caps.py:39 |
+| test307 | `test_307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs | tests/test_standard_caps.py:31 |
+| test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct marker and media defs | tests/test_standard_caps.py:39 |
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:47 |
 | test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | tests/test_standard_caps.py:54 |
 | test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:64 |
@@ -527,16 +527,16 @@ This catalog lists all tests in the Python codebase.
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
 | test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:107 |
 | test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:124 |
-| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_spec.py:439 |
-| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_spec.py:447 |
-| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_spec.py:470 |
-| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_spec.py:491 |
+| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:439 |
+| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:447 |
+| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_def.py:470 |
+| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_def.py:491 |
 | test611 | `test_611_insert_schema_populates_cache` | TEST611: insert_schema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return None even for inputs that violate the schema. | tests/test_media_profile.py:65 |
 | test612 | `test_612_clear_cache` | TEST612: clear_cache empties all in-memory schemas | tests/test_media_profile.py:78 |
 | test613 | `test_613_validate_cached` | TEST613: validate_cached validates against seeded schemas | tests/test_media_profile.py:86 |
-| test614 | `test_614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | tests/test_media_spec.py:512 |
-| test616 | `test_616_stored_media_spec_to_def` | TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields | tests/test_media_spec.py:525 |
-| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_spec.py:544 |
+| test614 | `test_614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | tests/test_media_def.py:512 |
+| test616 | `test_616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | tests/test_media_def.py:525 |
+| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_def.py:544 |
 | test618 | `test_618_registry_creation` | TEST618: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly — none are bundled. | tests/test_media_profile.py:103 |
 | test619 | `test_619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has no cached schemas. The well-known profile URLs are not bundled into the library; callers must seed them (via insert_schema) or fetch and seed from the public registry. | tests/test_media_profile.py:111 |
 | test620 | `test_620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | tests/test_media_profile.py:121 |
@@ -756,9 +756,9 @@ This catalog lists all tests in the Python codebase.
 | test886 | `test_886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | tests/test_plan_builder.py:294 |
 | test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | tests/test_cap_urn.py:1235 |
 | test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1314 |
-| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef | tests/test_media_spec.py:373 |
-| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_spec.py:395 |
-| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media spec | tests/test_media_spec.py:417 |
+| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:373 |
+| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:395 |
+| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:417 |
 | test902 | `test_902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | tests/test_cbor_frame.py:1514 |
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |

@@ -363,7 +363,7 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert received is not None
     assert received.hello_max_reorder_buffer() == 64
 
-    manifest = b'{"name":"test","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=media:;out=media:"}]}]}'
+    manifest = b'{"name":"test","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:echo"}]}]}'
     cartridge_writer.write(
         Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 32)
     )
@@ -382,7 +382,7 @@ def test_481_verify_identity_succeeds():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
@@ -420,7 +420,7 @@ def test_482_verify_identity_fails_on_err():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
@@ -449,7 +449,7 @@ def test_483_verify_identity_fails_on_close():
 
     host_read_sock, cartridge_write_sock = socket.socketpair()
     cartridge_read_sock, host_write_sock = socket.socketpair()
-    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:"}]}]}'
+    manifest = b'{"name":"Identity","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none"}]}]}'
 
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))

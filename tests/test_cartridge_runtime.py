@@ -55,8 +55,8 @@ from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTIO
 # VALID_MANIFEST instead.
 TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
 
-# Valid manifest with proper in/out specs for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:in=\\"media:void\\";test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
+# Valid manifest with explicit identity and one additional cap for tests that need parsed CapManifest
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:in=\\"media:void\\";test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
 
 
 # =============================================================================
@@ -539,12 +539,18 @@ def test_273_extract_effective_payload_binary_value():
 def create_test_manifest(name: str, version: str, description: str, caps: list) -> CapManifest:
     """Helper function to create a CapManifest for tests"""
     from capdag.bifaci.manifest import default_group
+    from capdag.cap.definition import Cap
+    from capdag.urn.cap_urn import CapUrn
+
+    all_caps = list(caps)
+    if not any(cap.urn_string() == CAP_IDENTITY for cap in all_caps):
+        all_caps.insert(0, Cap(CapUrn.from_string(CAP_IDENTITY), "Identity", "identity"))
     return CapManifest(
         name=name,
         version=version, channel="release",
             registry_url=None,
             description=description,
-        cap_groups=[default_group(caps)],
+        cap_groups=[default_group(all_caps)],
     )
 
 

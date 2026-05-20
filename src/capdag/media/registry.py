@@ -17,7 +17,7 @@ from capdag.fabric.registry import (
     ParseError,
     CacheError,
     RegistryConfig,
-    StoredMediaSpec,
+    StoredMediaDef,
     normalize_media_urn,
 )
 
@@ -32,6 +32,6 @@ __all__ = [
     "ParseError",
     "CacheError",
     "RegistryConfig",
-    "StoredMediaSpec",
+    "StoredMediaDef",
     "normalize_media_urn",
 ]

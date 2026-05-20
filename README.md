@@ -6,7 +6,7 @@ This library provides the fundamental cap URN system used across all MACHFAB car
 
 ## Features
 
-- **MediaUrn**: Media type specification using tagged URN format with "media" prefix
+- **MediaUrn**: Media type definition using tagged URN format with "media" prefix
 - **CapUrn**: Cap identifiers with required `in` and `out` direction specs
 - Semantic matching with wildcard support
 - Specificity-based selection for finding best matching capabilities

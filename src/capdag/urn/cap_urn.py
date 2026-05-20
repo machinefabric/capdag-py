@@ -168,6 +168,45 @@ class CapUrn:
             return
 
     @classmethod
+    def _from_preserved_parts(
+        cls,
+        in_urn: str,
+        out_urn: str,
+        tags: Dict[str, str],
+        effect: str,
+    ) -> "CapUrn":
+        normalized_tags: Dict[str, str] = {
+            k.lower(): v
+            for k, v in tags.items()
+            if k.lower() not in ("in", "out", "effect")
+        }
+        cls._validate_non_structural_tags(normalized_tags)
+
+        if in_urn and in_urn != "media:":
+            if not in_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}'")
+            try:
+                MediaUrn.from_string(in_urn)
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for in spec '{in_urn}': {e}") from e
+
+        if out_urn and out_urn != "media:":
+            if not out_urn.startswith("media:"):
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}'")
+            try:
+                MediaUrn.from_string(out_urn)
+            except Exception as e:
+                raise CapUrnError(f"Invalid media URN for out spec '{out_urn}': {e}") from e
+
+        instance = object.__new__(cls)
+        instance.in_urn = "media:" if in_urn == "" else in_urn
+        instance.out_urn = "media:" if out_urn == "" else out_urn
+        instance.effect = cls._normalize_effect_value(effect)
+        instance.tags = normalized_tags
+        instance._validate_admissible()
+        return instance
+
+    @classmethod
     def from_tags(cls, tags: Dict[str, str]) -> "CapUrn":
         """Create a cap URN from tags map that must contain 'in' and 'out'
 
@@ -396,18 +435,18 @@ class CapUrn:
 
         new_tags = self.tags.copy()
         new_tags[key_lower] = value
-        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
+        return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def with_in_spec(self, in_urn: str) -> "CapUrn":
         """Create a new cap URN with a different input spec"""
-        return CapUrn(in_urn, self.out_urn, self.tags, effect=self.effect)
+        return CapUrn._from_preserved_parts(in_urn, self.out_urn, self.tags, effect=self.effect)
 
     def with_out_spec(self, out_urn: str) -> "CapUrn":
         """Create a new cap URN with a different output spec"""
-        return CapUrn(self.in_urn, out_urn, self.tags, effect=self.effect)
+        return CapUrn._from_preserved_parts(self.in_urn, out_urn, self.tags, effect=self.effect)
 
     def with_effect(self, effect: CapEffect) -> "CapUrn":
-        return CapUrn(self.in_urn, self.out_urn, self.tags, effect=effect.value)
+        return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, self.tags, effect=effect.value)
 
     def without_tag(self, key: str) -> "CapUrn":
         """Remove a tag
@@ -423,7 +462,7 @@ class CapUrn:
 
         new_tags = self.tags.copy()
         new_tags.pop(key_lower, None)
-        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
+        return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def accepts(self, request: "CapUrn") -> bool:
         """Check if this cap (pattern/handler) accepts the given request (instance).
@@ -683,18 +722,18 @@ class CapUrn:
         key_lower = key.lower()
 
         if key_lower == "in":
-            return CapUrn("media:", self.out_urn, self.tags, effect=self.effect)
+            return CapUrn._from_preserved_parts("media:", self.out_urn, self.tags, effect=self.effect)
         elif key_lower == "out":
-            return CapUrn(self.in_urn, "media:", self.tags, effect=self.effect)
+            return CapUrn._from_preserved_parts(self.in_urn, "media:", self.tags, effect=self.effect)
         elif key_lower == "effect":
-            return CapUrn(self.in_urn, self.out_urn, self.tags, effect=CapEffect.ANY.value)
+            return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, self.tags, effect=CapEffect.ANY.value)
         else:
             if key_lower in self.tags:
                 new_tags = self.tags.copy()
                 new_tags[key_lower] = "*"
-                return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
+                return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, new_tags, effect=self.effect)
             else:
-                return CapUrn(self.in_urn, self.out_urn, self.tags, effect=self.effect)
+                return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, self.tags, effect=self.effect)
 
     def subset(self, keys: List[str]) -> "CapUrn":
         """Create a subset cap with only specified tags
@@ -709,7 +748,7 @@ class CapUrn:
             if key_lower in self.tags:
                 new_tags[key_lower] = self.tags[key_lower]
 
-        return CapUrn(self.in_urn, self.out_urn, new_tags, effect=self.effect)
+        return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def merge(self, other: "CapUrn") -> "CapUrn":
         """Merge with another cap (other takes precedence for conflicts)
@@ -719,7 +758,7 @@ class CapUrn:
         new_tags = self.tags.copy()
         new_tags.update(other.tags)
 
-        return CapUrn(other.in_urn, other.out_urn, new_tags, effect=other.effect)
+        return CapUrn._from_preserved_parts(other.in_urn, other.out_urn, new_tags, effect=other.effect)
 
     @staticmethod
     def canonical(cap_urn: str) -> str:

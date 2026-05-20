@@ -27,7 +27,7 @@ from capdag.urn.media_urn import (
 )
 
 
-# TEST307: Test model_availability_urn builds valid cap URN with correct marker and media specs
+# TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs
 def test_307_model_availability_urn():
     urn = model_availability_urn()
     assert urn.has_marker_tag("model-availability"), "URN must have model-availability marker"
@@ -35,7 +35,7 @@ def test_307_model_availability_urn():
     assert urn.out_spec() == MEDIA_AVAILABILITY_OUTPUT, "output must be availability output"
 
 
-# TEST308: Test model_path_urn builds valid cap URN with correct marker and media specs
+# TEST308: Test model_path_urn builds valid cap URN with correct marker and media defs
 def test_308_model_path_urn():
     urn = model_path_urn()
     assert urn.has_marker_tag("model-path"), "URN must have model-path marker"

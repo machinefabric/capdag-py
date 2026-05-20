@@ -286,28 +286,28 @@ def test_1288_structure_from_marker_tags():
 
 
 def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
-    """Build a `FabricRegistry` pre-seeded with the media specs the
+    """Build a `FabricRegistry` pre-seeded with the media defs the
     input-resolver tests reference. The registry hydrates extension
     lookups from spec arrival — there is no compiled-in fallback
     table — so tests must seed every spec they exercise.
     """
-    from capdag.fabric.registry import StoredMediaSpec
+    from capdag.fabric.registry import StoredMediaDef
 
     registry = FabricRegistry.new_for_test(tmp_path / "media-cache")
 
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:pdf",
         media_type="application/pdf",
         title="PDF",
         extensions=["pdf"],
     ))
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:json;record;textable",
         media_type="application/json",
         title="JSON",
         extensions=["json"],
     ))
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:list;textable;txt",
         media_type="text/plain",
         title="Text",
@@ -317,7 +317,7 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
     # Discrimination tests pass the bare URN explicitly as a
     # candidate. The validation pattern matches the canonical
     # `scheme:rest` shape so plain prose is filtered out.
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:model-spec;textable",
         media_type="text/plain",
         title="Model spec",

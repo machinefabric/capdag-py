@@ -1,7 +1,7 @@
-"""Tests for media_spec module
+"""Tests for media_def module
 
 Full test coverage matching Rust reference implementation.
-Tests media URN resolution, media spec definitions, and validation.
+Tests media URN resolution, media definitions, and validation.
 """
 
 import pytest
@@ -9,17 +9,17 @@ import tempfile
 from pathlib import Path
 
 from capdag.media.spec import (
-    MediaSpecDef,
-    ResolvedMediaSpec,
+    MediaDef,
+    ResolvedMediaDef,
     resolve_media_urn,
-    validate_media_specs_no_duplicates,
-    MediaSpecError,
+    validate_media_defs_no_duplicates,
+    MediaDefError,
     UnresolvableMediaUrn,
     DuplicateMediaUrn,
 )
 from capdag.media.registry import (
     FabricRegistry,
-    StoredMediaSpec,
+    StoredMediaDef,
     normalize_media_urn,
     ExtensionNotFoundError,
 )
@@ -46,7 +46,7 @@ async def create_test_registry():
 @pytest.mark.asyncio
 async def test_088_resolve_seeded_spec():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:textable",
         media_type="text/plain",
         title="Textable",
@@ -56,9 +56,9 @@ async def test_088_resolve_seeded_spec():
     assert resolved.profile_uri is None
 
 
-# TEST089: A seeded record-shaped media spec carries its schema and
+# TEST089: A seeded record-shaped media def carries its schema and
 # profile_uri intact through resolution. Catches a regression that
-# dropped optional fields when copying into ResolvedMediaSpec.
+# dropped optional fields when copying into ResolvedMediaDef.
 # Mirrors Rust test089.
 @pytest.mark.asyncio
 async def test_089_resolve_seeded_record_spec():
@@ -67,7 +67,7 @@ async def test_089_resolve_seeded_record_spec():
         "type": "object",
         "properties": {"name": {"type": "string"}},
     }
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:json;output-spec;record",
         media_type="application/json",
         title="Output Spec",
@@ -82,7 +82,7 @@ async def test_089_resolve_seeded_record_spec():
 
 # TEST093: Resolving a URN that is neither in the registry cache nor
 # available online fails hard. A regression that made the fail path
-# silently return a stub `ResolvedMediaSpec` would surface here as a
+# silently return a stub `ResolvedMediaDef` would surface here as a
 # missing error. Mirrors Rust test093.
 @pytest.mark.asyncio
 async def test_093_resolve_unresolvable_fails_hard():
@@ -94,13 +94,13 @@ async def test_093_resolve_unresolvable_fails_hard():
 
 
 # =============================================================================
-# MediaSpecDef serialization tests
+# MediaDef serialization tests
 # =============================================================================
 
 
-# TEST095: Test MediaSpecDef serializes with required fields and skips None fields
-def test_095_media_spec_def_serialize():
-    spec_def = MediaSpecDef(
+# TEST095: Test MediaDef serializes with required fields and skips None fields
+def test_095_media_def_def_serialize():
+    spec_def = MediaDef(
         urn="media:test;json",
         media_type="application/json",
         title="Test Media",
@@ -122,14 +122,14 @@ def test_095_media_spec_def_serialize():
     assert "description" not in data
 
 
-# TEST096: Test deserializing MediaSpecDef from JSON object
-def test_096_media_spec_def_deserialize():
+# TEST096: Test deserializing MediaDef from JSON object
+def test_096_media_def_def_deserialize():
     data = {
         "urn": "media:test;json",
         "media_type": "application/json",
         "title": "Test"
     }
-    spec_def = MediaSpecDef.from_dict(data)
+    spec_def = MediaDef.from_dict(data)
     assert spec_def.urn == "media:test;json"
     assert spec_def.media_type == "application/json"
     assert spec_def.title == "Test"
@@ -143,49 +143,49 @@ def test_096_media_spec_def_deserialize():
 
 # TEST097: Test duplicate URN validation catches duplicates
 def test_097_validate_no_duplicate_urns_catches_duplicates():
-    media_specs = [
-        MediaSpecDef(
+    media_defs = [
+        MediaDef(
             urn="media:dup;json",
             media_type="application/json",
             title="First",
         ),
-        MediaSpecDef(
+        MediaDef(
             urn="media:dup;json",
             media_type="application/json",
             title="Second",
         ),  # duplicate
     ]
     with pytest.raises(DuplicateMediaUrn) as exc_info:
-        validate_media_specs_no_duplicates(media_specs)
+        validate_media_defs_no_duplicates(media_defs)
     assert "media:dup;json" in str(exc_info.value)
 
 
 # TEST098: Test duplicate URN validation passes for unique URNs
 def test_098_validate_no_duplicate_urns_passes_for_unique():
-    media_specs = [
-        MediaSpecDef(
+    media_defs = [
+        MediaDef(
             urn="media:first;json",
             media_type="application/json",
             title="First",
         ),
-        MediaSpecDef(
+        MediaDef(
             urn="media:second;json",
             media_type="application/json",
             title="Second",
         ),
     ]
     # Should not raise
-    validate_media_specs_no_duplicates(media_specs)
+    validate_media_defs_no_duplicates(media_defs)
 
 
 # =============================================================================
-# ResolvedMediaSpec tests
+# ResolvedMediaDef tests
 # =============================================================================
 
 
-# TEST099: Test ResolvedMediaSpec is_binary returns true when textable tag is absent
+# TEST099: Test ResolvedMediaDef is_binary returns true when textable tag is absent
 def test_099_resolved_is_binary():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:",
         media_type="application/octet-stream",
         profile_uri=None,
@@ -201,9 +201,9 @@ def test_099_resolved_is_binary():
     assert not resolved.is_json()
 
 
-# TEST100: Test ResolvedMediaSpec is_record returns true when record marker is present
+# TEST100: Test ResolvedMediaDef is_record returns true when record marker is present
 def test_100_resolved_is_record():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:record;textable",
         media_type="application/json",
         profile_uri=None,
@@ -220,9 +220,9 @@ def test_100_resolved_is_record():
     assert not resolved.is_list()
 
 
-# TEST101: Test ResolvedMediaSpec is_scalar returns true when list marker is absent
+# TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent
 def test_101_resolved_is_scalar():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:textable",
         media_type="text/plain",
         profile_uri=None,
@@ -238,9 +238,9 @@ def test_101_resolved_is_scalar():
     assert not resolved.is_list()
 
 
-# TEST102: Test ResolvedMediaSpec is_list returns true when list marker is present
+# TEST102: Test ResolvedMediaDef is_list returns true when list marker is present
 def test_102_resolved_is_list():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:list;textable",
         media_type="application/json",
         profile_uri=None,
@@ -256,9 +256,9 @@ def test_102_resolved_is_list():
     assert not resolved.is_scalar()
 
 
-# TEST103: Test ResolvedMediaSpec is_json returns true when json tag is present
+# TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
 def test_103_resolved_is_json():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:json;record;textable",
         media_type="application/json",
         profile_uri=None,
@@ -274,9 +274,9 @@ def test_103_resolved_is_json():
     assert not resolved.is_binary()
 
 
-# TEST104: Test ResolvedMediaSpec is_text returns true when textable tag is present
+# TEST104: Test ResolvedMediaDef is_text returns true when textable tag is present
 def test_104_resolved_is_text():
-    resolved = ResolvedMediaSpec(
+    resolved = ResolvedMediaDef(
         media_urn="media:textable",
         media_type="text/plain",
         profile_uri=None,
@@ -297,11 +297,11 @@ def test_104_resolved_is_text():
 # =============================================================================
 
 
-# TEST105: Test metadata propagates from media spec def to resolved media spec
+# TEST105: Test metadata propagates from media def def to resolved media def
 @pytest.mark.asyncio
 async def test_105_metadata_propagation():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:custom-setting",
         media_type="text/plain",
         title="Custom Setting",
@@ -319,11 +319,11 @@ async def test_105_metadata_propagation():
     assert resolved.metadata.get("ui_type") == "SETTING_UI_TYPE_CHECKBOX"
 
 
-# TEST106: Test metadata and validation can coexist in media spec definition
+# TEST106: Test metadata and validation can coexist in media definition
 @pytest.mark.asyncio
 async def test_106_metadata_with_validation():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:bounded-number;numeric",
         media_type="text/plain",
         title="Bounded Number",
@@ -356,7 +356,7 @@ async def test_106_metadata_with_validation():
 @pytest.mark.asyncio
 async def test_107_extensions_propagation():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:custom-pdf",
         media_type="application/pdf",
         title="PDF Document",
@@ -369,9 +369,9 @@ async def test_107_extensions_propagation():
     assert resolved.extensions == ["pdf"]
 
 
-# TEST892: Test extensions serializes/deserializes correctly in MediaSpecDef
+# TEST892: Test extensions serializes/deserializes correctly in MediaDef
 def test_892_extensions_serialization():
-    spec_def = MediaSpecDef(
+    spec_def = MediaDef(
         urn="media:json-data",
         media_type="application/json",
         title="JSON Data",
@@ -386,7 +386,7 @@ def test_892_extensions_serialization():
     assert data["extensions"] == ["json"]
 
     # Deserialize and verify
-    parsed = MediaSpecDef.from_dict(data)
+    parsed = MediaDef.from_dict(data)
     assert parsed.extensions == ["json"]
 
 
@@ -394,7 +394,7 @@ def test_892_extensions_serialization():
 @pytest.mark.asyncio
 async def test_893_extensions_with_metadata_and_validation():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:custom-output;json",
         media_type="application/json",
         title="Custom Output",
@@ -412,11 +412,11 @@ async def test_893_extensions_with_metadata_and_validation():
     assert resolved.extensions == ["json"]
 
 
-# TEST894: Test multiple extensions in a media spec
+# TEST894: Test multiple extensions in a media def
 @pytest.mark.asyncio
 async def test_894_multiple_extensions():
     registry = await create_test_registry()
-    registry.add_spec(StoredMediaSpec(
+    registry.add_spec(StoredMediaDef(
         urn="media:image;jpeg",
         media_type="image/jpeg",
         title="JPEG Image",
@@ -447,7 +447,7 @@ def test_607_media_urns_for_extension_unknown():
 def test_608_media_urns_for_extension_populated():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
-    spec = StoredMediaSpec(
+    spec = StoredMediaDef(
         urn="media:pdf",
         media_type="application/pdf",
         title="PDF Document",
@@ -471,7 +471,7 @@ def test_609_get_extension_mappings():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     for urn_str, ext in [("media:pdf", "pdf"), ("media:epub", "epub")]:
-        spec = StoredMediaSpec(
+        spec = StoredMediaDef(
             urn=urn_str,
             media_type="application/octet-stream",
             title="Test",
@@ -492,10 +492,10 @@ def test_610_get_cached_spec():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     # Unknown spec
-    assert registry.get_cached_media_spec("media:nonexistent;xyzzy") is None
+    assert registry.get_cached_media_def("media:nonexistent;xyzzy") is None
 
     # Add a spec and verify we can retrieve it
-    spec = StoredMediaSpec(
+    spec = StoredMediaDef(
         urn="media:test;spec;textable",
         media_type="text/plain",
         title="Test Spec",
@@ -503,7 +503,7 @@ def test_610_get_cached_spec():
     normalized = normalize_media_urn(spec.urn)
     registry.cached_specs[normalized] = spec
 
-    retrieved = registry.get_cached_media_spec("media:test;spec;textable")
+    retrieved = registry.get_cached_media_def("media:test;spec;textable")
     assert retrieved is not None, "Should find spec by URN"
     assert retrieved.title == "Test Spec"
 
@@ -521,9 +521,9 @@ def test_614_registry_creation():
 # user-observable behavior depends on a particular hashing strategy.
 
 
-# TEST616: Verify StoredMediaSpec converts to MediaSpecDef preserving all fields
-def test_616_stored_media_spec_to_def():
-    spec = StoredMediaSpec(
+# TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
+def test_616_stored_media_def_to_def():
+    spec = StoredMediaDef(
         urn="media:pdf",
         media_type="application/pdf",
         title="PDF Document",

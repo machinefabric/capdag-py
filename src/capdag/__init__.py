@@ -115,7 +115,7 @@ from capdag.urn.cap_urn import (
 # Cap module
 from capdag.cap.response import ResponseWrapper
 from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource
-from capdag.media.spec import MediaSpecDef
+from capdag.media.spec import MediaDef
 from capdag.cap.validation import (
     validate_cap_args,
     validate_positional_arguments,
@@ -124,7 +124,7 @@ from capdag.cap.validation import (
     InvalidArgumentTypeError,
     TooManyArgumentsError,
     InvalidCapSchemaError,
-    MediaSpecValidationError,
+    MediaDefValidationError,
     RESERVED_CLI_FLAGS,
 )
 from capdag.cap.schema_validation import (
@@ -147,7 +147,7 @@ from capdag.fabric.registry import (
     FabricRegistry,
     FabricRegistryError,
     RegistryConfig,
-    StoredMediaSpec,
+    StoredMediaDef,
     HttpError,
     NotFoundError,
     ParseError,
@@ -160,12 +160,12 @@ from capdag.fabric.registry import (
 )
 from capdag.media.spec import (
     MediaValidation,
-    ResolvedMediaSpec,
-    MediaSpecError,
+    ResolvedMediaDef,
+    MediaDefError,
     UnresolvableMediaUrn,
     DuplicateMediaUrn,
     resolve_media_urn,
-    validate_media_specs_no_duplicates,
+    validate_media_defs_no_duplicates,
     # Profile URLs
     SCHEMA_BASE,
     PROFILE_STR,
@@ -367,7 +367,7 @@ __all__ = [
     "StdinSource",
     "PositionSource",
     "CliFlagSource",
-    "MediaSpecDef",
+    "MediaDef",
     # Manifest
     "CapManifest",
     "CapGroup",
@@ -382,7 +382,7 @@ __all__ = [
     "InvalidArgumentTypeError",
     "TooManyArgumentsError",
     "InvalidCapSchemaError",
-    "MediaSpecValidationError",
+    "MediaDefValidationError",
     "RESERVED_CLI_FLAGS",
     # Schema validation
     "SchemaValidator",
@@ -401,7 +401,7 @@ __all__ = [
     "FabricRegistry",
     "FabricRegistryError",
     "RegistryConfig",
-    "StoredMediaSpec",
+    "StoredMediaDef",
     "HttpError",
     "NotFoundError",
     "ParseError",
@@ -411,14 +411,14 @@ __all__ = [
     "ExtensionNotFoundError",
     "normalize_cap_urn",
     "normalize_media_urn",
-    # Media Spec
+    # Media Def
     "MediaValidation",
-    "ResolvedMediaSpec",
-    "MediaSpecError",
+    "ResolvedMediaDef",
+    "MediaDefError",
     "UnresolvableMediaUrn",
     "DuplicateMediaUrn",
     "resolve_media_urn",
-    "validate_media_specs_no_duplicates",
+    "validate_media_defs_no_duplicates",
     "SCHEMA_BASE",
     "PROFILE_STR",
     "PROFILE_INT",

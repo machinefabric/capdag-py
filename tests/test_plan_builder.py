@@ -71,8 +71,8 @@ def test_767_argument_info_serialization():
 # TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information
 def test_768_path_argument_requirements_structure():
     requirements = PathArgumentRequirements(
-        source_spec="media:pdf",
-        target_spec="media:image;png",
+        source_media_urn="media:pdf",
+        target_media_urn="media:image;png",
         steps=[
             StepArgumentRequirements(
                 cap_urn="cap:generate-thumbnail;in=pdf;out=png",
@@ -115,8 +115,8 @@ def test_769_path_with_required_slot():
         validation=None,
     )
     requirements = PathArgumentRequirements(
-        source_spec="media:text",
-        target_spec="media:translated",
+        source_media_urn="media:text",
+        target_media_urn="media:translated",
         steps=[
             StepArgumentRequirements(
                 cap_urn="cap:translate;in=text;out=translated",

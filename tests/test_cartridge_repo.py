@@ -147,7 +147,7 @@ def _make_registry(
 # TEST320: Construct CartridgeInfo and verify field round-trip.
 def test_320_construct_cartridge_info_and_verify_fields():
     cartridge = _make_cartridge_info(
-        cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+        cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
     )
     assert cartridge.id == "testcartridge"
     assert cartridge.name == "Test Cartridge"
@@ -211,7 +211,7 @@ def test_324_cartridge_repo_server_transform_to_array():
                 cap_groups=[
                     _make_cap_group(
                         "g1",
-                        caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")],
+                        caps=[_make_cap("cap:effect=none", "Identity", "identity")],
                         adapter_urns=["media:test"],
                     )
                 ],
@@ -247,7 +247,7 @@ def test_301_transform_walks_both_channels_release_first():
 def test_325_cartridge_repo_server_get_cartridges():
     server = CartridgeRepoServer(_make_registry(release_entries={
         "testcartridge": _make_registry_entry(
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
         )
     }))
     response = server.get_cartridges()
@@ -261,7 +261,7 @@ def test_325_cartridge_repo_server_get_cartridges():
 def test_326_cartridge_repo_server_get_cartridge_by_id():
     server = CartridgeRepoServer(_make_registry(release_entries={
         "testcartridge": _make_registry_entry(
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])]
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
         )
     }))
     assert server.get_cartridge_by_id(CartridgeChannel.RELEASE, "testcartridge") is not None
@@ -322,7 +322,7 @@ def test_328_cartridge_repo_server_get_by_category():
         "doccartridge": _make_registry_entry(
             name="Doc Cartridge",
             description="Process documents",
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
             categories=["document"],
         )
     }))
@@ -371,7 +371,7 @@ def test_330_cartridge_repo_client_update_cache():
         cartridges=[
             _make_cartridge_info(
                 channel=CartridgeChannel.RELEASE,
-                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
             )
         ]
     )
@@ -418,7 +418,7 @@ def test_332_cartridge_repo_client_get_cartridge():
             cartridges=[
                 _make_cartridge_info(
                     channel=CartridgeChannel.RELEASE,
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:in=media:;out=media:", "Identity", "identity")])],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
                 )
             ]
         ),
@@ -540,12 +540,12 @@ def test_631_needs_sync_empty_cache():
 def test_632_deserialize_minimal_registry_cap():
     cap = RegistryCap.from_dict(
         {
-            "urn": "cap:in=media:;out=media:",
+            "urn": "cap:effect=none",
             "title": "Identity",
             "command": "identity",
         }
     )
-    assert cap.urn == "cap:in=media:;out=media:"
+    assert cap.urn == "cap:effect=none"
     assert cap.title == "Identity"
     assert cap.command == "identity"
     assert cap.cap_description is None
@@ -598,7 +598,7 @@ def test_634_deserialize_cap_group():
         {
             "name": "pdf-formats",
             "caps": [
-                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
             ],
             "adapter_urns": ["media:pdf"],
         }
@@ -628,7 +628,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
                 {
                     "name": "pdf-formats",
                     "caps": [
-                        {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"},
+                        {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
                         {
                             "urn": 'cap:in=media:pdf;disbind;out="media:page;textable"',
                             "title": "Disbind PDF Into Page Text",
@@ -693,7 +693,7 @@ def test_637_deserialize_full_registry_response():
                         {
                             "name": "pdf-formats",
                             "caps": [
-                                {"urn": "cap:in=media:;out=media:", "title": "Identity", "command": "identity"}
+                                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
                             ],
                             "adapter_urns": ["media:pdf"],
                         }

@@ -1792,7 +1792,7 @@ class CartridgeRuntime:
 
         if not has_identity:
             raise ValueError(
-                "Manifest validation failed - cartridge MUST declare CAP_IDENTITY (cap:). "
+                "Manifest validation failed - cartridge MUST declare CAP_IDENTITY (cap:effect=none). "
                 "All cartridges must explicitly declare capabilities, no implicit fallbacks allowed."
             )
 

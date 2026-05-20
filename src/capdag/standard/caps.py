@@ -85,14 +85,14 @@ CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;recor
 
 # Fabric registry lookup caps. Implemented by fetchcartridge.
 # CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
-# cap definition; CAP_LOOKUP_MEDIA_SPEC_FABRIC does the same for media specs.
+# cap definition; CAP_LOOKUP_MEDIA_DEF_FABRIC does the same for media defs.
 CAP_LOOKUP_CAP_FABRIC = (
     'cap:in="media:cap-urn;textable";fabric;lookup-cap;'
     'out="media:cap-definition;json;record;textable"'
 )
-CAP_LOOKUP_MEDIA_SPEC_FABRIC = (
-    'cap:in="media:media-urn;textable";fabric;lookup-media-spec;'
-    'out="media:media-spec-definition;json;record;textable"'
+CAP_LOOKUP_MEDIA_DEF_FABRIC = (
+    'cap:in="media:media-urn;textable";fabric;lookup-media-def;'
+    'out="media:media-definition;json;record;textable"'
 )
 
 

@@ -19,6 +19,7 @@ from capdag import (
     MEDIA_IDENTITY,
     CAP_IDENTITY,
 )
+from capdag.urn.cap_urn import CapEffect
 
 
 def _test_urn(tags_part: str) -> str:
@@ -284,9 +285,9 @@ def test_939_cap_urn_canonical_form_drops_wildcard_in_out():
             f"elided so the registry SHA-256 key is stable across input "
             f"spellings"
         )
-    # Bare-identity round-trip.
-    identity = CapUrn.from_string("cap:in=media:;out=media:")
-    assert identity.to_string() == "cap:"
+    # Explicit identity round-trip.
+    identity = CapUrn.from_string("cap:effect=none")
+    assert identity.to_string() == "cap:effect=none"
 
 
 # TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
@@ -480,21 +481,19 @@ def test_027_with_wildcard_tag():
     cap2 = cap.with_wildcard_tag("ext")
     assert cap2.get_tag("ext") == "*"
 
-    # Wildcard in direction — stores literal "*" (matching Rust TEST027)
+    # Wildcard in direction resolves to the top media URN.
     cap3 = cap.with_wildcard_tag("in")
-    assert cap3.in_spec() == "*"
+    assert cap3.in_spec() == "media:"
 
-    # Wildcard out direction — stores literal "*" (matching Rust TEST027)
+    # Wildcard out direction resolves to the top media URN.
     cap4 = cap.with_wildcard_tag("out")
-    assert cap4.out_spec() == "*"
+    assert cap4.out_spec() == "media:"
 
 
-# TEST028: Test empty cap URN defaults to media: wildcard
-def test_028_empty_cap_urn_defaults():
-    cap = CapUrn.from_string("cap:")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
-    assert len(cap.tags) == 0
+# TEST028: empty cap URN is the illegal bare top form
+def test_028_empty_cap_urn_is_illegal():
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:")
 
 
 # TEST029: Test minimal valid cap URN has just in and out, empty tags
@@ -680,9 +679,9 @@ def test_047_matching_semantics_thumbnail_void_input():
     assert cap.accepts(request), "Test 7b: Thumbnail fallback with void input should accept"
 
 
-# TEST048: Matching semantics - wildcard direction matches anything
+# TEST048: Matching semantics - generic legal wildcard cap matches specific caps
 def test_048_matching_semantics_wildcard_direction():
-    cap = CapUrn.from_string("cap:in=*;out=*")
+    cap = CapUrn.from_string("cap:generate")
     request = CapUrn.from_string(f'cap:ext=pdf;in="media:textable";generate;out="{MEDIA_OBJECT}"')
     assert cap.accepts(request), "Test 8: Wildcard direction should accept any direction"
 
@@ -710,7 +709,7 @@ def test_050_matching_semantics_direction_mismatch():
 # =============================================================================
 
 
-# TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys
+# TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys
 def test_559_without_tag():
     cap = CapUrn.from_string(
         'cap:in="media:void";test;ext=pdf;out="media:void"'
@@ -723,11 +722,12 @@ def test_559_without_tag():
     removed2 = cap.without_tag("EXT")
     assert removed2.get_tag("ext") is None
 
-    # Removing in/out is silently ignored
-    same = cap.without_tag("in")
-    assert same.in_spec() == MEDIA_VOID
-    same2 = cap.without_tag("out")
-    assert same2.out_spec() == MEDIA_VOID
+    with pytest.raises(CapUrnError):
+        cap.without_tag("in")
+    with pytest.raises(CapUrnError):
+        cap.without_tag("out")
+    with pytest.raises(CapUrnError):
+        cap.without_tag("effect")
 
     # Removing non-existent tag is no-op
     same3 = cap.without_tag("nonexistent")
@@ -769,10 +769,10 @@ def test_561_in_out_media_urn():
     assert out_urn.is_text()
     assert out_urn.has_tag("txt", "*")
 
-    # Wildcard media: is valid but has no tags
-    wildcard_cap = CapUrn.from_string("cap:")
+    # Generic legal cap still exposes top media on both axes
+    wildcard_cap = CapUrn.from_string("cap:raw")
     wildcard_in = wildcard_cap.in_media_urn()
-    assert wildcard_in is not None, "bare media: should parse as valid MediaUrn"
+    assert wildcard_in is not None, "generic legal cap should expose a valid top MediaUrn"
 
 
 # TEST562: canonical_option returns None for None input, canonical string for Some
@@ -865,17 +865,17 @@ def test_565_tags_to_string():
     assert "test" in tags_str
 
 
-# TEST566: with_tag silently ignores in/out keys
+# TEST566: with_tag rejects reserved structural keys
 def test_566_with_tag_ignores_in_out():
     cap = CapUrn.from_string(
         'cap:in="media:void";test;out="media:void"'
     )
-    # Attempting to set in/out via with_tag is silently ignored
-    same = cap.with_tag("in", "media:")
-    assert same.in_spec() == MEDIA_VOID, "with_tag must not change in_spec"
-
-    same2 = cap.with_tag("out", "media:")
-    assert same2.out_spec() == MEDIA_VOID, "with_tag must not change out_spec"
+    with pytest.raises(CapUrnError):
+        cap.with_tag("in", "media:")
+    with pytest.raises(CapUrnError):
+        cap.with_tag("out", "media:")
+    with pytest.raises(CapUrnError):
+        cap.with_tag("effect", "none")
 
 
 # TEST567: conforms_to_str and accepts_str work with string arguments
@@ -903,47 +903,40 @@ def test_567_str_variants():
 # =============================================================================
 
 
-# TEST639: cap: (empty) defaults to in=media:;out=media:
+# TEST639: cap: (empty) is the illegal bare top form
 def test_639_wildcard_empty_cap_defaults():
-    cap = CapUrn.from_string("cap:")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
-    assert len(cap.tags) == 0
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:")
 
 
-# TEST640: cap:in defaults out to media:
+# TEST640: cap:in collapses to the same illegal bare top form
 def test_640_wildcard_in_only_defaults_out():
-    cap = CapUrn.from_string("cap:in")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:in")
 
 
-# TEST641: cap:out defaults in to media:
+# TEST641: cap:out collapses to the same illegal bare top form
 def test_641_wildcard_out_only_defaults_in():
-    cap = CapUrn.from_string("cap:out")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:out")
 
 
-# TEST642: cap:in;out both become media:
+# TEST642: cap:in;out collapses to the same illegal bare top form
 def test_642_wildcard_in_out_no_values():
-    cap = CapUrn.from_string("cap:in;out")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:in;out")
 
 
-# TEST643: cap:in=*;out=* becomes media:
+# TEST643: cap:in=*;out=* is the same illegal bare top form
 def test_643_wildcard_explicit_asterisk():
-    cap = CapUrn.from_string("cap:in=*;out=*")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:in=*;out=*")
 
 
-# TEST644: cap:in=media:;out=* has specific in, wildcard out
+# TEST644: cap:in=media:;out=* is the same illegal bare top form
 def test_644_wildcard_specific_in_wildcard_out():
-    cap = CapUrn.from_string("cap:in=media:;out=*")
-    assert cap.in_spec() == "media:"
-    assert cap.out_spec() == "media:"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:in=media:;out=*")
 
 
 # TEST645: cap:in=*;out=media:text has wildcard in, specific out
@@ -965,39 +958,38 @@ def test_647_wildcard_invalid_out_spec():
         CapUrn.from_string("cap:in=media:;out=bar")
 
 
-# TEST648: Wildcard in/out match specific caps
+# TEST648: Legal generic cap with top directions matches specific caps
 def test_648_wildcard_accepts_specific():
-    wildcard = CapUrn.from_string("cap:")
-    specific = CapUrn.from_string("cap:in=media:;out=media:text")
+    wildcard = CapUrn.from_string("cap:raw")
+    specific = CapUrn.from_string("cap:out=media:text;raw")
 
     assert wildcard.accepts(specific), "Wildcard should accept specific"
     assert specific.conforms_to(wildcard), "Specific should conform to wildcard"
 
 
-# TEST649: Specificity - wildcard has 0, specific has tag count
+# TEST649: Specificity - generic marker-only cap has y-axis specificity only
 def test_649_wildcard_specificity_scoring():
-    wildcard = CapUrn.from_string("cap:")
-    specific = CapUrn.from_string("cap:in=media:;out=media:text")
+    wildcard = CapUrn.from_string("cap:raw")
+    specific = CapUrn.from_string("cap:out=media:text;raw")
 
-    assert wildcard.specificity() == 0, "Wildcard cap should have zero specificity"
+    assert wildcard.specificity() == 2, "Marker-only wildcard cap should have y-axis specificity only"
     assert specific.specificity() > 0, "Specific cap should have non-zero specificity"
 
 
-# TEST650: cap:in=media:;out=media:;test preserves other tags
+# TEST650: legal top-to-top generic transform preserves other tags
 def test_650_wildcard_preserve_other_tags():
-    cap = CapUrn.from_string("cap:in;out;test")
+    cap = CapUrn.from_string("cap:in=media:;out=media:;test")
     assert cap.in_spec() == "media:"
     assert cap.out_spec() == "media:"
+    assert cap.effect_kind() == CapEffect.DECLARED
     assert cap.has_marker_tag("test")
 
 
-# TEST651: All identity forms produce the same CapUrn
+# TEST651: Explicit identity forms produce the same CapUrn
 def test_651_wildcard_identity_forms_equivalent():
     forms = [
-        "cap:",
-        "cap:in;out",
-        "cap:in=*;out=*",
-        "cap:in=media:;out=media:",
+        "cap:effect=none",
+        "cap:in=media:;out=media:;effect=none",
     ]
 
     caps = [CapUrn.from_string(f) for f in forms]
@@ -1013,26 +1005,21 @@ def test_651_wildcard_identity_forms_equivalent():
 def test_652_wildcard_cap_identity_constant():
     identity = CapUrn.from_string(CAP_IDENTITY)
 
-    assert identity.in_spec() == "media:"
-    assert identity.out_spec() == "media:"
+    assert identity.to_string() == "cap:effect=none"
+    assert identity.kind() == CapKind.IDENTITY
 
-    # Identity accepts anything (no tag constraints)
-    specific = CapUrn.from_string('cap:convert;in=media:;out=media:text')
-    assert identity.accepts(specific), "Identity should accept any cap"
-    assert specific.conforms_to(identity), "Specific conforms to identity"
+    long_form = CapUrn.from_string("cap:in=media:;out=media:;effect=none")
+    assert identity.accepts(long_form)
+    assert long_form.accepts(identity)
+
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:")
 
 
-# TEST653: Identity (no tags) does not match specific requests via routing
+# TEST653: invalid effect=none declarations fail at construction
 def test_653_wildcard_identity_routing_isolation():
-    identity = CapUrn.from_string("cap:")
-    specific_request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
-
-    # For routing: request.accepts(registered_cap)
-    # specific_request(test) rejects identity (missing op) -> NOT routed to identity
-    assert not specific_request.accepts(identity), "Specific request must not accept identity cap"
-
-    # Identity (no tag constraints) accepts the specific request
-    assert identity.accepts(specific_request), "Identity pattern accepts any instance"
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:in=media:pdf;out=media:textable;effect=none")
 
 
 # TEST823: is_dispatchable — exact match provider dispatches request
@@ -1423,25 +1410,25 @@ def test_923_cap_urn_order_returns_not_implemented_for_non_cap():
 # -------------------------------------------------------------------
 
 
-# TEST1800: Identity classifier — only the bare cap: form qualifies.
-# `cap:` is the fully generic morphism on every axis; adding any tag
-# (even one that doesn't constrain in/out) demotes the cap to
-# Transform because the operation/metadata axis is no longer fully
-# generic.
+# TEST1800: Identity classifier — only explicit `effect=none`
+# qualifies. Bare top forms are illegal.
 def test_1800_kind_identity_only_for_bare_cap():
-    identity = CapUrn.from_string("cap:")
+    identity = CapUrn.from_string("cap:effect=none")
     assert identity.kind() == CapKind.IDENTITY
 
     for spelling in [
-        "cap:in=media:;out=media:",
-        "cap:in=*;out=*",
-        "cap:in=media:",
-        "cap:out=media:",
+        "cap:in=media:;out=media:;effect=none",
+        "cap:effect=none;in=*;out=*",
+        "cap:effect=none;in=media:",
+        "cap:effect=none;out=media:",
     ]:
         cap = CapUrn.from_string(spelling)
         assert cap.kind() == CapKind.IDENTITY, (
-            f"{spelling} should classify as Identity (canonical form is `cap:`)"
+            f"{spelling} should classify as Identity (canonical form is `cap:effect=none`)"
         )
+
+    with pytest.raises(CapUrnError):
+        CapUrn.from_string("cap:")
 
     with_op = CapUrn.from_string("cap:passthrough")
     assert with_op.kind() == CapKind.TRANSFORM, (
@@ -1495,7 +1482,7 @@ def test_1804_kind_transform_for_normal_data_processors():
 # structured object, not of any particular spelling.
 def test_1805_kind_invariant_under_canonical_spellings():
     cases = [
-        ("cap:", "cap:in=media:;out=media:", CapKind.IDENTITY),
+        ("cap:effect=none", "cap:in=media:;out=media:;effect=none", CapKind.IDENTITY),
         (
             "cap:extract;in=media:pdf;out=media:textable",
             'cap:extract;in="media:pdf";out="media:textable"',
@@ -1536,7 +1523,7 @@ def test_1805_kind_invariant_under_canonical_spellings():
 
 # TEST1820: A `?`-valued cap-tag scores 0. Same as missing.
 def test_1820_specificity_question_is_zero():
-    bare = CapUrn.from_string("cap:")
+    bare = CapUrn.from_string("cap:?effect")
     assert bare.specificity() == 0
 
     with_q = CapUrn.from_string("cap:?target")
@@ -1683,8 +1670,8 @@ def test_1842_truth_table_full_cross_product():
     ]
     for i, inst_form in enumerate(forms):
         for j, patt_form in enumerate(forms):
-            inst_str = "cap:" + inst_form if inst_form else "cap:"
-            patt_str = "cap:" + patt_form if patt_form else "cap:"
+            inst_str = "cap:base;" + inst_form if inst_form else "cap:base"
+            patt_str = "cap:base;" + patt_form if patt_form else "cap:base"
             inst = CapUrn.from_string(inst_str)
             patt = CapUrn.from_string(patt_str)
             actual = patt.accepts(inst)

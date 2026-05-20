@@ -121,24 +121,24 @@ class StepArgumentRequirements:
 class PathArgumentRequirements:
     """Argument requirements for an entire path."""
 
-    __slots__ = ("source_spec", "target_spec", "steps", "can_execute_without_input")
+    __slots__ = ("source_media_urn", "target_media_urn", "steps", "can_execute_without_input")
 
     def __init__(
         self,
-        source_spec: str,
-        target_spec: str,
+        source_media_urn: str,
+        target_media_urn: str,
         steps: List[StepArgumentRequirements],
         can_execute_without_input: bool,
     ) -> None:
-        self.source_spec = source_spec
-        self.target_spec = target_spec
+        self.source_media_urn = source_media_urn
+        self.target_media_urn = target_media_urn
         self.steps = steps
         self.can_execute_without_input = can_execute_without_input
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "source_spec": self.source_spec,
-            "target_spec": self.target_spec,
+            "source_media_urn": self.source_media_urn,
+            "target_media_urn": self.target_media_urn,
             "steps": [s.to_dict() for s in self.steps],
             "can_execute_without_input": self.can_execute_without_input,
         }
@@ -247,9 +247,9 @@ class MachinePlanBuilder:
                     self._is_file_path_stdin_chainable(cap),
                 )
 
-        source_spec_str = str(path.source_spec)
+        source_media_urn_str = str(path.source_media_urn)
         input_slot_id = "input_slot"
-        plan.add_node(MachineNode.input_slot(input_slot_id, "input", source_spec_str, input_cardinality))
+        plan.add_node(MachineNode.input_slot(input_slot_id, "input", source_media_urn_str, input_cardinality))
 
         prev_node_id = input_slot_id
         cap_step_count = 0
@@ -400,8 +400,8 @@ class MachinePlanBuilder:
 
         # Metadata
         plan.metadata = {
-            "source_spec": source_spec_str,
-            "target_spec": str(path.target_spec),
+            "source_media_urn": source_media_urn_str,
+            "target_media_urn": str(path.target_media_urn),
         }
 
         # Validate
@@ -448,7 +448,7 @@ class MachinePlanBuilder:
                 )
 
                 # Resolve media validation through the registry. Caps no
-                # longer carry inline media specs.
+                # longer carry inline media definitions.
                 validation_json: Optional[Any] = None
                 try:
                     resolved_spec = await resolve_media_urn(
@@ -489,8 +489,8 @@ class MachinePlanBuilder:
             cap_step_index += 1
 
         return PathArgumentRequirements(
-            source_spec=str(path.source_spec),
-            target_spec=str(path.target_spec),
+            source_media_urn=str(path.source_media_urn),
+            target_media_urn=str(path.target_media_urn),
             steps=step_requirements,
             can_execute_without_input=all(len(s.slots) == 0 for s in step_requirements),
         )

@@ -1,7 +1,7 @@
-"""Unified Fabric Registry — merged cap and media-spec lookup/cache.
+"""Unified Fabric Registry — merged cap and media-def lookup/cache.
 
 Replaces the previous split between `cap.registry.FabricRegistry` (cap
-definitions) and `media.registry.FabricRegistry` (media specs). Holds
+definitions) and `media.registry.FabricRegistry` (media defs). Holds
 one HTTP client, one disk cache root with `caps/` and `media/`
 subdirectories, two in-memory dicts (cached caps, cached specs), and
 the extension index.
@@ -54,7 +54,7 @@ class NetworkBlockedError(FabricRegistryError):
 
 
 class NotFoundError(FabricRegistryError):
-    """Cap or media spec not found in registry."""
+    """Cap or media def not found in registry."""
 
 
 class ParseError(FabricRegistryError):
@@ -128,8 +128,8 @@ class CacheEntry:
         )
 
 
-class StoredMediaSpec:
-    """Stored media spec format (matches registry API response)."""
+class StoredMediaDef:
+    """Stored media def format (matches registry API response)."""
 
     def __init__(
         self,
@@ -178,7 +178,7 @@ class StoredMediaSpec:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "StoredMediaSpec":
+    def from_dict(cls, data: Dict) -> "StoredMediaDef":
         return cls(
             urn=data["urn"],
             media_type=data["media_type"],
@@ -194,9 +194,9 @@ class StoredMediaSpec:
 
 
 class MediaCacheEntry:
-    """On-disk cache entry for a media spec."""
+    """On-disk cache entry for a media def."""
 
-    def __init__(self, spec: StoredMediaSpec, cached_at: int, ttl_hours: int):
+    def __init__(self, spec: StoredMediaDef, cached_at: int, ttl_hours: int):
         self.spec = spec
         self.cached_at = cached_at
         self.ttl_hours = ttl_hours
@@ -214,7 +214,7 @@ class MediaCacheEntry:
     @classmethod
     def from_dict(cls, data: Dict) -> "MediaCacheEntry":
         return cls(
-            spec=StoredMediaSpec.from_dict(data["spec"]),
+            spec=StoredMediaDef.from_dict(data["spec"]),
             cached_at=data["cached_at"],
             ttl_hours=data["ttl_hours"],
         )
@@ -269,7 +269,7 @@ class RegistryConfig:
 
 
 class FabricRegistry:
-    """Unified registry for cap definitions and media specs.
+    """Unified registry for cap definitions and media defs.
 
     Holds two in-memory caches (cached_caps, cached_specs) plus an
     extension index. The disk layout uses one root with `caps/` and
@@ -300,7 +300,7 @@ class FabricRegistry:
         self.client = client
 
         self.cached_caps: Dict[str, Cap] = {}
-        self.cached_specs: Dict[str, StoredMediaSpec] = {}
+        self.cached_specs: Dict[str, StoredMediaDef] = {}
         self.extension_index: Dict[str, List[str]] = {}
 
         self.cache_lock = threading.Lock()
@@ -403,7 +403,7 @@ class FabricRegistry:
         except Exception as e:
             raise CacheError(f"Failed to write cap cache file: {e}")
 
-    def _save_media_spec_to_cache(self, spec: StoredMediaSpec) -> None:
+    def _save_media_def_to_cache(self, spec: StoredMediaDef) -> None:
         self.media_cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = self._media_cache_file_path(spec.urn)
         entry = MediaCacheEntry(spec=spec, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
@@ -411,13 +411,13 @@ class FabricRegistry:
             with open(cache_file, "w") as f:
                 json.dump(entry.to_dict(), f, indent=2)
         except Exception as e:
-            raise CacheError(f"Failed to write media spec cache file: {e}")
+            raise CacheError(f"Failed to write media def cache file: {e}")
 
     # -------------------------------------------------------------------------
     # Extension index
     # -------------------------------------------------------------------------
 
-    def _update_extension_index(self, spec: StoredMediaSpec) -> None:
+    def _update_extension_index(self, spec: StoredMediaDef) -> None:
         for ext in spec.extensions:
             ext_lower = ext.lower()
             urns = self.extension_index.setdefault(ext_lower, [])
@@ -453,7 +453,7 @@ class FabricRegistry:
         except json.JSONDecodeError as e:
             raise ParseError(f"Failed to parse registry response for cap '{urn}': {e}")
 
-    async def _fetch_media_spec_from_registry(self, urn: str) -> StoredMediaSpec:
+    async def _fetch_media_def_from_registry(self, urn: str) -> StoredMediaDef:
         if not HTTPX_AVAILABLE or self.client is None:
             raise HttpError("httpx not available - cannot fetch from registry")
 
@@ -470,11 +470,11 @@ class FabricRegistry:
             response = await self.client.get(url)
             if not response.is_success:
                 raise NotFoundError(
-                    f"Media spec '{urn}' not found in registry (HTTP {response.status_code})"
+                    f"Media def '{urn}' not found in registry (HTTP {response.status_code})"
                 )
-            return StoredMediaSpec.from_dict(response.json())
+            return StoredMediaDef.from_dict(response.json())
         except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch media spec from registry: {e}")
+            raise HttpError(f"Failed to fetch media def from registry: {e}")
         except (json.JSONDecodeError, KeyError) as e:
             raise ParseError(f"Failed to parse registry response for media '{urn}': {e}")
 
@@ -538,13 +538,13 @@ class FabricRegistry:
                 already_cached = media_urn in self.cached_specs
             if already_cached:
                 continue
-            spec = await self._fetch_media_spec_from_registry(media_urn)
-            self._save_media_spec_to_cache(spec)
+            spec = await self._fetch_media_def_from_registry(media_urn)
+            self._save_media_def_to_cache(spec)
             with self.cache_lock:
                 self.cached_specs[normalize_media_urn(spec.urn)] = spec
                 self._update_extension_index(spec)
 
-        # All referenced media specs landed — now cache the cap.
+        # All referenced media defs landed — now cache the cap.
         self._save_cap_to_cache(cap)
         with self.cache_lock:
             self.cached_caps[normalize_cap_urn(cap.urn_string())] = cap
@@ -604,10 +604,10 @@ class FabricRegistry:
             )
 
     # -------------------------------------------------------------------------
-    # Public media-spec API
+    # Public media-def API
     # -------------------------------------------------------------------------
 
-    async def get_media_spec(self, urn: str) -> StoredMediaSpec:
+    async def get_media_def(self, urn: str) -> StoredMediaDef:
         normalized_urn = normalize_media_urn(urn)
         with self.cache_lock:
             cached = self.cached_specs.get(normalized_urn)
@@ -616,32 +616,32 @@ class FabricRegistry:
 
         if self._offline:
             raise NetworkBlockedError(
-                f"Network access blocked while offline: cannot fetch media spec {urn!r}"
+                f"Network access blocked while offline: cannot fetch media def {urn!r}"
             )
 
-        spec = await self._fetch_media_spec_from_registry(urn)
-        self._save_media_spec_to_cache(spec)
+        spec = await self._fetch_media_def_from_registry(urn)
+        self._save_media_def_to_cache(spec)
         with self.cache_lock:
             self.cached_specs[normalize_media_urn(spec.urn)] = spec
             self._update_extension_index(spec)
         return spec
 
-    async def get_media_specs(self, urns: List[str]) -> List[StoredMediaSpec]:
-        return [await self.get_media_spec(u) for u in urns]
+    async def get_media_defs(self, urns: List[str]) -> List[StoredMediaDef]:
+        return [await self.get_media_def(u) for u in urns]
 
-    async def get_cached_media_specs(self) -> List[StoredMediaSpec]:
+    async def get_cached_media_defs(self) -> List[StoredMediaDef]:
         with self.cache_lock:
             return list(self.cached_specs.values())
 
-    def get_cached_media_spec(self, urn: str) -> Optional[StoredMediaSpec]:
+    def get_cached_media_def(self, urn: str) -> Optional[StoredMediaDef]:
         """Synchronous in-memory cache probe; never touches the network."""
         normalized_urn = normalize_media_urn(urn)
         with self.cache_lock:
             return self.cached_specs.get(normalized_urn)
 
-    async def media_spec_exists(self, urn: str) -> bool:
+    async def media_def_exists(self, urn: str) -> bool:
         try:
-            await self.get_media_spec(urn)
+            await self.get_media_def(urn)
             return True
         except (NotFoundError, HttpError, ParseError):
             return False
@@ -650,7 +650,7 @@ class FabricRegistry:
         """Look up media URNs registered for a file extension.
 
         Raises ExtensionNotFoundError if no spec is registered. The
-        registry hydrates lazily through `get_media_spec` and through
+        registry hydrates lazily through `get_media_def` and through
         the atomic cap fetch — extensions only become known once the
         owning specs have landed in cache.
         """
@@ -659,8 +659,8 @@ class FabricRegistry:
             urns = self.extension_index.get(ext_lower)
         if urns is None:
             raise ExtensionNotFoundError(
-                f"No media spec registered for extension '{extension}'. "
-                f"Ensure the media spec is defined in capfab/src/media/ with an 'extension' field."
+                f"No media def registered for extension '{extension}'. "
+                f"Ensure the media def is defined in capfab/src/media/ with an 'extension' field."
             )
         return list(urns)
 
@@ -676,7 +676,7 @@ class FabricRegistry:
         self._offline = offline
 
     def clear_cache(self) -> None:
-        """Clear in-memory and on-disk caches for both caps and media specs."""
+        """Clear in-memory and on-disk caches for both caps and media defs."""
         import shutil
 
         with self.cache_lock:
@@ -752,8 +752,8 @@ class FabricRegistry:
             for cap in caps:
                 self.cached_caps[normalize_cap_urn(cap.urn_string())] = cap
 
-    def add_spec(self, spec: StoredMediaSpec) -> None:
-        """Insert a media spec directly into the in-memory cache (test helper).
+    def add_spec(self, spec: StoredMediaDef) -> None:
+        """Insert a media def directly into the in-memory cache (test helper).
 
         Updates the extension index as a side effect so
         `media_urns_for_extension` finds the seeded spec.
