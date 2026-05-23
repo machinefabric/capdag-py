@@ -230,7 +230,7 @@ class RegistryConfig:
 
     Resolution order:
     1. Explicit constructor argument.
-    2. Environment variable (`CAPDAG_REGISTRY_URL`, `CAPDAG_SCHEMA_BASE_URL`).
+    2. Environment variable (`CDG_FABRIC_REGISTRY_URL`, `CDG_SCHEMA_BASE_URL`).
     3. Default values.
     """
 
@@ -241,12 +241,12 @@ class RegistryConfig:
     ):
         if registry_base_url is None:
             registry_base_url = os.getenv(
-                "CAPDAG_REGISTRY_URL", DEFAULT_REGISTRY_BASE_URL
+                "CDG_FABRIC_REGISTRY_URL", DEFAULT_REGISTRY_BASE_URL
             )
 
         if schema_base_url is None:
             schema_base_url = os.getenv(
-                "CAPDAG_SCHEMA_BASE_URL", f"{registry_base_url}/schema"
+                "CDG_SCHEMA_BASE_URL", f"{registry_base_url}/schema"
             )
 
         self.registry_base_url = registry_base_url

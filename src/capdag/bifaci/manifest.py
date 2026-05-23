@@ -85,7 +85,7 @@ class CapManifest:
         self.channel = channel
         # Verbatim registry URL the cartridge was built for. ``None``
         # ⇔ dev build (cartridge.sh was invoked without ``--registry``;
-        # MFR_REGISTRY_URL env var was unset at compile time).
+        # MFR_CARTRIDGE_REGISTRY_URL env var was unset at compile time).
         self.registry_url = registry_url
         self.description = description
         self.cap_groups = cap_groups

@@ -213,17 +213,17 @@ def test_142_normalize_handles_different_tag_orders():
 
 
 # TEST143: Default config points at https://fabric.capdag.com or the
-# CAPDAG_REGISTRY_URL env-var override.
+# CDG_FABRIC_REGISTRY_URL env-var override.
 def test_143_default_config():
     """Test default configuration"""
     config = RegistryConfig()
 
     # Default points at the canonical registry host. The env-var
     # override path stays open for tests / staging deploys.
-    if os.getenv("CAPDAG_REGISTRY_URL") is None:
+    if os.getenv("CDG_FABRIC_REGISTRY_URL") is None:
         assert config.registry_base_url == "https://fabric.capdag.com"
     else:
-        assert config.registry_base_url == os.getenv("CAPDAG_REGISTRY_URL")
+        assert config.registry_base_url == os.getenv("CDG_FABRIC_REGISTRY_URL")
     assert "/schema" in config.schema_base_url
 
 

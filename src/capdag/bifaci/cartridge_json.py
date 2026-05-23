@@ -45,7 +45,7 @@ class CartridgeJson:
     `(registry_url, channel, name, version)` is the install's full
     identity. ``registry_url`` is the verbatim URL the cartridge was
     published from, or ``None`` for dev installs (the cartridge was
-    built locally without ``MFR_REGISTRY_URL``). Each
+    built locally without ``MFR_CARTRIDGE_REGISTRY_URL``). Each
     ``(registry, channel)`` is an independent namespace; installs
     of the same id+version from different registries × channels
     coexist on disk under different top-level slug folders.

@@ -102,7 +102,7 @@ class InstalledCartridgeRecord:
     slug folders.
 
     ``registry_url`` is ``Optional[str]``: ``None`` ⇔ dev install
-    (cartridge built locally without ``MFR_REGISTRY_URL``); non-None
+    (cartridge built locally without ``MFR_CARTRIDGE_REGISTRY_URL``); non-None
     ⇔ verbatim URL the cartridge was published from. Compared
     byte-wise; never normalized.
 
