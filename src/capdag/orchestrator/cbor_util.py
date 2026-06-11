@@ -15,17 +15,113 @@ Mirrors Rust's orchestrator/cbor_util.rs exactly.
 
 from __future__ import annotations
 
-import io
 from typing import List
 
 import cbor2
 
 
+def _cbor_item_length(data: bytes, offset: int = 0) -> int:
+    """Return the byte length of one definite-length CBOR data item."""
+    if offset >= len(data):
+        raise CborDeserializeError("unexpected end of CBOR data")
+
+    initial = data[offset]
+    major = initial >> 5
+    additional = initial & 0x1F
+    pos = offset + 1
+
+    def read_argument() -> int:
+        nonlocal pos
+        if additional < 24:
+            return additional
+        if additional == 24:
+            size = 1
+        elif additional == 25:
+            size = 2
+        elif additional == 26:
+            size = 4
+        elif additional == 27:
+            size = 8
+        elif additional == 31:
+            raise CborDeserializeError("indefinite-length CBOR items are not supported")
+        else:
+            raise CborDeserializeError("invalid CBOR additional information")
+        if pos + size > len(data):
+            raise CborDeserializeError("truncated CBOR length")
+        value = int.from_bytes(data[pos:pos + size], "big")
+        pos += size
+        return value
+
+    if major in (0, 1):
+        read_argument()
+        return pos - offset
+
+    if major in (2, 3):
+        length = read_argument()
+        if pos + length > len(data):
+            raise CborDeserializeError("truncated CBOR data")
+        return pos + length - offset
+
+    if major == 4:
+        length = read_argument()
+        item_offset = pos
+        for _ in range(length):
+            item_offset += _cbor_item_length(data, item_offset)
+        return item_offset - offset
+
+    if major == 5:
+        length = read_argument()
+        item_offset = pos
+        for _ in range(length * 2):
+            item_offset += _cbor_item_length(data, item_offset)
+        return item_offset - offset
+
+    if major == 6:
+        read_argument()
+        return pos - offset + _cbor_item_length(data, pos)
+
+    if major == 7:
+        if additional < 24:
+            if additional == 31:
+                raise CborDeserializeError("invalid standalone break marker")
+            return pos - offset
+        if additional == 24:
+            size = 1
+        elif additional == 25:
+            size = 2
+        elif additional == 26:
+            size = 4
+        elif additional == 27:
+            size = 8
+        else:
+            raise CborDeserializeError("invalid CBOR simple value")
+        if pos + size > len(data):
+            raise CborDeserializeError("truncated CBOR simple value")
+        return pos + size - offset
+
+    raise CborDeserializeError("invalid CBOR major type")
+
+
+def _is_break_marker(value) -> bool:
+    """Return true for cbor2 break-marker sentinels across cbor2 versions."""
+    break_marker = getattr(cbor2, "break_marker", None)
+    return break_marker is not None and value is break_marker
+
+
+def _decode_one(data: bytes):
+    """Decode exactly one CBOR item and return (value, bytes_consumed)."""
+    consumed = _cbor_item_length(data)
+    value = cbor2.loads(data[:consumed])
+    if _is_break_marker(value):
+        raise CborDeserializeError("invalid standalone break marker")
+    return value, consumed
+
+
 def _strict_cbor_loads(data: bytes):
     """Decode one standalone CBOR value and reject invalid top-level break markers."""
-    value = cbor2.loads(data)
-    if value is cbor2.break_marker:
-        raise CborDeserializeError("invalid standalone break marker")
+    value, consumed = _decode_one(data)
+    if consumed != len(data):
+        raise CborDeserializeError("trailing bytes after CBOR item")
     return value
 
 
@@ -69,7 +165,7 @@ def split_cbor_array(data: bytes) -> List[bytes]:
         CborDeserializeError: If the input bytes are not valid CBOR.
     """
     try:
-        value = _strict_cbor_loads(data)
+        value, consumed = _decode_one(data)
     except Exception as e:
         if isinstance(e, CborDeserializeError):
             raise
@@ -77,6 +173,9 @@ def split_cbor_array(data: bytes) -> List[bytes]:
 
     if not isinstance(value, list):
         raise CborNotAnArrayError()
+
+    if consumed != len(data):
+        raise CborDeserializeError("trailing bytes after CBOR array")
 
     if len(value) == 0:
         raise CborEmptyArrayError()
@@ -138,10 +237,7 @@ def split_cbor_sequence(data: bytes) -> List[bytes]:
     while offset < len(data):
         chunk = data[offset:]
         try:
-            decoder = cbor2.CBORDecoder(io.BytesIO(b""))
-            value = decoder.decode_from_bytes(chunk)
-            if value is cbor2.break_marker:
-                raise CborDeserializeError("invalid standalone break marker")
+            value, consumed = _decode_one(chunk)
         except Exception as e:
             if isinstance(e, CborDeserializeError):
                 raise
@@ -156,7 +252,7 @@ def split_cbor_sequence(data: bytes) -> List[bytes]:
             raise CborDeserializeError("decoded empty CBOR item")
 
         items.append(item_bytes)
-        offset += len(item_bytes)
+        offset += consumed
 
     if not items:
         raise CborEmptyArrayError()
