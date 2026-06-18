@@ -301,7 +301,7 @@ def test_547_is_audio():
 # TEST548: is_video returns true only when video marker tag is present
 def test_548_is_video():
     assert MediaUrn.from_string(MEDIA_VIDEO).is_video()
-    assert MediaUrn.from_string("media:video;mp4").is_video()
+    assert MediaUrn.from_string("media:mp4;video").is_video()
     # Non-video types
     assert not MediaUrn.from_string(MEDIA_AUDIO).is_video()
     assert not MediaUrn.from_string(MEDIA_PNG).is_video()
@@ -523,7 +523,7 @@ def test_1810_media_void_is_atomic():
 
     bad_inputs = [
         "media:void;text",
-        "media:void;pdf",
+        "media:pdf;void",
         "media:void;audio",
         "media:void;reason=warmup",
         "media:void;heartbeat",

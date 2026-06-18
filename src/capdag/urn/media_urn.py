@@ -59,33 +59,33 @@ MEDIA_OBJECT_LIST = "media:list;record"
 # Media URN for PNG image data
 MEDIA_PNG = "media:image;png"
 # Media URN for JPEG image data
-MEDIA_JPEG = "media:jpeg;image"
+MEDIA_JPEG = "media:image;jpeg"
 # Media URN for GIF image data
 MEDIA_GIF = "media:gif;image"
 # Media URN for BMP image data
 MEDIA_BMP = "media:bmp;image"
 # Media URN for TIFF image data
-MEDIA_TIFF = "media:tiff;image"
+MEDIA_TIFF = "media:image;tiff"
 # Media URN for WebP image data
-MEDIA_WEBP = "media:webp;image"
+MEDIA_WEBP = "media:image;webp"
 # Media URN for audio data (wav, mp3, flac, etc.)
-MEDIA_AUDIO = "media:wav;audio"
+MEDIA_AUDIO = "media:audio;wav"
 # Media URN for WAV audio data
-MEDIA_WAV = "media:wav;audio"
+MEDIA_WAV = "media:audio;wav"
 # Media URN for MP3 audio data
-MEDIA_MP3 = "media:mp3;audio"
+MEDIA_MP3 = "media:audio;mp3"
 # Media URN for FLAC audio data
-MEDIA_FLAC = "media:flac;audio"
+MEDIA_FLAC = "media:audio;flac"
 # Media URN for OGG audio data
-MEDIA_OGG = "media:ogg;audio"
+MEDIA_OGG = "media:audio;ogg"
 # Media URN for AAC audio data
 MEDIA_AAC = "media:aac;audio"
 # Media URN for M4A audio data
-MEDIA_M4A = "media:m4a;audio"
+MEDIA_M4A = "media:audio;m4a"
 # Media URN for AIFF audio data
 MEDIA_AIFF = "media:aiff;audio"
 # Media URN for Opus audio data
-MEDIA_OPUS = "media:opus;audio"
+MEDIA_OPUS = "media:audio;opus"
 # Media URN for video data (mp4, webm, mov, etc.)
 MEDIA_VIDEO = "media:video"
 # Media URN for MP4 video data
@@ -93,13 +93,13 @@ MEDIA_MP4 = "media:mp4;video"
 # Media URN for MOV video data
 MEDIA_MOV = "media:mov;video"
 # Media URN for WebM video data
-MEDIA_WEBM = "media:webm;video"
+MEDIA_WEBM = "media:video;webm"
 # Media URN for MKV video data
 MEDIA_MKV = "media:mkv;video"
 
 # Semantic AI input types - distinguished by their purpose/context
 # Media URN for audio input containing speech for transcription (Whisper)
-MEDIA_AUDIO_SPEECH = "media:audio;wav;speech"
+MEDIA_AUDIO_SPEECH = "media:audio;speech;wav"
 
 # Document types (PRIMARY naming - type IS the format)
 # Media URN for PDF documents
@@ -111,7 +111,7 @@ MEDIA_EPUB = "media:epub"
 # Media URN for Markdown text
 MEDIA_MD = "media:md;textable"
 # Media URN for plain text
-MEDIA_TXT = "media:txt;textable"
+MEDIA_TXT = "media:textable;txt"
 # Media URN for reStructuredText
 MEDIA_RST = "media:rst;textable"
 # Media URN for log files
@@ -119,7 +119,7 @@ MEDIA_LOG = "media:log;textable"
 # Media URN for HTML documents
 MEDIA_HTML = "media:html;textable"
 # Media URN for XML documents
-MEDIA_XML = "media:xml;textable"
+MEDIA_XML = "media:textable;xml"
 # Media URN for JSON data
 MEDIA_JSON = "media:json;record;textable"
 # Media URN for JSON with schema constraint (input for structured queries) - matches CATALOG
@@ -238,7 +238,9 @@ MEDIA_CAP_DEFINITION = "media:cap-definition;json;record;textable"
 MEDIA_MEDIA_DEFINITION = "media:media-definition;json;record;textable"
 
 
-# Helper functions to build media URNs
+# Helper functions to build media URNs. The extension is carried on
+# the keyed `ext=<value>` axis so that `MediaUrn.extension()` (which
+# looks up the `ext` tag) resolves correctly.
 def binary_media_urn_for_ext(ext: str) -> str:
     """Helper to build binary media URN with extension"""
     return f"media:binary;ext={ext}"
@@ -251,7 +253,7 @@ def text_media_urn_for_ext(ext: str) -> str:
 
 def image_media_urn_for_ext(ext: str) -> str:
     """Helper to build image media URN with extension"""
-    return f"media:image;ext={ext}"
+    return f"media:ext={ext};image"
 
 
 def audio_media_urn_for_ext(ext: str) -> str:

@@ -2238,7 +2238,7 @@ def test_678_find_stream_equivalent_urn():
     streams = [
         ("media:textable;txt", b"hello world"),
     ]
-    result = find_stream(streams, "media:txt;textable")
+    result = find_stream(streams, "media:textable;txt")
     assert result == b"hello world"
 
 
@@ -2278,7 +2278,7 @@ def test_682_require_stream_returns_data():
     streams = [
         ("media:textable;txt", b"hello text"),
     ]
-    result = require_stream(streams, "media:txt;textable")
+    result = require_stream(streams, "media:textable;txt")
     assert result == b"hello text"
 
 

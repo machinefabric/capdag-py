@@ -433,7 +433,7 @@ def test_332_cartridge_repo_client_get_cartridge():
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
     cap1 = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
-    cap2 = 'cap:in="media:txt;textable";disbind;out="media:disbound-page;textable;list"'
+    cap2 = 'cap:in="media:textable;txt";disbind;out="media:disbound-page;textable;list"'
     repo.update_cache(
         "https://example.com/cartridges",
         CartridgeRegistryResponse(

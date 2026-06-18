@@ -12,28 +12,28 @@ def _make_test_cap(urn: str, title: str) -> Cap:
 # TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels
 def test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes():
     cap = _make_test_cap(
-        'cap:in="media:pdf";extract;out="media:txt;textable"',
+        'cap:in="media:pdf";extract;out="media:textable;txt"',
         'Extract "Title" <One>\\path',
     )
     second_cap = _make_test_cap(
-        'cap:in="media:txt;textable";embed;out="media:embedding;record"',
+        'cap:in="media:textable;txt";embed;out="media:embedding;record"',
         "Embed",
     )
     graph = ResolvedGraph(
         nodes={
             "input": "media:pdf",
-            "middle": "media:txt;textable",
+            "middle": "media:textable;txt",
             "output": "media:embedding;record",
         },
         edges=[
-            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:txt;textable"),
-            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:txt;textable"),
+            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:textable;txt"),
+            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:textable;txt"),
             ResolvedEdge(
                 "middle",
                 "output",
                 second_cap.urn.to_string(),
                 second_cap,
-                "media:txt;textable",
+                "media:textable;txt",
                 "media:embedding;record",
             ),
         ],
@@ -44,7 +44,7 @@ def test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes
 
     assert mermaid.startswith("graph LR\n")
     assert 'input(["input<br/><small>media:pdf</small>"])' in mermaid
-    assert 'middle["middle<br/><small>media:txt;textable</small>"]' in mermaid
+    assert 'middle["middle<br/><small>media:textable;txt</small>"]' in mermaid
     assert 'output(("output<br/><small>media:embedding;record</small>"))' in mermaid
     assert 'Extract #quot;Title#quot; &lt;One&gt;\\\\path' in mermaid
     assert "<small>cap:" in mermaid

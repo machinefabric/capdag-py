@@ -188,7 +188,7 @@ def test_992_different_ops_same_types_not_duplicates():
 def test_993_same_op_different_input_types_not_duplicates():
     caps = [
         _make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract PDF Metadata"),
-        _make_test_cap("extract_metadata", "media:txt;textable", "media:file-metadata;textable;record", "Extract TXT Metadata"),
+        _make_test_cap("extract_metadata", "media:textable;txt", "media:file-metadata;textable;record", "Extract TXT Metadata"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2

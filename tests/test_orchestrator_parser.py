@@ -44,10 +44,10 @@ def _media(s: str) -> MediaUrn:
 @pytest.mark.asyncio
 async def test_1256_parse_simple_machine():
     registry = _build_registry([
-        ('cap:in="media:pdf";extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
+        ('cap:in="media:pdf";extract;out="media:textable;txt"', ["media:pdf"], "media:textable;txt"),
     ])
     notation = (
-        '[extract cap:in="media:pdf";extract;out="media:txt;textable"]'
+        '[extract cap:in="media:pdf";extract;out="media:textable;txt"]'
         "[A -> extract -> B]"
     )
     graph = await parse_machine_to_cap_dag(notation, registry)
@@ -58,20 +58,20 @@ async def test_1256_parse_simple_machine():
     assert node_a.is_equivalent(_media("media:pdf"))
 
     node_b = _media(graph.nodes["B"])
-    assert node_b.is_equivalent(_media("media:txt;textable"))
+    assert node_b.is_equivalent(_media("media:textable;txt"))
 
 
 # TEST1257: Two sequential wirings preserve the intermediate node media type.
 @pytest.mark.asyncio
 async def test_1257_parse_two_step_chain():
     registry = _build_registry([
-        ('cap:in="media:pdf";extract;out="media:txt;textable"', ["media:pdf"], "media:txt;textable"),
-        ('cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"',
-         ["media:txt;textable"], "media:embedding-vector;record;textable"),
+        ('cap:in="media:pdf";extract;out="media:textable;txt"', ["media:pdf"], "media:textable;txt"),
+        ('cap:in="media:textable;txt";embed;out="media:embedding-vector;record;textable"',
+         ["media:textable;txt"], "media:embedding-vector;record;textable"),
     ])
     notation = (
-        '[extract cap:in="media:pdf";extract;out="media:txt;textable"]'
-        '[embed cap:in="media:txt;textable";embed;out="media:embedding-vector;record;textable"]'
+        '[extract cap:in="media:pdf";extract;out="media:textable;txt"]'
+        '[embed cap:in="media:textable;txt";embed;out="media:embedding-vector;record;textable"]'
         "[A -> extract -> B]"
         "[B -> embed -> C]"
     )
@@ -80,7 +80,7 @@ async def test_1257_parse_two_step_chain():
     assert len(graph.edges) == 2
 
     node_b = _media(graph.nodes["B"])
-    assert node_b.is_equivalent(_media("media:txt;textable")), \
+    assert node_b.is_equivalent(_media("media:textable;txt")), \
         f"Intermediate node B should be media:txt;textable, got {node_b}"
 
 
@@ -158,11 +158,11 @@ async def test_1259_parse_fan_in():
 @pytest.mark.asyncio
 async def test_1260_parse_loop_wiring():
     registry = _build_registry([
-        ('cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"',
-         ["media:disbound-page;textable"], "media:txt;textable"),
+        ('cap:in="media:disbound-page;textable";page-to-text;out="media:textable;txt"',
+         ["media:disbound-page;textable"], "media:textable;txt"),
     ])
     notation = (
-        '[p2t cap:in="media:disbound-page;textable";page-to-text;out="media:txt;textable"]'
+        '[p2t cap:in="media:disbound-page;textable";page-to-text;out="media:textable;txt"]'
         "[pages -> LOOP p2t -> texts]"
     )
     graph = await parse_machine_to_cap_dag(notation, registry)
@@ -174,11 +174,11 @@ async def test_1260_parse_loop_wiring():
 @pytest.mark.asyncio
 async def test_1263_cycle_detection():
     registry = _build_registry([
-        ('cap:in="media:txt;textable";process;out="media:txt;textable"',
-         ["media:txt;textable"], "media:txt;textable"),
+        ('cap:in="media:textable;txt";process;out="media:textable;txt"',
+         ["media:textable;txt"], "media:textable;txt"),
     ])
     notation = (
-        '[proc cap:in="media:txt;textable";process;out="media:txt;textable"]'
+        '[proc cap:in="media:textable;txt";process;out="media:textable;txt"]'
         "[A -> proc -> B]"
         "[B -> proc -> C]"
         "[C -> proc -> A]"
@@ -193,12 +193,12 @@ async def test_1264_incompatible_media_types_at_shared_node():
     registry = _build_registry([
         ('cap:in="media:void";produce-pdf;out="media:pdf"',
          ["media:void"], "media:pdf"),
-        ('cap:in="media:audio;wav";transcribe;out="media:txt;textable"',
-         ["media:audio;wav"], "media:txt;textable"),
+        ('cap:in="media:audio;wav";transcribe;out="media:textable;txt"',
+         ["media:audio;wav"], "media:textable;txt"),
     ])
     notation = (
         '[produce cap:in="media:void";produce-pdf;out="media:pdf"]'
-        '[transcribe cap:in="media:audio;wav";transcribe;out="media:txt;textable"]'
+        '[transcribe cap:in="media:audio;wav";transcribe;out="media:textable;txt"]'
         "[A -> produce -> B]"
         "[B -> transcribe -> C]"
     )
@@ -221,12 +221,12 @@ async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([
         ('cap:in="media:pdf";thumbnail;out="media:image;png"',
          ["media:pdf"], "media:image;png"),
-        ('cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"',
-         ["media:image;png;bytes"], "media:embedding-vector;record;textable"),
+        ('cap:in="media:bytes;image;png";embed-image;out="media:embedding-vector;record;textable"',
+         ["media:bytes;image;png"], "media:embedding-vector;record;textable"),
     ])
     notation = (
         '[thumb cap:in="media:pdf";thumbnail;out="media:image;png"]'
-        '[embed_image cap:in="media:image;png;bytes";embed-image;out="media:embedding-vector;record;textable"]'
+        '[embed_image cap:in="media:bytes;image;png";embed-image;out="media:embedding-vector;record;textable"]'
         "[A -> thumb -> B]"
         "[B -> embed_image -> C]"
     )
@@ -241,12 +241,12 @@ async def test_1266_structure_mismatch_record_to_opaque():
     registry = _build_registry([
         ('cap:in="media:void";produce;out="media:json;record;textable"',
          ["media:void"], "media:json;record;textable"),
-        ('cap:in="media:json;textable";process;out="media:txt;textable"',
-         ["media:json;textable"], "media:txt;textable"),
+        ('cap:in="media:json;textable";process;out="media:textable;txt"',
+         ["media:json;textable"], "media:textable;txt"),
     ])
     notation = (
         '[produce cap:in="media:void";produce;out="media:json;record;textable"]'
-        '[process cap:in="media:json;textable";process;out="media:txt;textable"]'
+        '[process cap:in="media:json;textable";process;out="media:textable;txt"]'
         "[A -> produce -> B]"
         "[B -> process -> C]"
     )
@@ -280,12 +280,12 @@ async def test_1268_structure_match_both_opaque():
     registry = _build_registry([
         ('cap:in="media:void";produce;out="media:json;textable"',
          ["media:void"], "media:json;textable"),
-        ('cap:in="media:json;textable";format;out="media:txt;textable"',
-         ["media:json;textable"], "media:txt;textable"),
+        ('cap:in="media:json;textable";format;out="media:textable;txt"',
+         ["media:json;textable"], "media:textable;txt"),
     ])
     notation = (
         '[produce cap:in="media:void";produce;out="media:json;textable"]'
-        '[format cap:in="media:json;textable";format;out="media:txt;textable"]'
+        '[format cap:in="media:json;textable";format;out="media:textable;txt"]'
         "[A -> produce -> B]"
         "[B -> format -> C]"
     )
@@ -297,9 +297,9 @@ async def test_1268_structure_match_both_opaque():
 @pytest.mark.asyncio
 async def test_1269_parse_multiline_machine():
     registry = _build_registry([
-        ('cap:in="media:pdf";extract;out="media:txt;textable"',
-         ["media:pdf"], "media:txt;textable"),
+        ('cap:in="media:pdf";extract;out="media:textable;txt"',
+         ["media:pdf"], "media:textable;txt"),
     ])
-    notation = '\n[extract cap:in="media:pdf";extract;out="media:txt;textable"]\n[doc -> extract -> text]\n'
+    notation = '\n[extract cap:in="media:pdf";extract;out="media:textable;txt"]\n[doc -> extract -> text]\n'
     result = await parse_machine_to_cap_dag(notation, registry)
     assert result is not None, "Multi-line parse failed"
