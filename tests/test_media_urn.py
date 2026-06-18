@@ -192,12 +192,16 @@ def test_073_extension_helpers():
 
 # TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 def test_074_media_urn_matching():
+    # A more-specific URN must conform to a less-specific URN with the
+    # same tags-minus-one. media:ext=pdf carries the keyed ext tag plus
+    # nothing else, so it conforms to the bare-prefix media: top URN.
     pdf_listing = MediaUrn.from_string(MEDIA_PDF)
-    pdf_requirement = MediaUrn.from_string("media:pdf")
-    assert pdf_listing.conforms_to(pdf_requirement)
+    top_requirement = MediaUrn.from_string("media:")
+    assert pdf_listing.conforms_to(top_requirement)
 
-    md_listing = MediaUrn.from_string("media:md;textable")
-    md_requirement = MediaUrn.from_string("media:md")
+    # A keyed-ext text URN conforms to the same URN without the ext tag.
+    md_listing = MediaUrn.from_string("media:ext=md;textable")
+    md_requirement = MediaUrn.from_string("media:textable")
     assert md_listing.conforms_to(md_requirement)
 
     string_urn = MediaUrn.from_string(MEDIA_STRING)

@@ -394,3 +394,38 @@ def test_598_cap_output_lifecycle():
     output3 = copy.deepcopy(output2)
     output3.clear_metadata()
     assert output3.get_metadata() is None
+
+
+# TEST599: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict
+def test_599_cap_version_zero_round_trip():
+    urn = CapUrn.from_string(_test_urn("test"))
+    cap = Cap(urn, "Test", "cmd")
+
+    # Default is 0
+    assert cap.version == 0
+
+    # Serialize: "version" key must be absent when version==0
+    d = cap.to_dict()
+    assert "version" not in d, f"version key must be absent when version==0, got dict: {d}"
+
+    # Deserialize from a dict that has no "version" key
+    cap2 = Cap.from_dict(d)
+    assert cap2.version == 0, f"expected version==0 after deserializing from dict without version key, got {cap2.version}"
+
+
+# TEST600: Cap.version nonzero round-trip — emitted in dict and restored on deserialization
+def test_600_cap_version_nonzero_round_trip():
+    urn = CapUrn.from_string(_test_urn("test"))
+    cap = Cap(urn, "Test", "cmd")
+    cap.version = 3
+
+    # Serialize: "version" must be present and equal to 3
+    d = cap.to_dict()
+    assert "version" in d, f"version key must be present when version!=0, got dict: {d}"
+    assert d["version"] == 3, f"expected version==3 in dict, got {d['version']}"
+
+    # Deserialize from a dict that has "version": 3
+    d2 = dict(d)
+    d2["version"] = 3
+    cap2 = Cap.from_dict(d2)
+    assert cap2.version == 3, f"expected version==3 after round-trip, got {cap2.version}"

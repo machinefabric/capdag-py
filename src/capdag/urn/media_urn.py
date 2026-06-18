@@ -57,69 +57,69 @@ MEDIA_OBJECT_LIST = "media:list;record"
 
 # Semantic media types for specialized content
 # Media URN for PNG image data
-MEDIA_PNG = "media:image;png"
+MEDIA_PNG = "media:ext=png;image"
 # Media URN for JPEG image data
-MEDIA_JPEG = "media:image;jpeg"
+MEDIA_JPEG = "media:ext=jpeg;image"
 # Media URN for GIF image data
-MEDIA_GIF = "media:gif;image"
+MEDIA_GIF = "media:ext=gif;image"
 # Media URN for BMP image data
-MEDIA_BMP = "media:bmp;image"
+MEDIA_BMP = "media:ext=bmp;image"
 # Media URN for TIFF image data
-MEDIA_TIFF = "media:image;tiff"
+MEDIA_TIFF = "media:ext=tiff;image"
 # Media URN for WebP image data
-MEDIA_WEBP = "media:image;webp"
+MEDIA_WEBP = "media:ext=webp;image"
 # Media URN for audio data (wav, mp3, flac, etc.)
-MEDIA_AUDIO = "media:audio;wav"
+MEDIA_AUDIO = "media:audio;ext=wav"
 # Media URN for WAV audio data
-MEDIA_WAV = "media:audio;wav"
+MEDIA_WAV = "media:audio;ext=wav"
 # Media URN for MP3 audio data
-MEDIA_MP3 = "media:audio;mp3"
+MEDIA_MP3 = "media:audio;ext=mp3"
 # Media URN for FLAC audio data
-MEDIA_FLAC = "media:audio;flac"
+MEDIA_FLAC = "media:audio;ext=flac"
 # Media URN for OGG audio data
-MEDIA_OGG = "media:audio;ogg"
+MEDIA_OGG = "media:audio;ext=ogg"
 # Media URN for AAC audio data
-MEDIA_AAC = "media:aac;audio"
+MEDIA_AAC = "media:audio;ext=aac"
 # Media URN for M4A audio data
-MEDIA_M4A = "media:audio;m4a"
+MEDIA_M4A = "media:audio;ext=m4a"
 # Media URN for AIFF audio data
-MEDIA_AIFF = "media:aiff;audio"
+MEDIA_AIFF = "media:audio;ext=aiff"
 # Media URN for Opus audio data
-MEDIA_OPUS = "media:audio;opus"
+MEDIA_OPUS = "media:audio;ext=opus"
 # Media URN for video data (mp4, webm, mov, etc.)
 MEDIA_VIDEO = "media:video"
 # Media URN for MP4 video data
-MEDIA_MP4 = "media:mp4;video"
+MEDIA_MP4 = "media:ext=mp4;video"
 # Media URN for MOV video data
-MEDIA_MOV = "media:mov;video"
+MEDIA_MOV = "media:ext=mov;video"
 # Media URN for WebM video data
-MEDIA_WEBM = "media:video;webm"
+MEDIA_WEBM = "media:ext=webm;video"
 # Media URN for MKV video data
-MEDIA_MKV = "media:mkv;video"
+MEDIA_MKV = "media:ext=mkv;video"
 
 # Semantic AI input types - distinguished by their purpose/context
 # Media URN for audio input containing speech for transcription (Whisper)
-MEDIA_AUDIO_SPEECH = "media:audio;speech;wav"
+MEDIA_AUDIO_SPEECH = "media:audio;ext=wav;speech"
 
 # Document types (PRIMARY naming - type IS the format)
 # Media URN for PDF documents
-MEDIA_PDF = "media:pdf"
+MEDIA_PDF = "media:ext=pdf"
 # Media URN for EPUB documents
-MEDIA_EPUB = "media:epub"
+MEDIA_EPUB = "media:ext=epub"
 
 # Text format types (PRIMARY naming - type IS the format)
 # Media URN for Markdown text
-MEDIA_MD = "media:md;textable"
+MEDIA_MD = "media:ext=md;textable"
 # Media URN for plain text
-MEDIA_TXT = "media:textable;txt"
+MEDIA_TXT = "media:ext=txt;textable"
 # Media URN for reStructuredText
-MEDIA_RST = "media:rst;textable"
+MEDIA_RST = "media:ext=rst;textable"
 # Media URN for log files
-MEDIA_LOG = "media:log;textable"
+MEDIA_LOG = "media:ext=log;textable"
 # Media URN for HTML documents
-MEDIA_HTML = "media:html;textable"
+MEDIA_HTML = "media:ext=html;textable"
 # Media URN for XML documents
-MEDIA_XML = "media:textable;xml"
+MEDIA_XML = "media:ext=xml;textable"
 # Media URN for JSON data
 MEDIA_JSON = "media:json;record;textable"
 # Media URN for JSON with schema constraint (input for structured queries) - matches CATALOG
@@ -136,8 +136,8 @@ MEDIA_YAML_VALUE = "media:textable;yaml"
 MEDIA_YAML_RECORD = "media:record;textable;yaml"
 MEDIA_YAML_LIST = "media:list;textable;yaml"
 MEDIA_YAML_LIST_RECORD = "media:list;record;textable;yaml"
-MEDIA_CSV = "media:csv;list;record;textable"
-MEDIA_CSV_LIST = "media:csv;list;record;textable"
+MEDIA_CSV = "media:ext=csv;list;record;textable"
+MEDIA_CSV_LIST = "media:ext=csv;list;record;textable"
 
 # File path type — for arguments that represent filesystem paths.
 # There is a single media URN; cardinality (single file vs many) lives on
@@ -145,7 +145,7 @@ MEDIA_CSV_LIST = "media:csv;list;record;textable"
 MEDIA_FILE_PATH = "media:file-path;textable"
 
 # Media URN for extracted page text
-MEDIA_TEXTABLE_PAGE = "media:page;plain-text;textable;txt"
+MEDIA_TEXTABLE_PAGE = "media:ext=txt;page;plain-text;textable"
 
 # Semantic text input types - distinguished by their purpose/context
 # Media URN for model spec (provider:model format, HuggingFace name, etc.)
@@ -217,12 +217,12 @@ MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;record;textable"
 # Carries `image-description` (the vision-specific marker), `plain-text`
 # (the finalised-text marker that opts into cap:save-as-txt's persistence
 # path), and `file-type=txt` (binds the URN to the `.txt` extension).
-MEDIA_IMAGE_DESCRIPTION = "media:image-description;plain-text;textable;txt"
+MEDIA_IMAGE_DESCRIPTION = "media:ext=txt;image-description;plain-text;textable"
 # Media URN for finalised plain text — the canonical input/output of cap:save-as-txt.
 # Producers of user-facing prose (LLM text-generation, OCR's extracted text,
 # summarisation) declare this URN as their `out` so the planner restricts the .txt
 # persistence path to those caps. See fabric/media/plain-text.toml.
-MEDIA_PLAIN_TEXT = "media:plain-text;textable;txt"
+MEDIA_PLAIN_TEXT = "media:ext=txt;plain-text;textable"
 # Media URN for transcription output - record structure
 MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG
@@ -236,6 +236,7 @@ MEDIA_CAP_URN = "media:cap-urn;textable"
 MEDIA_MEDIA_URN = "media:media-urn;textable"
 MEDIA_CAP_DEFINITION = "media:cap-definition;json;record;textable"
 MEDIA_MEDIA_DEFINITION = "media:media-definition;json;record;textable"
+MEDIA_FABRIC_DEFVER = "media:defver;textable"
 
 
 # Helper functions to build media URNs. The extension is carried on

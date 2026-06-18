@@ -262,6 +262,7 @@ class Cap:
 
     def __init__(self, urn: CapUrn, title: str, command: str):
         self.urn = urn
+        self.version: int = 0
         self.title = title
         self.command = command
         self.cap_description: Optional[str] = None
@@ -435,6 +436,9 @@ class Cap:
             "command": self.command,
         }
 
+        if self.version != 0:
+            result["version"] = self.version
+
         if self.cap_description is not None:
             result["cap_description"] = self.cap_description
 
@@ -498,6 +502,7 @@ class Cap:
                 registered_at=rb["registered_at"],
             )
 
+        cap.version = int(data.get("version", 0))
         cap.supported_model_types = data.get("supported_model_types", [])
         cap.default_model_spec = data.get("default_model_spec")
 

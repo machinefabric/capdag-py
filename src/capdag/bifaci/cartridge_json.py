@@ -78,6 +78,10 @@ class CartridgeJson:
     package_sha256: str = field(default="")
     #: Size in bytes of the original package.
     package_size: int = field(default=0)
+    #: Fabric registry manifest version this cartridge was built against.
+    #: 0 (absent on wire) means the cartridge predates the fabric registry's
+    #: versioning protocol. >= 1 means built against manifest version N.
+    fabric_manifest_version: int = field(default=0)
 
     def __post_init__(self) -> None:
         if self.channel not in ("release", "nightly"):
@@ -113,6 +117,8 @@ class CartridgeJson:
             d["package_sha256"] = self.package_sha256
         if self.package_size:
             d["package_size"] = self.package_size
+        if self.fabric_manifest_version:
+            d["fabric_manifest_version"] = self.fabric_manifest_version
         return d
 
     @classmethod
@@ -149,6 +155,7 @@ class CartridgeJson:
             source_url=d.get("source_url", ""),
             package_sha256=d.get("package_sha256", ""),
             package_size=d.get("package_size", 0),
+            fabric_manifest_version=d.get("fabric_manifest_version", 0),
         )
 
     def resolve_entry_point(self, version_dir: Path) -> Path:

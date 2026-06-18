@@ -749,3 +749,63 @@ def test_637_deserialize_full_registry_response():
     img = next(c for c in response.cartridges if c.id == "imagecartridge")
     assert len(img.cap_groups) == 1
     assert len(img.cap_groups[0].adapter_urns) == 6
+
+
+# ---------------------------------------------------------------------------
+# CartridgeJson fabric_manifest_version tests
+# ---------------------------------------------------------------------------
+
+from capdag.bifaci.cartridge_json import CartridgeJson
+
+
+def _make_cartridge_json(**kwargs) -> CartridgeJson:
+    defaults = dict(
+        name="testcartridge",
+        version="1.0.0",
+        channel="release",
+        registry_url="https://cartridges.machinefabric.com",
+        entry="testcartridge",
+        installed_at="2026-06-18T00:00:00Z",
+    )
+    defaults.update(kwargs)
+    return CartridgeJson(**defaults)
+
+
+# TEST638: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict
+def test_638_cartridge_json_fabric_manifest_version_zero_round_trip():
+    cj = _make_cartridge_json()
+
+    # Default must be 0
+    assert cj.fabric_manifest_version == 0
+
+    # Serialized dict must not contain the key when value is 0
+    d = cj.to_dict()
+    assert "fabric_manifest_version" not in d, (
+        f"fabric_manifest_version must be absent from wire dict when 0, got: {d}"
+    )
+
+    # Deserialize from dict without the key — must produce 0
+    cj2 = CartridgeJson.from_dict(d)
+    assert cj2.fabric_manifest_version == 0, (
+        f"expected fabric_manifest_version==0 after round-trip, got {cj2.fabric_manifest_version}"
+    )
+
+
+# TEST639: CartridgeJson fabric_manifest_version nonzero is emitted and restored
+def test_639_cartridge_json_fabric_manifest_version_nonzero_round_trip():
+    cj = _make_cartridge_json(fabric_manifest_version=7)
+
+    # Serialized dict must contain the key
+    d = cj.to_dict()
+    assert "fabric_manifest_version" in d, (
+        f"fabric_manifest_version must be present in wire dict when nonzero, got: {d}"
+    )
+    assert d["fabric_manifest_version"] == 7, (
+        f"expected fabric_manifest_version==7 in dict, got {d['fabric_manifest_version']}"
+    )
+
+    # Deserialize from dict with the key — must restore 7
+    cj2 = CartridgeJson.from_dict(d)
+    assert cj2.fabric_manifest_version == 7, (
+        f"expected fabric_manifest_version==7 after round-trip, got {cj2.fabric_manifest_version}"
+    )

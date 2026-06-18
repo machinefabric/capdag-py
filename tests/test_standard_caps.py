@@ -15,6 +15,8 @@ from capdag.standard.caps import (
     llm_generate_text_urn,
     identity_urn,
     adapter_selection_urn,
+    lookup_cap_fabric_cap,
+    lookup_media_def_fabric_cap,
 )
 from capdag.urn.media_urn import (
     MEDIA_VOID,
@@ -24,7 +26,9 @@ from capdag.urn.media_urn import (
     MEDIA_STRING,
     MEDIA_INTEGER,
     MEDIA_ADAPTER_SELECTION,
+    MEDIA_FABRIC_DEFVER,
 )
+from capdag.cap.definition import CliFlagSource
 
 
 # TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs
@@ -172,3 +176,53 @@ def test_1275_adapter_selection_dispatchable_by_specific_provider():
     assert not identity.is_dispatchable(adapter_request), \
         "Identity (wildcard output) must NOT dispatch adapter-selection requests: " \
         "wildcard output cannot satisfy a specific output requirement"
+
+
+# TEST1276: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
+def test_1276_lookup_cap_fabric_has_defver_arg():
+    cap = lookup_cap_fabric_cap()
+
+    defver_args = [
+        arg for arg in cap.get_args()
+        if arg.media_urn == MEDIA_FABRIC_DEFVER
+    ]
+    assert len(defver_args) == 1, (
+        f"lookup_cap_fabric_cap must have exactly one arg with media_urn==MEDIA_FABRIC_DEFVER, "
+        f"got {len(defver_args)}"
+    )
+    defver_arg = defver_args[0]
+    assert defver_arg.required is False, (
+        f"--defver arg must be optional (required=False), got required={defver_arg.required}"
+    )
+    cli_sources = [s for s in defver_arg.sources if isinstance(s, CliFlagSource)]
+    assert len(cli_sources) == 1, (
+        f"--defver arg must have exactly one CliFlagSource, got {defver_arg.sources}"
+    )
+    assert cli_sources[0].flag_name() == "--defver", (
+        f"CliFlagSource flag name must be '--defver', got {cli_sources[0].flag_name()!r}"
+    )
+
+
+# TEST1277: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
+def test_1277_lookup_media_def_fabric_has_defver_arg():
+    cap = lookup_media_def_fabric_cap()
+
+    defver_args = [
+        arg for arg in cap.get_args()
+        if arg.media_urn == MEDIA_FABRIC_DEFVER
+    ]
+    assert len(defver_args) == 1, (
+        f"lookup_media_def_fabric_cap must have exactly one arg with media_urn==MEDIA_FABRIC_DEFVER, "
+        f"got {len(defver_args)}"
+    )
+    defver_arg = defver_args[0]
+    assert defver_arg.required is False, (
+        f"--defver arg must be optional (required=False), got required={defver_arg.required}"
+    )
+    cli_sources = [s for s in defver_arg.sources if isinstance(s, CliFlagSource)]
+    assert len(cli_sources) == 1, (
+        f"--defver arg must have exactly one CliFlagSource, got {defver_arg.sources}"
+    )
+    assert cli_sources[0].flag_name() == "--defver", (
+        f"CliFlagSource flag name must be '--defver', got {cli_sources[0].flag_name()!r}"
+    )

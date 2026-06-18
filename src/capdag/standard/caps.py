@@ -8,8 +8,14 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 from capdag.urn.cap_urn import CapUrn, CapUrnBuilder
-from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
+from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource, CliFlagSource
 from capdag.urn.media_urn import (
+    # Fabric registry lookup
+    MEDIA_CAP_URN,
+    MEDIA_MEDIA_URN,
+    MEDIA_CAP_DEFINITION,
+    MEDIA_MEDIA_DEFINITION,
+    MEDIA_FABRIC_DEFVER,
     # Primitives
     MEDIA_STRING,
     MEDIA_INTEGER,
@@ -572,3 +578,68 @@ async def all_format_conversion_caps(registry) -> List[Tuple[str, str, Cap]]:
         cap = await format_conversion_cap(registry, path.in_media, path.out_media)
         caps.append((path.in_media, path.out_media, cap))
     return caps
+
+
+# =============================================================================
+# FABRIC REGISTRY LOOKUP CAP BUILDERS
+# =============================================================================
+
+
+def lookup_cap_fabric_cap() -> Cap:
+    """Build the Cap definition for cap:lookup-cap;fabric (implemented by fetchcartridge).
+
+    Resolves a canonical cap URN to its full flattened cap definition.
+    The optional --defver flag carries the per-definition version under the
+    caller's manifest snapshot; absent means defver 0 (legacy v0 flat-path lookup).
+    """
+    urn = CapUrn.from_string(CAP_LOOKUP_CAP_FABRIC)
+    cap = Cap.with_description(
+        urn,
+        "Lookup Cap (Fabric)",
+        "fetchcartridge",
+        "Resolve a canonical cap URN to its full flattened cap definition via the fabric registry.",
+    )
+    cap.add_arg(CapArg(
+        media_urn=MEDIA_CAP_URN,
+        required=True,
+        sources=[StdinSource(MEDIA_CAP_URN)],
+        arg_description="Canonical cap URN to look up.",
+    ))
+    cap.add_arg(CapArg(
+        media_urn=MEDIA_FABRIC_DEFVER,
+        required=False,
+        sources=[CliFlagSource("--defver")],
+        arg_description="Per-definition version under the caller's manifest snapshot. Absent ⇒ defver 0 (legacy v0 flat-path lookup).",
+    ))
+    cap.set_output(CapOutput(MEDIA_CAP_DEFINITION, "Full flattened cap definition"))
+    return cap
+
+
+def lookup_media_def_fabric_cap() -> Cap:
+    """Build the Cap definition for cap:lookup-media-def;fabric (implemented by fetchcartridge).
+
+    Resolves a canonical media URN to its full flattened media definition.
+    The optional --defver flag carries the per-definition version under the
+    caller's manifest snapshot; absent means defver 0 (legacy v0 flat-path lookup).
+    """
+    urn = CapUrn.from_string(CAP_LOOKUP_MEDIA_DEF_FABRIC)
+    cap = Cap.with_description(
+        urn,
+        "Lookup Media Definition (Fabric)",
+        "fetchcartridge",
+        "Resolve a canonical media URN to its full flattened media definition via the fabric registry.",
+    )
+    cap.add_arg(CapArg(
+        media_urn=MEDIA_MEDIA_URN,
+        required=True,
+        sources=[StdinSource(MEDIA_MEDIA_URN)],
+        arg_description="Canonical media URN to look up.",
+    ))
+    cap.add_arg(CapArg(
+        media_urn=MEDIA_FABRIC_DEFVER,
+        required=False,
+        sources=[CliFlagSource("--defver")],
+        arg_description="Per-definition version under the caller's manifest snapshot. Absent ⇒ defver 0 (legacy v0 flat-path lookup).",
+    ))
+    cap.set_output(CapOutput(MEDIA_MEDIA_DEFINITION, "Full flattened media definition"))
+    return cap
