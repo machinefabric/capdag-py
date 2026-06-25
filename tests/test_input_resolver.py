@@ -479,15 +479,15 @@ def test_1238_disc_6_unknown_urn_survives(tmp_path: Path):
     assert discriminate_candidates_by_validation(b"anything", candidates, registry, "media:") == candidates
 
 
-# TEST1276: Registration of a cap group with non-conflicting adapters succeeds
-def test_1276_register_non_conflicting(tmp_path: Path):
+# TEST0082: Registration of a cap group with non-conflicting adapters succeeds
+def test_0082_register_non_conflicting(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("text-formats", ["media:json", "media:yaml"], "txtcartridge")
     assert registry.has_adapter_for_extension("json")
 
 
-# TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
-def test_1277_reject_conforming_overlap(tmp_path: Path):
+# TEST0083: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
+def test_0083_reject_conforming_overlap(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:json"], "cartridge-a")
     with pytest.raises(Exception) as exc_info:
@@ -567,6 +567,7 @@ async def test_1287_confirmed_all_adapters_no_match(tmp_path: Path):
         await detect_file_confirmed(path, registry, _MockInvoker(None))
 
 
+# TEST1139: Resolve inputs confirmed wraps detect file confirmed
 @pytest.mark.asyncio
 async def test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
     path = tmp_path / "data.json"

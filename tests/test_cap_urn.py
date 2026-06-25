@@ -903,8 +903,8 @@ def test_567_str_variants():
 # =============================================================================
 
 
-# TEST639: cap: (empty) is the illegal bare top form
-def test_639_wildcard_empty_cap_defaults():
+# TEST0059: cap: (empty) is the illegal bare top form
+def test_0059_wildcard_empty_cap_defaults():
     with pytest.raises(CapUrnError):
         CapUrn.from_string("cap:")
 

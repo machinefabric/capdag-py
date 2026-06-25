@@ -216,6 +216,7 @@ async def test_1264_incompatible_media_types_at_shared_node():
            "Rust allows this via is_comparable at the orchestrator level.",
     strict=True,
 )
+# TEST1265: Compatible media urns at shared node
 @pytest.mark.asyncio
 async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([

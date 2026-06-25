@@ -771,8 +771,8 @@ def _make_cartridge_json(**kwargs) -> CartridgeJson:
     return CartridgeJson(**defaults)
 
 
-# TEST638: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict
-def test_638_cartridge_json_fabric_manifest_version_zero_round_trip():
+# TEST0084: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict
+def test_0084_cartridge_json_fabric_manifest_version_zero_round_trip():
     cj = _make_cartridge_json()
 
     # Default must be 0
@@ -791,8 +791,8 @@ def test_638_cartridge_json_fabric_manifest_version_zero_round_trip():
     )
 
 
-# TEST639: CartridgeJson fabric_manifest_version nonzero is emitted and restored
-def test_639_cartridge_json_fabric_manifest_version_nonzero_round_trip():
+# TEST0085: CartridgeJson fabric_manifest_version nonzero is emitted and restored
+def test_0085_cartridge_json_fabric_manifest_version_nonzero_round_trip():
     cj = _make_cartridge_json(fabric_manifest_version=7)
 
     # Serialized dict must contain the key
