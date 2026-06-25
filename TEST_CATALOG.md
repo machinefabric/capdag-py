@@ -2,16 +2,15 @@
 
 **Total Tests:** 989
 
-**Numbered Tests:** 986
+**Numbered Tests:** 989
 
-**Unnumbered Tests:** 3
+**Unnumbered Tests:** 0
 
-**Numbered Tests Missing Descriptions:** 2
+**Numbered Tests Missing Descriptions:** 0
 
 **Numbering Mismatches:** 0
 
-**⚠ Duplicate test numbers detected: 6 number(s) used more than once.**
-Unique numbered tests are listed first. Duplicate-number entries are grouped after them and marked with ⚠. Unnumbered tests are listed in their own group.
+All numbered test numbers are unique.
 
 This catalog lists all tests in the Python codebase.
 
@@ -70,6 +69,12 @@ This catalog lists all tests in the Python codebase.
 | test051 | `test_051_input_validation_success` | TEST051: Test input validation succeeds with valid positional argument | tests/test_validation.py:44 |
 | test052 | `test_052_input_validation_missing_required` | TEST052: Test input validation fails with MissingRequiredArgument when required arg missing | tests/test_validation.py:69 |
 | test053 | `test_053_input_validation_wrong_type` | TEST053: Test input validation fails with InvalidArgumentType when wrong type provided | tests/test_validation.py:118 |
+| test0054 | `test_0054_cap_version_zero_round_trip` | TEST0054: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:400 |
+| test0055 | `test_0055_cap_version_nonzero_round_trip` | TEST0055: Cap.version nonzero round-trip — emitted in dict and restored on deserialization | tests/test_cap.py:417 |
+| test0056 | `test_0056_is_empty` | TEST0056: is_empty returns true for empty response, false for non-empty | tests/test_response.py:61 |
+| test0057 | `test_0057_size` | TEST0057: size returns exact byte count for all content types | tests/test_response.py:76 |
+| test0058 | `test_0058_no_peer_router_rejects_all` | TEST0058: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
+| test0059 | `test_0059_wildcard_empty_cap_defaults` | TEST0059: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:907 |
 | test060 | `test_060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | tests/test_media_urn.py:39 |
 | test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | tests/test_media_urn.py:45 |
 | test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:58 |
@@ -79,6 +84,8 @@ This catalog lists all tests in the Python codebase.
 | test066 | `test_066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | tests/test_media_urn.py:107 |
 | test067 | `test_067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | tests/test_media_urn.py:117 |
 | test068 | `test_068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | tests/test_media_urn.py:130 |
+| test0069 | `test_0069_lookup_cap_fabric_has_defver_arg` | TEST0069: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:182 |
+| test0070 | `test_0070_lookup_media_def_fabric_has_defver_arg` | TEST0070: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:207 |
 | test071 | `test_071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | tests/test_media_urn.py:140 |
 | test072 | `test_072_all_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | tests/test_media_urn.py:149 |
 | test073 | `test_073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | tests/test_media_urn.py:170 |
@@ -87,6 +94,13 @@ This catalog lists all tests in the Python codebase.
 | test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | tests/test_media_urn.py:226 |
 | test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:240 |
 | test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:249 |
+| test0079 | `test_0079_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:864 |
+| test0080 | `test_0080_add_master_with_duplicate_healthy_id_errors` | TEST0080: Add master with duplicate healthy id errors | tests/test_relay_switch.py:933 |
+| test0081 | `test_0081_relay_switch_init_rejects_duplicate_ids` | TEST0081: Relay switch init rejects duplicate ids | tests/test_relay_switch.py:973 |
+| test0082 | `test_0082_register_non_conflicting` | TEST0082: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:483 |
+| test0083 | `test_0083_reject_conforming_overlap` | TEST0083: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:490 |
+| test0084 | `test_0084_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST0084: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:775 |
+| test0085 | `test_0085_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST0085: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:795 |
 | test088 | `test_088_resolve_seeded_spec` | TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. Mirrors Rust test088. | tests/test_media_def.py:47 |
 | test089 | `test_089_resolve_seeded_record_spec` | TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. Mirrors Rust test089. | tests/test_media_def.py:64 |
 | test093 | `test_093_resolve_unresolvable_fails_hard` | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. Mirrors Rust test093. | tests/test_media_def.py:88 |
@@ -861,14 +875,14 @@ This catalog lists all tests in the Python codebase.
 | test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:590 |
 | test1137 | `test_1137_two_strand_machine_serializes_to_notation` | TEST1137: Machine with two strands serializes to a non-empty notation string. | tests/test_machine.py:606 |
 | test1138 | `test_1138_assignment_bindings_sorted_by_slot_urn` | Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form | tests/test_machine.py:631 |
-| test1139 | `test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed` |  | tests/test_input_resolver.py:571 |
+| test1139 | `test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed` | TEST1139: Resolve inputs confirmed wraps detect file confirmed | tests/test_input_resolver.py:572 |
 | test1140 | `test_1140_write_stream_chunked_reassembly` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END | tests/test_cbor_io.py:722 |
 | test1141 | `test_1141_exact_max_chunk_stream_chunked` | TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK | tests/test_cbor_io.py:764 |
 | test1142 | `test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes` | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels | tests/test_orchestrator_types.py:13 |
-| test1143 | `test_1143_input_item_from_string_distinguishes_glob_directory_and_file` | TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path. | tests/test_input_resolver.py:587 |
-| test1144 | `test_1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and string values are correct. | tests/test_input_resolver.py:605 |
-| test1145 | `test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality` | TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence. | tests/test_input_resolver.py:616 |
-| test1146 | `test_1146_input_resolver_error_display_and_source` | TEST1146: InputResolverError subclass display messages and exception hierarchy are correct. | tests/test_input_resolver.py:650 |
+| test1143 | `test_1143_input_item_from_string_distinguishes_glob_directory_and_file` | TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path. | tests/test_input_resolver.py:588 |
+| test1144 | `test_1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and string values are correct. | tests/test_input_resolver.py:606 |
+| test1145 | `test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality` | TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence. | tests/test_input_resolver.py:617 |
+| test1146 | `test_1146_input_resolver_error_display_and_source` | TEST1146: InputResolverError subclass display messages and exception hierarchy are correct. | tests/test_input_resolver.py:651 |
 | test1147 | `test_1147_machine_syntax_error_display_is_specific` | TEST1147: InvalidWiringError display message is human-readable and specific. | tests/test_machine.py:687 |
 | test1148 | `test_1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause. | tests/test_machine.py:694 |
 | test1149 | `test_1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause. | tests/test_machine.py:704 |
@@ -935,11 +949,11 @@ This catalog lists all tests in the Python codebase.
 | test1262 | `test_1262_invalid_machine_notation` | TEST1262: Non-machine text fails with a machine syntax parse error. | tests/test_orchestrator_parser.py:103 |
 | test1263 | `test_1263_cycle_detection` | TEST1263: Cyclic wirings are rejected as non-DAG orchestrations. | tests/test_orchestrator_parser.py:175 |
 | test1264 | `test_1264_incompatible_media_types_at_shared_node` | TEST1264: Shared nodes with incompatible upstream and downstream media fail during parsing. | tests/test_orchestrator_parser.py:192 |
-| test1265 | `test_1265_compatible_media_urns_at_shared_node` |  | tests/test_orchestrator_parser.py:220 |
-| test1266 | `test_1266_structure_mismatch_record_to_opaque` | TEST1266: Record-to-opaque structure mismatches are skipped until structure checking is implemented. | tests/test_orchestrator_parser.py:240 |
-| test1267 | `test_1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | tests/test_orchestrator_parser.py:260 |
-| test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:279 |
-| test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:298 |
+| test1265 | `test_1265_compatible_media_urns_at_shared_node` | TEST1265: Compatible media urns at shared node | tests/test_orchestrator_parser.py:221 |
+| test1266 | `test_1266_structure_mismatch_record_to_opaque` | TEST1266: Record-to-opaque structure mismatches are skipped until structure checking is implemented. | tests/test_orchestrator_parser.py:241 |
+| test1267 | `test_1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | tests/test_orchestrator_parser.py:261 |
+| test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:280 |
+| test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:299 |
 | test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:506 |
 | test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:145 |
 | test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:152 |
@@ -991,96 +1005,11 @@ This catalog lists all tests in the Python codebase.
 | test1844 | `test_1844_axis_weighting_out_dominates` | TEST1844: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1706 |
 | test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out, in-axis dominates over y-axis. | tests/test_cap_urn.py:1718 |
 | test1846 | `test_1846_axis_weighting_decoded_layout` | TEST1846: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1730 |
-| | | | |
-| test599 ⚠ | `test_599_cap_version_zero_round_trip` | TEST599: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:400 |
-| test599 ⚠ | `test_599_is_empty` | TEST599: is_empty returns true for empty response, false for non-empty | tests/test_response.py:61 |
-| test600 ⚠ | `test_600_cap_version_nonzero_round_trip` | TEST600: Cap.version nonzero round-trip — emitted in dict and restored on deserialization | tests/test_cap.py:417 |
-| test600 ⚠ | `test_600_size` | TEST600: size returns exact byte count for all content types | tests/test_response.py:76 |
-| test638 ⚠ | `test_638_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST638: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:775 |
-| test638 ⚠ | `test_638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
-| test639 ⚠ | `test_639_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST639: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:795 |
-| test639 ⚠ | `test_639_wildcard_empty_cap_defaults` | TEST639: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:907 |
-| test1276 ⚠ | `test_1276_lookup_cap_fabric_has_defver_arg` | TEST1276: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:182 |
-| test1276 ⚠ | `test_1276_register_non_conflicting` | TEST1276: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:483 |
-| test1277 ⚠ | `test_1277_lookup_media_def_fabric_has_defver_arg` | TEST1277: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:207 |
-| test1277 ⚠ | `test_1277_reject_conforming_overlap` | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:490 |
-| | | | |
-| unnumbered | `test_add_master_with_duplicate_healthy_id_errors` |  | tests/test_relay_switch.py:932 |
-| unnumbered | `test_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:864 |
-| unnumbered | `test_relay_switch_init_rejects_duplicate_ids` |  | tests/test_relay_switch.py:971 |
-
----
-
-## ⚠ Duplicate Test Numbers
-
-The following test numbers are assigned to more than one function. Keep the first occurrence at the existing number and renumber the rest using the suggested free numbers below.
-
-### test599 (2 occurrences)
-
-- `test_599_cap_version_zero_round_trip` — tests/test_cap.py:400
-- `test_599_is_empty` — tests/test_response.py:61
-
-**Suggested free number(s):** test604
-
-### test600 (2 occurrences)
-
-- `test_600_cap_version_nonzero_round_trip` — tests/test_cap.py:417
-- `test_600_size` — tests/test_response.py:76
-
-**Suggested free number(s):** test615
-
-### test638 (2 occurrences)
-
-- `test_638_cartridge_json_fabric_manifest_version_zero_round_trip` — tests/test_cartridge_repo.py:775
-- `test_638_no_peer_router_rejects_all` — tests/test_router.py:9
-
-**Suggested free number(s):** test654
-
-### test639 (2 occurrences)
-
-- `test_639_cartridge_json_fabric_manifest_version_nonzero_round_trip` — tests/test_cartridge_repo.py:795
-- `test_639_wildcard_empty_cap_defaults` — tests/test_cap_urn.py:907
-
-**Suggested free number(s):** test655
-
-### test1276 (2 occurrences)
-
-- `test_1276_lookup_cap_fabric_has_defver_arg` — tests/test_standard_caps.py:182
-- `test_1276_register_non_conflicting` — tests/test_input_resolver.py:483
-
-**Suggested free number(s):** test1274
-
-### test1277 (2 occurrences)
-
-- `test_1277_lookup_media_def_fabric_has_defver_arg` — tests/test_standard_caps.py:207
-- `test_1277_reject_conforming_overlap` — tests/test_input_resolver.py:490
-
-**Suggested free number(s):** test1270
-
----
-
-## Unnumbered Tests
-
-The following tests are cataloged but do not currently participate in numeric test indexing.
-
-- `test_add_master_with_duplicate_healthy_id_errors` — tests/test_relay_switch.py:932
-- `test_reattach_by_id_preserves_slot_index` — tests/test_relay_switch.py:864
-- `test_relay_switch_init_rejects_duplicate_ids` — tests/test_relay_switch.py:971
-
----
-
-## Numbered Tests Missing Descriptions
-
-These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
-
-- `test1139` / `test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed` — tests/test_input_resolver.py:571
-- `test1265` / `test_1265_compatible_media_urns_at_shared_node` — tests/test_orchestrator_parser.py:220
-
 ---
 
 *Generated from Python source tree*
 *Total tests: 989*
-*Total numbered tests: 986*
-*Total unnumbered tests: 3*
-*Total numbered tests missing descriptions: 2*
+*Total numbered tests: 989*
+*Total unnumbered tests: 0*
+*Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
