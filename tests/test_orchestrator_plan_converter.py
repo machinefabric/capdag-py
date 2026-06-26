@@ -73,14 +73,14 @@ async def test_770_rejects_foreach():
 async def test_1161_simple_linear_chain_conversion():
     registry = _registry_with_caps(
         [
-            "cap:in=media:pdf;extract;out=media:text",
+            "cap:in=\"media:ext=pdf\";extract;out=media:text",
             "cap:in=media:text;summarize;out=media:summary",
         ]
     )
 
     plan = MachinePlan("test_chain")
     plan.add_node(MachineNode.input_slot("input", "input", "media:ext=pdf", InputCardinality.SINGLE))
-    plan.add_node(MachineNode.cap("cap_0", "cap:in=media:pdf;extract;out=media:text"))
+    plan.add_node(MachineNode.cap("cap_0", "cap:in=\"media:ext=pdf\";extract;out=media:text"))
     plan.add_node(MachineNode.cap("cap_1", "cap:in=media:text;summarize;out=media:summary"))
     plan.add_node(MachineNode.output("output", "result", "cap_1"))
 
@@ -142,7 +142,7 @@ async def test_771_rejects_collect():
 # TEST953: Linear plans (no ForEach/Collect) still convert successfully
 @pytest.mark.asyncio
 async def test_953_linear_plan_still_works():
-    registry = _registry_with_caps(["cap:in=media:pdf;extract;out=media:text"])
+    registry = _registry_with_caps(["cap:in=\"media:ext=pdf\";extract;out=media:text"])
 
     plan = MachinePlan("linear_plan")
     plan.add_node(
@@ -153,7 +153,7 @@ async def test_953_linear_plan_still_works():
             InputCardinality.SINGLE,
         )
     )
-    plan.add_node(MachineNode.cap("cap_0", "cap:in=media:pdf;extract;out=media:text"))
+    plan.add_node(MachineNode.cap("cap_0", "cap:in=\"media:ext=pdf\";extract;out=media:text"))
     plan.add_node(MachineNode.output("output", "result", "cap_0"))
 
     plan.add_edge(MachinePlanEdge.direct("input", "cap_0"))
@@ -165,7 +165,7 @@ async def test_953_linear_plan_still_works():
     assert len(graph.edges) == 1
     assert graph.edges[0].from_node == "input"
     assert graph.edges[0].to_node == "cap_0"
-    assert graph.edges[0].cap_urn == "cap:in=media:pdf;extract;out=media:text"
+    assert graph.edges[0].cap_urn == "cap:in=\"media:ext=pdf\";extract;out=media:text"
 
 
 # TEST954: Standalone Collect nodes are handled as pass-through
@@ -173,7 +173,7 @@ async def test_953_linear_plan_still_works():
 async def test_954_standalone_collect_passthrough():
     registry = _registry_with_caps(
         [
-            'cap:in=media:pdf;extract;out="media:enc=utf-8;text"',
+            'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;text"',
             'cap:in="media:enc=utf-8;list;text";embed;out="media:embedding-vector;enc=utf-8;record"',
         ]
     )
@@ -190,7 +190,7 @@ async def test_954_standalone_collect_passthrough():
     plan.add_node(
         MachineNode.cap(
             "cap_0",
-            'cap:in=media:pdf;extract;out="media:enc=utf-8;text"',
+            'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;text"',
         )
     )
 

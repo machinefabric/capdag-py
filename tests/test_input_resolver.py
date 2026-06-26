@@ -268,7 +268,7 @@ def test_1098_extension_based_pdf(tmp_path: Path):
     path.write_text("%PDF-1.4")
     resolved = detect_file_with_fabric_registry(path, _create_test_media_registry(tmp_path))
     urn = MediaUrn.from_string(resolved.media_urn)
-    assert urn.has_marker_tag("pdf")
+    assert urn.has_tag("ext", "pdf")
 
 
 # TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure

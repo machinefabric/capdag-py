@@ -305,7 +305,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                     "pdf",
                     caps=[
                         _make_cap(
-                            'cap:in=media:pdf;disbind;out="media:enc=utf-8;page"',
+                            'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
                             title="Disbind PDF",
                             command="disbind",
                         )
@@ -633,7 +633,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
                     "caps": [
                         {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
                         {
-                            "urn": 'cap:in=media:pdf;disbind;out="media:enc=utf-8;page"',
+                            "urn": 'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
                             "title": "Disbind PDF Into Page Text",
                             "command": "disbind",
                         },

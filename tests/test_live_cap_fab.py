@@ -210,7 +210,7 @@ def test_789_cap_from_json_has_valid_specs():
     cap = Cap.from_dict(
         json.loads(
             r"""{
-                "urn": "cap:disbind;in=media:pdf;out=\"media:disbound-page;enc=utf-8\"",
+                "urn": "cap:disbind;in=\"media:ext=pdf\";out=\"media:disbound-page;enc=utf-8\"",
                 "command": "disbind",
                 "title": "Disbind PDF",
                 "args": [],
@@ -234,7 +234,7 @@ def test_790_identity_urn_is_specific():
     assert identity.out_spec() == "media:"
 
     specific_cap = CapUrn.from_string(
-        'cap:disbind;in=media:pdf;out="media:disbound-page;enc=utf-8"'
+        'cap:disbind;in="media:ext=pdf";out="media:disbound-page;enc=utf-8"'
     )
     assert not specific_cap.is_equivalent(identity)
 

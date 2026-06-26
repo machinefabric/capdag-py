@@ -1019,7 +1019,7 @@ def test_652_wildcard_cap_identity_constant():
 # TEST653: invalid effect=none declarations fail at construction
 def test_653_wildcard_identity_routing_isolation():
     with pytest.raises(CapUrnError):
-        CapUrn.from_string('cap:in=media:pdf;out="media:enc=utf-8";effect=none')
+        CapUrn.from_string('cap:in="media:ext=pdf";out="media:enc=utf-8";effect=none')
 
 
 # TEST823: is_dispatchable — exact match provider dispatches request
@@ -1262,10 +1262,10 @@ def test_890_direction_semantic_matching():
 # TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry
 def test_1100_cap_urn_normalizes_media_urn_tag_order():
     urn1 = CapUrn.from_string(
-        'cap:in=media:pdf;extract-metadata;out="media:enc=utf-8;file-metadata;record"'
+        'cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"'
     )
     urn2 = CapUrn.from_string(
-        'cap:in=media:pdf;extract-metadata;out="media:enc=utf-8;file-metadata;record"'
+        'cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"'
     )
 
     assert urn1.to_string() == urn2.to_string()
@@ -1275,9 +1275,9 @@ def test_1100_cap_urn_normalizes_media_urn_tag_order():
 
 # TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)
 def test_1103_is_dispatchable_uses_correct_directionality():
-    general_request = CapUrn.from_string("cap:in=media:pdf;extract;out=media:text")
+    general_request = CapUrn.from_string('cap:in="media:ext=pdf";extract;out=media:text')
     specific_provider = CapUrn.from_string(
-        "cap:in=media:pdf;extract;out=media:text;version=2"
+        'cap:in="media:ext=pdf";extract;out=media:text;version=2'
     )
 
     assert specific_provider.is_dispatchable(general_request)
@@ -1287,9 +1287,9 @@ def test_1103_is_dispatchable_uses_correct_directionality():
 # TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
 def test_1104_is_dispatchable_rejects_non_dispatchable():
     request = CapUrn.from_string(
-        "cap:in=media:pdf;extract;out=media:text;required=yes"
+        'cap:in="media:ext=pdf";extract;out=media:text;required=yes'
     )
-    provider = CapUrn.from_string("cap:in=media:pdf;extract;out=media:text")
+    provider = CapUrn.from_string('cap:in="media:ext=pdf";extract;out=media:text')
 
     assert not provider.is_dispatchable(request)
 
@@ -1314,10 +1314,10 @@ def test_891_direction_semantic_specificity():
     assert generic_cap.specificity() == 10000*6 + 100*0 + 2
     # specific:
     #   out=media:image;png;thumbnail -> 6
-    #   in=media:ext=pdf                  -> 2
+    #   in=media:ext=pdf              -> 4 (ext=pdf is an exact-value tag, not a bare marker)
     #   y: generate-thumbnail marker  -> 2
-    #   spec_C = 10000*6 + 100*2 + 2 = 60202
-    assert specific_cap.specificity() == 10000*6 + 100*2 + 2
+    #   spec_C = 10000*6 + 100*4 + 2 = 60402
+    assert specific_cap.specificity() == 10000*6 + 100*4 + 2
 
     assert specific_cap.specificity() > generic_cap.specificity()
 
@@ -1469,7 +1469,7 @@ def test_1803_kind_effect_when_both_sides_void():
 # the cap is not the bare identity. The default kind for ordinary
 # data-processing caps.
 def test_1804_kind_transform_for_normal_data_processors():
-    extract = CapUrn.from_string('cap:extract;in=media:pdf;out="media:enc=utf-8;record"')
+    extract = CapUrn.from_string('cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record"')
     assert extract.kind() == CapKind.TRANSFORM
 
     labeled = CapUrn.from_string("cap:passthrough;in=media:;out=media:")
@@ -1484,7 +1484,7 @@ def test_1805_kind_invariant_under_canonical_spellings():
     cases = [
         ("cap:effect=none", "cap:in=media:;out=media:;effect=none", CapKind.IDENTITY),
         (
-            'cap:extract;in=media:pdf;out="media:enc=utf-8"',
+            'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
             'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
             CapKind.TRANSFORM,
         ),
@@ -1706,7 +1706,7 @@ def test_1843_reject_invalid_combinations():
 def test_1844_axis_weighting_out_dominates():
     big_out = CapUrn.from_string('cap:in=media:;out="media:enc=utf-8;record"')
     big_in_and_y = CapUrn.from_string(
-        "cap:in=media:pdf;out=media:record;!constrained;?target;extract;"
+        "cap:in=\"media:ext=pdf\";out=media:record;!constrained;?target;extract;"
         "stage!=alpha;target2=metadata;ver?=draft"
     )
     assert big_out.specificity() > big_in_and_y.specificity(), (
@@ -1716,7 +1716,7 @@ def test_1844_axis_weighting_out_dominates():
 
 # TEST1845: With equal out, in-axis dominates over y-axis.
 def test_1845_axis_weighting_in_dominates_y():
-    big_in = CapUrn.from_string("cap:in=media:pdf;out=media:record")
+    big_in = CapUrn.from_string("cap:in=\"media:ext=pdf\";out=media:record")
     big_y = CapUrn.from_string(
         "cap:in=media:;out=media:record;!constrained;?target;extract;"
         "stage!=alpha;target2=metadata;ver?=draft"

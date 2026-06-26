@@ -457,7 +457,7 @@ def test_438_preferred_cap_falls_back_when_not_comparable():
 
     assert switch._find_master_for_cap(
         'cap:in=\"media:text\";out=media:text',
-        preferred_cap='cap:in=\"media:ext=pdf\";out=media:ext=pdf',
+        preferred_cap='cap:in=\"media:ext=pdf\";out=\"media:ext=pdf\"',
     ) == 0
 
 
