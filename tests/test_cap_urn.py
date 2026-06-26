@@ -1221,29 +1221,29 @@ def test_838_dispatch_request_wildcard_output():
 # TEST890: Semantic direction matching - generic provider matches specific request
 def test_890_direction_semantic_matching():
     generic_cap = CapUrn.from_string(
-        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     pdf_request = CapUrn.from_string(
-        'cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     assert generic_cap.accepts(pdf_request)
 
     epub_request = CapUrn.from_string(
-        'cap:in="media:epub";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:ext=epub";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     assert generic_cap.accepts(epub_request)
 
     pdf_cap = CapUrn.from_string(
-        'cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     generic_request = CapUrn.from_string(
-        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     assert not pdf_cap.accepts(generic_request)
     assert not pdf_cap.accepts(epub_request)
 
     specific_out_cap = CapUrn.from_string(
-        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     generic_out_request = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:image"'
@@ -1254,7 +1254,7 @@ def test_890_direction_semantic_matching():
         'cap:in="media:";generate-thumbnail;out="media:image"'
     )
     specific_out_request = CapUrn.from_string(
-        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     assert not generic_out_cap.accepts(specific_out_request)
 
@@ -1300,29 +1300,29 @@ def test_1104_is_dispatchable_rejects_non_dispatchable():
 # exact tag scores 3.
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(
-        'cap:in="media:";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     specific_cap = CapUrn.from_string(
-        'cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
 
     # generic:
-    #   out=media:image;png;thumbnail -> 2+2+2 = 6
+    #   out=media:ext=png;image;thumbnail -> 4 (ext=png exact-value) + 2 + 2 = 8
     #   in=media:                     -> 0
     #   y: generate-thumbnail marker  -> 2
-    #   spec_C = 10000*6 + 100*0 + 2 = 60002
-    assert generic_cap.specificity() == 10000*6 + 100*0 + 2
+    #   spec_C = 10000*8 + 100*0 + 2 = 80002
+    assert generic_cap.specificity() == 10000*8 + 100*0 + 2
     # specific:
-    #   out=media:image;png;thumbnail -> 6
+    #   out=media:ext=png;image;thumbnail -> 8
     #   in=media:ext=pdf              -> 4 (ext=pdf is an exact-value tag, not a bare marker)
     #   y: generate-thumbnail marker  -> 2
-    #   spec_C = 10000*6 + 100*4 + 2 = 60402
-    assert specific_cap.specificity() == 10000*6 + 100*4 + 2
+    #   spec_C = 10000*8 + 100*4 + 2 = 80402
+    assert specific_cap.specificity() == 10000*8 + 100*4 + 2
 
     assert specific_cap.specificity() > generic_cap.specificity()
 
     pdf_request = CapUrn.from_string(
-        'cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"'
+        'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
     caps = [generic_cap, specific_cap]
     best = CapMatcher.find_best_match(caps, pdf_request)

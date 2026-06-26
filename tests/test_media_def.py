@@ -401,7 +401,7 @@ async def test_893_extensions_with_metadata_and_validation():
 async def test_894_multiple_extensions():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:image;jpeg",
+        urn="media:ext=jpeg;image",
         media_type="image/jpeg",
         title="JPEG Image",
         profile_uri="https://capdag.com/schema/jpeg",
@@ -409,7 +409,7 @@ async def test_894_multiple_extensions():
         extensions=["jpg", "jpeg"],
     ))
 
-    resolved = await resolve_media_urn("media:image;jpeg", registry)
+    resolved = await resolve_media_urn("media:ext=jpeg;image", registry)
     assert resolved.extensions == ["jpg", "jpeg"]
     assert len(resolved.extensions) == 2
 
@@ -454,7 +454,7 @@ def test_608_media_urns_for_extension_populated():
 def test_609_get_extension_mappings():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
-    for urn_str, ext in [("media:ext=pdf", "pdf"), ("media:epub", "epub")]:
+    for urn_str, ext in [("media:ext=pdf", "pdf"), ("media:ext=epub", "epub")]:
         spec = StoredMediaDef(
             urn=urn_str,
             media_type="application/octet-stream",

@@ -114,13 +114,13 @@ async def test_1258_parse_fan_out():
          ["media:ext=pdf"], "media:enc=utf-8;file-metadata;record"),
         ('cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"',
          ["media:ext=pdf"], "media:document-outline;enc=utf-8;record"),
-        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"',
-         ["media:ext=pdf"], "media:image;png;thumbnail"),
+        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
+         ["media:ext=pdf"], "media:ext=png;image;thumbnail"),
     ])
     notation = (
         '[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]'
         '[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]'
-        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]'
+        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
         "[doc -> meta -> metadata]"
         "[doc -> outline -> outline_data]"
         "[doc -> thumb -> thumbnail]"
@@ -134,17 +134,17 @@ async def test_1258_parse_fan_out():
 @pytest.mark.asyncio
 async def test_1259_parse_fan_in():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"',
-         ["media:ext=pdf"], "media:image;png;thumbnail"),
+        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
+         ["media:ext=pdf"], "media:ext=png;image;thumbnail"),
         ('cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"',
          ["media:enc=utf-8;model-spec"], "media:enc=utf-8;model-spec"),
-        ('cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description"',
-         ["media:image;png", "media:enc=utf-8;model-spec"], "media:enc=utf-8;image-description"),
+        ('cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"',
+         ["media:ext=png;image", "media:enc=utf-8;model-spec"], "media:enc=utf-8;image-description"),
     ])
     notation = (
-        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:image;png;thumbnail"]'
+        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
         '[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]'
-        '[describe cap:in="media:image;png";describe-image;out="media:enc=utf-8;image-description"]'
+        '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]'
         "[doc -> thumb -> thumbnail]"
         "[spec_input -> model_dl -> model_spec]"
         "[(thumbnail, model_spec) -> describe -> description]"
@@ -193,12 +193,12 @@ async def test_1264_incompatible_media_types_at_shared_node():
     registry = _build_registry([
         ('cap:in="media:void";produce-pdf;out="media:ext=pdf"',
          ["media:void"], "media:ext=pdf"),
-        ('cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt"',
-         ["media:audio;wav"], "media:enc=utf-8;ext=txt"),
+        ('cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt"',
+         ["media:audio;ext=wav"], "media:enc=utf-8;ext=txt"),
     ])
     notation = (
         '[produce cap:in="media:void";produce-pdf;out="media:ext=pdf"]'
-        '[transcribe cap:in="media:audio;wav";transcribe;out="media:enc=utf-8;ext=txt"]'
+        '[transcribe cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt"]'
         "[A -> produce -> B]"
         "[B -> transcribe -> C]"
     )
@@ -207,12 +207,12 @@ async def test_1264_incompatible_media_types_at_shared_node():
 
 
 # TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
-# xfail: Python's match_sources_to_args requires strict tag conformance — source media:image;png
-# does not conform to cap arg media:image;png;bytes (normalized: media:bytes;image;png).
+# xfail: Python's match_sources_to_args requires strict tag conformance — source media:ext=png;image
+# does not conform to cap arg media:bytes;ext=png;image (normalized: media:bytes;ext=png;image).
 # Rust's is_comparable accepts subset/superset tag chains at the orchestrator level.
 @pytest.mark.xfail(
-    reason="Python source-matching requires strict tag subset: media:image;png does not "
-           "conform to media:bytes;image;png (normalized from media:image;png;bytes). "
+    reason="Python source-matching requires strict tag subset: media:ext=png;image does not "
+           "conform to media:bytes;ext=png;image (normalized from media:bytes;ext=png;image). "
            "Rust allows this via is_comparable at the orchestrator level.",
     strict=True,
 )
@@ -220,14 +220,14 @@ async def test_1264_incompatible_media_types_at_shared_node():
 @pytest.mark.asyncio
 async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";thumbnail;out="media:image;png"',
-         ["media:ext=pdf"], "media:image;png"),
-        ('cap:in="media:bytes;image;png";embed-image;out="media:embedding-vector;enc=utf-8;record"',
-         ["media:bytes;image;png"], "media:embedding-vector;enc=utf-8;record"),
+        ('cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
+         ["media:ext=pdf"], "media:ext=png;image"),
+        ('cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record"',
+         ["media:bytes;ext=png;image"], "media:embedding-vector;enc=utf-8;record"),
     ])
     notation = (
-        '[thumb cap:in="media:ext=pdf";thumbnail;out="media:image;png"]'
-        '[embed_image cap:in="media:bytes;image;png";embed-image;out="media:embedding-vector;enc=utf-8;record"]'
+        '[thumb cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"]'
+        '[embed_image cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record"]'
         "[A -> thumb -> B]"
         "[B -> embed_image -> C]"
     )

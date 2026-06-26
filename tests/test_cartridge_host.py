@@ -955,7 +955,7 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
         "caps": [
             {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {
-                "urn": 'cap:in="media:ext=pdf";thumbnail;out="media:image;png"',
+                "urn": 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
                 "title": "Thumbnail",
                 "command": "thumbnail",
                 "args": [],

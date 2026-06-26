@@ -476,13 +476,13 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
     every mapped NodeId pair.
     """
     urn_extract = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn_summarize = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;md\""
+    urn_summarize = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=md\""
     cap_e = _simple_cap(urn_extract, "media:ext=pdf", "media:enc=utf-8;ext=txt")
-    cap_s = _simple_cap(urn_summarize, "media:ext=pdf", "media:enc=utf-8;md")
+    cap_s = _simple_cap(urn_summarize, "media:ext=pdf", "media:enc=utf-8;ext=md")
     reg = _registry_with([cap_e, cap_s])
 
     strand_e = _strand_with_cap_steps([(urn_extract, "media:ext=pdf", "media:enc=utf-8;ext=txt")])
-    strand_s = _strand_with_cap_steps([(urn_summarize, "media:ext=pdf", "media:enc=utf-8;md")])
+    strand_s = _strand_with_cap_steps([(urn_summarize, "media:ext=pdf", "media:enc=utf-8;ext=md")])
 
     m1 = Machine.from_strand(strand_e, reg)
     m2 = Machine.from_strand(strand_s, reg)
@@ -896,17 +896,17 @@ def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
 
 # TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
 def test_1181_match_two_sources_disambiguated_by_specificity():
-    urn = "cap:in=\"media:image;png\";describe;out=\"media:enc=utf-8;image-description\""
-    sources = [_media("media:image;png"), _media("media:enc=utf-8;model-spec")]
-    args = [_media("media:image;png"), _media("media:enc=utf-8")]
+    urn = "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\""
+    sources = [_media("media:ext=png;image"), _media("media:enc=utf-8;model-spec")]
+    args = [_media("media:ext=png;image"), _media("media:enc=utf-8")]
     cap_urn = _cap_urn(urn)
     pairs = match_sources_to_args(sources, args, cap_urn, 0)
     assert len(pairs) == 2
     found_image = False
     found_text = False
     for arg, src in pairs:
-        if arg.is_equivalent(_media("media:image;png")):
-            assert src.is_equivalent(_media("media:image;png"))
+        if arg.is_equivalent(_media("media:ext=png;image")):
+            assert src.is_equivalent(_media("media:ext=png;image"))
             found_image = True
         elif arg.is_equivalent(_media("media:enc=utf-8")):
             assert src.is_equivalent(_media("media:enc=utf-8;model-spec"))

@@ -721,18 +721,18 @@ def test_637_deserialize_full_registry_response():
                             "name": "image-formats",
                             "caps": [
                                 {
-                                    "urn": 'cap:in="media:image;jpeg";convert-image;out="media:image;png"',
+                                    "urn": 'cap:in="media:ext=jpeg;image";convert-image;out="media:ext=png;image"',
                                     "title": "Convert JPEG to PNG",
                                     "command": "convert-image",
                                 }
                             ],
                             "adapter_urns": [
-                                "media:bmp;image",
-                                "media:image;jpeg",
-                                "media:image;png",
-                                "media:image;tiff",
-                                "media:image;webp",
-                                "media:gif;image",
+                                "media:ext=bmp;image",
+                                "media:ext=jpeg;image",
+                                "media:ext=png;image",
+                                "media:ext=tiff;image",
+                                "media:ext=webp;image",
+                                "media:ext=gif;image",
                             ],
                         }
                     ],

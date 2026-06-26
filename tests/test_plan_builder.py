@@ -72,7 +72,7 @@ def test_767_argument_info_serialization():
 def test_768_path_argument_requirements_structure():
     requirements = PathArgumentRequirements(
         source_media_urn="media:ext=pdf",
-        target_media_urn="media:image;png",
+        target_media_urn="media:ext=png;image",
         steps=[
             StepArgumentRequirements(
                 cap_urn="cap:generate-thumbnail;in=pdf;out=png",
@@ -200,7 +200,7 @@ def test_994_input_arg_first_cap_auto_resolved_from_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:ext=pdf",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         True,
         None,
@@ -214,7 +214,7 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     resolution = builder.determine_resolution_with_io_check(
         "media:ext=pdf",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         1,
         True,
         None,
@@ -224,7 +224,7 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     resolution = builder.determine_resolution_with_io_check(
         "media:ext=pdf",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         2,
         True,
         None,
@@ -236,9 +236,9 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
 def test_996_output_arg_auto_resolved():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
-        "media:image;png",
+        "media:ext=png;image",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         True,
         None,
@@ -252,7 +252,7 @@ def test_997_file_path_type_fallback_first_cap():
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         True,
         None,
@@ -266,7 +266,7 @@ def test_998_file_path_type_fallback_subsequent_cap():
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         1,
         True,
         None,
@@ -282,7 +282,7 @@ def test_1009_non_io_arg_with_default_has_default():
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         True,
         200,
@@ -296,7 +296,7 @@ def test_886_optional_non_io_arg_with_default_has_default():
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         False,
         300,
@@ -310,7 +310,7 @@ def test_1012_non_io_arg_without_default_requires_user_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:string",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         True,
         None,
@@ -324,7 +324,7 @@ def test_1015_optional_non_io_arg_without_default_requires_user_input():
     resolution = builder.determine_resolution_with_io_check(
         "media:boolean",
         "media:ext=pdf",
-        "media:image;png",
+        "media:ext=png;image",
         0,
         False,
         None,

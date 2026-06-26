@@ -2265,10 +2265,10 @@ def test_680_require_stream_missing_fails():
 def test_681_find_stream_multiple():
     streams = [
         ("media:enc=utf-8;ext=txt", b"text data"),
-        ("media:image;png", b"image data"),
+        ("media:ext=png;image", b"image data"),
         ("media:fmt=json", b"json data"),
     ]
-    assert find_stream(streams, "media:image;png") == b"image data"
+    assert find_stream(streams, "media:ext=png;image") == b"image data"
     assert find_stream(streams, "media:enc=utf-8;ext=txt") == b"text data"
     assert find_stream(streams, "media:fmt=json") == b"json data"
 

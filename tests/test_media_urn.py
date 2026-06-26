@@ -283,7 +283,7 @@ def test_306_availability_and_path_output_distinct():
 # TEST546: is_image returns true only when image marker tag is present
 def test_546_is_image():
     assert MediaUrn.from_string(MEDIA_PNG).is_image()
-    assert MediaUrn.from_string("media:image;jpg").is_image()
+    assert MediaUrn.from_string("media:ext=jpg;image").is_image()
     # Non-image types
     assert not MediaUrn.from_string(MEDIA_PDF).is_image()
     assert not MediaUrn.from_string(MEDIA_STRING).is_image()
@@ -295,7 +295,7 @@ def test_546_is_image():
 def test_547_is_audio():
     assert MediaUrn.from_string(MEDIA_AUDIO).is_audio()
     assert MediaUrn.from_string(MEDIA_AUDIO_SPEECH).is_audio()
-    assert MediaUrn.from_string("media:audio;mp3").is_audio()
+    assert MediaUrn.from_string("media:audio;ext=mp3").is_audio()
     # Non-audio types
     assert not MediaUrn.from_string(MEDIA_VIDEO).is_audio()
     assert not MediaUrn.from_string(MEDIA_PNG).is_audio()
@@ -305,7 +305,7 @@ def test_547_is_audio():
 # TEST548: is_video returns true only when video marker tag is present
 def test_548_is_video():
     assert MediaUrn.from_string(MEDIA_VIDEO).is_video()
-    assert MediaUrn.from_string("media:mp4;video").is_video()
+    assert MediaUrn.from_string("media:ext=mp4;video").is_video()
     # Non-video types
     assert not MediaUrn.from_string(MEDIA_AUDIO).is_video()
     assert not MediaUrn.from_string(MEDIA_PNG).is_video()
@@ -424,7 +424,7 @@ def test_852_lub_identical():
 # TEST853: LUB of URNs with no common tags returns media: (universal)
 def test_853_lub_no_common_tags():
     pdf = MediaUrn.from_string("media:ext=pdf")
-    png = MediaUrn.from_string("media:image;png")
+    png = MediaUrn.from_string("media:ext=png;image")
     lub = MediaUrn.least_upper_bound([pdf, png])
     universal = MediaUrn.from_string("media:")
     assert lub.is_equivalent(universal), \

@@ -142,7 +142,7 @@ cap:in="<media-urn>";out="<media-urn>"[;key=value]*
 
 Examples:
 - `cap:in="media:void";test;out="media:void"` - No-op test capability
-- `cap:in="media:pdf;bytes";generate-thumbnail;out="media:image;png;bytes;thumbnail"` - PDF thumbnail generator
+- `cap:in="media:pdf;bytes";generate-thumbnail;out="media:bytes;ext=png;image;thumbnail"` - PDF thumbnail generator
 
 ### Matching Semantics
 

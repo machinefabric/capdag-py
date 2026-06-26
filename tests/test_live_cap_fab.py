@@ -86,7 +86,7 @@ def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
     graph.add_cap(_make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
 
     paths = graph.find_paths_to_exact_target(
-        _media("media:image;png"),
+        _media("media:ext=png;image"),
         _media("media:enc=utf-8"),
         False,
         5,
@@ -99,7 +99,7 @@ def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
 # TEST778: Tests type checking prevents using PNG-specific cap with PDF input Verifies that media type compatibility is enforced during pathfinding
 def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
+    graph.add_cap(_make_test_cap("media:ext=png;image", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     paths = graph.find_paths_to_exact_target(
         _media("media:ext=pdf"),
@@ -116,9 +116,9 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 def test_779_get_reachable_targets_respects_type_matching():
     graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
-    graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
+    graph.add_cap(_make_test_cap("media:ext=png;image", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
-    png_targets = graph.get_reachable_targets(_media("media:image;png"), False, 5)
+    png_targets = graph.get_reachable_targets(_media("media:ext=png;image"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in png_targets)
     assert not any(t.media_def.is_equivalent(_media("media:enc=utf-8")) for t in png_targets)
 
@@ -130,11 +130,11 @@ def test_779_get_reachable_targets_respects_type_matching():
 # TEST781: Tests find_paths_to_exact_target() enforces type compatibility across multi-step chains Verifies that paths are only found when all intermediate types are compatible
 def test_781_find_paths_respects_type_chain():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:image;png", "media:resized-png", "resize", "Resize PNG"))
+    graph.add_cap(_make_test_cap("media:ext=png;image", "media:resized-png", "resize", "Resize PNG"))
     graph.add_cap(_make_test_cap("media:resized-png", "media:thumbnail", "thumb", "To Thumbnail"))
 
     png_paths = graph.find_paths_to_exact_target(
-        _media("media:image;png"),
+        _media("media:ext=png;image"),
         _media("media:thumbnail"),
         False,
         5,

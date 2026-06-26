@@ -104,8 +104,8 @@ def test_710_pattern_requires_vector():
 # TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
 def test_711_strand_shape_analysis_simple_linear():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:image;png"),
-        CapShapeInfo.from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:ext=png;image"),
+        CapShapeInfo.from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
@@ -119,11 +119,11 @@ def test_712_strand_shape_analysis_with_fan_out():
         CapShapeInfo.from_cap_specs_with_sequence(
             "cap:pdf-to-pages",
             "media:ext=pdf",
-            "media:image;png",
+            "media:ext=png;image",
             False,
             True,
         ),
-        CapShapeInfo.from_cap_specs("cap:thumbnail", "media:image;png", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:thumbnail", "media:ext=png;image", "media:ext=png;image"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
@@ -299,8 +299,8 @@ def test_741_cap_shape_info_pattern():
 # TEST750: Tests shape chain analysis for valid chain with matching structures
 def test_750_strand_shape_valid():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
-        CapShapeInfo.from_cap_specs("cap:compress", "media:image;png", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:resize", "media:ext=png;image", "media:ext=png;image"),
+        CapShapeInfo.from_cap_specs("cap:compress", "media:ext=png;image", "media:ext=png;image"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
