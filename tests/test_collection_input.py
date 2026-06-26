@@ -15,7 +15,7 @@ def test_716_empty_collection():
 def test_717_collection_with_files():
     collection = CapInputCollection("root", "Root")
     collection.files = [
-        CollectionFile("1", "/tmp/a.pdf", "media:pdf"),
+        CollectionFile("1", "/tmp/a.pdf", "media:ext=pdf"),
         CollectionFile("2", "/tmp/b.md", "media:enc=utf-8;ext=md"),
     ]
     assert collection.total_file_count() == 2
@@ -25,10 +25,10 @@ def test_717_collection_with_files():
 # TEST718: Tests CapInputCollection correctly counts files and folders in nested structure Verifies total_file_count() includes subfolder files and total_folder_count() counts subfolders
 def test_718_nested_collection():
     root = CapInputCollection("root", "Root")
-    root.files = [CollectionFile("1", "/tmp/a.pdf", "media:pdf")]
+    root.files = [CollectionFile("1", "/tmp/a.pdf", "media:ext=pdf")]
 
     subfolder = CapInputCollection("sub", "Sub")
-    subfolder.files = [CollectionFile("2", "/tmp/b.pdf", "media:pdf")]
+    subfolder.files = [CollectionFile("2", "/tmp/b.pdf", "media:ext=pdf")]
     root.folders["sub"] = subfolder
 
     assert root.total_file_count() == 2
@@ -38,7 +38,7 @@ def test_718_nested_collection():
 # TEST719: Tests CapInputCollection flatten_to_files recursively collects all files Verifies flatten() extracts files from root and all subfolders into flat list
 def test_719_flatten_to_files():
     root = CapInputCollection("root", "Root")
-    root.files = [CollectionFile("1", "/tmp/a.pdf", "media:pdf")]
+    root.files = [CollectionFile("1", "/tmp/a.pdf", "media:ext=pdf")]
 
     subfolder = CapInputCollection("sub", "Sub")
     subfolder.files = [CollectionFile("2", "/tmp/b.pdf", "media:text")]
@@ -56,7 +56,7 @@ def test_719_flatten_to_files():
 def test_933_serialization_roundtrip():
     collection = CapInputCollection("folder-123", "Test Folder")
     collection.files.append(
-        CollectionFile("listing-1", "/path/to/file.pdf", "media:pdf").with_title("My Document")
+        CollectionFile("listing-1", "/path/to/file.pdf", "media:ext=pdf").with_title("My Document")
     )
     roundtrip = CapInputCollection.from_dict(collection.to_json())
     assert roundtrip.folder_id == collection.folder_id

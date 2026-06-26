@@ -296,7 +296,7 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
     registry = FabricRegistry.new_for_test(tmp_path / "media-cache")
 
     registry.add_spec(StoredMediaDef(
-        urn="media:pdf",
+        urn="media:ext=pdf",
         media_type="application/pdf",
         title="PDF",
         extensions=["pdf"],

@@ -104,7 +104,7 @@ def test_710_pattern_requires_vector():
 # TEST711: Tests shape chain analysis for simple linear one-to-one capability chains Verifies chains with no fan-out are valid and require no transformation
 def test_711_strand_shape_analysis_simple_linear():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:pdf", "media:image;png"),
+        CapShapeInfo.from_cap_specs("cap:pdf-to-png", "media:ext=pdf", "media:image;png"),
         CapShapeInfo.from_cap_specs("cap:resize", "media:image;png", "media:image;png"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
@@ -118,7 +118,7 @@ def test_712_strand_shape_analysis_with_fan_out():
     infos = [
         CapShapeInfo.from_cap_specs_with_sequence(
             "cap:pdf-to-pages",
-            "media:pdf",
+            "media:ext=pdf",
             "media:image;png",
             False,
             True,
@@ -154,7 +154,7 @@ def test_715_pattern_serialization():
 
 # TEST720: Tests InputStructure correctly identifies opaque media URNs Verifies that URNs without record marker are parsed as Opaque
 def test_720_from_media_urn_opaque():
-    assert InputStructure.from_media_urn("media:pdf") == InputStructure.OPAQUE
+    assert InputStructure.from_media_urn("media:ext=pdf") == InputStructure.OPAQUE
     assert InputStructure.from_media_urn("media:enc=utf-8") == InputStructure.OPAQUE
     assert InputStructure.from_media_urn("media:integer") == InputStructure.OPAQUE
     assert InputStructure.from_media_urn("media:file-path;list") == InputStructure.OPAQUE
@@ -288,7 +288,7 @@ def test_740_cap_shape_info_from_specs():
 def test_741_cap_shape_info_pattern():
     info = CapShapeInfo.from_cap_specs_with_sequence(
         "cap:disbind",
-        "media:pdf",
+        "media:ext=pdf",
         "media:disbound-page;enc=utf-8",
         False,
         True,
@@ -310,7 +310,7 @@ def test_750_strand_shape_valid():
 # TEST751: Tests shape chain analysis detects structure mismatch
 def test_751_strand_shape_structure_mismatch():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:extract", "media:pdf", "media:enc=utf-8"),
+        CapShapeInfo.from_cap_specs("cap:extract", "media:ext=pdf", "media:enc=utf-8"),
         CapShapeInfo.from_cap_specs("cap:parse", "media:fmt=json;record", "media:data;record"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
@@ -324,7 +324,7 @@ def test_752_strand_shape_with_fanout():
     infos = [
         CapShapeInfo.from_cap_specs_with_sequence(
             "cap:disbind",
-            "media:pdf",
+            "media:ext=pdf",
             "media:enc=utf-8;page",
             False,
             True,

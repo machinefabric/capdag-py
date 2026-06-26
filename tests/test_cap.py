@@ -52,13 +52,13 @@ def test_110_cap_with_stdin():
 
     # Add stdin argument
     stdin_arg = CapArg(
-        media_urn="media:pdf",
+        media_urn="media:ext=pdf",
         required=True,
-        sources=[StdinSource("media:pdf")],
+        sources=[StdinSource("media:ext=pdf")],
     )
     cap.add_arg(stdin_arg)
 
-    assert cap.get_stdin_media_urn() == "media:pdf"
+    assert cap.get_stdin_media_urn() == "media:ext=pdf"
 
 
 # TEST111: Test getting and setting cap title updates correctly

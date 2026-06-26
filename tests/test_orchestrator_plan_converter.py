@@ -50,7 +50,7 @@ async def test_770_rejects_foreach():
         MachineNode.input_slot(
             "input",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality.SINGLE,
         )
     )
@@ -79,7 +79,7 @@ async def test_1161_simple_linear_chain_conversion():
     )
 
     plan = MachinePlan("test_chain")
-    plan.add_node(MachineNode.input_slot("input", "input", "media:pdf", InputCardinality.SINGLE))
+    plan.add_node(MachineNode.input_slot("input", "input", "media:ext=pdf", InputCardinality.SINGLE))
     plan.add_node(MachineNode.cap("cap_0", "cap:in=media:pdf;extract;out=media:text"))
     plan.add_node(MachineNode.cap("cap_1", "cap:in=media:text;summarize;out=media:summary"))
     plan.add_node(MachineNode.output("output", "result", "cap_1"))
@@ -91,7 +91,7 @@ async def test_1161_simple_linear_chain_conversion():
     graph = await plan_to_resolved_graph(plan, registry)
 
     assert graph.graph_name == "test_chain"
-    assert graph.nodes["input"] == "media:pdf"
+    assert graph.nodes["input"] == "media:ext=pdf"
     assert graph.nodes["cap_0"] == "media:text"
     assert graph.nodes["cap_1"] == "media:summary"
     assert len(graph.edges) == 2
@@ -116,7 +116,7 @@ async def test_771_rejects_collect():
         MachineNode.input_slot(
             "input",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality.SINGLE,
         )
     )
@@ -149,7 +149,7 @@ async def test_953_linear_plan_still_works():
         MachineNode.input_slot(
             "input",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality.SINGLE,
         )
     )
@@ -183,7 +183,7 @@ async def test_954_standalone_collect_passthrough():
         MachineNode.input_slot(
             "input",
             "input",
-            "media:pdf",
+            "media:ext=pdf",
             InputCardinality.SINGLE,
         )
     )

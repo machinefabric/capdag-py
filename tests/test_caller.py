@@ -41,7 +41,7 @@ def test_157_stdin_source_file_reference_creation():
     tracked_file_id = "tracked-file-123"
     original_path = "/path/to/original.pdf"
     security_bookmark = bytes([0x62, 0x6F, 0x6F, 0x6B])  # "book"
-    media_urn = "media:pdf"
+    media_urn = "media:ext=pdf"
 
     source = StdinSourceFileReference(
         tracked_file_id=tracked_file_id,
@@ -98,7 +98,7 @@ def test_161_stdin_source_file_reference_clone():
         tracked_file_id="file-123",
         original_path="/path/to/file.pdf",
         security_bookmark=b"bookmark",
-        media_urn="media:pdf",
+        media_urn="media:ext=pdf",
     )
 
     # Create a copy
@@ -125,13 +125,13 @@ def test_162_stdin_source_debug_format():
         tracked_file_id="file-123",
         original_path="/path/file.pdf",
         security_bookmark=b"bookmark",
-        media_urn="media:pdf",
+        media_urn="media:ext=pdf",
     )
     file_repr = repr(file_source)
     assert "StdinSource::FileReference" in file_repr
     assert "file-123" in file_repr
     assert "/path/file.pdf" in file_repr
-    assert "media:pdf" in file_repr
+    assert "media:ext=pdf" in file_repr
 
 
 # ============================================================================

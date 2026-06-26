@@ -94,7 +94,7 @@ def test_473_cap_discard_parses_as_valid_urn():
 # TEST474: CAP_DISCARD accepts specific-input/void-output caps
 def test_474_cap_discard_accepts_specific_void_cap():
     discard = CapUrn.from_string(CAP_DISCARD)
-    specific = CapUrn.from_string('cap:in="media:pdf";shred;out="media:void"')
+    specific = CapUrn.from_string('cap:in="media:ext=pdf";shred;out="media:void"')
 
     # discard (pattern) accepts specific (instance) — the specific cap
     # IS more specific (has shred and specific input)
@@ -102,7 +102,7 @@ def test_474_cap_discard_accepts_specific_void_cap():
         "CAP_DISCARD must accept a more specific cap with void output"
 
     # But a cap with non-void output must NOT conform to discard
-    non_void = CapUrn.from_string('cap:in="media:pdf";convert;out="media:string"')
+    non_void = CapUrn.from_string('cap:in="media:ext=pdf";convert;out="media:string"')
     assert not discard.accepts(non_void), \
         "CAP_DISCARD must NOT accept a cap with non-void output"
 

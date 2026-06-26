@@ -133,9 +133,9 @@ def test_150_cap_manifest_json_serialization():
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
 
     cap.add_arg(CapArg(
-        media_urn="media:pdf",
+        media_urn="media:ext=pdf",
         required=True,
-        sources=[StdinSource("media:pdf")],
+        sources=[StdinSource("media:ext=pdf")],
     ))
     cap.add_arg(CapArg(
         media_urn="media:chunk-size;numeric",

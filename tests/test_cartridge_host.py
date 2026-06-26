@@ -955,7 +955,7 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
         "caps": [
             {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
             {
-                "urn": 'cap:in="media:pdf";thumbnail;out="media:image;png"',
+                "urn": 'cap:in="media:ext=pdf";thumbnail;out="media:image;png"',
                 "title": "Thumbnail",
                 "command": "thumbnail",
                 "args": [],
@@ -995,7 +995,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
         "name": "default",
         "caps": [
             {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -1050,7 +1050,7 @@ def test_664_running_cartridge_uses_manifest_caps():
         "name": "default",
         "caps": [
             {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
         ],
         "adapter_urns": [],
     }])

@@ -83,7 +83,7 @@ def test_774_get_reachable_targets_finds_all_targets():
 # TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
 def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
 
     paths = graph.find_paths_to_exact_target(
         _media("media:image;png"),
@@ -102,7 +102,7 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
     graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     paths = graph.find_paths_to_exact_target(
-        _media("media:pdf"),
+        _media("media:ext=pdf"),
         _media("media:thumbnail"),
         False,
         5,
@@ -115,14 +115,14 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 # TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
 def test_779_get_reachable_targets_respects_type_matching():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
     graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     png_targets = graph.get_reachable_targets(_media("media:image;png"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in png_targets)
     assert not any(t.media_def.is_equivalent(_media("media:enc=utf-8")) for t in png_targets)
 
-    pdf_targets = graph.get_reachable_targets(_media("media:pdf"), False, 5)
+    pdf_targets = graph.get_reachable_targets(_media("media:ext=pdf"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:enc=utf-8")) for t in pdf_targets)
     assert not any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in pdf_targets)
 
@@ -144,7 +144,7 @@ def test_781_find_paths_respects_type_chain():
     assert len(png_paths[0].steps) == 2
 
     pdf_paths = graph.find_paths_to_exact_target(
-        _media("media:pdf"),
+        _media("media:ext=pdf"),
         _media("media:thumbnail"),
         False,
         5,
@@ -178,7 +178,7 @@ def test_788_foreach_only_with_sequence_input():
     graph = LiveCapFab()
     graph.sync_from_caps(
         [
-            _make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF"),
+            _make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF"),
             _make_test_cap(
                 "media:enc=utf-8",
                 "media:decision;fmt=json;record",
@@ -188,7 +188,7 @@ def test_788_foreach_only_with_sequence_input():
         ]
     )
 
-    source = _media("media:pdf")
+    source = _media("media:ext=pdf")
     target = _media("media:decision;fmt=json;record")
 
     scalar_paths = graph.find_paths_to_exact_target(source, target, False, 10, 20)
@@ -222,7 +222,7 @@ def test_789_cap_from_json_has_valid_specs():
     in_spec = cap.urn.in_spec()
     out_spec = cap.urn.out_spec()
 
-    assert in_spec == "media:pdf"
+    assert in_spec == "media:ext=pdf"
     assert out_spec
     assert "disbound-page" in out_spec
 
@@ -243,7 +243,7 @@ def test_790_identity_urn_is_specific():
 @pytest.mark.asyncio
 async def test_791_sync_from_cap_urns_adds_edges():
     registry = FabricRegistry.new_for_test()
-    disbind = _make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF")
+    disbind = _make_test_cap("media:ext=pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF")
     choose = _make_test_cap(
         "media:enc=utf-8",
         "media:decision;fmt=json;record",
@@ -371,12 +371,12 @@ def test_1293_roundtrip_requires_cap_steps():
 # TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output.
 def test_1150_add_cap_and_basic_traversal():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_text", "Extract Text"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_text", "Extract Text"))
 
     assert len(graph._edges) == 1
     assert len(graph._nodes) == 2
 
-    source = _media("media:pdf")
+    source = _media("media:ext=pdf")
     targets = graph.get_reachable_targets(source, False, 5)
 
     extracted_text = _media("media:extracted-text")
@@ -396,10 +396,10 @@ def test_1151_exact_vs_conformance_matching():
     assert not lst.is_equivalent(singular)
 
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result", "analyze", "Analyze PDF"))
-    graph.add_cap(_make_test_cap("media:pdf", "media:analysis-result;list", "analyze_multi", "Analyze PDF Multi"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:analysis-result", "analyze", "Analyze PDF"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:analysis-result;list", "analyze_multi", "Analyze PDF Multi"))
 
-    source = _media("media:pdf")
+    source = _media("media:ext=pdf")
 
     paths_singular = graph.find_paths_to_exact_target(source, singular, False, 5, 10)
     assert len(paths_singular) >= 1
@@ -415,10 +415,10 @@ def test_1151_exact_vs_conformance_matching():
 # TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
 def test_1152_multi_step_path():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract", "Extract"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract", "Extract"))
     graph.add_cap(_make_test_cap("media:extracted-text", "media:summary-text", "summarize", "Summarize"))
 
-    source = _media("media:pdf")
+    source = _media("media:ext=pdf")
     target = _media("media:summary-text")
     paths = graph.find_paths_to_exact_target(source, target, False, 5, 10)
 
@@ -431,10 +431,10 @@ def test_1152_multi_step_path():
 # TEST1153: Repeated path searches return the same path order for the same graph and target.
 def test_1153_deterministic_ordering():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_a", "Extract A"))
-    graph.add_cap(_make_test_cap("media:pdf", "media:extracted-text", "extract_b", "Extract B"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_a", "Extract A"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_b", "Extract B"))
 
-    source = _media("media:pdf")
+    source = _media("media:ext=pdf")
     target = _media("media:extracted-text")
 
     paths1 = graph.find_paths_to_exact_target(source, target, False, 5, 10)
@@ -452,7 +452,7 @@ def test_1153_deterministic_ordering():
 def test_1154_sync_from_caps():
     graph = LiveCapFab()
     caps = [
-        _make_test_cap("media:pdf", "media:extracted-text", "op1", "Op1"),
+        _make_test_cap("media:ext=pdf", "media:extracted-text", "op1", "Op1"),
         _make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),
     ]
     graph.sync_from_caps(caps)

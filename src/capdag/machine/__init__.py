@@ -9,7 +9,7 @@ transformation paths. It provides:
 
 Format:
 
-    [extract cap:in="media:pdf";extract-text;out="media:enc=utf-8;ext=txt"]
+    [extract cap:in="media:ext=pdf";extract-text;out="media:enc=utf-8;ext=txt"]
     [embed cap:in="media:enc=utf-8";generate-embeddings;out="media:embedding-vector;enc=utf-8;record"]
     [doc -> extract -> text]
     [text -> embed -> vectors]

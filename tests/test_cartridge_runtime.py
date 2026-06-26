@@ -570,7 +570,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -667,7 +667,7 @@ def test_338_file_path_via_cli_flag(tmp_path):
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 CliFlagSource("--file"),
             ]
         )]
@@ -733,7 +733,7 @@ def test_340_file_not_found_clear_error():
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1048,7 +1048,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1435,7 +1435,7 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1471,7 +1471,7 @@ def test_361_cli_mode_file_path(tmp_path):
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1488,7 +1488,7 @@ def test_361_cli_mode_file_path(tmp_path):
     effective = extract_effective_payload(payload, "application/cbor", cap, True)
     arr = cbor2.loads(effective)
     assert len(arr) == 1
-    assert arr[0]["media_urn"] == "media:pdf"
+    assert arr[0]["media_urn"] == "media:ext=pdf"
     assert arr[0]["value"] == pdf_content
 
 
@@ -1575,10 +1575,10 @@ def test_363_cbor_mode_chunked_content():
         "Process",
         "process",
         [CapArg(
-            media_urn="media:pdf",
+            media_urn="media:ext=pdf",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
             ]
         )]
     )
@@ -1589,7 +1589,7 @@ def test_363_cbor_mode_chunked_content():
 
     # Build CBOR payload
     from capdag.cap.caller import CapArgumentValue
-    args = [CapArgumentValue(media_urn="media:pdf", value=pdf_content)]
+    args = [CapArgumentValue(media_urn="media:ext=pdf", value=pdf_content)]
     payload_bytes = cbor2.dumps([
         {
             "media_urn": arg.media_urn,

@@ -416,14 +416,14 @@ def test_558_predicate_constant_consistency():
 
 # TEST852: LUB of identical URNs returns the same URN
 def test_852_lub_identical():
-    pdf = MediaUrn.from_string("media:pdf")
+    pdf = MediaUrn.from_string("media:ext=pdf")
     lub = MediaUrn.least_upper_bound([pdf, pdf])
     assert lub.is_equivalent(pdf)
 
 
 # TEST853: LUB of URNs with no common tags returns media: (universal)
 def test_853_lub_no_common_tags():
-    pdf = MediaUrn.from_string("media:pdf")
+    pdf = MediaUrn.from_string("media:ext=pdf")
     png = MediaUrn.from_string("media:image;png")
     lub = MediaUrn.least_upper_bound([pdf, png])
     universal = MediaUrn.from_string("media:")
@@ -461,7 +461,7 @@ def test_856_lub_empty():
 
 # TEST857: LUB of single input returns that input
 def test_857_lub_single():
-    pdf = MediaUrn.from_string("media:pdf")
+    pdf = MediaUrn.from_string("media:ext=pdf")
     lub = MediaUrn.least_upper_bound([pdf])
     assert lub.is_equivalent(pdf)
 

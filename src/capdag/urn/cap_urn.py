@@ -523,7 +523,7 @@ class CapUrn:
         "unconstrained" — vacuously true on either side.
 
         - Request in=media: (unconstrained) + any provider -> YES (no constraint)
-        - Provider in=media: (accepts any) + Request in=media:pdf -> YES
+        - Provider in=media: (accepts any) + Request in=media:ext=pdf -> YES
         - Both specific -> request input must conform to provider's accepted input
         """
         # Request wildcard: any provider input is fine

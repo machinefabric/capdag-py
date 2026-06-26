@@ -352,8 +352,8 @@ class MediaUrn:
 
         - Empty input -> media: (universal type)
         - Single input -> returned as-is
-        - [media:pdf, media:pdf] -> media:pdf
-        - [media:pdf, media:image;png] -> media: (no common tags)
+        - [media:ext=pdf, media:ext=pdf] -> media:ext=pdf
+        - [media:ext=pdf, media:image;png] -> media: (no common tags)
         - [media:fmt=json, media:fmt=csv] -> media:enc=utf-8
         """
         from tagged_urn import TaggedUrn
