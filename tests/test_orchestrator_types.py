@@ -44,7 +44,7 @@ def test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes
 
     assert mermaid.startswith("graph LR\n")
     assert 'input(["input<br/><small>media:pdf</small>"])' in mermaid
-    assert 'middle["middle<br/><small>media:textable;txt</small>"]' in mermaid
+    assert 'middle["middle<br/><small>media:enc=utf-8;ext=txt</small>"]' in mermaid
     assert 'output(("output<br/><small>media:embedding;record</small>"))' in mermaid
     assert 'Extract #quot;Title#quot; &lt;One&gt;\\\\path' in mermaid
     assert "<small>cap:" in mermaid

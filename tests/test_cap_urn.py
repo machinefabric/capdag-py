@@ -682,7 +682,7 @@ def test_047_matching_semantics_thumbnail_void_input():
 # TEST048: Matching semantics - generic legal wildcard cap matches specific caps
 def test_048_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:generate")
-    request = CapUrn.from_string(f'cap:ext=pdf;in="media:textable";generate;out="{MEDIA_OBJECT}"')
+    request = CapUrn.from_string(f'cap:ext=pdf;in="media:enc=utf-8";generate;out="{MEDIA_OBJECT}"')
     assert cap.accepts(request), "Test 8: Wildcard direction should accept any direction"
 
 
@@ -697,9 +697,9 @@ def test_049_matching_semantics_cross_dimension():
 
 # TEST050: Matching semantics - direction mismatch prevents matching
 def test_050_matching_semantics_direction_mismatch():
-    # media:textable (string) has different tags than media: (wildcard)
+    # media:enc=utf-8 (text) has different tags than media: (wildcard)
     # Neither can provide input for the other (completely different marker tags)
-    cap = CapUrn.from_string(f'cap:in="media:textable";generate;out="{MEDIA_OBJECT}"')
+    cap = CapUrn.from_string(f'cap:in="media:enc=utf-8";generate;out="{MEDIA_OBJECT}"')
     request = CapUrn.from_string(f'cap:in="media:";generate;out="{MEDIA_OBJECT}"')
     assert not cap.accepts(request), "Test 10: Direction mismatch should not accept"
 
@@ -750,24 +750,24 @@ def test_560_with_in_out_spec():
     assert changed_out.out_spec() == "media:string"
 
     # Chain both
-    changed_both = cap.with_in_spec("media:pdf").with_out_spec("media:enc=utf-8;txt")
+    changed_both = cap.with_in_spec("media:pdf").with_out_spec("media:enc=utf-8;ext=txt")
     assert changed_both.in_spec() == "media:pdf"
-    assert changed_both.out_spec() == "media:enc=utf-8;txt"
+    assert changed_both.out_spec() == "media:enc=utf-8;ext=txt"
 
 
 # TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
 def test_561_in_out_media_urn():
     cap = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:enc=utf-8;txt"'
+        'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'
     )
 
     in_urn = cap.in_media_urn()
-    assert in_urn.get_tag("enc") is None  # pdf is a binary file, no encoding claim
-    assert in_urn.has_tag("pdf", "*")
+    assert in_urn.get_tag("enc") is None  # pdf file input declares no text encoding
+    assert in_urn.has_tag("ext", "pdf")
 
     out_urn = cap.out_media_urn()
     assert out_urn.get_tag("enc") == "utf-8"  # text output carries enc
-    assert out_urn.has_tag("txt", "*")
+    assert out_urn.has_tag("ext", "txt")
 
     # Generic legal cap still exposes top media on both axes
     wildcard_cap = CapUrn.from_string("cap:raw")
@@ -797,10 +797,10 @@ def test_562_canonical_option():
 # TEST568: is_dispatchable with different tag order in output spec
 def test_568_dispatch_output_tag_order():
     provider = CapUrn.from_string(
-        'cap:in="media:model-spec;textable";download-model;out="media:download-result;record;textable"'
+        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:model-spec;textable";download-model;out="media:download-result;record;textable"'
+        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;enc=utf-8;record"'
     )
 
     # After parsing, both should be normalized to same canonical form
@@ -1019,16 +1019,16 @@ def test_652_wildcard_cap_identity_constant():
 # TEST653: invalid effect=none declarations fail at construction
 def test_653_wildcard_identity_routing_isolation():
     with pytest.raises(CapUrnError):
-        CapUrn.from_string("cap:in=media:pdf;out=media:textable;effect=none")
+        CapUrn.from_string('cap:in=media:pdf;out="media:enc=utf-8";effect=none')
 
 
 # TEST823: is_dispatchable — exact match provider dispatches request
 def test_823_dispatch_exact_match():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     assert provider.is_dispatchable(request)
 
@@ -1036,10 +1036,10 @@ def test_823_dispatch_exact_match():
 # TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
 def test_824_dispatch_contravariant_input():
     provider = CapUrn.from_string(
-        'cap:in="media:";analyze;out="media:record;textable"'
+        'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";analyze;out="media:record;textable"'
+        'cap:in="media:pdf";analyze;out="media:enc=utf-8;record"'
     )
     assert provider.is_dispatchable(request)
 
@@ -1047,10 +1047,10 @@ def test_824_dispatch_contravariant_input():
 # TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true
 def test_825_dispatch_request_unconstrained_input():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";analyze;out="media:record;textable"'
+        'cap:in="media:pdf";analyze;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:";analyze;out="media:record;textable"'
+        'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
     assert provider.is_dispatchable(request), \
         "Request in=media: is unconstrained — axis is vacuously true"
@@ -1059,13 +1059,13 @@ def test_825_dispatch_request_unconstrained_input():
 # TEST826: is_dispatchable — provider output must satisfy request output (covariance)
 def test_826_dispatch_covariant_output():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8"'
     )
     assert provider.is_dispatchable(request), \
-        "Provider output record;textable conforms to request output textable"
+        "Provider output enc=utf-8;record conforms to request output enc=utf-8"
 
 
 # TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
@@ -1074,7 +1074,7 @@ def test_827_dispatch_generic_output_fails():
         'cap:in="media:pdf";extract;out="media:"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     assert not provider.is_dispatchable(request), \
         "Provider out=media: cannot guarantee specific output"
@@ -1083,10 +1083,10 @@ def test_827_dispatch_generic_output_fails():
 # TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
 def test_828_dispatch_wildcard_requires_tag_presence():
     provider = CapUrn.from_string(
-        'cap:in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     assert not provider.is_dispatchable(request), \
         "Wildcard * means tag must be present — provider has no candle tag"
@@ -1095,10 +1095,10 @@ def test_828_dispatch_wildcard_requires_tag_presence():
 # TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
 def test_829_dispatch_wildcard_with_tag_present():
     provider = CapUrn.from_string(
-        'cap:candle=metal;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:candle=metal;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     assert provider.is_dispatchable(request), \
         "Provider has candle=metal, request has candle=* — tag present, any value OK"
@@ -1107,10 +1107,10 @@ def test_829_dispatch_wildcard_with_tag_present():
 # TEST830: is_dispatchable — provider extra tags are refinement, always OK
 def test_830_dispatch_provider_extra_tags():
     provider = CapUrn.from_string(
-        'cap:candle=metal;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:candle=metal;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     assert provider.is_dispatchable(request), \
         "Provider extra tag candle=metal is refinement — always OK"
@@ -1119,10 +1119,10 @@ def test_830_dispatch_provider_extra_tags():
 # TEST831: is_dispatchable — cross-backend mismatch prevented
 def test_831_dispatch_cross_backend_mismatch():
     gguf_provider = CapUrn.from_string(
-        'cap:gguf=q4_k_m;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:gguf=q4_k_m;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     candle_request = CapUrn.from_string(
-        'cap:candle=*;in="media:model-spec";run-inference;out="media:record;textable"'
+        'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     assert not gguf_provider.is_dispatchable(candle_request), \
         "GGUF provider has no candle tag — cross-backend mismatch"
@@ -1131,29 +1131,29 @@ def test_831_dispatch_cross_backend_mismatch():
 # TEST832: is_dispatchable is NOT symmetric
 def test_832_dispatch_asymmetric():
     broad = CapUrn.from_string(
-        'cap:in="media:";process;out="media:record;textable"'
+        'cap:in="media:";process;out="media:enc=utf-8;record"'
     )
     narrow = CapUrn.from_string(
-        'cap:in="media:pdf";process;out="media:textable"'
+        'cap:in="media:pdf";process;out="media:enc=utf-8"'
     )
     # broad provider CAN dispatch narrow request:
     #   input: provider in=media: accepts anything -> OK
-    #   output: provider out=media:record;textable conforms to request out=media:textable -> OK
+    #   output: provider out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 -> OK
     assert broad.is_dispatchable(narrow)
     # narrow provider CANNOT dispatch broad request:
     #   input: request in=media: unconstrained -> OK
-    #   output: provider out=media:textable, request out=media:record;textable
-    #           textable does NOT conform to record;textable -> FAIL
+    #   output: provider out=media:enc=utf-8, request out=media:enc=utf-8;record
+    #           enc=utf-8 does NOT conform to enc=utf-8;record -> FAIL
     assert not narrow.is_dispatchable(broad)
 
 
 # TEST833: is_comparable — both directions checked
 def test_833_comparable_symmetric():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     assert a.is_comparable(b)
     assert b.is_comparable(a)
@@ -1162,10 +1162,10 @@ def test_833_comparable_symmetric():
 # TEST834: is_comparable — unrelated caps are NOT comparable
 def test_834_comparable_unrelated():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:audio";transcribe;out="media:record;textable"'
+        'cap:in="media:audio";transcribe;out="media:enc=utf-8;record"'
     )
     assert not a.is_comparable(b)
     assert not b.is_comparable(a)
@@ -1174,10 +1174,10 @@ def test_834_comparable_unrelated():
 # TEST835: is_equivalent — identical caps
 def test_835_equivalent_identical():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     assert a.is_equivalent(b)
     assert b.is_equivalent(a)
@@ -1186,10 +1186,10 @@ def test_835_equivalent_identical():
 # TEST836: is_equivalent — non-equivalent comparable caps
 def test_836_equivalent_non_equivalent():
     a = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8"'
     )
     b = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     assert a.is_comparable(b)
     assert not a.is_equivalent(b)
@@ -1198,10 +1198,10 @@ def test_836_equivalent_non_equivalent():
 # TEST837: is_dispatchable — op tag mismatch rejects
 def test_837_dispatch_op_mismatch():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:pdf";summarize;out="media:record;textable"'
+        'cap:in="media:pdf";summarize;out="media:enc=utf-8;record"'
     )
     assert not provider.is_dispatchable(request)
 
@@ -1209,7 +1209,7 @@ def test_837_dispatch_op_mismatch():
 # TEST838: is_dispatchable — request with wildcard output accepts any provider output
 def test_838_dispatch_request_wildcard_output():
     provider = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:record;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:pdf";extract;out="media:"'
@@ -1262,15 +1262,15 @@ def test_890_direction_semantic_matching():
 # TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry
 def test_1100_cap_urn_normalizes_media_urn_tag_order():
     urn1 = CapUrn.from_string(
-        'cap:in=media:pdf;extract-metadata;out="media:file-metadata;record;textable"'
+        'cap:in=media:pdf;extract-metadata;out="media:enc=utf-8;file-metadata;record"'
     )
     urn2 = CapUrn.from_string(
-        'cap:in=media:pdf;extract-metadata;out="media:file-metadata;textable;record"'
+        'cap:in=media:pdf;extract-metadata;out="media:enc=utf-8;file-metadata;record"'
     )
 
     assert urn1.to_string() == urn2.to_string()
     canonical = urn1.to_string()
-    assert "record;textable" in canonical or "textable;record" in canonical
+    assert "enc=utf-8;file-metadata;record" in canonical
 
 
 # TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request)
@@ -1360,8 +1360,8 @@ def test_920_cap_urn_total_order_basic():
 
 # TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order
 def test_921_cap_urn_order_consistent_with_equality():
-    a = CapUrn.from_string('cap:in="media:pdf";convert;out="media:textable"')
-    b = CapUrn.from_string('cap:in="media:pdf";convert;out="media:textable"')
+    a = CapUrn.from_string('cap:in="media:pdf";convert;out="media:enc=utf-8"')
+    b = CapUrn.from_string('cap:in="media:pdf";convert;out="media:enc=utf-8"')
     assert a == b
     assert not (a < b)
     assert not (b < a)
@@ -1443,7 +1443,7 @@ def test_1801_kind_source_when_input_is_void():
     warm = CapUrn.from_string('cap:in=media:void;out="media:model-artifact";warm')
     assert warm.kind() == CapKind.SOURCE
 
-    gen = CapUrn.from_string("cap:in=media:void;out=media:textable")
+    gen = CapUrn.from_string('cap:in=media:void;out="media:enc=utf-8"')
     assert gen.kind() == CapKind.SOURCE
 
 
@@ -1452,7 +1452,7 @@ def test_1802_kind_sink_when_output_is_void():
     discard = CapUrn.from_string("cap:discard;in=media:;out=media:void")
     assert discard.kind() == CapKind.SINK
 
-    log_cap = CapUrn.from_string('cap:in="media:json;textable";log;out=media:void')
+    log_cap = CapUrn.from_string('cap:in="media:enc=utf-8;fmt=json";log;out=media:void')
     assert log_cap.kind() == CapKind.SINK
 
 
@@ -1469,7 +1469,7 @@ def test_1803_kind_effect_when_both_sides_void():
 # the cap is not the bare identity. The default kind for ordinary
 # data-processing caps.
 def test_1804_kind_transform_for_normal_data_processors():
-    extract = CapUrn.from_string('cap:extract;in=media:pdf;out="media:record;textable"')
+    extract = CapUrn.from_string('cap:extract;in=media:pdf;out="media:enc=utf-8;record"')
     assert extract.kind() == CapKind.TRANSFORM
 
     labeled = CapUrn.from_string("cap:passthrough;in=media:;out=media:")
@@ -1484,13 +1484,13 @@ def test_1805_kind_invariant_under_canonical_spellings():
     cases = [
         ("cap:effect=none", "cap:in=media:;out=media:;effect=none", CapKind.IDENTITY),
         (
-            "cap:extract;in=media:pdf;out=media:textable",
-            'cap:extract;in="media:pdf";out="media:textable"',
+            'cap:extract;in=media:pdf;out="media:enc=utf-8"',
+            'cap:extract;in="media:pdf";out="media:enc=utf-8"',
             CapKind.TRANSFORM,
         ),
         (
-            "cap:in=media:void;out=media:textable;warm",
-            "cap:warm;out=media:textable;in=media:void",
+            'cap:in=media:void;out="media:enc=utf-8";warm',
+            'cap:warm;out="media:enc=utf-8";in=media:void',
             CapKind.SOURCE,
         ),
     ]
@@ -1704,7 +1704,7 @@ def test_1843_reject_invalid_combinations():
 
 # TEST1844: out-axis difference dominates combined in+y differences.
 def test_1844_axis_weighting_out_dominates():
-    big_out = CapUrn.from_string('cap:in=media:;out="media:record;textable"')
+    big_out = CapUrn.from_string('cap:in=media:;out="media:enc=utf-8;record"')
     big_in_and_y = CapUrn.from_string(
         "cap:in=media:pdf;out=media:record;!constrained;?target;extract;"
         "stage!=alpha;target2=metadata;ver?=draft"

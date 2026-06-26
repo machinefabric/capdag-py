@@ -367,14 +367,14 @@ def test_1221_refine_with_matching_adapter():
 def test_1222_refine_no_matching_adapter():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:other;enc=utf-8", "something-special") == "media:enc=utf-8;other"
+    assert registry.refine_media_urn("media:other;enc=utf-8", "something-special") == "media:other;enc=utf-8"
 
 
 # TEST1223: Adapters that decline to refine leave the original media URN intact.
 def test_1223_refine_adapter_returns_none():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:test;enc=utf-8", "ordinary-value") == "media:enc=utf-8;test"
+    assert registry.refine_media_urn("media:test;enc=utf-8", "ordinary-value") == "media:test;enc=utf-8"
 
 
 # TEST1224: When multiple adapter prefixes match, the longest prefix wins.

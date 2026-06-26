@@ -221,9 +221,12 @@ def test_075_matching():
 
 # TEST076: Test specificity increases with more tags for ranking conformance
 def test_076_specificity():
-    urn1 = MediaUrn.from_string("media:string")
-    urn2 = MediaUrn.from_string("media:numeric")
-    urn3 = MediaUrn.from_string("media:list;numeric")
+    # More tags = higher specificity. Use the same enc=utf-8 base and add
+    # markers so each URN is a strict superset of the previous — the
+    # specificity must be monotonic non-decreasing as tags accrue.
+    urn1 = MediaUrn.from_string("media:enc=utf-8")
+    urn2 = MediaUrn.from_string("media:enc=utf-8;numeric")
+    urn3 = MediaUrn.from_string("media:enc=utf-8;list;numeric")
 
     s1 = urn1.specificity()
     s2 = urn2.specificity()

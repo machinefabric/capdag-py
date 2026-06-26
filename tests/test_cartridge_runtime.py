@@ -524,7 +524,7 @@ def test_272_extract_effective_payload_multiple_args():
 # TEST273: Test extract_effective_payload with binary data in CBOR value (not just text)
 def test_273_extract_effective_payload_binary_value():
     binary_data = bytes(range(256))
-    args = [{"media_urn": "media:pdf", "value": binary_data}]
+    args = [{"media_urn": "media:ext=pdf", "value": binary_data}]
     payload = cbor2.dumps(args)
     cap = create_test_cap('cap:in="media:ext=pdf";process;out=media:void', "Test", "process", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
@@ -1041,7 +1041,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     test_file.write_bytes(test_content)
 
     cap = create_test_cap(
-        'cap:in="media:pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:ext=pdf";process;out="media:enc=utf-8;result"',
         "Process PDF",
         "process",
         [CapArg(
@@ -1073,7 +1073,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op(
-        'cap:in="media:pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:ext=pdf";process;out="media:enc=utf-8;result"',
         CollectBytesOp,
     )
 
@@ -1513,10 +1513,10 @@ def test_362_cli_mode_piped_binary():
         "Process",
         "process",
         [CapArg(
-            media_urn="media:pdf",
+            media_urn="media:ext=pdf",
             required=True,
             sources=[
-                StdinSource("media:pdf"),
+                StdinSource("media:ext=pdf"),
             ]
         )]
     )
@@ -1542,7 +1542,7 @@ def test_362_cli_mode_piped_binary():
     media_urn = arg_map.get("media_urn")
     value = arg_map.get("value")
 
-    assert media_urn == "media:pdf", "Media URN should match cap in_spec"
+    assert media_urn == "media:ext=pdf", "Media URN should match cap in_spec"
     assert value == pdf_content, "Binary content should be preserved exactly"
 
 
@@ -2236,25 +2236,25 @@ def test_841_peer_response_collect_value_discards_logs():
 # TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds
 def test_678_find_stream_equivalent_urn():
     streams = [
-        ("media:textable;txt", b"hello world"),
+        ("media:enc=utf-8;ext=txt", b"hello world"),
     ]
-    result = find_stream(streams, "media:textable;txt")
+    result = find_stream(streams, "media:enc=utf-8;ext=txt")
     assert result == b"hello world"
 
 
 # TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record".
 def test_679_find_stream_base_vs_full_fails():
     streams = [
-        ("media:textable;txt", b"hello"),
+        ("media:enc=utf-8;ext=txt", b"hello"),
     ]
-    result = find_stream(streams, "media:textable")
+    result = find_stream(streams, "media:enc=utf-8")
     assert result is None, "Base URN must not match more specific URN (is_equivalent is strict)"
 
 
 # TEST680: require_stream with missing URN returns hard StreamError
 def test_680_require_stream_missing_fails():
     streams = [
-        ("media:textable;txt", b"hello"),
+        ("media:enc=utf-8;ext=txt", b"hello"),
     ]
     with pytest.raises(CartridgeRuntimeError) as exc_info:
         require_stream(streams, "media:binary")
@@ -2264,28 +2264,28 @@ def test_680_require_stream_missing_fails():
 # TEST681: find_stream with multiple streams returns the correct one
 def test_681_find_stream_multiple():
     streams = [
-        ("media:textable;txt", b"text data"),
+        ("media:enc=utf-8;ext=txt", b"text data"),
         ("media:image;png", b"image data"),
-        ("media:json;textable", b"json data"),
+        ("media:fmt=json", b"json data"),
     ]
     assert find_stream(streams, "media:image;png") == b"image data"
-    assert find_stream(streams, "media:textable;txt") == b"text data"
-    assert find_stream(streams, "media:json;textable") == b"json data"
+    assert find_stream(streams, "media:enc=utf-8;ext=txt") == b"text data"
+    assert find_stream(streams, "media:fmt=json") == b"json data"
 
 
 # TEST682: require_stream_str returns UTF-8 string for text data
 def test_682_require_stream_returns_data():
     streams = [
-        ("media:textable;txt", b"hello text"),
+        ("media:enc=utf-8;ext=txt", b"hello text"),
     ]
-    result = require_stream(streams, "media:textable;txt")
+    result = require_stream(streams, "media:enc=utf-8;ext=txt")
     assert result == b"hello text"
 
 
 # TEST683: find_stream returns None for invalid media URN string (not a parse error — just None)
 def test_683_find_stream_invalid_urn_returns_none():
     streams = [
-        ("media:textable;txt", b"data"),
+        ("media:enc=utf-8;ext=txt", b"data"),
     ]
     found = find_stream(streams, "")
     assert found is None, "Invalid URN must return None, not panic"
