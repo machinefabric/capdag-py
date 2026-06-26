@@ -9,8 +9,8 @@ transformation paths. It provides:
 
 Format:
 
-    [extract cap:in="media:pdf";extract-text;out="media:txt;textable"]
-    [embed cap:in="media:textable";generate-embeddings;out="media:embedding-vector;record;textable"]
+    [extract cap:in="media:pdf";extract-text;out="media:enc=utf-8;ext=txt"]
+    [embed cap:in="media:enc=utf-8";generate-embeddings;out="media:embedding-vector;enc=utf-8;record"]
     [doc -> extract -> text]
     [text -> embed -> vectors]
 

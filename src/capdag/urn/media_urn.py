@@ -26,32 +26,30 @@ from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
 # Primitive types - URNs must match base.toml definitions
 # Media URN for void (no input/output) - no coercion tags
 MEDIA_VOID = "media:void"
-# Media URN for string type - textable (can become text), scalar by default (no list marker)
-MEDIA_STRING = "media:textable"
-# Media URN for integer type - textable, numeric (math ops valid), scalar by default
-MEDIA_INTEGER = "media:integer;textable;numeric"
-# Media URN for number type - textable, numeric, scalar by default (no primary type prefix)
-MEDIA_NUMBER = "media:textable;numeric"
+# Media URN for string type — bare UTF-8 text (enc=utf-8), scalar by default (no list marker)
+MEDIA_STRING = "media:enc=utf-8"
+# Media URN for integer type — numeric (math ops valid), scalar by default
+MEDIA_INTEGER = "media:integer;numeric"
+# Media URN for number type — numeric, scalar by default
+MEDIA_NUMBER = "media:numeric"
 # Media URN for boolean type - uses "bool" not "boolean" per base.toml
-MEDIA_BOOLEAN = "media:bool;textable"
-# Media URN for JSON object type - record (key-value structure), textable (via JSON.stringify)
+MEDIA_BOOLEAN = "media:bool;enc=utf-8"
+# Media URN for a generic record/object type — internal key-value structure, no content-format claim
 MEDIA_OBJECT = "media:record"
-# Media URN for binary data (wildcard - matches everything)
+# Media URN for the top type — the most general media type (no constraints)
 MEDIA_IDENTITY = "media:"
 
 # List types - URNs must match base.toml definitions
 # Media URN for untyped list - ordered sequence of opaque byte sequences
 MEDIA_LIST = "media:list"
-# Media URN for textable list - ordered sequence of textable values
-MEDIA_TEXTABLE_LIST = "media:list;textable"
-# Media URN for string list type - list marker, textable (no primary type prefix)
-MEDIA_STRING_LIST = "media:list;textable"
-# Media URN for integer list type - list marker, integer, numeric, textable (per base.toml:46)
-MEDIA_INTEGER_LIST = "media:integer;list;textable;numeric"
-# Media URN for number list type - list marker, numeric, textable (no primary type prefix)
-MEDIA_NUMBER_LIST = "media:list;numeric;textable"
-# Media URN for boolean list type - list marker, bool, textable (uses "bool" not "boolean" per base.toml)
-MEDIA_BOOLEAN_LIST = "media:bool;list;textable"
+# Media URN for string list type — ordered sequence of bare UTF-8 text values
+MEDIA_STRING_LIST = "media:enc=utf-8;list"
+# Media URN for integer list type — numeric with list marker
+MEDIA_INTEGER_LIST = "media:integer;list;numeric"
+# Media URN for number list type - one number per line
+MEDIA_NUMBER_LIST = "media:list;numeric"
+# Media URN for boolean list type - one boolean per line
+MEDIA_BOOLEAN_LIST = "media:bool;enc=utf-8;list"
 # Media URN for object list type - list marker, record (each item has structure)
 MEDIA_OBJECT_LIST = "media:list;record"
 
@@ -109,48 +107,48 @@ MEDIA_EPUB = "media:ext=epub"
 
 # Text format types (PRIMARY naming - type IS the format)
 # Media URN for Markdown text
-MEDIA_MD = "media:ext=md;textable"
+MEDIA_MD = "media:enc=utf-8;ext=md"
 # Media URN for plain text
-MEDIA_TXT = "media:ext=txt;textable"
+MEDIA_TXT = "media:enc=utf-8;ext=txt"
 # Media URN for reStructuredText
-MEDIA_RST = "media:ext=rst;textable"
+MEDIA_RST = "media:enc=utf-8;ext=rst"
 # Media URN for log files
-MEDIA_LOG = "media:ext=log;textable"
+MEDIA_LOG = "media:enc=utf-8;ext=log"
 # Media URN for HTML documents
-MEDIA_HTML = "media:ext=html;textable"
+MEDIA_HTML = "media:enc=utf-8;ext=html"
 # Media URN for XML documents
-MEDIA_XML = "media:ext=xml;textable"
-# Media URN for JSON data
-MEDIA_JSON = "media:json;record;textable"
-# Media URN for JSON with schema constraint (input for structured queries) - matches CATALOG
-MEDIA_JSON_SCHEMA = "media:json;json-schema;record;textable"
-# Media URN for YAML data
-MEDIA_YAML = "media:record;textable;yaml"
+MEDIA_XML = "media:enc=utf-8;ext=xml"
+# Media URN for JSON data - has record marker (structured key-value)
+MEDIA_JSON = "media:fmt=json;record"
+# Media URN for JSON with schema constraint (input for structured queries)
+MEDIA_JSON_SCHEMA = "media:fmt=json;json-schema;record"
+# Media URN for YAML data - has record marker (structured key-value)
+MEDIA_YAML = "media:fmt=yaml;record"
 
 # Format-specific variants for JSON, YAML, CSV
-MEDIA_JSON_VALUE = "media:json;textable"
-MEDIA_JSON_RECORD = "media:json;record;textable"
-MEDIA_JSON_LIST = "media:json;list;textable"
-MEDIA_JSON_LIST_RECORD = "media:json;list;record;textable"
-MEDIA_YAML_VALUE = "media:textable;yaml"
-MEDIA_YAML_RECORD = "media:record;textable;yaml"
-MEDIA_YAML_LIST = "media:list;textable;yaml"
-MEDIA_YAML_LIST_RECORD = "media:list;record;textable;yaml"
-MEDIA_CSV = "media:ext=csv;list;record;textable"
-MEDIA_CSV_LIST = "media:ext=csv;list;record;textable"
+MEDIA_JSON_VALUE = "media:fmt=json"
+MEDIA_JSON_RECORD = "media:fmt=json;record"
+MEDIA_JSON_LIST = "media:fmt=json;list"
+MEDIA_JSON_LIST_RECORD = "media:fmt=json;list;record"
+MEDIA_YAML_VALUE = "media:fmt=yaml"
+MEDIA_YAML_RECORD = "media:fmt=yaml;record"
+MEDIA_YAML_LIST = "media:fmt=yaml;list"
+MEDIA_YAML_LIST_RECORD = "media:fmt=yaml;list;record"
+MEDIA_CSV = "media:fmt=csv;list;record"
+MEDIA_CSV_LIST = "media:fmt=csv;list;record"
 
 # File path type — for arguments that represent filesystem paths.
 # There is a single media URN; cardinality (single file vs many) lives on
 # `is_sequence`, not on URN tags.
-MEDIA_FILE_PATH = "media:file-path;textable"
+MEDIA_FILE_PATH = "media:enc=utf-8;file-path"
 
 # Media URN for extracted page text
-MEDIA_TEXTABLE_PAGE = "media:ext=txt;page;plain-text;textable"
+MEDIA_TEXTABLE_PAGE = "media:enc=utf-8;ext=txt;page;plain-text"
 
 # Semantic text input types - distinguished by their purpose/context
 # Media URN for model spec (provider:model format, HuggingFace name, etc.)
 # Generic, backend-agnostic — used by modelcartridge for download/status/path operations.
-MEDIA_MODEL_SPEC = "media:model-spec;textable"
+MEDIA_MODEL_SPEC = "media:enc=utf-8;model-spec"
 
 # Backend + use-case specific model-spec variants.
 # Each inference cap declares the variant matching its backend and purpose,
@@ -158,98 +156,100 @@ MEDIA_MODEL_SPEC = "media:model-spec;textable"
 
 # GGUF backend
 # GGUF vision model spec (e.g. moondream2)
-MEDIA_MODEL_SPEC_GGUF_VISION = "media:model-spec;gguf;textable;vision"
+MEDIA_MODEL_SPEC_GGUF_VISION = "media:enc=utf-8;gguf;model-spec;tokenizer-embedded-gguf;vision"
 # GGUF LLM model spec (e.g. Mistral-7B)
-MEDIA_MODEL_SPEC_GGUF_LLM = "media:model-spec;gguf;textable;llm"
+MEDIA_MODEL_SPEC_GGUF_LLM = "media:enc=utf-8;gguf;llm;model-spec;tokenizer-embedded-gguf"
 # GGUF embeddings model spec (e.g. nomic-embed)
-MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS = "media:model-spec;gguf;textable;embeddings"
+MEDIA_MODEL_SPEC_GGUF_EMBEDDINGS = "media:embeddings;enc=utf-8;gguf;model-spec;tokenizer-embedded-gguf"
 
 # MLX backend
 # MLX vision model spec (e.g. Qwen3-VL)
-MEDIA_MODEL_SPEC_MLX_VISION = "media:model-spec;mlx;textable;vision"
+MEDIA_MODEL_SPEC_MLX_VISION = "media:enc=utf-8;mlx;model-spec;vision"
 # MLX LLM model spec (e.g. Llama-3.2-3B)
-MEDIA_MODEL_SPEC_MLX_LLM = "media:model-spec;mlx;textable;llm"
+MEDIA_MODEL_SPEC_MLX_LLM = "media:enc=utf-8;llm;mlx;model-spec"
 # MLX embeddings model spec (e.g. all-MiniLM-L6-v2)
-MEDIA_MODEL_SPEC_MLX_EMBEDDINGS = "media:model-spec;mlx;textable;embeddings"
+MEDIA_MODEL_SPEC_MLX_EMBEDDINGS = "media:embeddings;enc=utf-8;mlx;model-spec"
 
 # Candle backend
 # Candle vision model spec (e.g. BLIP)
-MEDIA_MODEL_SPEC_CANDLE_VISION = "media:model-spec;candle;textable;vision"
+MEDIA_MODEL_SPEC_CANDLE_VISION = "media:candle;enc=utf-8;model-spec;repo-safetensors;tokenizer-unified;vision"
 # Candle text embeddings model spec (e.g. BERT)
-MEDIA_MODEL_SPEC_CANDLE_EMBEDDINGS = "media:model-spec;candle;textable;embeddings"
+MEDIA_MODEL_SPEC_CANDLE_EMBEDDINGS = "media:candle;embeddings;enc=utf-8;model-spec;repo-safetensors;tokenizer-unified"
 # Candle image embeddings model spec (e.g. CLIP)
-MEDIA_MODEL_SPEC_CANDLE_IMAGE_EMBEDDINGS = "media:model-spec;candle;image-embeddings;textable"
+MEDIA_MODEL_SPEC_CANDLE_IMAGE_EMBEDDINGS = "media:candle;enc=utf-8;image-embeddings;model-spec"
 # Candle transcription model spec (e.g. Whisper)
-MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION = "media:model-spec;candle;textable;transcription"
+MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION = "media:candle;enc=utf-8;model-spec;repo-safetensors;tokenizer-unified;transcription"
 # Media URN for MLX model path
-MEDIA_MLX_MODEL_PATH = "media:mlx-model-path;textable"
+MEDIA_MLX_MODEL_PATH = "media:enc=utf-8;mlx-model-path"
 # Media URN for model repository (input for list-models) - matches CATALOG
-MEDIA_MODEL_REPO = "media:model-repo;record;textable"
-# Media URN for HuggingFace token (secret, textable)
-MEDIA_HF_TOKEN = "media:hf-token;secret;textable"
-# Media URN for model architecture list - JSON record, textable
-MEDIA_MODEL_ARCH_LIST = "media:model-arch-list;json;record;textable"
-# Media URN for model search request - JSON record, textable
-MEDIA_MODEL_SEARCH_REQUEST = "media:model-search-request;json;record;textable"
-# Media URN for model search response - JSON record, textable
-MEDIA_MODEL_SEARCH_RESPONSE = "media:model-search-response;json;record;textable"
-# Media URN for model filter resolution - JSON record, textable
-MEDIA_MODEL_FILTER_RESOLUTION = "media:model-filter-resolution;json;record;textable"
+MEDIA_MODEL_REPO = "media:enc=utf-8;model-repo;record"
+# Media URN for HuggingFace token (secret)
+MEDIA_HF_TOKEN = "media:enc=utf-8;hf-token;secret"
+# Media URN for model architecture list - JSON record
+MEDIA_MODEL_ARCH_LIST = "media:fmt=json;model-arch-list;record"
+# Media URN for model search request - JSON record
+MEDIA_MODEL_SEARCH_REQUEST = "media:fmt=json;model-search-request;record"
+# Media URN for model search response - JSON record
+MEDIA_MODEL_SEARCH_RESPONSE = "media:fmt=json;model-search-response;record"
+# Media URN for model filter resolution - JSON record
+MEDIA_MODEL_FILTER_RESOLUTION = "media:fmt=json;model-filter-resolution;record"
 
 # CAPDAG output types - all record structures (JSON objects)
 # Media URN for model dimension output - matches CATALOG
-MEDIA_MODEL_DIM = "media:integer;model-dim;numeric;textable"
+MEDIA_MODEL_DIM = "media:integer;model-dim;numeric"
 # Media URN for model download output - record structure
-MEDIA_DOWNLOAD_OUTPUT = "media:download-result;record;textable"
+MEDIA_DOWNLOAD_OUTPUT = "media:download-result;enc=utf-8;record"
 # Media URN for model list output - record structure
-MEDIA_LIST_OUTPUT = "media:model-list;record;textable"
+MEDIA_LIST_OUTPUT = "media:enc=utf-8;model-list;record"
 # Media URN for model status output - record structure
-MEDIA_STATUS_OUTPUT = "media:model-status;record;textable"
+MEDIA_STATUS_OUTPUT = "media:enc=utf-8;model-status;record"
 # Media URN for model contents output - record structure
-MEDIA_CONTENTS_OUTPUT = "media:model-contents;record;textable"
+MEDIA_CONTENTS_OUTPUT = "media:enc=utf-8;model-contents;record"
 # Media URN for model availability output - record structure
-MEDIA_AVAILABILITY_OUTPUT = "media:model-availability;record;textable"
+MEDIA_AVAILABILITY_OUTPUT = "media:enc=utf-8;model-availability;record"
 # Media URN for model path output - record structure
-MEDIA_PATH_OUTPUT = "media:model-path;record;textable"
+MEDIA_PATH_OUTPUT = "media:enc=utf-8;model-path;record"
 # Media URN for embedding vector output - record structure
-MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;record;textable"
+MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;enc=utf-8;record"
 # Media URN for vision inference output — a concrete textable terminal.
 # Carries `image-description` (the vision-specific marker), `plain-text`
 # (the finalised-text marker that opts into cap:save-as-txt's persistence
-# path), and `file-type=txt` (binds the URN to the `.txt` extension).
-MEDIA_IMAGE_DESCRIPTION = "media:ext=txt;image-description;plain-text;textable"
+# path), and `ext=txt` (binds the URN to the `.txt` extension).
+MEDIA_IMAGE_DESCRIPTION = "media:enc=utf-8;ext=txt;image-description;plain-text"
 # Media URN for finalised plain text — the canonical input/output of cap:save-as-txt.
 # Producers of user-facing prose (LLM text-generation, OCR's extracted text,
 # summarisation) declare this URN as their `out` so the planner restricts the .txt
 # persistence path to those caps. See fabric/media/plain-text.toml.
-MEDIA_PLAIN_TEXT = "media:ext=txt;plain-text;textable"
+MEDIA_PLAIN_TEXT = "media:enc=utf-8;ext=txt;plain-text"
 # Media URN for transcription output - record structure
-MEDIA_TRANSCRIPTION_OUTPUT = "media:record;textable;transcription"
+MEDIA_TRANSCRIPTION_OUTPUT = "media:enc=utf-8;record;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG
-MEDIA_DECISION = "media:decision;json;record;textable"
+MEDIA_DECISION = "media:decision;fmt=json;record"
 # Media URN for adapter selection output - JSON record
-MEDIA_ADAPTER_SELECTION = "media:adapter-selection;json;record"
+MEDIA_ADAPTER_SELECTION = "media:adapter-selection;fmt=json;record"
 
 # Fabric registry lookup wire types (consumed/produced by cap:lookup-cap;fabric
 # and cap:lookup-media-def;fabric, both implemented by fetchcartridge).
-MEDIA_CAP_URN = "media:cap-urn;textable"
-MEDIA_MEDIA_URN = "media:media-urn;textable"
-MEDIA_CAP_DEFINITION = "media:cap-definition;json;record;textable"
-MEDIA_MEDIA_DEFINITION = "media:media-definition;json;record;textable"
-MEDIA_FABRIC_DEFVER = "media:defver;textable"
+MEDIA_CAP_URN = "media:cap-urn;enc=utf-8"
+MEDIA_MEDIA_URN = "media:enc=utf-8;media-urn"
+MEDIA_CAP_DEFINITION = "media:cap-definition;fmt=json;record"
+MEDIA_MEDIA_DEFINITION = "media:fmt=json;media-definition;record"
+MEDIA_FABRIC_DEFVER = "media:defver;enc=utf-8"
 
 
 # Helper functions to build media URNs. The extension is carried on
 # the keyed `ext=<value>` axis so that `MediaUrn.extension()` (which
 # looks up the `ext` tag) resolves correctly.
-def binary_media_urn_for_ext(ext: str) -> str:
-    """Helper to build binary media URN with extension"""
-    return f"media:binary;ext={ext}"
+def file_media_urn_for_ext(ext: str) -> str:
+    """Helper to build a bare file media URN for a given extension — a file of
+    the given type with no content-format or encoding claim (e.g. media:ext=pdf)."""
+    return f"media:ext={ext}"
 
 
 def text_media_urn_for_ext(ext: str) -> str:
-    """Helper to build text media URN with extension"""
-    return f"media:ext={ext};textable"
+    """Helper to build a UTF-8 text file media URN for a given extension
+    (e.g. media:enc=utf-8;ext=md)."""
+    return f"media:enc=utf-8;ext={ext}"
 
 
 def image_media_urn_for_ext(ext: str) -> str:
@@ -354,7 +354,7 @@ class MediaUrn:
         - Single input -> returned as-is
         - [media:pdf, media:pdf] -> media:pdf
         - [media:pdf, media:image;png] -> media: (no common tags)
-        - [media:json;textable, media:csv;textable] -> media:textable
+        - [media:fmt=json, media:fmt=csv] -> media:enc=utf-8
         """
         from tagged_urn import TaggedUrn
 
@@ -450,12 +450,6 @@ class MediaUrn:
         """
         return self._urn.tags.get(tag_name) == "*"
 
-    def is_binary(self) -> bool:
-        """Check if this represents binary (non-text) data.
-        Returns True if the "textable" marker tag is NOT present."""
-        tag_val = self._urn.get_tag("textable")
-        return tag_val is None
-
     def is_scalar(self) -> bool:
         """Check if this media URN represents a single value (not a list).
         Returns True if the "list" marker tag is NOT present."""
@@ -478,22 +472,16 @@ class MediaUrn:
         return not self.has_marker_tag("record")
 
     def is_json(self) -> bool:
-        """Check if this media URN represents JSON data (json marker tag)"""
-        tag_val = self._urn.get_tag("json")
-        return tag_val is not None
+        """Check if this value's content format is JSON (fmt=json)."""
+        return self._urn.get_tag("fmt") == "json"
 
     def is_yaml(self) -> bool:
-        """Check if this media URN represents YAML data (yaml marker tag)"""
-        return self.has_marker_tag("yaml")
+        """Check if this value's content format is YAML (fmt=yaml)."""
+        return self._urn.get_tag("fmt") == "yaml"
 
     def is_csv(self) -> bool:
-        """Check if this media URN represents CSV data (csv marker tag)"""
-        return self.has_marker_tag("csv")
-
-    def is_text(self) -> bool:
-        """Check if this media URN represents textable data (textable marker tag)"""
-        tag_val = self._urn.get_tag("textable")
-        return tag_val is not None
+        """Check if this value's content format is CSV (fmt=csv)."""
+        return self._urn.get_tag("fmt") == "csv"
 
     def is_image(self) -> bool:
         """Check if this represents image data.

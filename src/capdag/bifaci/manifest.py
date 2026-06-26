@@ -52,6 +52,34 @@ def default_group(caps: List[Cap]) -> CapGroup:
     return CapGroup(name="default", caps=caps)
 
 
+def registry_url_from_build_env(raw: Optional[str]) -> Optional[str]:
+    """Validate ``MFR_CARTRIDGE_REGISTRY_URL`` and return the baked registry URL.
+
+    Valid states:
+
+    - ``None``  => dev build; registry identity is absent and the build
+      must use the on-disk ``dev/`` slot.
+    - ``Some(s)`` where ``s`` is non-empty => published-registry build.
+
+    Invalid state:
+
+    - ``Some("")`` => caller exported the variable with an empty value.
+      This is neither a dev build nor a valid registry identity, and it
+      must fail hard so the build cannot silently hash the empty string
+      into a fake registry slug. In Rust this is a compile-time
+      ``panic!``; here it is a hard ``ValueError`` — there is no
+      fallback to a dev build.
+    """
+    if raw is None:
+        return None
+    if len(raw) == 0:
+        raise ValueError(
+            "MFR_CARTRIDGE_REGISTRY_URL must be unset for dev builds or set to a "
+            "non-empty registry URL for published builds; empty string is invalid"
+        )
+    return raw
+
+
 class CapManifest:
     """Unified cap manifest for component output
 

@@ -9,16 +9,16 @@ This module provides shape analysis for cap inputs and outputs across two orthog
 
 2. Structure (internal shape of each item)
    Detected from the `record` marker tag:
-   - media:textable → Opaque (no internal fields, no record marker)
-   - media:json;record → Record (has key-value fields, record marker)
+   - media:enc=utf-8 → Opaque (no internal fields, no record marker)
+   - media:fmt=json;record → Record (has key-value fields, record marker)
 
 The four combinations:
-| Cardinality | Structure | Example                          |
-|-------------|-----------|----------------------------------|
-| scalar      | opaque    | media:textable - one string      |
-| scalar      | record    | media:json;record - one JSON obj |
-| list        | opaque    | sequence of media:file-path      |
-| list        | record    | sequence of media:json;record    |
+| Cardinality | Structure | Example                             |
+|-------------|-----------|-------------------------------------|
+| scalar      | opaque    | media:enc=utf-8 - one string        |
+| scalar      | record    | media:fmt=json;record - one JSON obj|
+| list        | opaque    | sequence of media:file-path         |
+| list        | record    | sequence of media:fmt=json;record   |
 
 Design principle: URN handling uses proper parsing via MediaUrn, never string comparison.
 The `list` tag remains a semantic type/property marker on media URNs; it is not

@@ -183,28 +183,15 @@ def test_098_validate_no_duplicate_urns_passes_for_unique():
 # =============================================================================
 
 
-# TEST099: Test ResolvedMediaDef is_binary returns true when textable tag is absent
-def test_099_resolved_is_binary():
-    resolved = ResolvedMediaDef(
-        media_urn="media:",
-        media_type="application/octet-stream",
-        profile_uri=None,
-        schema=None,
-        title=None,
-        description=None,
-        validation=None,
-        metadata=None,
-        extensions=[],
-    )
-    assert resolved.is_binary()
-    assert not resolved.is_record()
-    assert not resolved.is_json()
+# TEST099: REMOVED — ResolvedMediaDef.is_binary() was deleted along with the
+# binary/text distinction. Everything is bytes at the byte level; text-
+# representability is now the orthogonal `enc=` tag, exercised by test_104.
 
 
 # TEST100: Test ResolvedMediaDef is_record returns true when record marker is present
 def test_100_resolved_is_record():
     resolved = ResolvedMediaDef(
-        media_urn="media:record;textable",
+        media_urn="media:enc=utf-8;record",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -215,7 +202,6 @@ def test_100_resolved_is_record():
         extensions=[],
     )
     assert resolved.is_record()
-    assert not resolved.is_binary()
     assert resolved.is_scalar()  # record without list marker is scalar cardinality
     assert not resolved.is_list()
 
@@ -223,7 +209,7 @@ def test_100_resolved_is_record():
 # TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent
 def test_101_resolved_is_scalar():
     resolved = ResolvedMediaDef(
-        media_urn="media:textable",
+        media_urn="media:enc=utf-8",
         media_type="text/plain",
         profile_uri=None,
         schema=None,
@@ -241,7 +227,7 @@ def test_101_resolved_is_scalar():
 # TEST102: Test ResolvedMediaDef is_list returns true when list marker is present
 def test_102_resolved_is_list():
     resolved = ResolvedMediaDef(
-        media_urn="media:list;textable",
+        media_urn="media:enc=utf-8;list",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -256,10 +242,10 @@ def test_102_resolved_is_list():
     assert not resolved.is_scalar()
 
 
-# TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
+# TEST103: Test ResolvedMediaDef is_json returns true when fmt=json tag is present
 def test_103_resolved_is_json():
     resolved = ResolvedMediaDef(
-        media_urn="media:json;record;textable",
+        media_urn="media:fmt=json;record",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -271,13 +257,12 @@ def test_103_resolved_is_json():
     )
     assert resolved.is_json()
     assert resolved.is_record()
-    assert not resolved.is_binary()
 
 
-# TEST104: Test ResolvedMediaDef is_text returns true when textable tag is present
+# TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag
 def test_104_resolved_is_text():
     resolved = ResolvedMediaDef(
-        media_urn="media:textable",
+        media_urn="media:enc=utf-8",
         media_type="text/plain",
         profile_uri=None,
         schema=None,
@@ -287,8 +272,7 @@ def test_104_resolved_is_text():
         metadata=None,
         extensions=[],
     )
-    assert resolved.is_text()
-    assert not resolved.is_binary()
+    assert resolved._parse_media_urn().get_tag("enc") == "utf-8"
     assert not resolved.is_json()
 
 

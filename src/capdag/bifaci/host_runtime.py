@@ -28,10 +28,11 @@ import json
 import subprocess
 import threading
 import queue
+from pathlib import Path
 from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
 
-from capdag.bifaci.frame import Frame, FrameType, Limits
+from capdag.bifaci.frame import Frame, FrameType, Limits, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
 from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
@@ -39,6 +40,9 @@ from capdag.bifaci.io import (
     verify_identity,
     CborError,
 )
+from capdag.bifaci.relay_switch import InstalledCartridgeRecord
+from capdag.bifaci.cartridge_repo import CartridgeChannel
+from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.urn.cap_urn import CapUrn, CapUrnError
 
 
@@ -258,11 +262,51 @@ class _RoutingEntry:
     msg_id: object  # MessageId
 
 
+@dataclass
+class RegisteredDirSpec:
+    """A directory-registered cartridge in a roster sync. Mirrors the
+    parameters of ``CartridgeHost.register_cartridge_dir`` so a caller can
+    describe the full desired registered-dir set without reaching into
+    runtime internals."""
+    entry_point: str
+    version_dir: str
+    id: str
+    channel: CartridgeChannel
+    registry_url: Optional[str]
+    version: str
+    cap_groups: List[Any]
+
+
+class CartridgeProcessHandle:
+    """Thread-safe handle for sending commands to a running
+    ``CartridgeHost``. Obtained via ``process_handle()`` before calling
+    ``run()``. Commands are delivered through a queue the run loop drains
+    on each iteration."""
+
+    def __init__(self, command_queue: "queue.Queue"):
+        self._command_queue = command_queue
+
+    def sync_roster(self, cartridges: List[RegisteredDirSpec]) -> None:
+        """Replace the live registered-dir roster (see SyncRoster). The
+        run loop adds newly-desired specs, retires dir-registered
+        cartridges no longer present, and re-publishes RelayNotify."""
+        self._command_queue.put(("sync_roster", list(cartridges)))
+
+    def kill_cartridge(self, pid: int) -> None:
+        """Request that the host kill a specific cartridge process by PID."""
+        self._command_queue.put(("kill_cartridge", pid))
+
+
 class _ManagedCartridge:
     """A cartridge managed by the CartridgeHost."""
 
     def __init__(self, path: str = "", cap_groups: Optional[List[Any]] = None):
         self.path = path
+        # Version directory for directory-based cartridges. When set,
+        # identity hashing uses the full directory tree and the cartridge
+        # is part of a registered-dir roster sync. None for attached /
+        # probe-based registrations.
+        self.cartridge_dir: Optional[str] = None
         self.process: Optional[subprocess.Popen] = None
         self.writer: Optional[FrameWriter] = None
         self.writer_queue: Optional[queue.Queue] = None
@@ -276,8 +320,24 @@ class _ManagedCartridge:
         # ``known_caps`` field that could drift. Mirrors the Rust
         # ``ManagedCartridge.cap_groups`` design.
         self.cap_groups: List[Any] = list(cap_groups) if cap_groups else []
+        # Resolved installed-cartridge identity (registry_url, id,
+        # channel, version, sha256). None for attached/probe-based
+        # registrations that carry no on-disk anchor. Gates whether the
+        # cartridge is advertised in the RelayNotify aggregate.
+        self.installed_identity: Optional["InstalledCartridgeRecord"] = None
         self.running: bool = False
         self.hello_failed: bool = False
+
+    def installed_cartridge_record(self) -> Optional["InstalledCartridgeRecord"]:
+        """The cartridge's resolvable install identity, or None for an
+        attached/probe-based registration with no on-disk anchor."""
+        return self.installed_identity
+
+    def is_registered_dir(self) -> bool:
+        """True for a cartridge registered from a version directory (the
+        lazily-spawned, dir-backed kind). Distinguishes roster-managed
+        installs from attached/internal providers during a SyncRoster."""
+        return self.cartridge_dir is not None
 
     def cap_urns(self) -> List[str]:
         """Flat de-duped view of this cartridge's caps, derived from cap_groups."""
@@ -315,6 +375,18 @@ class CartridgeHost:
         self._capabilities: Optional[bytes] = None
         self._event_queue: queue.Queue = queue.Queue(maxsize=256)
         self._lock = threading.Lock()
+        # External commands (SyncRoster / KillCartridge) delivered via
+        # ``process_handle()``; drained each run-loop iteration.
+        self._command_queue: queue.Queue = queue.Queue()
+        # Relay writer captured during ``run()`` so command handlers can
+        # re-publish RelayNotify to the engine. None outside ``run()``.
+        self._relay_writer: Optional[FrameWriter] = None
+
+    def process_handle(self) -> CartridgeProcessHandle:
+        """Return a thread-safe handle for sending commands (SyncRoster /
+        KillCartridge) to this host. Must be obtained before ``run()``;
+        the handle stays valid for the lifetime of ``run()``."""
+        return CartridgeProcessHandle(self._command_queue)
 
     def register_cartridge(self, path: str, cap_groups: List[Any]) -> None:
         """Register a cartridge binary for on-demand spawning.
@@ -337,6 +409,62 @@ class CartridgeHost:
 
             for urn in cartridge.cap_urns():
                 self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=cartridge_idx))
+
+    def register_cartridge_dir(
+        self,
+        entry_point: str,
+        version_dir: str,
+        cartridge_id: str,
+        channel: CartridgeChannel,
+        registry_url: Optional[str],
+        version: str,
+        cap_groups: List[Any],
+    ) -> None:
+        """Register a directory-based cartridge for on-demand spawning.
+
+        The ``version_dir`` must contain a valid ``cartridge.json`` with
+        an entry point. Identity is computed from the directory tree hash.
+        ``channel`` and ``registry_url`` come from ``cartridge.json`` (the
+        host has already validated the three-place rule); they propagate
+        through ``InstalledCartridgeRecord`` to the engine's RelayNotify
+        so consumers preserve the (registry, channel) provenance
+        end-to-end. A directory that is unhashable at registration time is
+        recorded as ``hello_failed`` so it drops out of the aggregate
+        rather than being silently dropped. Mirrors the Rust
+        ``register_cartridge_dir`` / ``new_registered_dir``.
+        """
+        with self._lock:
+            cartridge_idx = len(self._cartridges)
+            cartridge = _ManagedCartridge(path=entry_point, cap_groups=cap_groups)
+            cartridge.cartridge_dir = version_dir
+            try:
+                sha256 = hash_cartridge_directory(Path(version_dir))
+                cartridge.installed_identity = InstalledCartridgeRecord(
+                    registry_url=registry_url,
+                    id=cartridge_id,
+                    channel=channel.value,
+                    version=version,
+                    sha256=sha256,
+                    cap_groups=list(cap_groups),
+                )
+            except Exception:
+                # Unhashable directory: record a bare identity and mark the
+                # cartridge permanently failed so it is excluded from the
+                # cap table and RelayNotify aggregate (never hosted), but
+                # still carries a resolvable id for reporting.
+                cartridge.installed_identity = InstalledCartridgeRecord(
+                    registry_url=registry_url,
+                    id=cartridge_id,
+                    channel=channel.value,
+                    version=version,
+                    sha256="",
+                    cap_groups=list(cap_groups),
+                )
+                cartridge.hello_failed = True
+            self._cartridges.append(cartridge)
+            if not cartridge.hello_failed:
+                for urn in cartridge.cap_urns():
+                    self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=cartridge_idx))
 
     def attach_cartridge(self, cartridge_stdout, cartridge_stdin) -> int:
         """Attach a pre-connected cartridge (already running).
@@ -453,6 +581,15 @@ class CartridgeHost:
         """
         relay_reader = FrameReader(relay_read)
         relay_writer = FrameWriter(relay_write)
+        # Bind the relay writer so command handlers (SyncRoster) and
+        # cartridge HELLO/death can re-publish RelayNotify to the engine.
+        self._relay_writer = relay_writer
+
+        # Send the initial RelayNotify so the engine learns about
+        # pre-registered cartridges (possibly an empty roster) without
+        # waiting for the first cap change.
+        with self._lock:
+            self._rebuild_capabilities(emit=True)
 
         relay_queue = queue.Queue(maxsize=64)
         relay_done = threading.Event()
@@ -473,8 +610,18 @@ class CartridgeHost:
         threading.Thread(target=relay_reader_thread, daemon=True).start()
 
         while True:
+            # Drain external commands (SyncRoster / KillCartridge) first so
+            # roster changes are reflected before processing relay traffic.
+            try:
+                while True:
+                    cmd = self._command_queue.get_nowait()
+                    self._handle_command(cmd, relay_writer)
+            except queue.Empty:
+                pass
+
             # Check relay done
             if relay_done.is_set() and relay_queue.empty():
+                self._relay_writer = None
                 self._kill_all_cartridges()
                 if relay_error[0] is not None:
                     raise IoError(str(relay_error[0]))
@@ -755,35 +902,72 @@ class CartridgeHost:
             for urn in cartridge.cap_urns():
                 self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=idx))
 
-    def _rebuild_capabilities(self) -> None:
-        """Rebuild the aggregate capabilities JSON.
-
-        The wire payload lives entirely inside
-        ``installed_cartridges[*].cap_groups``. Every cartridge that
-        has not permanently failed HELLO is advertised. ``cap_groups``
-        is the single source of truth — populated at registration
-        time and refreshed on each HELLO from a running cartridge.
-        Mirrors the Rust ``rebuild_capabilities``.
-        """
+    def _build_installed_cartridge_identities(self) -> List[dict]:
+        """Build the ``installed_cartridges`` list for a RelayNotify
+        payload. Every cartridge that has not permanently failed HELLO is
+        advertised, carrying its resolved (registry_url, channel, id,
+        version, sha256) identity when one exists. Cartridges registered
+        without an on-disk anchor (``register_cartridge`` / probe / attach
+        in tests) have no identity, so a stable per-index id is
+        synthesized for them — identity-bearing registered-dir cartridges
+        carry their real id end-to-end. Mirrors the Rust
+        ``build_installed_cartridge_identities``."""
         installed: List[dict] = []
         for idx, cartridge in enumerate(self._cartridges):
             if cartridge.hello_failed:
                 continue
+            rec = cartridge.installed_cartridge_record()
+            if rec is not None:
+                installed.append({
+                    "registry_url": rec.registry_url,
+                    "channel": rec.channel,
+                    "id": rec.id,
+                    "version": rec.version,
+                    "sha256": rec.sha256,
+                    "cap_groups": cartridge.cap_groups,
+                })
+            else:
+                installed.append({
+                    "registry_url": None,
+                    "channel": "release",
+                    "id": f"cartridge-{idx}",
+                    "version": "0.0.0",
+                    "sha256": "",
+                    "cap_groups": cartridge.cap_groups,
+                })
+        return installed
 
-            installed.append({
-                "registry_url": None,
-                "channel": "release",
-                "id": f"cartridge-{idx}",
-                "version": "0.0.0",
-                "sha256": "",
-                "cap_groups": cartridge.cap_groups,
-            })
+    def _rebuild_capabilities(self, emit: bool = False) -> None:
+        """Rebuild the aggregate capabilities JSON.
+
+        The wire payload lives entirely inside
+        ``installed_cartridges[*].cap_groups``. ``cap_groups`` is the
+        single source of truth. When ``emit`` is True and a relay writer
+        is bound (i.e. running in relay mode), a RelayNotify frame with
+        the updated inventory is pushed to the engine so it sees
+        added/removed cartridges without reconnecting. Mirrors the Rust
+        ``rebuild_capabilities``.
+        """
+        installed = self._build_installed_cartridge_identities()
 
         if not installed:
             self._capabilities = None
-            return
+        else:
+            self._capabilities = json.dumps({"installed_cartridges": installed}).encode("utf-8")
 
-        self._capabilities = json.dumps({"installed_cartridges": installed}).encode("utf-8")
+        if emit and self._relay_writer is not None:
+            payload = json.dumps({"installed_cartridges": installed}).encode("utf-8")
+            notify = Frame.relay_notify(
+                payload,
+                DEFAULT_MAX_FRAME,
+                DEFAULT_MAX_CHUNK,
+                DEFAULT_MAX_REORDER_BUFFER,
+            )
+            try:
+                self._relay_writer.write(notify)
+            except Exception:
+                # Relay closed — ignore, mirrors Rust's best-effort send.
+                pass
 
     def _kill_all_cartridges(self) -> None:
         """Stop all managed cartridges."""
@@ -798,6 +982,100 @@ class CartridgeHost:
                     except Exception:
                         pass
                 cartridge.running = False
+
+    def _handle_command(self, cmd, relay_writer: FrameWriter) -> None:
+        """Dispatch an external command delivered via the process handle."""
+        kind = cmd[0]
+        if kind == "sync_roster":
+            self._sync_registered_roster(cmd[1])
+        elif kind == "kill_cartridge":
+            self._kill_cartridge_by_pid(cmd[1])
+
+    def _kill_cartridge_by_pid(self, pid: int) -> None:
+        with self._lock:
+            for cartridge in self._cartridges:
+                if cartridge.process is not None and cartridge.process.pid == pid:
+                    try:
+                        cartridge.process.kill()
+                    except Exception:
+                        pass
+
+    def _sync_registered_roster(self, desired: List[RegisteredDirSpec]) -> None:
+        """Replace the live registered-dir roster with a freshly-discovered
+        set and re-publish RelayNotify, so the engine sees added/removed
+        cartridges without reconnecting — the parity path the daemon uses
+        after a rescan (e.g. a registry verdict flipped a held cartridge to
+        Listed).
+
+        Running cartridges no longer in the set are killed and dropped from
+        the inventory; survivors keep their live process and stats. Only
+        dir-registered cartridges participate — attached/internal providers
+        are left untouched. Mirrors the Rust ``sync_registered_roster``.
+        """
+        def identity_of(rec: "InstalledCartridgeRecord"):
+            return (rec.registry_url, rec.channel, rec.id, rec.version)
+
+        desired_keys = {
+            (s.registry_url, s.channel.value, s.id, s.version) for s in desired
+        }
+
+        new_specs: List[RegisteredDirSpec] = []
+        with self._lock:
+            # Retire registered-dir cartridges no longer desired.
+            for cartridge in self._cartridges:
+                if cartridge.hello_failed:
+                    continue
+                rec = cartridge.installed_cartridge_record()
+                if rec is None:
+                    continue  # no resolvable identity (internal provider) — leave it
+                if not cartridge.is_registered_dir():
+                    continue  # attached/internal — not part of a dir roster sync
+                if identity_of(rec) in desired_keys:
+                    continue  # still desired — keep, preserving any live process
+                if cartridge.running:
+                    if cartridge.writer_queue is not None:
+                        cartridge.writer_queue.put(None)
+                        cartridge.writer_queue = None
+                    if cartridge.process is not None:
+                        try:
+                            cartridge.process.kill()
+                        except Exception:
+                            pass
+                        cartridge.process = None
+                    cartridge.running = False
+                cartridge.hello_failed = True  # drop from cap table + inventory
+
+            # Compute which desired specs are not already registered.
+            present_keys = set()
+            for cartridge in self._cartridges:
+                if cartridge.hello_failed:
+                    continue
+                rec = cartridge.installed_cartridge_record()
+                if rec is not None:
+                    present_keys.add(identity_of(rec))
+            for spec in desired:
+                key = (spec.registry_url, spec.channel.value, spec.id, spec.version)
+                if key in present_keys:
+                    continue
+                new_specs.append(spec)
+
+        # Register the new specs OUTSIDE the lock — register_cartridge_dir
+        # takes the lock itself (and hashes the directory, which may be
+        # slow). Re-entrant locking is avoided by deferring to it here.
+        for spec in new_specs:
+            self.register_cartridge_dir(
+                spec.entry_point,
+                spec.version_dir,
+                spec.id,
+                spec.channel,
+                spec.registry_url,
+                spec.version,
+                spec.cap_groups,
+            )
+
+        with self._lock:
+            self._update_cap_table()
+            self._rebuild_capabilities(emit=True)
 
 
 # =========================================================================

@@ -142,12 +142,18 @@ class RegistryCapGroup:
 class CartridgeDistributionInfo:
     """Distribution file info (package). `url` is the absolute URL of
     the package — every consumer downloads from that URL directly.
-    There is no derived URL pattern any more."""
+    There is no derived URL pattern any more.
+
+    `format` is the installer format ("pkg" macOS, "deb"/"rpm" Linux,
+    "msi"/"exe" Windows). It defaults to "" so the legacy singular
+    `package` object (which carries no `format`) round-trips through
+    this same struct."""
 
     name: str
     sha256: str
     size: int
     url: str
+    format: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeDistributionInfo":
@@ -156,20 +162,121 @@ class CartridgeDistributionInfo:
             sha256=raw["sha256"],
             size=int(raw["size"]),
             url=raw["url"],
+            format=str(raw.get("format", "")),
         )
+
+
+def host_platform() -> str:
+    """The platform string ``{os}-{arch}`` of the interpreter that calls
+    this, in the exact form the registry uses (``darwin-arm64``,
+    ``darwin-x86_64``, ``linux-x86_64``, ``windows-x86_64``).
+
+    Derived from the running platform — the binary literally runs here, so
+    this is the authoritative host string for compatibility resolution.
+    Single source of truth: every consumer that needs "what am I running
+    on?" calls this rather than re-deriving the os/arch mapping.
+
+    `aarch64`/`arm64` are both normalized to `arm64`; an `x86_64`/`amd64`
+    machine reports `x86_64`. The os maps macOS→darwin, otherwise the
+    lowercase platform system name.
+    """
+    import platform as _platform
+
+    system = _platform.system().lower()
+    if system == "darwin":
+        os_name = "darwin"
+    elif system == "linux":
+        os_name = "linux"
+    elif system == "windows":
+        os_name = "windows"
+    else:
+        os_name = system
+    machine = _platform.machine().lower()
+    if machine in ("aarch64", "arm64"):
+        arch = "arm64"
+    elif machine in ("x86_64", "amd64"):
+        arch = "x86_64"
+    else:
+        arch = machine
+    return f"{os_name}-{arch}"
+
+
+class CompatStatus(str, Enum):
+    """Host-compatibility status of a registry cartridge, resolved against
+    a specific host platform string. Mirrors capdag's `CompatStatus` and
+    the proto `CartridgeCompatibilityStatus`."""
+
+    # The latest version has a build for this host platform — install as-is.
+    COMPATIBLE = "compatible"
+    # The latest version has no host build, but an older version does;
+    # `resolved_version` names that older version. Install it, mark outdated.
+    COMPATIBLE_OUTDATED = "compatible_outdated"
+    # No version has a build for this host platform. Nothing to install.
+    INCOMPATIBLE = "incompatible"
+
+
+@dataclass
+class CartridgeCompatibilityResolution:
+    """The resolved verdict the engine attaches to an available cartridge:
+    which version/package the host should install (if any) and a human
+    reason when it is not the latest-and-greatest."""
+
+    status: CompatStatus
+    host_platform: str
+    # Newest version that has a build for this host (None when Incompatible).
+    resolved_version: Optional[str]
+    # Host-preferred installer package within `resolved_version` (None when
+    # Incompatible).
+    resolved_package: Optional["CartridgeDistributionInfo"]
+    # Explanation, set whenever status is not Compatible.
+    reason: Optional[str]
 
 
 @dataclass
 class CartridgeBuild:
+    """A platform-specific build of a cartridge version.
+
+    `packages[]` lists every installer format the build ships. The
+    legacy singular `package` is read only as a fallback when
+    `packages[]` is absent, so a registry not yet republished with the
+    dual-write keeps installing."""
+
     platform: str
-    package: CartridgeDistributionInfo
+    packages: List[CartridgeDistributionInfo] = field(default_factory=list)
+    package: Optional[CartridgeDistributionInfo] = None
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeBuild":
+        packages_raw = raw.get("packages", [])
+        package_raw = raw.get("package")
         return cls(
             platform=raw["platform"],
-            package=CartridgeDistributionInfo.from_dict(raw["package"]),
+            packages=[CartridgeDistributionInfo.from_dict(item) for item in packages_raw],
+            package=CartridgeDistributionInfo.from_dict(package_raw) if package_raw is not None else None,
         )
+
+    def primary_package(self) -> Optional[CartridgeDistributionInfo]:
+        """The installer package the host should use, preferring the
+        platform's native format. Falls back to the legacy singular
+        `package` when `packages[]` is empty (pre-dual-write manifests).
+        Returns ``None`` only when the build ships no installer at all."""
+        os = self.platform.split("-")[0] if self.platform else ""
+        preference: List[str]
+        if os == "darwin":
+            preference = ["pkg"]
+        elif os == "linux":
+            preference = ["deb", "rpm"]
+        elif os == "windows":
+            preference = ["msi", "exe"]
+        else:
+            preference = []
+        for fmt in preference:
+            for pkg in self.packages:
+                if pkg.format == fmt:
+                    return pkg
+        if self.packages:
+            return self.packages[0]
+        return self.package
 
 
 @dataclass
@@ -224,6 +331,11 @@ class CartridgeInfo:
     cap_groups: List[RegistryCapGroup] = field(default_factory=list)
     versions: Dict[str, CartridgeVersionData] = field(default_factory=dict)
     available_versions: List[str] = field(default_factory=list)
+    # Registry URL this entry was fetched from. Verbatim string — never
+    # trimmed, normalized, or re-derived. Identity comparison is byte
+    # equality. Defaults to "" for entries constructed without a known
+    # registry (e.g. unit fixtures).
+    registry_url: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict) -> "CartridgeInfo":
@@ -249,6 +361,7 @@ class CartridgeInfo:
             cap_groups=[RegistryCapGroup.from_dict(item) for item in raw.get("cap_groups", [])],
             versions={key: CartridgeVersionData.from_dict(value) for key, value in versions_raw.items()},
             available_versions=list(raw.get("availableVersions", [])),
+            registry_url=_null_as_empty_string(raw.get("registryUrl")),
         )
 
     @classmethod
@@ -266,6 +379,75 @@ class CartridgeInfo:
             if build.platform == platform:
                 return build
         return None
+
+    def _build_for_host(self, version: str, host_platform: str) -> Optional[CartridgeBuild]:
+        """Find this cartridge's build for `host_platform` within a
+        given version, if any."""
+        version_data = self.versions.get(version)
+        if version_data is None:
+            return None
+        for build in version_data.builds:
+            if build.platform == host_platform:
+                return build
+        return None
+
+    def resolve_for_host(self, host_platform: str) -> "CartridgeCompatibilityResolution":
+        """Resolve which version/package this host should install,
+        scanning versions newest-first (`available_versions` is the
+        authoritative newest-first ordering). The newest version with a
+        host build wins:
+
+          * it IS the latest version → Compatible
+          * it is older than the latest → CompatibleOutdated
+          * no version has a host build → Incompatible
+
+        "Latest" is `self.version`, not `available_versions[0]`. They
+        must agree; if they do not, that is a registry transformer bug,
+        and the host build found at `self.version` still classifies as
+        Compatible while any other found version classifies as
+        CompatibleOutdated. We do not paper over a `self.version` with
+        no host build by silently calling it latest.
+        """
+        latest = self.version
+
+        for ver in self.available_versions:
+            build = self._build_for_host(ver, host_platform)
+            if build is None:
+                continue
+            # primary_package() returns None only when the build ships no
+            # installer at all — a build entry with an empty packages[]
+            # and no legacy package. That is a malformed registry build;
+            # skip it rather than resolve to a version the host cannot
+            # actually download, and keep scanning older versions.
+            pkg = build.primary_package()
+            if pkg is None:
+                continue
+            if ver == latest:
+                return CartridgeCompatibilityResolution(
+                    status=CompatStatus.COMPATIBLE,
+                    host_platform=host_platform,
+                    resolved_version=ver,
+                    resolved_package=pkg,
+                    reason=None,
+                )
+            return CartridgeCompatibilityResolution(
+                status=CompatStatus.COMPATIBLE_OUTDATED,
+                host_platform=host_platform,
+                resolved_version=ver,
+                resolved_package=pkg,
+                reason=(
+                    f"Latest {latest} has no {host_platform} build; "
+                    f"newest compatible is {ver}"
+                ),
+            )
+
+        return CartridgeCompatibilityResolution(
+            status=CompatStatus.INCOMPATIBLE,
+            host_platform=host_platform,
+            resolved_version=None,
+            resolved_package=None,
+            reason=f"No installable {host_platform} build available in any version",
+        )
 
     def available_platforms(self) -> List[str]:
         platforms = sorted(
@@ -445,7 +627,8 @@ class CartridgeRepoServer:
                 raise CartridgeRepoError(
                     f"Cartridge {cartridge_id} ({channel.value}) v{version}: build[{index}] missing platform"
                 )
-            if not build.package.name:
+            primary = build.primary_package()
+            if primary is None or not primary.name:
                 raise CartridgeRepoError(
                     f"Cartridge {cartridge_id} ({channel.value}) v{version}: build[{index}] ({build.platform}) missing package.name"
                 )

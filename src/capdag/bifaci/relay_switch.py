@@ -72,6 +72,59 @@ class AllMastersUnhealthyError(RelaySwitchError):
 
 
 # =============================================================================
+# CARTRIDGE ATTACHMENT ERRORS
+# =============================================================================
+
+from enum import Enum
+
+
+class CartridgeAttachmentErrorKind(str, Enum):
+    """Kinds of attachment failure for a cartridge. Matches the
+    ``CartridgeAttachmentErrorKind`` enum defined in ``cartridge.proto``;
+    this enum is the authoritative, language-neutral domain definition.
+    The value is the snake_case wire form."""
+
+    #: Manifest parsed but violates the cartridge schema (missing required
+    #: CAP_IDENTITY, min_app_version not met, old-format cap_groups, ...).
+    INCOMPATIBLE = "incompatible"
+    #: cartridge.json or HELLO manifest failed to parse as JSON, or lacked
+    #: required top-level fields.
+    MANIFEST_INVALID = "manifest_invalid"
+    #: HELLO handshake did not complete (timeout, bad frame sequence, I/O).
+    HANDSHAKE_FAILED = "handshake_failed"
+    #: CAP_IDENTITY echo protocol check failed.
+    IDENTITY_REJECTED = "identity_rejected"
+    #: Entry point binary missing or not executable.
+    ENTRY_POINT_MISSING = "entry_point_missing"
+    #: Cartridge repeatedly crashed the host during discovery; quarantined.
+    QUARANTINED = "quarantined"
+    #: On-disk install context disagrees with the cartridge.json the
+    #: cartridge declares — slug folder mismatch, channel folder mismatch,
+    #: or name/version directory mismatch. Structurally well-formed but
+    #: cannot be trusted because its placement does not match what it
+    #: claims to be. Distinct from QUARANTINED and MANIFEST_INVALID.
+    BAD_INSTALLATION = "bad_installation"
+    #: Operator explicitly disabled this cartridge through the host UI.
+    DISABLED = "disabled"
+    #: The cartridge declares a non-null registry_url but the host could
+    #: not reach that registry to verify the cartridge is listed.
+    REGISTRY_UNREACHABLE = "registry_unreachable"
+    #: The cartridge was built against a different fabric registry manifest
+    #: version than this engine is pinned to.
+    FABRIC_MANIFEST_VERSION_MISMATCH = "fabric_manifest_version_mismatch"
+
+
+@dataclass
+class CartridgeAttachmentError:
+    """Structured per-cartridge attachment failure."""
+
+    kind: CartridgeAttachmentErrorKind
+    message: str
+    #: Unix timestamp seconds when the failure was first detected.
+    detected_at_unix_seconds: int = 0
+
+
+# =============================================================================
 # DATA STRUCTURES
 # =============================================================================
 
@@ -235,6 +288,11 @@ class RelaySwitch:
         # for an append is race-free, and so the reattach branch sees a
         # stable ``self._masters`` snapshot across the I/O.
         self._add_master_lock = threading.Lock()
+        # How many masters this engine intends to register at startup.
+        # 0 means "not yet declared"; ``all_masters_ready`` returns
+        # False in that state rather than guessing. Set once at boot via
+        # ``set_expected_master_count``.
+        self._expected_master_count = 0
 
         # Channel for reader threads to send frames
         self._frame_queue: queue.Queue = queue.Queue()
@@ -416,6 +474,41 @@ class RelaySwitch:
                 self._rebuild_limits()
 
             return master_idx
+
+    def set_expected_master_count(self, expected: int) -> None:
+        """Declare how many RelayMasters this engine intends to register
+        at startup. ``all_masters_ready`` only returns True once
+        ``len(masters) >= expected`` AND every connected master is
+        healthy. Without this an engine that has only finished
+        registering its internal master would falsely report ready
+        before the external-providers master finished spawning + HELLO +
+        cap-probing its cartridges. Set once at engine boot from the
+        same call site that registers the providers."""
+        with self._lock:
+            self._expected_master_count = expected
+
+    def all_masters_ready(self) -> bool:
+        """True when (1) the number of connected masters is at least
+        ``expected_master_count`` (declared via
+        ``set_expected_master_count``), AND (2) every connected master
+        is healthy.
+
+        Cap-set non-emptiness is intentionally NOT required: a master
+        can be healthy and connected with zero caps while its cartridges
+        are still inspecting/verifying. Caps register incrementally as
+        cartridges progress to Operational. When the expected count was
+        never declared (0) this returns False — treat an undeclared
+        count as not-yet-configured rather than guess (caller bug)."""
+        with self._lock:
+            expected = self._expected_master_count
+            if expected == 0:
+                return False
+            if len(self._masters) < expected:
+                return False
+            for master in self._masters:
+                if not master.healthy:
+                    return False
+            return True
 
     def _reader_loop(self, master_idx: int, reader: FrameReader):
         """Reader thread loop for a master"""

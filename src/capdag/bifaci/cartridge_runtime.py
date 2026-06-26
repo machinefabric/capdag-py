@@ -1329,7 +1329,7 @@ def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[by
 
     Args:
         streams: List of (media_urn, bytes) tuples from collect_streams()
-        media_urn: Full media URN from cap arg definition (e.g., "media:model-spec;textable")
+        media_urn: Full media URN from cap arg definition (e.g., "media:enc=utf-8;model-spec")
 
     Returns:
         Stream bytes if found, None otherwise
@@ -2656,7 +2656,7 @@ class CartridgeRuntime:
         # Try default value.
         #
         # The wire contract for an arg stream is "bytes of the typed
-        # media URN". For a `media:textable`-shaped arg that's plain
+        # media URN". For a `media:enc=utf-8`-shaped arg that's plain
         # UTF-8 text — NOT a JSON-encoded form. A naive
         # `json.dumps(default).encode('utf-8')` would corrupt every
         # string default by wrapping it in `"…"` quotes — the

@@ -106,6 +106,51 @@ def complete_identity_verification(reader: FrameReader, writer: FrameWriter) -> 
     writer.write(Frame.end(req.id, None))
 
 
+_build_switch_counter = itertools.count(1)
+
+
+def _build_switch_with_n_masters(n: int, capless: bool = False) -> RelaySwitch:
+    """Build a RelaySwitch over ``n`` connected, healthy masters.
+
+    Each master sends a RelayNotify and completes identity verification so
+    its slot goes healthy. With ``capless=True`` the master registers an
+    EMPTY cap set (only CAP_IDENTITY, which make_manifest always prepends) —
+    mirroring the real-world "cartridges still inspecting / verifying" state
+    where a master has connected but no cartridge has reached Operational.
+    Returns the switch ready for set_expected_master_count / all_masters_ready
+    calls.
+    """
+    pairs = []
+    dones = []
+    batch = next(_build_switch_counter)
+    for i in range(n):
+        engine_read, slave_write = socket.socketpair()
+        slave_read, engine_write = socket.socketpair()
+        done = threading.Event()
+        dones.append(done)
+
+        caps = () if capless else (f'cap:in="media:t{i}";noop;out="media:t{i}"',)
+
+        def slave_thread(sr=slave_read, sw=slave_write, dn=done, cps=caps):
+            reader = FrameReader(sr.makefile("rb"))
+            writer = FrameWriter(sw.makefile("wb"))
+            send_notify(writer, make_manifest(*cps), Limits.default())
+            dn.set()
+            complete_identity_verification(reader, writer)
+
+        threading.Thread(target=slave_thread, daemon=True).start()
+        pairs.append(SocketPair(
+            id=f"ready-master-b{batch}-{i}",
+            read=engine_read.makefile("rb"),
+            write=engine_write.makefile("wb"),
+        ))
+
+    for done in dones:
+        done.wait(timeout=2)
+
+    return RelaySwitch(pairs)
+
+
 # TEST426: Single master REQ/response routing
 def test_426_single_master_req_response():
     """Verify basic single-master request/response flow"""
@@ -861,7 +906,7 @@ def test_666_preferred_cap_routing():
 # the bug class these tests guard against.
 
 
-def test_0079_reattach_by_id_preserves_slot_index():
+def test_0133_reattach_by_id_preserves_slot_index():
     """After ``handle_master_death`` the slot stays in place, and a
     reconnect via ``add_master`` with the same id MUST land back in
     the same slot index — not append a new slot."""
@@ -929,8 +974,8 @@ def test_0079_reattach_by_id_preserves_slot_index():
     )
 
 
-# TEST0080: Add master with duplicate healthy id errors
-def test_0080_add_master_with_duplicate_healthy_id_errors():
+# TEST0134: Add master with duplicate healthy id errors
+def test_0134_add_master_with_duplicate_healthy_id_errors():
     """Adding a master with the id of an already-healthy slot is a
     wiring bug; surface as a hard ProtocolError."""
     engine_read, slave_write = socket.socketpair()
@@ -984,3 +1029,95 @@ def test_0081_relay_switch_init_rejects_duplicate_ids():
             SocketPair(id="dup-id", read=b_read.makefile("rb"), write=b_other.makefile("wb")),
         ])
     assert "duplicate master id 'dup-id'" in str(exc_info.value)
+
+
+# TEST0136: All masters ready false when expected count unset
+def test_0136_all_masters_ready_false_when_expected_count_unset():
+    """Even with a connected, fully-RelayNotify'd master, the predicate
+    must return false until the engine explicitly declares its expected
+    master count via set_expected_master_count. The default-zero policy
+    is the safety net that makes 'engine boot forgot to declare its
+    expected count' surface as a hung readiness gate rather than a
+    false-positive ready signal."""
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    done = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(CAP_GENERIC), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
+    ])
+    assert switch._masters[0].healthy is True
+
+    # Expected count never declared (default 0): not-yet-configured.
+    assert switch.all_masters_ready() is False, (
+        "all_masters_ready must return false when expected_master_count is 0"
+    )
+
+    # Once the expected count is met and the single master is healthy,
+    # the predicate flips to true — proving the gate is the count, not
+    # an unconditional false.
+    switch.set_expected_master_count(1)
+    assert switch.all_masters_ready() is True, (
+        "all_masters_ready must return true when expected count is met and the master is healthy"
+    )
+
+
+# TEST0137: All masters ready false when partially connected
+def test_0137_all_masters_ready_false_when_partially_connected():
+    """1 master connected, 2 expected. This is the live regression: the
+    internal master had caps from t=0 but the external-providers master
+    was still spawning cartridges. The host saw ready immediately and the
+    bidi never started. The predicate must return false until
+    len(masters) reaches expected_master_count."""
+    switch = _build_switch_with_n_masters(1)
+    assert switch._masters[0].healthy is True
+
+    switch.set_expected_master_count(2)
+    assert switch.all_masters_ready() is False, (
+        "all_masters_ready must return false until masters.len() reaches expected_master_count"
+    )
+
+
+# TEST0139: All masters ready true when masters connected but capless
+def test_0139_all_masters_ready_true_when_masters_connected_but_capless():
+    """Cartridges in discovered/inspecting/verifying contribute zero caps
+    to their master's RelayNotify. The engine readiness gate must still
+    fire so the splash screen can unblock — caps register incrementally as
+    cartridges progress to Operational. A regression that re-coupled
+    readiness to cap-set non-emptiness would make this fail (and hang the
+    splash screen on every cold start with slow cartridges)."""
+    switch = _build_switch_with_n_masters(2, capless=True)
+    assert all(m.healthy for m in switch._masters)
+
+    switch.set_expected_master_count(2)
+    assert switch.all_masters_ready() is True, (
+        "all_masters_ready must NOT require master.caps to be non-empty — "
+        "caps register asynchronously as cartridges progress to Operational"
+    )
+
+
+# TEST0140: All masters ready does not overshoot
+def test_0140_all_masters_ready_does_not_overshoot():
+    """2 masters connected, 1 expected. The predicate should still report
+    ready — the engine got more masters than it declared, which is fine;
+    'at least expected' is the semantic. A regression that used == instead
+    of >= would make this case false and break edition setups where an
+    extra master arrives later."""
+    switch = _build_switch_with_n_masters(2)
+    assert all(m.healthy for m in switch._masters)
+
+    switch.set_expected_master_count(1)
+    assert switch.all_masters_ready() is True, (
+        "all_masters_ready uses >= not == against expected_master_count"
+    )

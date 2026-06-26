@@ -251,6 +251,67 @@ class CartridgeJsonRegistrySlugMismatch(CartridgeJsonError):
         self.actual_slug = actual_slug
 
 
+@dataclass(frozen=True)
+class RegistryUrlSchemeResult:
+    """Verdict from :func:`validate_registry_url_scheme`. Distinguishes
+    "OK" from each rejection reason so callers can render an actionable
+    message.
+
+    Exactly one of the flags is set:
+
+    - ``ok`` is True             => acceptable (dev-mode or https scheme).
+    - ``not_a_url`` is set       => the string didn't parse as a URL.
+    - ``non_https_scheme`` is set => parsed but scheme is not https and
+      dev-mode is off; carries the offending scheme.
+    """
+
+    ok: bool = False
+    not_a_url: Optional[str] = None
+    non_https_scheme: Optional[str] = None
+
+    @classmethod
+    def OK(cls) -> "RegistryUrlSchemeResult":
+        return cls(ok=True)
+
+    @classmethod
+    def NotAUrl(cls, url: str) -> "RegistryUrlSchemeResult":
+        return cls(not_a_url=url)
+
+    @classmethod
+    def NonHttps(cls, scheme: str) -> "RegistryUrlSchemeResult":
+        return cls(non_https_scheme=scheme)
+
+
+def validate_registry_url_scheme(url: str, dev_mode: bool) -> RegistryUrlSchemeResult:
+    """Validate that a non-null ``registry_url`` uses the ``https``
+    scheme — UNLESS ``dev_mode`` is set, in which case any well-formed
+    URL is accepted (so developers can point at ``http://localhost:port``
+    during integration testing).
+
+    The rule lives at the deepest layer (used by every consumer that
+    loads a ``cartridge.json`` or a HELLO manifest) so a caller can never
+    bypass it by parsing the URL out of band. Dev cartridges
+    (``registry_url is None``) never go through this validator — they
+    have no URL to check.
+    """
+    # Cheap parse: split once on "://". The rule is "scheme must be the
+    # literal bytes https"; full URL validation is the caller's job.
+    parts = url.split("://", 1)
+    if len(parts) != 2:
+        return RegistryUrlSchemeResult.NotAUrl(url)
+    scheme, rest = parts
+    if rest == "":
+        return RegistryUrlSchemeResult.NotAUrl(url)
+    if dev_mode:
+        # Dev mode: accept any well-formed scheme. We still require SOME
+        # scheme to be present (caught above) — an empty scheme is
+        # malformed regardless of mode.
+        return RegistryUrlSchemeResult.OK()
+    if scheme.lower() == "https":
+        return RegistryUrlSchemeResult.OK()
+    return RegistryUrlSchemeResult.NonHttps(scheme)
+
+
 def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> CartridgeJson:
     """Read and validate a ``cartridge.json`` from a version directory.
 

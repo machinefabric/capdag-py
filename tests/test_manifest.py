@@ -7,7 +7,12 @@ import pytest
 import json
 from capdag import CapUrn
 from capdag.cap.definition import Cap, CapArg, StdinSource, CliFlagSource
-from capdag.bifaci.manifest import CapManifest, CapGroup, default_group
+from capdag.bifaci.manifest import (
+    CapManifest,
+    CapGroup,
+    default_group,
+    registry_url_from_build_env,
+)
 from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT
 
 
@@ -315,3 +320,29 @@ def test_1284_cap_group_with_adapter_urns():
 
     deserialized = CapManifest.from_json(json_str)
     assert len(deserialized.cap_groups[0].adapter_urns) == 2
+
+
+# TEST1872: registry_url_from_build_env passes a non-empty registry URL
+# through unchanged. This is the function that decides the engine's baked
+# PRIMARY registry; a published build must report exactly the URL it was
+# compiled with.
+def test_1872_registry_url_from_build_env_passes_through_nonempty():
+    url = "https://cartridges.machinefabric.com/manifest"
+    assert registry_url_from_build_env(url) == url
+
+
+# TEST1873: an unset env (None) yields None — a dev build has no baked
+# registry, so the engine reports an empty primary-registry URL and loads
+# only `dev/` cartridges.
+def test_1873_registry_url_from_build_env_none_for_dev():
+    assert registry_url_from_build_env(None) is None
+
+
+# TEST1874: an exported-but-empty env ("") is neither a dev build nor a
+# valid identity and MUST fail hard, so the build can never silently hash
+# the empty string into a fake registry slug. We assert the failure rather
+# than letting a bogus empty primary registry ship.
+def test_1874_registry_url_from_build_env_rejects_empty_string():
+    with pytest.raises(ValueError) as exc_info:
+        registry_url_from_build_env("")
+    assert "MFR_CARTRIDGE_REGISTRY_URL must be unset" in str(exc_info.value)

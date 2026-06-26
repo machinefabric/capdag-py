@@ -28,7 +28,7 @@ from capdag import (
     MEDIA_AUDIO_SPEECH,
     MEDIA_FILE_PATH,
     MEDIA_DECISION,
-    binary_media_urn_for_ext,
+    file_media_urn_for_ext,
     text_media_urn_for_ext,
     image_media_urn_for_ext,
     audio_media_urn_for_ext,
@@ -41,17 +41,10 @@ def test_060_wrong_prefix_fails():
         MediaUrn.from_string("cap:string")
 
 
-# TEST061: Test is_binary returns true when textable tag is absent (binary = not textable)
-def test_061_is_binary():
-    assert MediaUrn.from_string(MEDIA_IDENTITY).is_binary()
-    assert MediaUrn.from_string(MEDIA_PNG).is_binary()
-    assert MediaUrn.from_string(MEDIA_PDF).is_binary()
-    assert MediaUrn.from_string("media:video").is_binary()
-    assert MediaUrn.from_string("media:epub").is_binary()
-    assert not MediaUrn.from_string("media:textable").is_binary()
-    assert not MediaUrn.from_string("media:textable;record").is_binary()
-    assert not MediaUrn.from_string(MEDIA_STRING).is_binary()
-    assert not MediaUrn.from_string(MEDIA_JSON).is_binary()
+# TEST061: REMOVED — the binary/text distinction no longer exists in the
+# vocabulary (is_binary() was deleted from MediaUrn; everything is bytes).
+# Encoding is now expressed by the orthogonal `enc=` tag, exercised by
+# test_067 below. No replacement assertion is meaningful here.
 
 
 # TEST062: Test is_record returns true when record marker tag is present indicating key-value structure
@@ -75,7 +68,7 @@ def test_063_is_scalar():
     assert MediaUrn.from_string(MEDIA_NUMBER).is_scalar()
     assert MediaUrn.from_string(MEDIA_BOOLEAN).is_scalar()
     assert MediaUrn.from_string(MEDIA_OBJECT).is_scalar()
-    assert MediaUrn.from_string("media:textable").is_scalar()
+    assert MediaUrn.from_string("media:enc=utf-8").is_scalar()
     assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_scalar()
 
 
@@ -97,7 +90,7 @@ def test_065_is_opaque():
     assert MediaUrn.from_string(MEDIA_STRING).is_opaque()
     assert MediaUrn.from_string(MEDIA_STRING_LIST).is_opaque()
     assert MediaUrn.from_string(MEDIA_PDF).is_opaque()
-    assert MediaUrn.from_string("media:textable").is_opaque()
+    assert MediaUrn.from_string("media:enc=utf-8").is_opaque()
     assert not MediaUrn.from_string(MEDIA_OBJECT).is_opaque()
     assert not MediaUrn.from_string(MEDIA_JSON).is_opaque()
     assert not MediaUrn.from_string("media:list;record").is_opaque()
@@ -113,17 +106,20 @@ def test_066_is_json():
     assert not obj_urn.is_json()
 
 
-# TEST067: Test is_text returns true only when textable marker tag is present
+# TEST067: Text-representability is now carried by the orthogonal `enc=` tag
+# (the old `textable` marker and is_text() are gone). A media is "text" iff it
+# declares an encoding. enc is orthogonal to format/numeric, so only media that
+# actually carry enc= are text.
 def test_067_is_text():
-    string_urn = MediaUrn.from_string(MEDIA_STRING)
-    assert string_urn.is_text()
-
-    json_urn = MediaUrn.from_string(MEDIA_JSON)
-    assert json_urn.is_text()
-
-    # Binary is not textable
-    bin_urn = MediaUrn.from_string(MEDIA_IDENTITY)
-    assert not bin_urn.is_text()
+    # Has enc= → text-representable
+    assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf-8
+    assert MediaUrn.from_string(MEDIA_BOOLEAN).get_tag("enc") is not None  # media:bool;enc=utf-8
+    # No enc= → not text-representable
+    assert MediaUrn.from_string(MEDIA_INTEGER).get_tag("enc") is None  # media:integer;numeric
+    assert MediaUrn.from_string(MEDIA_JSON).get_tag("enc") is None  # media:fmt=json;record
+    assert MediaUrn.from_string(MEDIA_IDENTITY).get_tag("enc") is None  # media:
+    assert MediaUrn.from_string(MEDIA_PNG).get_tag("enc") is None  # media:ext=png;image
+    assert MediaUrn.from_string(MEDIA_OBJECT).get_tag("enc") is None  # media:record
 
 
 # TEST068: Test is_void returns true when void flag or type=void tag is present
@@ -168,16 +164,17 @@ def test_072_all_constants_parse():
 
 # TEST073: Test extension helper functions create media URNs with ext tag and correct format
 def test_073_extension_helpers():
-    # Binary with extension
-    bin_ext = binary_media_urn_for_ext("dat")
-    bin_urn = MediaUrn.from_string(bin_ext)
-    assert bin_urn.extension() == "dat"
+    # Bare file with extension — no enc/fmt claim
+    file_ext = file_media_urn_for_ext("dat")
+    file_urn = MediaUrn.from_string(file_ext)
+    assert file_urn.extension() == "dat"
+    assert file_urn.get_tag("enc") is None
 
-    # Text with extension
+    # Text file with extension — carries enc=utf-8 + ext
     text_ext = text_media_urn_for_ext("txt")
     text_urn = MediaUrn.from_string(text_ext)
     assert text_urn.extension() == "txt"
-    assert text_urn.is_text()
+    assert text_urn.get_tag("enc") == "utf-8"
 
     # Image with extension
     img_ext = image_media_urn_for_ext("jpg")
@@ -200,8 +197,8 @@ def test_074_media_urn_matching():
     assert pdf_listing.conforms_to(top_requirement)
 
     # A keyed-ext text URN conforms to the same URN without the ext tag.
-    md_listing = MediaUrn.from_string("media:ext=md;textable")
-    md_requirement = MediaUrn.from_string("media:textable")
+    md_listing = MediaUrn.from_string("media:enc=utf-8;ext=md")
+    md_requirement = MediaUrn.from_string("media:enc=utf-8")
     assert md_listing.conforms_to(md_requirement)
 
     string_urn = MediaUrn.from_string(MEDIA_STRING)
@@ -225,8 +222,8 @@ def test_075_matching():
 # TEST076: Test specificity increases with more tags for ranking conformance
 def test_076_specificity():
     urn1 = MediaUrn.from_string("media:string")
-    urn2 = MediaUrn.from_string("media:textable")
-    urn3 = MediaUrn.from_string("media:textable;numeric")
+    urn2 = MediaUrn.from_string("media:numeric")
+    urn3 = MediaUrn.from_string("media:list;numeric")
 
     s1 = urn1.specificity()
     s2 = urn2.specificity()
@@ -253,14 +250,14 @@ def test_078_object_does_not_conform_to_string():
     assert str_urn.conforms_to(str_urn), "string conforms to string"
     assert obj_urn.conforms_to(obj_urn), "object conforms to object"
     assert not obj_urn.conforms_to(str_urn), \
-        "MEDIA_OBJECT should NOT conform to MEDIA_STRING (missing textable)"
+        "MEDIA_OBJECT should NOT conform to MEDIA_STRING (missing enc)"
 
 
 # TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 def test_304_media_availability_output_constant():
     urn = MediaUrn.from_string(MEDIA_AVAILABILITY_OUTPUT)
     assert urn is not None
-    assert urn.is_text()
+    assert urn.get_tag("enc") == "utf-8"
     assert urn.is_record()
 
 
@@ -268,7 +265,7 @@ def test_304_media_availability_output_constant():
 def test_305_media_path_output_constant():
     urn = MediaUrn.from_string(MEDIA_PATH_OUTPUT)
     assert urn is not None
-    assert urn.is_text()
+    assert urn.get_tag("enc") == "utf-8"
     assert urn.is_record()
 
 
@@ -366,7 +363,7 @@ def test_556_image_media_urn_for_ext():
     jpg_urn_str = image_media_urn_for_ext("jpg")
     parsed = MediaUrn.from_string(jpg_urn_str)
     assert parsed.is_image(), "image helper must set image tag"
-    assert parsed.is_binary(), "image helper must produce binary (non-textable) URN"
+    assert parsed.get_tag("enc") is None, "image helper must produce a non-text URN (no enc)"
     assert parsed.extension() == "jpg"
 
 
@@ -375,43 +372,42 @@ def test_557_audio_media_urn_for_ext():
     mp3_urn_str = audio_media_urn_for_ext("mp3")
     parsed = MediaUrn.from_string(mp3_urn_str)
     assert parsed.is_audio(), "audio helper must set audio tag"
-    assert parsed.is_binary(), "audio helper must produce binary (non-textable) URN"
+    assert parsed.get_tag("enc") is None, "audio helper must produce a non-text URN (no enc)"
     assert parsed.extension() == "mp3"
 
 
 # TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates
 def test_558_predicate_constant_consistency():
-    # MEDIA_INTEGER must be numeric, text, scalar, NOT binary/bool/image/audio/video
+    # MEDIA_INTEGER is numeric, scalar, NOT encoded(text)/bool/image/list.
+    # Integers are pure numbers — no enc= tag (encoding is orthogonal).
     int_urn = MediaUrn.from_string(MEDIA_INTEGER)
     assert int_urn.is_numeric()
-    assert int_urn.is_text()
+    assert int_urn.get_tag("enc") is None
     assert int_urn.is_scalar()
-    assert not int_urn.is_binary()
     assert not int_urn.is_bool()
     assert not int_urn.is_image()
     assert not int_urn.is_list()
 
-    # MEDIA_BOOLEAN must be bool, text, scalar, NOT numeric
+    # MEDIA_BOOLEAN is bool, encoded(text), scalar, NOT numeric
     bool_urn = MediaUrn.from_string(MEDIA_BOOLEAN)
     assert bool_urn.is_bool()
-    assert bool_urn.is_text()
+    assert bool_urn.get_tag("enc") == "utf-8"
     assert bool_urn.is_scalar()
     assert not bool_urn.is_numeric()
 
-    # MEDIA_JSON must be json, text, record, scalar (single object), NOT binary
+    # MEDIA_JSON is json, record, scalar (single object), NOT list.
+    # JSON declares its format via fmt=json and carries no enc= tag.
     json_urn = MediaUrn.from_string(MEDIA_JSON)
     assert json_urn.is_json()
-    assert json_urn.is_text()
+    assert json_urn.get_tag("enc") is None
     assert json_urn.is_record()
     assert json_urn.is_scalar()  # JSON object is a single value (scalar cardinality)
-    assert not json_urn.is_binary()
     assert not json_urn.is_list()
 
     # MEDIA_VOID is void, NOT anything else
     void_urn = MediaUrn.from_string(MEDIA_VOID)
     assert void_urn.is_void()
-    assert not void_urn.is_text()
-    assert void_urn.is_binary()  # void has no textable tag
+    assert void_urn.get_tag("enc") is None
     assert not void_urn.is_numeric()
 
 
@@ -432,22 +428,23 @@ def test_853_lub_no_common_tags():
         f"LUB of pdf and png should be media: but got {lub.to_string()}"
 
 
-# TEST854: LUB keeps common tags, drops differing ones
+# TEST854: LUB keeps common tags, drops differing ones. Two text values with
+# differing serialization formats share their encoding but not their fmt.
 def test_854_lub_partial_overlap():
-    json_text = MediaUrn.from_string("media:json;textable")
-    csv_text = MediaUrn.from_string("media:csv;textable")
+    json_text = MediaUrn.from_string("media:enc=utf-8;fmt=json")
+    csv_text = MediaUrn.from_string("media:enc=utf-8;fmt=csv")
     lub = MediaUrn.least_upper_bound([json_text, csv_text])
-    expected = MediaUrn.from_string("media:textable")
+    expected = MediaUrn.from_string("media:enc=utf-8")
     assert lub.is_equivalent(expected), \
-        f"LUB should be media:textable but got {lub.to_string()}"
+        f"LUB should be media:enc=utf-8 but got {lub.to_string()}"
 
 
 # TEST855: LUB of list and non-list drops list tag
 def test_855_lub_list_vs_scalar():
-    json_list = MediaUrn.from_string("media:json;list;textable")
-    json_scalar = MediaUrn.from_string("media:json;textable")
+    json_list = MediaUrn.from_string("media:fmt=json;list")
+    json_scalar = MediaUrn.from_string("media:fmt=json")
     lub = MediaUrn.least_upper_bound([json_list, json_scalar])
-    expected = MediaUrn.from_string("media:json;textable")
+    expected = MediaUrn.from_string("media:fmt=json")
     assert lub.is_equivalent(expected), \
         f"LUB should drop list tag, got {lub.to_string()}"
 
@@ -468,13 +465,13 @@ def test_857_lub_single():
 
 # TEST858: LUB with three+ inputs narrows correctly
 def test_858_lub_three_inputs():
-    a = MediaUrn.from_string("media:json;list;record;textable")
-    b = MediaUrn.from_string("media:csv;list;record;textable")
-    c = MediaUrn.from_string("media:ndjson;list;textable")
+    a = MediaUrn.from_string("media:fmt=json;list;record")
+    b = MediaUrn.from_string("media:fmt=csv;list;record")
+    c = MediaUrn.from_string("media:fmt=ndjson;list")
     lub = MediaUrn.least_upper_bound([a, b, c])
-    expected = MediaUrn.from_string("media:list;textable")
+    expected = MediaUrn.from_string("media:list")
     assert lub.is_equivalent(expected), \
-        f"LUB should be media:list;textable but got {lub.to_string()}"
+        f"LUB should be media:list but got {lub.to_string()}"
 
 
 # TEST859: LUB with valued tags (non-marker) that differ
@@ -508,8 +505,8 @@ def test_1271_media_adapter_selection_constant():
     urn = MediaUrn.from_string(MEDIA_ADAPTER_SELECTION)
     assert urn.has_marker_tag("adapter-selection"), \
         f"Must have adapter-selection tag, got: {urn.to_string()}"
-    assert urn.has_marker_tag("json"), \
-        f"Must have json tag, got: {urn.to_string()}"
+    assert urn.is_json(), \
+        f"Must declare fmt=json, got: {urn.to_string()}"
     assert urn.has_marker_tag("record"), \
         f"Must have record tag, got: {urn.to_string()}"
 

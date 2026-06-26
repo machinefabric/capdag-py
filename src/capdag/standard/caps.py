@@ -66,8 +66,6 @@ from capdag.urn.media_urn import (
     MEDIA_YAML_LIST,
     MEDIA_YAML_LIST_RECORD,
     MEDIA_CSV,
-    # Bare list types (no format tag)
-    MEDIA_TEXTABLE_LIST,
 )
 
 
@@ -87,18 +85,18 @@ CAP_DISCARD = "cap:in=media:;out=media:void"
 # Adapter-selection capability. Default implementation returns empty END (no match).
 # Cartridges that inspect file content override this with a handler
 # that returns {"media_urns": [...]}.
-CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;record"'
+CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;fmt=json;record"'
 
 # Fabric registry lookup caps. Implemented by fetchcartridge.
 # CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
 # cap definition; CAP_LOOKUP_MEDIA_DEF_FABRIC does the same for media defs.
 CAP_LOOKUP_CAP_FABRIC = (
-    'cap:in="media:cap-urn;textable";fabric;lookup-cap;'
-    'out="media:cap-definition;json;record;textable"'
+    'cap:in="media:cap-urn;enc=utf-8";fabric;lookup-cap;'
+    'out="media:cap-definition;fmt=json;record"'
 )
 CAP_LOOKUP_MEDIA_DEF_FABRIC = (
-    'cap:in="media:media-urn;textable";fabric;lookup-media-def;'
-    'out="media:media-definition;json;record;textable"'
+    'cap:in="media:enc=utf-8;media-urn";fabric;lookup-media-def;'
+    'out="media:fmt=json;media-definition;record"'
 )
 
 
@@ -464,19 +462,19 @@ def all_format_conversion_paths() -> List[FormatConversionPath]:
         FormatConversionPath(MEDIA_CSV, MEDIA_YAML_LIST_RECORD,
             "Convert CSV to YAML List of Mappings", "Convert CSV data to a YAML list of mappings"),
         # Textable list <-> JSON list
-        FormatConversionPath(MEDIA_TEXTABLE_LIST, MEDIA_JSON_LIST,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_JSON_LIST,
             "Convert Text List to JSON Array", "Convert a list of textable values to a JSON array"),
-        FormatConversionPath(MEDIA_JSON_LIST, MEDIA_TEXTABLE_LIST,
+        FormatConversionPath(MEDIA_JSON_LIST, MEDIA_STRING_LIST,
             "Convert JSON Array to Text List", "Convert a JSON array to a list of textable values"),
         # Textable list <-> YAML list
-        FormatConversionPath(MEDIA_TEXTABLE_LIST, MEDIA_YAML_LIST,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_YAML_LIST,
             "Convert Text List to YAML Sequence", "Convert a list of textable values to a YAML sequence"),
-        FormatConversionPath(MEDIA_YAML_LIST, MEDIA_TEXTABLE_LIST,
+        FormatConversionPath(MEDIA_YAML_LIST, MEDIA_STRING_LIST,
             "Convert YAML Sequence to Text List", "Convert a YAML sequence to a list of textable values"),
         # Textable list <-> CSV
-        FormatConversionPath(MEDIA_TEXTABLE_LIST, MEDIA_CSV,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_CSV,
             "Convert Text List to CSV", "Convert a list of textable values to CSV format"),
-        FormatConversionPath(MEDIA_CSV, MEDIA_TEXTABLE_LIST,
+        FormatConversionPath(MEDIA_CSV, MEDIA_STRING_LIST,
             "Convert CSV to Text List", "Convert CSV data to a list of textable values"),
     ]
 

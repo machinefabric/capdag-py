@@ -71,6 +71,24 @@ def cleanup(*sock_lists):
         close_socks(socks)
 
 
+def read_skipping_notify(reader):
+    """Read the next non-RelayNotify frame from the relay.
+
+    The host emits a RelayNotify whenever its inventory changes —
+    including an initial one at ``run()`` start advertising the
+    pre-registered roster, and one whenever a cartridge attaches / dies.
+    Request/response tests care about the request-flow frames, so they
+    skip the inventory notifications the same way the engine does. Returns
+    None on EOF."""
+    while True:
+        frame = reader.read()
+        if frame is None:
+            return None
+        if frame.frame_type == FrameType.RELAY_NOTIFY:
+            continue
+        return frame
+
+
 def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=None):
     """Run a simulated cartridge: handshake + optional handler."""
     reader = FrameReader(cartridge_read)
@@ -221,7 +239,7 @@ def test_489_full_path_identity_verification():
     engine_writer.write(Frame.req(request_id, "cap:test", b"", "application/cbor"))
     engine_writer.write(Frame.end(request_id, None))
 
-    response = engine_reader.read()
+    response = read_skipping_notify(engine_reader)
     assert response is not None
     assert response.frame_type == FrameType.END
     assert response.payload == b"verified-and-working"
@@ -292,7 +310,7 @@ def test_490_identity_verification_multiple_cartridges():
     alpha_id = MessageId.new_uuid()
     engine_writer.write(Frame.req(alpha_id, "cap:alpha", b"", "application/cbor"))
     engine_writer.write(Frame.end(alpha_id, None))
-    alpha_resp = engine_reader.read()
+    alpha_resp = read_skipping_notify(engine_reader)
     assert alpha_resp is not None
     assert alpha_resp.frame_type == FrameType.END
     assert alpha_resp.payload == b"from-alpha"
@@ -300,7 +318,7 @@ def test_490_identity_verification_multiple_cartridges():
     beta_id = MessageId.new_uuid()
     engine_writer.write(Frame.req(beta_id, "cap:beta", b"", "application/cbor"))
     engine_writer.write(Frame.end(beta_id, None))
-    beta_resp = engine_reader.read()
+    beta_resp = read_skipping_notify(engine_reader)
     assert beta_resp is not None
     assert beta_resp.frame_type == FrameType.END
     assert beta_resp.payload == b"from-beta"
@@ -378,7 +396,7 @@ def test_415_req_triggers_spawn():
         r = FrameReader(pr)
         req_id = MessageId.new_uuid()
         w.write(Frame.req(req_id, "cap:test", b"hello", "text/plain"))
-        frame = r.read()
+        frame = read_skipping_notify(r)
         if frame is not None:
             err_frame[0] = frame
         close_socks(ps)
@@ -467,7 +485,7 @@ def test_417_route_req_by_cap_urn():
         req_id = MessageId.new_uuid()
         w.write(Frame.req(req_id, "cap:convert", b"", "text/plain"))
         w.write(Frame.end(req_id))
-        frame = r.read()
+        frame = read_skipping_notify(r)
         if frame is not None and frame.frame_type == FrameType.END:
             response_payload[0] = frame.payload
         close_socks(r_ps)
@@ -527,7 +545,7 @@ def test_418_route_continuation_by_req_id():
         w.write(Frame.chunk(req_id, "arg-0", 0, b"payload-data", 0, compute_checksum(b"payload-data")))
         w.write(Frame.stream_end(req_id, "arg-0", 1))
         w.write(Frame.end(req_id))
-        frame = r.read()
+        frame = read_skipping_notify(r)
         if frame is not None and frame.frame_type == FrameType.END:
             response[0] = frame.payload
         close_socks(r_ps)
@@ -807,7 +825,7 @@ def test_423_multi_cartridge_distinct_caps():
         w.write(Frame.req(beta_id, "cap:beta", b"", "text/plain"))
         w.write(Frame.end(beta_id))
         for _ in range(2):
-            frame = r.read()
+            frame = read_skipping_notify(r)
             if frame is None:
                 break
             if frame.frame_type == FrameType.END:
@@ -875,7 +893,7 @@ def test_424_concurrent_requests_same_cartridge():
         w.write(Frame.req(id1, "cap:conc", b"", "text/plain"))
         w.write(Frame.end(id1))
         for _ in range(2):
-            frame = r.read()
+            frame = read_skipping_notify(r)
             if frame is None:
                 break
             if frame.frame_type == FrameType.END:
@@ -1103,3 +1121,95 @@ def test_665_cap_table_mixed_running_and_non_running():
     assert any("running-op" in cap for cap in advertised)
     assert not any("stale" in cap for cap in advertised)
     assert any("ocr" in cap for cap in advertised)
+
+
+# TEST1879: SyncRoster updates the LIVE host inventory in place — the engine
+# sees an added registered-dir cartridge via a fresh RelayNotify without
+# reconnecting, and a subsequent empty sync removes it. This is the
+# `syncDiscoveryOutcomes` parity path the daemon uses after a registry
+# verdict flips a held cartridge to Listed.
+def test_1879_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
+    from capdag.bifaci.host_runtime import RegisteredDirSpec
+    from capdag.bifaci.cartridge_repo import CartridgeChannel
+
+    # A valid registered-dir cartridge (hashable dir + cartridge.json).
+    (tmp_path / "cartridge.json").write_text(
+        '{"name":"latejoiner","version":"1.0.0","channel":"release","registry_url":null,'
+        '"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}',
+        encoding="utf-8",
+    )
+    entry = tmp_path / "bin"
+    entry.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    host = CartridgeHost()
+    handle = host.process_handle()
+
+    # Relay pipe: the engine side reads RelayNotify frames the host emits.
+    relay_host_read, relay_host_write, engine_read, engine_write, relay_host_socks, engine_socks = make_conn()
+
+    def read_notify_ids(reader):
+        """Read the next RelayNotify and return the advertised cartridge ids."""
+        while True:
+            frame = reader.read()
+            if frame is None:
+                return None
+            if frame.frame_type != FrameType.RELAY_NOTIFY:
+                continue
+            manifest = frame.relay_notify_manifest()
+            payload = json.loads(manifest)
+            return [c["id"] for c in payload.get("installed_cartridges", [])]
+
+    result = {}
+
+    def engine():
+        r = FrameReader(engine_read)
+
+        # Initial RelayNotify (empty roster).
+        result["initial"] = read_notify_ids(r)
+
+        # Add the cartridge live.
+        handle.sync_roster([
+            RegisteredDirSpec(
+                entry_point=str(entry),
+                version_dir=str(tmp_path),
+                id="latejoiner",
+                channel=CartridgeChannel.RELEASE,
+                registry_url=None,
+                version="1.0.0",
+                cap_groups=[{
+                    "name": "default",
+                    "caps": [{
+                        "urn": 'cap:in="media:void";late;out="media:void"',
+                        "title": "Late",
+                        "command": "late",
+                        "args": [],
+                    }],
+                    "adapter_urns": [],
+                }],
+            )
+        ])
+        result["after_add"] = read_notify_ids(r)
+
+        # Remove it again (empty roster).
+        handle.sync_roster([])
+        result["after_remove"] = read_notify_ids(r)
+
+        close_socks(engine_socks)
+
+    t_eng = threading.Thread(target=engine, daemon=True)
+    t_eng.start()
+
+    host.run(relay_host_read, relay_host_write)
+    cleanup(relay_host_socks, engine_socks)
+    t_eng.join(timeout=5)
+
+    assert result.get("initial") is not None, "must receive the initial RelayNotify"
+    assert "latejoiner" not in result["initial"], (
+        f"cartridge must be absent before the sync; got {result['initial']}"
+    )
+    assert "latejoiner" in result["after_add"], (
+        f"SyncRoster must add the cartridge to the live inventory; got {result['after_add']}"
+    )
+    assert "latejoiner" not in result["after_remove"], (
+        f"an empty SyncRoster must retire the cartridge; got {result['after_remove']}"
+    )

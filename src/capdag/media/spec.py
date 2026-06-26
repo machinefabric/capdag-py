@@ -447,12 +447,6 @@ class ResolvedMediaDef:
         """Parse the media URN, raising if invalid (should never happen for resolved specs)"""
         return MediaUrn.from_string(self.media_urn)
 
-    def is_binary(self) -> bool:
-        """Check if this represents binary (non-text) data.
-        Returns True if the "textable" marker tag is NOT present in the source media URN.
-        """
-        return self._parse_media_urn().is_binary()
-
     def is_record(self) -> bool:
         """Check if this represents a record structure (key-value pairs).
         This indicates internal structure with named fields, regardless of representation format.
@@ -491,12 +485,6 @@ class ResolvedMediaDef:
         For checking if data is structured (map/list), use is_structured().
         """
         return self._parse_media_urn().is_json()
-
-    def is_text(self) -> bool:
-        """Check if this represents text data.
-        Returns true if the "textable" marker tag is present in the source media URN.
-        """
-        return self._parse_media_urn().is_text()
 
     def is_image(self) -> bool:
         """Check if this represents image data.

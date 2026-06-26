@@ -5,6 +5,9 @@ import pytest
 from capdag.bifaci.cartridge_repo import (
     CartridgeBuild,
     CartridgeChannel,
+    CartridgeCompatibilityResolution,
+    CompatStatus,
+    host_platform,
     CartridgeChannelEntries,
     CartridgeDistributionInfo,
     CartridgeInfo,
@@ -749,6 +752,192 @@ def test_637_deserialize_full_registry_response():
     img = next(c for c in response.cartridges if c.id == "imagecartridge")
     assert len(img.cap_groups) == 1
     assert len(img.cap_groups[0].adapter_urns) == 6
+
+
+# ---------------------------------------------------------------------------
+# CartridgeBuild legacy-package fallback + host-compatibility resolution
+# ---------------------------------------------------------------------------
+
+
+# TEST1847: A build from a registry manifest published BEFORE `packages[]`
+# existed carries only the legacy singular `package` (no `format`). It must
+# still deserialize (a missing `packages` must not fail the whole parse) and
+# primary_package() must fall back to that legacy package, so a registry not
+# yet republished with the dual-write keeps installing. When `packages[]` is
+# present it is preferred over the legacy field, native format wins.
+def test_1847_cartridge_build_legacy_package_fallback():
+    legacy = CartridgeBuild.from_dict(
+        {
+            "platform": "linux-x86_64",
+            "package": {
+                "name": "imagecartridge-1.0.0.pkg",
+                "url": "https://cartridges.machinefabric.com/imagecartridge-1.0.0.pkg",
+                "sha256": "abc123",
+                "size": 1000,
+            },
+        }
+    )
+    assert legacy.packages == []
+    primary = legacy.primary_package()
+    assert primary is not None, "legacy package must be read as a fallback"
+    assert primary.name == "imagecartridge-1.0.0.pkg"
+    assert primary.format == ""  # legacy object has no format
+    assert primary.url.endswith("imagecartridge-1.0.0.pkg")
+
+    modern = CartridgeBuild.from_dict(
+        {
+            "platform": "linux-x86_64",
+            "package": {
+                "name": "legacy.pkg",
+                "url": "https://x/legacy.pkg",
+                "sha256": "dead",
+                "size": 1,
+            },
+            "packages": [
+                {"name": "c.rpm", "url": "https://x/c.rpm", "sha256": "a", "size": 2, "format": "rpm"},
+                {"name": "c.deb", "url": "https://x/c.deb", "sha256": "b", "size": 3, "format": "deb"},
+            ],
+        }
+    )
+    # linux prefers deb over rpm; the legacy `package` is ignored.
+    assert modern.primary_package().name == "c.deb"
+
+
+def _build_for_platform_with_format(platform: str, fmt: str, pkg_name: str) -> CartridgeBuild:
+    """One platform build carrying a single native-format package, so a
+    resolution test can assert exactly which package the host gets."""
+    return CartridgeBuild(
+        platform=platform,
+        packages=[
+            CartridgeDistributionInfo(
+                name=pkg_name,
+                sha256="deadbeef",
+                size=4242,
+                url=f"https://cartridges.machinefabric.com/{pkg_name}",
+                format=fmt,
+            )
+        ],
+    )
+
+
+def _cartridge_with_versions(id, versions):
+    """Construct a cartridge whose versions/platform-builds are fully
+    specified by the caller. `versions` is given newest-first; `version`
+    (the latest field) is set to the first entry. Each version lists the
+    (platform, format, pkg_name) builds it ships."""
+    version_map = {}
+    available = []
+    for ver, builds in versions:
+        available.append(ver)
+        version_map[ver] = CartridgeVersionData(
+            release_date="2026-02-07",
+            changelog=[],
+            min_app_version="",
+            builds=[_build_for_platform_with_format(p, f, n) for (p, f, n) in builds],
+        )
+    latest = versions[0][0] if versions else ""
+    return CartridgeInfo(
+        id=id,
+        name=id,
+        channel=CartridgeChannel.RELEASE,
+        version=latest,
+        team_id="TEAM123",
+        signed_at="2026-02-07T00:00:00Z",
+        versions=version_map,
+        available_versions=available,
+    )
+
+
+# TEST1849: latest version has a host build -> Compatible, resolving to the
+# latest version and that platform's native-format package.
+def test_1849_resolve_for_host_compatible_latest():
+    cartridge = _cartridge_with_versions(
+        "c",
+        [
+            ("1.2.0", [("darwin-arm64", "pkg", "c-1.2.0.pkg"), ("linux-x86_64", "deb", "c-1.2.0.deb")]),
+            ("1.1.0", [("darwin-arm64", "pkg", "c-1.1.0.pkg")]),
+        ],
+    )
+    r = cartridge.resolve_for_host("linux-x86_64")
+    assert r.status == CompatStatus.COMPATIBLE
+    assert r.resolved_version == "1.2.0"
+    assert r.resolved_package.name == "c-1.2.0.deb"
+    assert r.resolved_package.format == "deb"
+    assert r.reason is None, "Compatible carries no reason"
+    assert r.host_platform == "linux-x86_64"
+
+
+# TEST1850: the latest version lacks a host build but an older version has one
+# -> CompatibleOutdated, resolving to the older version with a reason naming
+# both the latest and the resolved version.
+def test_1850_resolve_for_host_compatible_outdated():
+    cartridge = _cartridge_with_versions(
+        "c",
+        [
+            ("1.3.0", [("darwin-arm64", "pkg", "c-1.3.0.pkg")]),
+            ("1.2.0", [("darwin-arm64", "pkg", "c-1.2.0.pkg"), ("linux-x86_64", "deb", "c-1.2.0.deb")]),
+            ("1.1.0", [("linux-x86_64", "deb", "c-1.1.0.deb")]),
+        ],
+    )
+    r = cartridge.resolve_for_host("linux-x86_64")
+    assert r.status == CompatStatus.COMPATIBLE_OUTDATED
+    # Newest-with-host-build is 1.2.0, NOT the oldest 1.1.0 that also has it.
+    assert r.resolved_version == "1.2.0"
+    assert r.resolved_package.name == "c-1.2.0.deb"
+    assert r.reason is not None
+    assert "1.3.0" in r.reason, f"reason names the latest: {r.reason}"
+    assert "1.2.0" in r.reason, f"reason names the resolved: {r.reason}"
+
+
+# TEST1851: no version ships a host build -> Incompatible, no resolved
+# version/package, reason states the host platform.
+def test_1851_resolve_for_host_incompatible():
+    cartridge = _cartridge_with_versions(
+        "c",
+        [
+            ("1.2.0", [("darwin-arm64", "pkg", "c-1.2.0.pkg")]),
+            ("1.1.0", [("darwin-arm64", "pkg", "c-1.1.0.pkg")]),
+        ],
+    )
+    r = cartridge.resolve_for_host("windows-x86_64")
+    assert r.status == CompatStatus.INCOMPATIBLE
+    assert r.resolved_version is None
+    assert r.resolved_package is None
+    assert "windows-x86_64" in r.reason
+
+
+# TEST1852: a host build whose packages[] is empty AND has no legacy `package`
+# ships no installer; resolution must SKIP it (not resolve to an
+# un-downloadable version) and fall through to an older usable version.
+def test_1852_resolve_for_host_skips_build_with_no_installer():
+    cartridge = _cartridge_with_versions(
+        "c",
+        [
+            ("2.0.0", [("linux-x86_64", "deb", "c-2.0.0.deb")]),
+            ("1.0.0", [("linux-x86_64", "deb", "c-1.0.0.deb")]),
+        ],
+    )
+    # Make 2.0.0's linux build ship nothing installable.
+    v2 = cartridge.versions["2.0.0"]
+    v2.builds[0].packages = []
+    v2.builds[0].package = None
+
+    r = cartridge.resolve_for_host("linux-x86_64")
+    # 2.0.0 is skipped (no installer); newest USABLE host build is 1.0.0.
+    assert r.status == CompatStatus.COMPATIBLE_OUTDATED
+    assert r.resolved_version == "1.0.0"
+    assert r.resolved_package.name == "c-1.0.0.deb"
+
+
+# TEST1853: host_platform() returns a normalized {os}-{arch} string with arch
+# aarch64 mapped to arm64 — the exact form the registry uses.
+def test_1853_host_platform_normalized_form():
+    p = host_platform()
+    assert "-" in p, f"host_platform must be os-arch, got {p}"
+    os_seg, arch_seg = p.split("-", 1)
+    assert os_seg, f"os segment present: {os_seg}"
+    # The registry never uses the raw "aarch64"; it must be normalized.
+    assert arch_seg != "aarch64", "arch must be normalized to arm64"
 
 
 # ---------------------------------------------------------------------------

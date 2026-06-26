@@ -58,10 +58,10 @@ def test_002_direction_specs_default_to_wildcard():
 
 # TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any
 def test_003_direction_matching():
-    in_str = "media:textable"  # MEDIA_STRING
-    out_obj = "media:record;textable"  # MEDIA_OBJECT
+    in_str = "media:enc=utf-8"  # MEDIA_STRING
+    out_obj = "media:record"  # MEDIA_OBJECT
     in_bin = "media:"  # MEDIA_IDENTITY
-    out_int = "media:integer;textable;numeric"  # MEDIA_INTEGER
+    out_int = "media:integer;numeric"  # MEDIA_INTEGER
 
     # Direction specs must match for caps to match
     cap1 = CapUrn.from_string(f'cap:in="{in_str}";test;out="{out_obj}"')
@@ -348,9 +348,9 @@ def test_020_specificity_calculation():
     # Cap-URN spec is 10000*spec_U(out) + 100*spec_U(in) + spec_U(y),
     # so out-axis differences dominate, then in, then y.
     cap1 = CapUrn.from_string("cap:in=media:string;out=media:object;test")
-    cap2 = CapUrn.from_string('cap:in=media:textable;out="media:record;textable";test')
-    # cap1: out=object(2), in=string(2), y=test(2) -> 20202
-    # cap2: out=record+textable(4), in=textable(2), y=test(2) -> 40202
+    cap2 = CapUrn.from_string('cap:in="media:enc=utf-8";out="media:enc=utf-8;record";test')
+    # cap1: out=object(2 marker), in=string(2), y=test(2)
+    # cap2: out=enc=utf-8(3 exact)+record(2 marker), in=enc=utf-8(3), y=test(2)
     assert cap2.specificity() > cap1.specificity()
 
     # Tightening `*` to an exact value strictly increases the y-axis
@@ -750,23 +750,23 @@ def test_560_with_in_out_spec():
     assert changed_out.out_spec() == "media:string"
 
     # Chain both
-    changed_both = cap.with_in_spec("media:pdf").with_out_spec("media:txt;textable")
+    changed_both = cap.with_in_spec("media:pdf").with_out_spec("media:enc=utf-8;txt")
     assert changed_both.in_spec() == "media:pdf"
-    assert changed_both.out_spec() == "media:txt;textable"
+    assert changed_both.out_spec() == "media:enc=utf-8;txt"
 
 
 # TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn
 def test_561_in_out_media_urn():
     cap = CapUrn.from_string(
-        'cap:in="media:pdf";extract;out="media:txt;textable"'
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;txt"'
     )
 
     in_urn = cap.in_media_urn()
-    assert in_urn.is_binary()
+    assert in_urn.get_tag("enc") is None  # pdf is a binary file, no encoding claim
     assert in_urn.has_tag("pdf", "*")
 
     out_urn = cap.out_media_urn()
-    assert out_urn.is_text()
+    assert out_urn.get_tag("enc") == "utf-8"  # text output carries enc
     assert out_urn.has_tag("txt", "*")
 
     # Generic legal cap still exposes top media on both axes
