@@ -173,8 +173,8 @@ async def test_953_linear_plan_still_works():
 async def test_954_standalone_collect_passthrough():
     registry = _registry_with_caps(
         [
-            'cap:in=media:pdf;extract;out="media:text;textable"',
-            'cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable"',
+            'cap:in=media:pdf;extract;out="media:enc=utf-8;text"',
+            'cap:in="media:enc=utf-8;list;text";embed;out="media:embedding-vector;enc=utf-8;record"',
         ]
     )
 
@@ -190,14 +190,14 @@ async def test_954_standalone_collect_passthrough():
     plan.add_node(
         MachineNode.cap(
             "cap_0",
-            'cap:in=media:pdf;extract;out="media:text;textable"',
+            'cap:in=media:pdf;extract;out="media:enc=utf-8;text"',
         )
     )
 
     collect_node = MachineNode.collect("collect_0", ["cap_0"])
     collect_node.node_type = ExecutionNodeType.collect(
         ["cap_0"],
-        output_media_urn="media:list;text;textable",
+        output_media_urn="media:enc=utf-8;list;text",
     )
     collect_node.description = "Collect: scalar to list-of-one"
     plan.add_node(collect_node)
@@ -205,7 +205,7 @@ async def test_954_standalone_collect_passthrough():
     plan.add_node(
         MachineNode.cap(
             "cap_1",
-            'cap:in="media:list;text;textable";embed;out="media:embedding-vector;record;textable"',
+            'cap:in="media:enc=utf-8;list;text";embed;out="media:embedding-vector;enc=utf-8;record"',
         )
     )
     plan.add_node(MachineNode.output("output", "result", "cap_1"))

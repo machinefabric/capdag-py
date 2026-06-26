@@ -97,7 +97,7 @@ def test_137_parse_registry_json():
 def test_138_parse_registry_json_with_stdin():
     """Test parsing cap JSON with stdin args"""
     json_str = '''{
-        "urn": "cap:in=\\"media:pdf\\";disbind;out=\\"media:textable;page\\"",
+        "urn": "cap:in=\\"media:pdf\\";disbind;out=\\"media:enc=utf-8;page\\"",
         "command": "disbind",
         "title": "Disbind PDF",
         "args": [

@@ -138,7 +138,7 @@ def test_150_cap_manifest_json_serialization():
         sources=[StdinSource("media:pdf")],
     ))
     cap.add_arg(CapArg(
-        media_urn="media:chunk-size;textable;numeric",
+        media_urn="media:chunk-size;numeric",
         required=False,
         sources=[CliFlagSource("--chunk-size")],
         arg_description="Chunk size",
@@ -146,7 +146,7 @@ def test_150_cap_manifest_json_serialization():
         metadata={"unit": "words"},
     ))
     cap.add_arg(CapArg(
-        media_urn="media:timestamps;textable;bool",
+        media_urn="media:bool;enc=utf-8;timestamps",
         required=False,
         sources=[CliFlagSource("--timestamps")],
         arg_description="Include timestamps",
@@ -308,15 +308,15 @@ def test_1284_cap_group_with_adapter_urns():
     group = CapGroup(
         name="data-formats",
         caps=[cap],
-        adapter_urns=["media:json", "media:csv"],
+        adapter_urns=["media:fmt=json", "media:fmt=csv"],
     )
 
     manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [group])
 
     json_str = manifest.to_json()
     assert '"adapter_urns"' in json_str
-    assert "media:json" in json_str
-    assert "media:csv" in json_str
+    assert "media:fmt=json" in json_str
+    assert "media:fmt=csv" in json_str
 
     deserialized = CapManifest.from_json(json_str)
     assert len(deserialized.cap_groups[0].adapter_urns) == 2

@@ -225,22 +225,22 @@ def _build_foreach_plan_with_collect():
     plan.add_node(MachineNode.input_slot("input_slot", "input", "media:pdf", InputCardinality.SINGLE))
     plan.add_node(MachineNode.cap("cap_0", 'cap:in=media:pdf;out="media:pdf-page;list"'))
     plan.add_node(MachineNode.for_each("foreach_0", "cap_0", "body_cap_0", "body_cap_1"))
-    plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:text;textable"'))
+    plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:enc=utf-8;text"'))
     plan.add_node(
         MachineNode.cap(
             "body_cap_1",
-            'cap:in="media:text;textable";out="media:decision;json;record;textable"',
+            'cap:in="media:enc=utf-8;text";out="media:decision;fmt=json;record"',
         )
     )
     collect_node = MachineNode.collect("collect_0", ["body_cap_1"])
     collect_node.node_type = ExecutionNodeType.collect(
-        ["body_cap_1"], "media:decision;json;record;textable"
+        ["body_cap_1"], "media:decision;fmt=json;record"
     )
     plan.add_node(collect_node)
     plan.add_node(
         MachineNode.cap(
             "cap_post",
-            'cap:in="media:decision;json;record;textable";out="media:json;textable"',
+            'cap:in="media:decision;fmt=json;record";out="media:fmt=json"',
         )
     )
     plan.add_node(MachineNode.output("output", "result", "cap_post"))
@@ -262,7 +262,7 @@ def _build_foreach_plan_unclosed():
     plan.add_node(
         MachineNode.cap(
             "body_cap_0",
-            'cap:in=media:pdf-page;out="media:decision;json;record;textable"',
+            'cap:in=media:pdf-page;out="media:decision;fmt=json;record"',
         )
     )
     plan.add_node(MachineNode.output("output", "result", "body_cap_0"))
@@ -316,7 +316,7 @@ def test_757_extract_foreach_body_wrong_type():
 # TEST758: extract_suffix_from extracts collect → cap_post → output
 def test_758_extract_suffix_from():
     suffix = _build_foreach_plan_with_collect().extract_suffix_from(
-        "collect_0", "media:decision;json;record;textable"
+        "collect_0", "media:decision;fmt=json;record"
     )
     assert len(suffix.nodes) == 3
     assert suffix.get_node("collect_0_suffix_input") is not None
@@ -341,7 +341,7 @@ def test_760_decomposition_covers_all_caps():
     assert len(original_caps) == 4
     prefix = plan.extract_prefix_to("cap_0")
     body = plan.extract_foreach_body("foreach_0", "media:pdf-page")
-    suffix = plan.extract_suffix_from("collect_0", "media:decision;json;record;textable")
+    suffix = plan.extract_suffix_from("collect_0", "media:decision;fmt=json;record")
     combined_caps = {node.id for node in prefix.nodes.values() if node.is_cap()}
     combined_caps.update(node.id for node in body.nodes.values() if node.is_cap())
     combined_caps.update(node.id for node in suffix.nodes.values() if node.is_cap())
@@ -363,7 +363,7 @@ def test_762_body_is_dag():
 # TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)
 def test_763_suffix_is_dag():
     suffix = _build_foreach_plan_with_collect().extract_suffix_from(
-        "collect_0", "media:decision;json;record;textable"
+        "collect_0", "media:decision;fmt=json;record"
     )
     suffix.topological_order()
 
@@ -392,15 +392,15 @@ def test_936_has_foreach():
     foreach_plan = _build_foreach_plan_with_collect()
     assert foreach_plan.has_foreach()
 
-    linear_plan = MachinePlan.linear_chain(["cap:a"], "media:pdf", "media:image;png", ["input_a"])
+    linear_plan = MachinePlan.linear_chain(["cap:a"], "media:ext=pdf", "media:image;png", ["input_a"])
     assert not linear_plan.has_foreach()
 
     standalone_collect_plan = MachinePlan("collect_only")
     standalone_collect_plan.add_node(
-        MachineNode.input_slot("input", "input", "media:textable", InputCardinality.SINGLE)
+        MachineNode.input_slot("input", "input", "media:enc=utf-8", InputCardinality.SINGLE)
     )
     standalone_collect_plan.add_node(
-        MachineNode.cap("cap_0", "cap:in=media:textable;summarize;out=media:summary")
+        MachineNode.cap("cap_0", 'cap:in="media:enc=utf-8";summarize;out=media:summary')
     )
     collect_node = MachineNode.collect("collect_0", ["cap_0"])
     collect_node.node_type = ExecutionNodeType.collect(["cap_0"], "media:list;summary")

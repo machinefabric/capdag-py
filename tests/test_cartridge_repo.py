@@ -305,7 +305,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                     "pdf",
                     caps=[
                         _make_cap(
-                            'cap:in=media:pdf;disbind;out="media:page;textable"',
+                            'cap:in=media:pdf;disbind;out="media:enc=utf-8;page"',
                             title="Disbind PDF",
                             command="disbind",
                         )
@@ -339,8 +339,8 @@ def test_328_cartridge_repo_server_get_by_category():
 # whose tags appear in different declared order than the cap's still
 # resolves because the predicate is order-independent.
 def test_329_cartridge_repo_server_get_by_cap():
-    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
-    request_urn = 'cap:in="media:pdf";disbind;out="media:list;disbound-page;textable"'
+    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    request_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
 
     server = CartridgeRepoServer(_make_registry(release_entries={
         "pdfcartridge": _make_registry_entry(
@@ -388,8 +388,8 @@ def test_330_cartridge_repo_client_update_cache():
 # propagated from the source cartridge.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
-    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
-    request_urn = 'cap:in="media:pdf";disbind;out="media:list;disbound-page;textable"'
+    declared_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    request_urn = 'cap:in="media:pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
 
     info = _make_cartridge_info(
         id="pdfcartridge",
@@ -435,8 +435,8 @@ def test_332_cartridge_repo_client_get_cartridge():
 # normalized URNs across cartridges.
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
-    cap1 = 'cap:in="media:pdf";disbind;out="media:disbound-page;textable;list"'
-    cap2 = 'cap:in="media:textable;txt";disbind;out="media:disbound-page;textable;list"'
+    cap1 = 'cap:in="media:pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    cap2 = 'cap:in="media:enc=utf-8;ext=txt";disbind;out="media:disbound-page;enc=utf-8;list"'
     repo.update_cache(
         "https://example.com/cartridges",
         CartridgeRegistryResponse(
@@ -560,13 +560,13 @@ def test_632_deserialize_minimal_registry_cap():
 def test_633_deserialize_rich_registry_cap():
     cap = RegistryCap.from_dict(
         {
-            "urn": 'cap:in="media:pdf";disbind;out="media:page;textable"',
+            "urn": 'cap:in="media:pdf";disbind;out="media:enc=utf-8;page"',
             "title": "Disbind PDF",
             "command": "disbind",
             "cap_description": "Extract each PDF page as plain page text.",
             "args": [
                 {
-                    "media_urn": "media:file-path;textable",
+                    "media_urn": "media:enc=utf-8;file-path",
                     "required": True,
                     "is_sequence": False,
                     "sources": [
@@ -577,7 +577,7 @@ def test_633_deserialize_rich_registry_cap():
                 }
             ],
             "output": {
-                "media_urn": "media:page;textable",
+                "media_urn": "media:enc=utf-8;page",
                 "is_sequence": True,
                 "output_description": "One page text per PDF page",
             },
@@ -587,11 +587,11 @@ def test_633_deserialize_rich_registry_cap():
     assert cap.cap_description == "Extract each PDF page as plain page text."
     assert cap.args is not None
     assert len(cap.args) == 1
-    assert cap.args[0].media_urn == "media:file-path;textable"
+    assert cap.args[0].media_urn == "media:enc=utf-8;file-path"
     assert cap.args[0].sources[0].stdin == "media:pdf"
     assert cap.args[0].sources[1].position == 0
     assert cap.output is not None
-    assert cap.output.media_urn == "media:page;textable"
+    assert cap.output.media_urn == "media:enc=utf-8;page"
     assert cap.output.is_sequence is True
 
 
@@ -633,7 +633,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
                     "caps": [
                         {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
                         {
-                            "urn": 'cap:in=media:pdf;disbind;out="media:page;textable"',
+                            "urn": 'cap:in=media:pdf;disbind;out="media:enc=utf-8;page"',
                             "title": "Disbind PDF Into Page Text",
                             "command": "disbind",
                         },

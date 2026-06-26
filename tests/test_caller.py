@@ -141,7 +141,7 @@ def test_162_stdin_source_debug_format():
 
 # TEST274: Test CapArgumentValue::new stores media_urn and raw byte value
 def test_274_cap_argument_value_new():
-    media_urn = "media:model-spec;textable"
+    media_urn = "media:enc=utf-8;model-spec"
     value = b"gpt-4o"
 
     arg = CapArgumentValue(media_urn, value)
@@ -284,7 +284,7 @@ def _extract_streams_from_request_frames(frames):
 
 # TEST675: build_request_frames with full media URN preserves it in STREAM_START frame
 def test_675_build_request_frames_preserves_media_urn_in_stream_start():
-    full_urn = "media:llm-generation-request;json;record"
+    full_urn = "media:fmt=json;llm-generation-request;record"
     arg = CapArgumentValue(full_urn, b'{"prompt":"test"}')
     request_id = MessageId.new_uuid()
 
@@ -296,7 +296,7 @@ def test_675_build_request_frames_preserves_media_urn_in_stream_start():
 
 # TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds
 def test_676_build_request_frames_round_trip_find_stream_succeeds():
-    full_urn = "media:llm-generation-request;json;record"
+    full_urn = "media:fmt=json;llm-generation-request;record"
     payload = b'{"prompt":"hello","model_spec":"test"}'
     arg = CapArgumentValue(full_urn, payload)
     request_id = MessageId.new_uuid()
@@ -308,10 +308,10 @@ def test_676_build_request_frames_round_trip_find_stream_succeeds():
     assert found == payload
 
 
-# TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:llm-generation-request;json;record" (full). is_equivalent requires exact tag set match, so base != full.
+# TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:fmt=json;llm-generation-request;record" (full). is_equivalent requires exact tag set match, so base != full.
 def test_677_base_urn_does_not_match_full_urn_in_find_stream():
     base_urn = "media:llm-generation-request"
-    full_urn = "media:llm-generation-request;json;record"
+    full_urn = "media:fmt=json;llm-generation-request;record"
     arg = CapArgumentValue(base_urn, b"{}")
     request_id = MessageId.new_uuid()
 

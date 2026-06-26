@@ -167,7 +167,7 @@ def test_579_rule2_empty_sources():
 def test_580_rule3_different_stdin_urns():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:textable;txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:enc=utf-8;ext=txt")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
@@ -180,8 +180,8 @@ def test_580_rule3_different_stdin_urns():
 def test_581_rule3_same_stdin_urns_ok():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:textable;txt")]))
-    cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:textable;txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:enc=utf-8;ext=txt")]))
+    cap.add_arg(CapArg(MEDIA_INTEGER, True, [StdinSource("media:enc=utf-8;ext=txt")]))
 
     # Should succeed - same stdin URNs allowed
     validate_cap_args(cap)
@@ -279,7 +279,7 @@ def test_588_rule10_reserved_cli_flags():
 def test_589_all_rules_pass():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), StdinSource("media:textable;txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [PositionSource(0), StdinSource("media:enc=utf-8;ext=txt")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, False, [PositionSource(1)]))
 
     # Should succeed
@@ -301,7 +301,7 @@ def test_590_cli_flag_only_args():
 def test_1294_rule11_void_input_with_stdin():
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:textable;txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:enc=utf-8;ext=txt")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -335,7 +335,7 @@ def test_1296_rule11_void_input_cli_flag_only():
 def test_1297_rule11_non_void_input_with_stdin():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
-    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:textable;txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, True, [StdinSource("media:enc=utf-8;ext=txt")]))
 
     # Should succeed - non-void input with stdin source
     validate_cap_args(cap)

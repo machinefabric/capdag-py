@@ -155,20 +155,20 @@ def test_715_pattern_serialization():
 # TEST720: Tests InputStructure correctly identifies opaque media URNs Verifies that URNs without record marker are parsed as Opaque
 def test_720_from_media_urn_opaque():
     assert InputStructure.from_media_urn("media:pdf") == InputStructure.OPAQUE
-    assert InputStructure.from_media_urn("media:textable") == InputStructure.OPAQUE
+    assert InputStructure.from_media_urn("media:enc=utf-8") == InputStructure.OPAQUE
     assert InputStructure.from_media_urn("media:integer") == InputStructure.OPAQUE
     assert InputStructure.from_media_urn("media:file-path;list") == InputStructure.OPAQUE
 
 
 # TEST721: Tests InputStructure correctly identifies record media URNs Verifies that URNs with record marker tag are parsed as Record
 def test_721_from_media_urn_record():
-    assert InputStructure.from_media_urn("media:json;record") == InputStructure.RECORD
-    assert InputStructure.from_media_urn("media:record;textable") == InputStructure.RECORD
+    assert InputStructure.from_media_urn("media:fmt=json;record") == InputStructure.RECORD
+    assert InputStructure.from_media_urn("media:enc=utf-8;record") == InputStructure.RECORD
     assert (
-        InputStructure.from_media_urn("media:file-metadata;record;textable")
+        InputStructure.from_media_urn("media:enc=utf-8;file-metadata;record")
         == InputStructure.RECORD
     )
-    assert InputStructure.from_media_urn("media:json;list;record") == InputStructure.RECORD
+    assert InputStructure.from_media_urn("media:fmt=json;list;record") == InputStructure.RECORD
 
 
 # TEST722: Tests structure compatibility for opaque-to-opaque data flow
@@ -201,21 +201,21 @@ def test_725_structure_incompatibility_record_to_opaque():
 
 # TEST726: Tests applying Record structure adds record marker to URN
 def test_726_apply_structure_add_record():
-    assert "record" in InputStructure.RECORD.apply_to_urn("media:json")
+    assert "record" in InputStructure.RECORD.apply_to_urn("media:fmt=json")
 
 
 # TEST727: Tests applying Opaque structure removes record marker from URN
 def test_727_apply_structure_remove_record():
-    assert "record" not in InputStructure.OPAQUE.apply_to_urn("media:json;record")
+    assert "record" not in InputStructure.OPAQUE.apply_to_urn("media:fmt=json;record")
 
 
 # TEST730: Tests MediaShape correctly parses all four combinations
 def test_730_media_shape_from_urn_all_combinations():
-    shape = MediaShape.from_media_urn("media:textable")
+    shape = MediaShape.from_media_urn("media:enc=utf-8")
     assert shape.cardinality == InputCardinality.SINGLE
     assert shape.structure == InputStructure.OPAQUE
 
-    shape = MediaShape.from_media_urn("media:json;record")
+    shape = MediaShape.from_media_urn("media:fmt=json;record")
     assert shape.cardinality == InputCardinality.SINGLE
     assert shape.structure == InputStructure.RECORD
 
@@ -223,7 +223,7 @@ def test_730_media_shape_from_urn_all_combinations():
     assert shape.cardinality == InputCardinality.SINGLE
     assert shape.structure == InputStructure.OPAQUE
 
-    shape = MediaShape.from_media_urn("media:json;list;record")
+    shape = MediaShape.from_media_urn("media:fmt=json;list;record")
     assert shape.cardinality == InputCardinality.SINGLE
     assert shape.structure == InputStructure.RECORD
 
@@ -277,7 +277,7 @@ def test_733_media_shape_structure_mismatch():
 
 # TEST740: Tests CapShapeInfo correctly parses cap specs
 def test_740_cap_shape_info_from_specs():
-    info = CapShapeInfo.from_cap_specs("cap:test", "media:textable", "media:json;record")
+    info = CapShapeInfo.from_cap_specs("cap:test", "media:enc=utf-8", "media:fmt=json;record")
     assert info.input.cardinality == InputCardinality.SINGLE
     assert info.input.structure == InputStructure.OPAQUE
     assert info.output.cardinality == InputCardinality.SINGLE
@@ -289,7 +289,7 @@ def test_741_cap_shape_info_pattern():
     info = CapShapeInfo.from_cap_specs_with_sequence(
         "cap:disbind",
         "media:pdf",
-        "media:disbound-page;textable",
+        "media:disbound-page;enc=utf-8",
         False,
         True,
     )
@@ -310,8 +310,8 @@ def test_750_strand_shape_valid():
 # TEST751: Tests shape chain analysis detects structure mismatch
 def test_751_strand_shape_structure_mismatch():
     infos = [
-        CapShapeInfo.from_cap_specs("cap:extract", "media:pdf", "media:textable"),
-        CapShapeInfo.from_cap_specs("cap:parse", "media:json;record", "media:data;record"),
+        CapShapeInfo.from_cap_specs("cap:extract", "media:pdf", "media:enc=utf-8"),
+        CapShapeInfo.from_cap_specs("cap:parse", "media:fmt=json;record", "media:data;record"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert not analysis.is_valid
@@ -325,11 +325,11 @@ def test_752_strand_shape_with_fanout():
         CapShapeInfo.from_cap_specs_with_sequence(
             "cap:disbind",
             "media:pdf",
-            "media:page;textable",
+            "media:enc=utf-8;page",
             False,
             True,
         ),
-        CapShapeInfo.from_cap_specs("cap:process", "media:textable", "media:result;textable"),
+        CapShapeInfo.from_cap_specs("cap:process", "media:enc=utf-8", "media:enc=utf-8;result"),
     ]
     analysis = StrandShapeAnalysis.analyze(infos)
     assert analysis.is_valid
@@ -342,12 +342,12 @@ def test_753_strand_shape_list_record_to_list_record():
     infos = [
         CapShapeInfo.from_cap_specs(
             "cap:parse_csv",
-            "media:csv;textable",
-            "media:json;list;record",
+            "media:fmt=csv",
+            "media:fmt=json;list;record",
         ),
         CapShapeInfo.from_cap_specs(
             "cap:transform",
-            "media:json;list;record",
+            "media:fmt=json;list;record",
             "media:result;list;record",
         ),
     ]

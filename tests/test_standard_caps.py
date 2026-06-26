@@ -54,7 +54,7 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-# TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs
+# TEST310: llm_generate_text_urn() produces a valid cap URN with text (enc=utf-8) in/out specs
 def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"

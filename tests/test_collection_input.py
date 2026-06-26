@@ -16,7 +16,7 @@ def test_717_collection_with_files():
     collection = CapInputCollection("root", "Root")
     collection.files = [
         CollectionFile("1", "/tmp/a.pdf", "media:pdf"),
-        CollectionFile("2", "/tmp/b.pdf", "media:pdf"),
+        CollectionFile("2", "/tmp/b.md", "media:enc=utf-8;ext=md"),
     ]
     assert collection.total_file_count() == 2
     assert collection.total_folder_count() == 0

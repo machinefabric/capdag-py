@@ -47,11 +47,11 @@ async def create_test_registry():
 async def test_088_resolve_seeded_spec():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:textable",
+        urn="media:enc=utf-8",
         media_type="text/plain",
         title="Textable",
     ))
-    resolved = await resolve_media_urn("media:textable", registry)
+    resolved = await resolve_media_urn("media:enc=utf-8", registry)
     assert resolved.media_type == "text/plain"
     assert resolved.profile_uri is None
 
@@ -68,13 +68,13 @@ async def test_089_resolve_seeded_record_spec():
         "properties": {"name": {"type": "string"}},
     }
     registry.add_spec(StoredMediaDef(
-        urn="media:json;output-spec;record",
+        urn="media:fmt=json;output-spec;record",
         media_type="application/json",
         title="Output Spec",
         profile_uri="https://example.com/schema/output",
         schema=schema,
     ))
-    resolved = await resolve_media_urn("media:json;output-spec;record", registry)
+    resolved = await resolve_media_urn("media:fmt=json;output-spec;record", registry)
     assert resolved.media_type == "application/json"
     assert resolved.profile_uri == "https://example.com/schema/output"
     assert resolved.schema == schema
@@ -101,7 +101,7 @@ async def test_093_resolve_unresolvable_fails_hard():
 # TEST095: Test MediaDef serializes with required fields and skips None fields
 def test_095_media_def_def_serialize():
     spec_def = MediaDef(
-        urn="media:test;json",
+        urn="media:fmt=json;test",
         media_type="application/json",
         title="Test Media",
         profile_uri="https://example.com/profile",
@@ -112,7 +112,7 @@ def test_095_media_def_def_serialize():
         extensions=[],
     )
     data = spec_def.to_dict()
-    assert data["urn"] == "media:test;json"
+    assert data["urn"] == "media:fmt=json;test"
     assert data["media_type"] == "application/json"
     assert data["profile_uri"] == "https://example.com/profile"
     assert data["title"] == "Test Media"
@@ -125,12 +125,12 @@ def test_095_media_def_def_serialize():
 # TEST096: Test deserializing MediaDef from JSON object
 def test_096_media_def_def_deserialize():
     data = {
-        "urn": "media:test;json",
+        "urn": "media:fmt=json;test",
         "media_type": "application/json",
         "title": "Test"
     }
     spec_def = MediaDef.from_dict(data)
-    assert spec_def.urn == "media:test;json"
+    assert spec_def.urn == "media:fmt=json;test"
     assert spec_def.media_type == "application/json"
     assert spec_def.title == "Test"
     assert spec_def.profile_uri is None
@@ -145,31 +145,31 @@ def test_096_media_def_def_deserialize():
 def test_097_validate_no_duplicate_urns_catches_duplicates():
     media_defs = [
         MediaDef(
-            urn="media:dup;json",
+            urn="media:dup;fmt=json",
             media_type="application/json",
             title="First",
         ),
         MediaDef(
-            urn="media:dup;json",
+            urn="media:dup;fmt=json",
             media_type="application/json",
             title="Second",
         ),  # duplicate
     ]
     with pytest.raises(DuplicateMediaUrn) as exc_info:
         validate_media_defs_no_duplicates(media_defs)
-    assert "media:dup;json" in str(exc_info.value)
+    assert "media:dup;fmt=json" in str(exc_info.value)
 
 
 # TEST098: Test duplicate URN validation passes for unique URNs
 def test_098_validate_no_duplicate_urns_passes_for_unique():
     media_defs = [
         MediaDef(
-            urn="media:first;json",
+            urn="media:first;fmt=json",
             media_type="application/json",
             title="First",
         ),
         MediaDef(
-            urn="media:second;json",
+            urn="media:fmt=json;second",
             media_type="application/json",
             title="Second",
         ),
@@ -379,7 +379,7 @@ def test_892_extensions_serialization():
 async def test_893_extensions_with_metadata_and_validation():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:custom-output;json",
+        urn="media:custom-output;fmt=json",
         media_type="application/json",
         title="Custom Output",
         profile_uri="https://example.com/schema",
@@ -388,7 +388,7 @@ async def test_893_extensions_with_metadata_and_validation():
         extensions=["json"],
     ))
 
-    resolved = await resolve_media_urn("media:custom-output;json", registry)
+    resolved = await resolve_media_urn("media:custom-output;fmt=json", registry)
 
     # Verify all fields are present
     assert resolved.validation is not None
@@ -480,14 +480,14 @@ def test_610_get_cached_spec():
 
     # Add a spec and verify we can retrieve it
     spec = StoredMediaDef(
-        urn="media:test;spec;textable",
+        urn="media:enc=utf-8;spec;test",
         media_type="text/plain",
         title="Test Spec",
     )
     normalized = normalize_media_urn(spec.urn)
     registry.cached_specs[normalized] = spec
 
-    retrieved = registry.get_cached_media_def("media:test;spec;textable")
+    retrieved = registry.get_cached_media_def("media:enc=utf-8;spec;test")
     assert retrieved is not None, "Should find spec by URN"
     assert retrieved.title == "Test Spec"
 

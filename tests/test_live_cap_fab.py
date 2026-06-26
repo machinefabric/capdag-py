@@ -83,11 +83,11 @@ def test_774_get_reachable_targets_finds_all_targets():
 # TEST777: Tests type checking prevents using PDF-specific cap with PNG input Verifies that media type compatibility is enforced during pathfinding
 def test_777_type_mismatch_pdf_cap_does_not_match_png_input():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
+    graph.add_cap(_make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
 
     paths = graph.find_paths_to_exact_target(
         _media("media:image;png"),
-        _media("media:textable"),
+        _media("media:enc=utf-8"),
         False,
         5,
         10,
@@ -115,15 +115,15 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 # TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
 def test_779_get_reachable_targets_respects_type_matching():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:pdf", "media:textable", "pdf2text", "PDF to Text"))
+    graph.add_cap(_make_test_cap("media:pdf", "media:enc=utf-8", "pdf2text", "PDF to Text"))
     graph.add_cap(_make_test_cap("media:image;png", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
 
     png_targets = graph.get_reachable_targets(_media("media:image;png"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in png_targets)
-    assert not any(t.media_def.is_equivalent(_media("media:textable")) for t in png_targets)
+    assert not any(t.media_def.is_equivalent(_media("media:enc=utf-8")) for t in png_targets)
 
     pdf_targets = graph.get_reachable_targets(_media("media:pdf"), False, 5)
-    assert any(t.media_def.is_equivalent(_media("media:textable")) for t in pdf_targets)
+    assert any(t.media_def.is_equivalent(_media("media:enc=utf-8")) for t in pdf_targets)
     assert not any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in pdf_targets)
 
 
@@ -178,10 +178,10 @@ def test_788_foreach_only_with_sequence_input():
     graph = LiveCapFab()
     graph.sync_from_caps(
         [
-            _make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF"),
+            _make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF"),
             _make_test_cap(
-                "media:textable",
-                "media:decision;json;record;textable",
+                "media:enc=utf-8",
+                "media:decision;fmt=json;record",
                 "choose",
                 "Make a Decision",
             ),
@@ -189,7 +189,7 @@ def test_788_foreach_only_with_sequence_input():
     )
 
     source = _media("media:pdf")
-    target = _media("media:decision;json;record;textable")
+    target = _media("media:decision;fmt=json;record")
 
     scalar_paths = graph.find_paths_to_exact_target(source, target, False, 10, 20)
     assert scalar_paths
@@ -210,7 +210,7 @@ def test_789_cap_from_json_has_valid_specs():
     cap = Cap.from_dict(
         json.loads(
             r"""{
-                "urn": "cap:in=media:pdf;disbind;out=\"media:disbound-page;textable\"",
+                "urn": "cap:disbind;in=media:pdf;out=\"media:disbound-page;enc=utf-8\"",
                 "command": "disbind",
                 "title": "Disbind PDF",
                 "args": [],
@@ -234,7 +234,7 @@ def test_790_identity_urn_is_specific():
     assert identity.out_spec() == "media:"
 
     specific_cap = CapUrn.from_string(
-        'cap:in=media:pdf;disbind;out="media:disbound-page;textable"'
+        'cap:disbind;in=media:pdf;out="media:disbound-page;enc=utf-8"'
     )
     assert not specific_cap.is_equivalent(identity)
 
@@ -243,10 +243,10 @@ def test_790_identity_urn_is_specific():
 @pytest.mark.asyncio
 async def test_791_sync_from_cap_urns_adds_edges():
     registry = FabricRegistry.new_for_test()
-    disbind = _make_test_cap("media:pdf", "media:page;textable", "disbind", "Disbind PDF")
+    disbind = _make_test_cap("media:pdf", "media:enc=utf-8;page", "disbind", "Disbind PDF")
     choose = _make_test_cap(
-        "media:textable",
-        "media:decision;json;record;textable",
+        "media:enc=utf-8",
+        "media:decision;fmt=json;record",
         "choose",
         "Make a Decision",
     )
@@ -265,22 +265,22 @@ def test_1289_bfs_reachable_includes_source_roundtrip():
     graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         )
     )
     graph.add_cap(
         _make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         )
     )
 
-    source = _media("media:textable")
+    source = _media("media:enc=utf-8")
     targets = graph.get_reachable_targets(source, False, 5)
     assert any(t.media_def.is_equivalent(source) for t in targets)
 
@@ -290,22 +290,22 @@ def test_1290_iddfs_finds_roundtrip_paths():
     graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         )
     )
     graph.add_cap(
         _make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         )
     )
 
-    source = _media("media:textable")
+    source = _media("media:enc=utf-8")
     paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
     assert paths
     shortest = min(paths, key=lambda p: p.total_steps)
@@ -317,22 +317,22 @@ def test_1291_iddfs_roundtrip_with_sequence():
     graph = LiveCapFab()
     graph.add_cap(
         _make_test_cap(
-            "media:textable",
-            "media:integer;numeric;textable",
+            "media:enc=utf-8",
+            "media:integer;numeric",
             "coerce_to_int",
             "Coerce to Integer",
         )
     )
     graph.add_cap(
         _make_test_cap(
-            "media:integer;numeric;textable",
-            "media:textable",
+            "media:integer;numeric",
+            "media:enc=utf-8",
             "coerce_to_text",
             "Coerce to Text",
         )
     )
 
-    source = _media("media:textable")
+    source = _media("media:enc=utf-8")
     paths = graph.find_paths_to_exact_target(source, source, True, 5, 100)
     assert paths
 

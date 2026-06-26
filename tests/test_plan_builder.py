@@ -149,8 +149,8 @@ def test_769_path_with_required_slot():
 # TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
 def test_991_detects_duplicate_cap_urns():
     caps = [
-        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF"),
-        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF Again"),
+        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
+        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF Again"),
     ]
 
     try:
@@ -166,9 +166,9 @@ def test_991_detects_duplicate_cap_urns():
 # TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations
 def test_880_no_duplicates_with_unique_caps():
     caps = [
-        _make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract Metadata"),
-        _make_test_cap("extract_outline", "media:pdf", "media:document-outline;textable;record", "Extract Outline"),
-        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind PDF"),
+        _make_test_cap("extract_metadata", "media:pdf", "media:enc=utf-8;file-metadata;record", "Extract Metadata"),
+        _make_test_cap("extract_outline", "media:pdf", "media:document-outline;enc=utf-8;record", "Extract Outline"),
+        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 3
@@ -177,8 +177,8 @@ def test_880_no_duplicates_with_unique_caps():
 # TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection
 def test_992_different_ops_same_types_not_duplicates():
     caps = [
-        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;textable;list", "Disbind"),
-        _make_test_cap("grind", "media:pdf", "media:disbound-pages;textable;list", "Grind"),
+        _make_test_cap("disbind", "media:pdf", "media:disbound-pages;enc=utf-8;list", "Disbind"),
+        _make_test_cap("grind", "media:pdf", "media:disbound-pages;enc=utf-8;list", "Grind"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2
@@ -187,8 +187,8 @@ def test_992_different_ops_same_types_not_duplicates():
 # TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name
 def test_993_same_op_different_input_types_not_duplicates():
     caps = [
-        _make_test_cap("extract_metadata", "media:pdf", "media:file-metadata;textable;record", "Extract PDF Metadata"),
-        _make_test_cap("extract_metadata", "media:textable;txt", "media:file-metadata;textable;record", "Extract TXT Metadata"),
+        _make_test_cap("extract_metadata", "media:pdf", "media:enc=utf-8;file-metadata;record", "Extract PDF Metadata"),
+        _make_test_cap("extract_metadata", "media:enc=utf-8;ext=txt", "media:enc=utf-8;file-metadata;record", "Extract TXT Metadata"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2

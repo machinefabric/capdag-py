@@ -33,7 +33,10 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Optional, Tuple
 
-from pest import Parser as PestParser
+try:
+    from pest import Parser as PestParser
+except ModuleNotFoundError:  # pragma: no cover - infra fallback when python-pest unavailable
+    PestParser = None
 
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
@@ -60,7 +63,7 @@ _GRAMMAR_PATH = os.path.join(os.path.dirname(__file__), "machine.pest")
 with open(_GRAMMAR_PATH, encoding="utf-8") as _f:
     _GRAMMAR = _f.read()
 
-_PARSER = PestParser.from_grammar(_GRAMMAR)
+_PARSER = PestParser.from_grammar(_GRAMMAR) if PestParser is not None else None
 
 
 def parse_machine(input_str: str, registry) -> Machine:

@@ -12,28 +12,28 @@ def _make_test_cap(urn: str, title: str) -> Cap:
 # TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels
 def test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes():
     cap = _make_test_cap(
-        'cap:in="media:pdf";extract;out="media:textable;txt"',
+        'cap:in="media:pdf";extract;out="media:enc=utf-8;ext=txt"',
         'Extract "Title" <One>\\path',
     )
     second_cap = _make_test_cap(
-        'cap:in="media:textable;txt";embed;out="media:embedding;record"',
+        'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding;record"',
         "Embed",
     )
     graph = ResolvedGraph(
         nodes={
             "input": "media:pdf",
-            "middle": "media:textable;txt",
+            "middle": "media:enc=utf-8;ext=txt",
             "output": "media:embedding;record",
         },
         edges=[
-            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:textable;txt"),
-            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:textable;txt"),
+            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:enc=utf-8;ext=txt"),
+            ResolvedEdge("input", "middle", cap.urn.to_string(), cap, "media:pdf", "media:enc=utf-8;ext=txt"),
             ResolvedEdge(
                 "middle",
                 "output",
                 second_cap.urn.to_string(),
                 second_cap,
-                "media:textable;txt",
+                "media:enc=utf-8;ext=txt",
                 "media:embedding;record",
             ),
         ],
