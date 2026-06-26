@@ -130,7 +130,7 @@ media:<markers>[;key=value]*
 Examples:
 - `media:bytes` - Binary data
 - `media:textable` - Text, single value
-- `media:pdf;bytes` - PDF document (binary)
+- `media:bytes;ext=pdf` - PDF document (binary)
 
 ### CapUrn
 
@@ -142,7 +142,7 @@ cap:in="<media-urn>";out="<media-urn>"[;key=value]*
 
 Examples:
 - `cap:in="media:void";test;out="media:void"` - No-op test capability
-- `cap:in="media:pdf;bytes";generate-thumbnail;out="media:bytes;ext=png;image;thumbnail"` - PDF thumbnail generator
+- `cap:in="media:bytes;ext=pdf";generate-thumbnail;out="media:bytes;ext=png;image;thumbnail"` - PDF thumbnail generator
 
 ### Matching Semantics
 

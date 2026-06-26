@@ -280,7 +280,7 @@ class MediaDef:
         """Create a new media definition
 
         Args:
-            urn: The media URN identifier (e.g., "media:pdf;binary")
+            urn: The media URN identifier (e.g., "media:binary;ext=pdf")
             media_type: The MIME media type (e.g., "application/json", "text/plain")
             title: Human-readable title for the media type (required)
             profile_uri: Optional profile URI for schema reference
