@@ -1,8 +1,8 @@
 # Python Test Catalog
 
-**Total Tests:** 989
+**Total Tests:** 1010
 
-**Numbered Tests:** 989
+**Numbered Tests:** 1010
 
 **Unnumbered Tests:** 0
 
@@ -76,47 +76,47 @@ This catalog lists all tests in the Python codebase.
 | test0058 | `test_0058_no_peer_router_rejects_all` | TEST0058: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
 | test0059 | `test_0059_wildcard_empty_cap_defaults` | TEST0059: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:907 |
 | test060 | `test_060_wrong_prefix_fails` | TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix | tests/test_media_urn.py:39 |
-| test061 | `test_061_is_binary` | TEST061: Test is_binary returns true when textable tag is absent (binary = not textable) | tests/test_media_urn.py:45 |
-| test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:58 |
-| test063 | `test_063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default) | tests/test_media_urn.py:72 |
-| test064 | `test_064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | tests/test_media_urn.py:83 |
-| test065 | `test_065_is_opaque` | TEST065: Test is_opaque returns true when record marker is absent (opaque is default) | tests/test_media_urn.py:96 |
-| test066 | `test_066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | tests/test_media_urn.py:107 |
-| test067 | `test_067_is_text` | TEST067: Test is_text returns true only when textable marker tag is present | tests/test_media_urn.py:117 |
-| test068 | `test_068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | tests/test_media_urn.py:130 |
+| test062 | `test_062_is_record` | TEST062: Test is_record returns true when record marker tag is present indicating key-value structure | tests/test_media_urn.py:51 |
+| test063 | `test_063_is_scalar` | TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default) | tests/test_media_urn.py:65 |
+| test064 | `test_064_is_list` | TEST064: Test is_list returns true when list marker tag is present indicating ordered collection | tests/test_media_urn.py:76 |
+| test065 | `test_065_is_opaque` | TEST065: Test is_opaque returns true when record marker is absent (opaque is default) | tests/test_media_urn.py:89 |
+| test066 | `test_066_is_json` | TEST066: Test is_json returns true only when json marker tag is present for JSON representation | tests/test_media_urn.py:100 |
+| test067 | `test_067_is_text` | TEST067: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text. | tests/test_media_urn.py:113 |
+| test068 | `test_068_is_void` | TEST068: Test is_void returns true when void flag or type=void tag is present | tests/test_media_urn.py:126 |
 | test0069 | `test_0069_lookup_cap_fabric_has_defver_arg` | TEST0069: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:182 |
 | test0070 | `test_0070_lookup_media_def_fabric_has_defver_arg` | TEST0070: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:207 |
-| test071 | `test_071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | tests/test_media_urn.py:140 |
-| test072 | `test_072_all_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | tests/test_media_urn.py:149 |
-| test073 | `test_073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | tests/test_media_urn.py:170 |
-| test074 | `test_074_media_urn_matching` | TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements | tests/test_media_urn.py:194 |
-| test075 | `test_075_matching` | TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests | tests/test_media_urn.py:213 |
-| test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | tests/test_media_urn.py:226 |
-| test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:240 |
-| test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:249 |
-| test0079 | `test_0079_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:864 |
-| test0080 | `test_0080_add_master_with_duplicate_healthy_id_errors` | TEST0080: Add master with duplicate healthy id errors | tests/test_relay_switch.py:933 |
-| test0081 | `test_0081_relay_switch_init_rejects_duplicate_ids` | TEST0081: Relay switch init rejects duplicate ids | tests/test_relay_switch.py:973 |
+| test071 | `test_071_to_string_roundtrip` | TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure | tests/test_media_urn.py:136 |
+| test072 | `test_072_all_constants_parse` | TEST072: Test all media URN constants parse successfully as valid media URNs | tests/test_media_urn.py:145 |
+| test073 | `test_073_extension_helpers` | TEST073: Test extension helper functions create media URNs with ext tag and correct format | tests/test_media_urn.py:166 |
+| test074 | `test_074_media_urn_matching` | TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements | tests/test_media_urn.py:191 |
+| test075 | `test_075_matching` | TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests | tests/test_media_urn.py:210 |
+| test076 | `test_076_specificity` | TEST076: Test specificity increases with more tags for ranking conformance | tests/test_media_urn.py:223 |
+| test077 | `test_077_serde_roundtrip` | TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly | tests/test_media_urn.py:237 |
+| test078 | `test_078_object_does_not_conform_to_string` | TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:246 |
+| test0081 | `test_0081_relay_switch_init_rejects_duplicate_ids` | TEST0081: Relay switch init rejects duplicate ids | tests/test_relay_switch.py:1018 |
 | test0082 | `test_0082_register_non_conflicting` | TEST0082: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:483 |
 | test0083 | `test_0083_reject_conforming_overlap` | TEST0083: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:490 |
-| test0084 | `test_0084_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST0084: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:775 |
-| test0085 | `test_0085_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST0085: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:795 |
+| test0084 | `test_0084_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST0084: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:964 |
+| test0085 | `test_0085_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST0085: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:984 |
 | test088 | `test_088_resolve_seeded_spec` | TEST088: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. Mirrors Rust test088. | tests/test_media_def.py:47 |
 | test089 | `test_089_resolve_seeded_record_spec` | TEST089: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. Mirrors Rust test089. | tests/test_media_def.py:64 |
+| test0090 | `test_0090_absent_scan_root_yields_empty_roster` | TEST0090: Absent scan root yields empty roster | tests/test_cartridge_discovery.py:76 |
+| test0091 | `test_0091_missing_cartridge_json_is_manifest_invalid` | TEST0091: Missing cartridge json is manifest invalid | tests/test_cartridge_discovery.py:82 |
+| test0092 | `test_0092_channel_mismatch_is_bad_installation` | TEST0092: Channel mismatch is bad installation | tests/test_cartridge_discovery.py:89 |
 | test093 | `test_093_resolve_unresolvable_fails_hard` | TEST093: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. Mirrors Rust test093. | tests/test_media_def.py:88 |
+| test0094 | `test_0094_fabric_manifest_mismatch_is_flagged` | TEST0094: Fabric manifest mismatch is flagged | tests/test_cartridge_discovery.py:98 |
 | test095 | `test_095_media_def_def_serialize` | TEST095: Test MediaDef serializes with required fields and skips None fields | tests/test_media_def.py:102 |
 | test096 | `test_096_media_def_def_deserialize` | TEST096: Test deserializing MediaDef from JSON object | tests/test_media_def.py:126 |
 | test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST097: Test duplicate URN validation catches duplicates | tests/test_media_def.py:145 |
 | test098 | `test_098_validate_no_duplicate_urns_passes_for_unique` | TEST098: Test duplicate URN validation passes for unique URNs | tests/test_media_def.py:164 |
-| test099 | `test_099_resolved_is_binary` | TEST099: Test ResolvedMediaDef is_binary returns true when textable tag is absent | tests/test_media_def.py:187 |
-| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present | tests/test_media_def.py:205 |
-| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent | tests/test_media_def.py:224 |
-| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present | tests/test_media_def.py:242 |
-| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present | tests/test_media_def.py:260 |
-| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaDef is_text returns true when textable tag is present | tests/test_media_def.py:278 |
-| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media def def to resolved media def | tests/test_media_def.py:302 |
-| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media definition | tests/test_media_def.py:324 |
-| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from registry spec to resolved | tests/test_media_def.py:357 |
+| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present | tests/test_media_def.py:192 |
+| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent | tests/test_media_def.py:210 |
+| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present | tests/test_media_def.py:228 |
+| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaDef is_json returns true when fmt=json tag is present | tests/test_media_def.py:246 |
+| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag | tests/test_media_def.py:263 |
+| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media def def to resolved media def | tests/test_media_def.py:286 |
+| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media definition | tests/test_media_def.py:308 |
+| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from registry spec to resolved | tests/test_media_def.py:341 |
 | test108 | `test_108_cap_creation` | TEST108: Test creating new cap with URN, title, and command verifies correct initialization | tests/test_cap.py:19 |
 | test109 | `test_109_cap_with_args` | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly | tests/test_cap.py:30 |
 | test110 | `test_110_cap_with_stdin` | TEST110: Test cap matching with subset semantics for request fulfillment | tests/test_cap.py:49 |
@@ -126,9 +126,10 @@ This catalog lists all tests in the Python codebase.
 | test114 | `test_114_cap_json_serialization` | TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors | tests/test_cap.py:110 |
 | test115 | `test_115_cap_arg_serialization` | TEST115: Test CapArg serialization and deserialization with multiple sources | tests/test_cap.py:143 |
 | test116 | `test_116_cap_arg_constructors` | TEST116: Test CapArg constructor methods basic and with_description create args correctly | tests/test_cap.py:168 |
-| test117 | `test_117_cap_manifest_channel_roundtrip` | TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults. | tests/test_manifest.py:46 |
-| test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:92 |
+| test117 | `test_117_cap_manifest_channel_roundtrip` | TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). CapManifest rejects unknown channel values — the closed enum is {release, nightly}. A missing or unrecognized channel is a hard parse error — no defaults. | tests/test_manifest.py:51 |
+| test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest carries registry_url: null and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:97 |
 | test119 | `test_119_concatenated_vs_final_payload_divergence` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk | tests/test_cartridge_host_runtime.py:265 |
+| test0120 | `test_0120_registry_url_under_dev_slug_is_rejected` | TEST0120: Registry url under dev slug is rejected | tests/test_cartridge_discovery.py:106 |
 | test121 | `test_121_max_chunk_plus_one_splits_into_two_chunks` | TEST121: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
 | test122 | `test_122_chunking_data_integrity_3x` | TEST122: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:831 |
 | test123 | `test_123_registry_add_caps_to_cache` | TEST123: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:300 |
@@ -141,10 +142,16 @@ This catalog lists all tests in the Python codebase.
 | test130 | `test_130_output_validation_with_details` | TEST130: Output validation surfaces schema violation details | tests/test_schema_validation.py:356 |
 | test131 | `test_131_input_validation_optional_arg` | TEST131: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:87 |
 | test132 | `test_132_input_validation_too_many_args` | TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:100 |
+| test0133 | `test_0133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:909 |
+| test0134 | `test_0134_add_master_with_duplicate_healthy_id_errors` | TEST0134: Add master with duplicate healthy id errors | tests/test_relay_switch.py:978 |
 | test135 | `test_135_registry_creation` | TEST135: Test registry creation with temporary cache directory succeeds | tests/test_registry.py:31 |
+| test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | tests/test_relay_switch.py:1035 |
+| test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | tests/test_relay_switch.py:1077 |
 | test137 | `test_137_parse_registry_json` | TEST137: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:52 |
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:97 |
+| test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1093 |
 | test139 | `test_139_per_cap_url_uses_sha256` | TEST139: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:123 |
+| test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | tests/test_relay_switch.py:1111 |
 | test140 | `test_140_same_cap_different_spellings_same_hash` | TEST140: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 | test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:171 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:203 |
@@ -153,14 +160,14 @@ This catalog lists all tests in the Python codebase.
 | test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:267 |
 | test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:278 |
 | test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:290 |
-| test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:20 |
-| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:110 |
-| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:126 |
-| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:174 |
-| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:181 |
-| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:205 |
-| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:222 |
-| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:240 |
+| test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:25 |
+| test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:115 |
+| test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:131 |
+| test151 | `test_151_cap_manifest_required_fields` | TEST151: Missing required fields fail | tests/test_manifest.py:179 |
+| test152 | `test_152_cap_manifest_with_multiple_caps` | TEST152: Multiple caps across groups | tests/test_manifest.py:186 |
+| test153 | `test_153_cap_manifest_empty_cap_groups` | TEST153: Empty cap groups | tests/test_manifest.py:210 |
+| test154 | `test_154_cap_manifest_optional_fields` | TEST154: Optional author field omitted in serialization | tests/test_manifest.py:227 |
+| test155 | `test_155_cap_manifest_complex_roundtrip` | TEST155: ComponentMetadata pattern | tests/test_manifest.py:245 |
 | test156 | `test_156_stdin_source_data_creation` | TEST156: Test creating StdinSource Data variant with byte vector | tests/test_caller.py:31 |
 | test157 | `test_157_stdin_source_file_reference_creation` | TEST157: Test creating StdinSource FileReference variant with all required fields | tests/test_caller.py:40 |
 | test158 | `test_158_stdin_source_data_empty` | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly | tests/test_caller.py:60 |
@@ -293,33 +300,33 @@ This catalog lists all tests in the Python codebase.
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:295 |
 | test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:260 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:336 |
-| test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:275 |
-| test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:234 |
-| test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:260 |
-| test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:268 |
-| test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:276 |
+| test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:278 |
+| test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:237 |
+| test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:257 |
+| test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:265 |
+| test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:273 |
 | test307 | `test_307_model_availability_urn` | TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs | tests/test_standard_caps.py:35 |
 | test308 | `test_308_model_path_urn` | TEST308: Test model_path_urn builds valid cap URN with correct marker and media defs | tests/test_standard_caps.py:43 |
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:51 |
 | test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | tests/test_standard_caps.py:58 |
 | test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:68 |
-| test319 | `test_319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:505 |
-| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify field round-trip. | tests/test_cartridge_repo.py:148 |
-| test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:160 |
-| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:174 |
-| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: Server requires schema 5.0 and rejects older. | tests/test_cartridge_repo.py:188 |
-| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: Server transforms each channel-entry into a flat CartridgeInfo with channel set, preserving cap_groups verbatim. | tests/test_cartridge_repo.py:207 |
-| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope, including both channels. | tests/test_cartridge_repo.py:247 |
-| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces. | tests/test_cartridge_repo.py:261 |
-| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches name/description/tags and cap titles across both channels, but never substring on cap URNs. | tests/test_cartridge_repo.py:294 |
-| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters by string-equal categories. | tests/test_cartridge_repo.py:320 |
-| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent. | tests/test_cartridge_repo.py:338 |
-| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridges index keyed by normalized URNs. | tests/test_cartridge_repo.py:368 |
-| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge. | tests/test_cartridge_repo.py:386 |
-| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) and returns None for an unknown pair. | tests/test_cartridge_repo.py:413 |
-| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:433 |
-| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync is true on an empty cache and false right after a successful update. | tests/test_cartridge_repo.py:462 |
-| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance. | tests/test_cartridge_repo.py:474 |
+| test319 | `test_319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:508 |
+| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify field round-trip. | tests/test_cartridge_repo.py:151 |
+| test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:163 |
+| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:177 |
+| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: Server requires schema 5.0 and rejects older. | tests/test_cartridge_repo.py:191 |
+| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: Server transforms each channel-entry into a flat CartridgeInfo with channel set, preserving cap_groups verbatim. | tests/test_cartridge_repo.py:210 |
+| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope, including both channels. | tests/test_cartridge_repo.py:250 |
+| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a (channel, id). Same id in the wrong channel must miss — channels are independent namespaces. | tests/test_cartridge_repo.py:264 |
+| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches name/description/tags and cap titles across both channels, but never substring on cap URNs. | tests/test_cartridge_repo.py:297 |
+| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters by string-equal categories. | tests/test_cartridge_repo.py:323 |
+| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent. | tests/test_cartridge_repo.py:341 |
+| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridges index keyed by normalized URNs. | tests/test_cartridge_repo.py:371 |
+| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge. | tests/test_cartridge_repo.py:389 |
+| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) and returns None for an unknown pair. | tests/test_cartridge_repo.py:416 |
+| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:436 |
+| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync is true on an empty cache and false right after a successful update. | tests/test_cartridge_repo.py:465 |
+| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v5.0 channel-partitioned registry round-trips through Server → CartridgeInfo, preserving the cap_groups structure, signed flag, and channel provenance. | tests/test_cartridge_repo.py:477 |
 | test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:558 |
 | test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:628 |
 | test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:656 |
@@ -373,33 +380,33 @@ This catalog lists all tests in the Python codebase.
 | test410 | `test_410_master_receives_updated_relay_notify` | TEST410: Master receives updated RelayNotify (cap change callback via read_frame) | tests/test_cartridge_relay.py:326 |
 | test411 | `test_411_socket_close_detection` | TEST411: Socket close detection (both directions) | tests/test_cartridge_relay.py:387 |
 | test412 | `test_412_bidirectional_concurrent_flow` | TEST412: Bidirectional concurrent frame flow through relay | tests/test_cartridge_relay.py:421 |
-| test413 | `test_413_register_cartridge_adds_cap_table` | TEST413: Register cartridge adds entries to cap_table | tests/test_cartridge_host.py:316 |
-| test414 | `test_414_capabilities_empty_initially` | TEST414: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly. | tests/test_cartridge_host.py:342 |
-| test415 | `test_415_req_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | tests/test_cartridge_host.py:365 |
-| test416 | `test_416_attach_cartridge_handshake` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | tests/test_cartridge_host.py:399 |
-| test417 | `test_417_route_req_by_cap_urn` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | tests/test_cartridge_host.py:427 |
-| test418 | `test_418_route_continuation_by_req_id` | TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames. | tests/test_cartridge_host.py:488 |
-| test419 | `test_419_heartbeat_local_handling` | TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay) | tests/test_cartridge_host.py:547 |
-| test420 | `test_420_cartridge_frames_forwarded_to_relay` | TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through) | tests/test_cartridge_host.py:609 |
-| test421 | `test_421_cartridge_death_updates_caps` | TEST421: Cartridge death updates capability list (caps removed) | tests/test_cartridge_host.py:667 |
-| test422 | `test_422_cartridge_death_sends_err` | TEST422: Cartridge death sends ERR for all pending requests via relay | tests/test_cartridge_host.py:708 |
-| test423 | `test_423_multi_cartridge_distinct_caps` | TEST423: Multiple cartridges registered with distinct caps route independently | tests/test_cartridge_host.py:756 |
-| test424 | `test_424_concurrent_requests_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | tests/test_cartridge_host.py:837 |
-| test425 | `test_425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | tests/test_cartridge_host.py:904 |
-| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:110 |
-| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:160 |
-| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:244 |
-| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:279 |
-| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:461 |
-| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:537 |
-| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:599 |
-| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:607 |
-| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:675 |
-| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:720 |
+| test413 | `test_413_register_cartridge_adds_cap_table` | TEST413: Register cartridge adds entries to cap_table | tests/test_cartridge_host.py:334 |
+| test414 | `test_414_capabilities_empty_initially` | TEST414: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly. | tests/test_cartridge_host.py:360 |
+| test415 | `test_415_req_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | tests/test_cartridge_host.py:383 |
+| test416 | `test_416_attach_cartridge_handshake` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | tests/test_cartridge_host.py:417 |
+| test417 | `test_417_route_req_by_cap_urn` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | tests/test_cartridge_host.py:445 |
+| test418 | `test_418_route_continuation_by_req_id` | TEST418: Route STREAM_START/CHUNK/STREAM_END/END by req_id (not cap_urn) Verifies that after the initial REQ→cartridge routing, all subsequent continuation frames with the same req_id are routed to the same cartridge — even though no cap_urn is present on those frames. | tests/test_cartridge_host.py:506 |
+| test419 | `test_419_heartbeat_local_handling` | TEST419: Cartridge HEARTBEAT handled locally (not forwarded to relay) | tests/test_cartridge_host.py:565 |
+| test420 | `test_420_cartridge_frames_forwarded_to_relay` | TEST420: Cartridge non-HELLO/non-HB frames forwarded to relay (pass-through) | tests/test_cartridge_host.py:627 |
+| test421 | `test_421_cartridge_death_updates_caps` | TEST421: Cartridge death updates capability list (caps removed) | tests/test_cartridge_host.py:685 |
+| test422 | `test_422_cartridge_death_sends_err` | TEST422: Cartridge death sends ERR for all pending requests via relay | tests/test_cartridge_host.py:726 |
+| test423 | `test_423_multi_cartridge_distinct_caps` | TEST423: Multiple cartridges registered with distinct caps route independently | tests/test_cartridge_host.py:774 |
+| test424 | `test_424_concurrent_requests_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | tests/test_cartridge_host.py:855 |
+| test425 | `test_425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | tests/test_cartridge_host.py:922 |
+| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:155 |
+| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:205 |
+| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:289 |
+| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:324 |
+| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:506 |
+| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:582 |
+| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:644 |
+| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:652 |
+| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:720 |
+| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:765 |
 | test436 | `test_436_compute_checksum` | TEST436: Verify FNV-1a checksum function produces consistent results | tests/test_cbor_frame.py:567 |
-| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:340 |
-| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:380 |
-| test439 | `test_439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:420 |
+| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:385 |
+| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:425 |
+| test439 | `test_439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:465 |
 | test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:930 |
 | test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:950 |
 | test442 | `test_442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | tests/test_cbor_frame.py:587 |
@@ -425,20 +432,20 @@ This catalog lists all tests in the Python codebase.
 | test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:351 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:88 |
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:95 |
-| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:276 |
-| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:287 |
+| test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:281 |
+| test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:292 |
 | test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1782 |
 | test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1791 |
-| test480 | `test_480_parse_cap_groups_rejects_manifest_without_identity` | TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY | tests/test_cartridge_host.py:125 |
+| test480 | `test_480_parse_cap_groups_rejects_manifest_without_identity` | TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY | tests/test_cartridge_host.py:143 |
 | test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:379 |
 | test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:417 |
 | test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:446 |
-| test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:135 |
-| test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:158 |
-| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:774 |
-| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:791 |
-| test489 | `test_489_full_path_identity_verification` | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge | tests/test_cartridge_host.py:185 |
-| test490 | `test_490_identity_verification_multiple_cartridges` | TEST490: Identity verification with multiple cartridges through single relay | tests/test_cartridge_host.py:236 |
+| test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:153 |
+| test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:176 |
+| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:819 |
+| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:836 |
+| test489 | `test_489_full_path_identity_verification` | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge | tests/test_cartridge_host.py:203 |
+| test490 | `test_490_identity_verification_multiple_cartridges` | TEST490: Identity verification with multiple cartridges through single relay | tests/test_cartridge_host.py:254 |
 | test491 | `test_491_chunk_requires_chunk_index_and_checksum` | TEST491: Frame::chunk constructor requires and sets chunk_index and checksum | tests/test_cbor_frame.py:958 |
 | test492 | `test_492_stream_end_requires_chunk_count` | TEST492: Frame::stream_end constructor requires and sets chunk_count | tests/test_cbor_frame.py:972 |
 | test493 | `test_493_compute_checksum_fnv1a_test_vectors` | TEST493: compute_checksum produces correct FNV-1a hash for known test vectors | tests/test_cbor_frame.py:982 |
@@ -494,16 +501,16 @@ This catalog lists all tests in the Python codebase.
 | test543 | `test_543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | tests/test_cartridge_runtime.py:2060 |
 | test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall::finish sends END frame | tests/test_cartridge_runtime.py:2075 |
 | test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall::finish returns PeerResponse with data | tests/test_cartridge_runtime.py:2100 |
-| test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:284 |
-| test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:295 |
-| test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:306 |
-| test549 | `test_549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | tests/test_media_urn.py:316 |
-| test550 | `test_550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | tests/test_media_urn.py:328 |
-| test551 | `test_551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | tests/test_media_urn.py:342 |
-| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:349 |
-| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:365 |
-| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:374 |
-| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | tests/test_media_urn.py:383 |
+| test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:281 |
+| test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:292 |
+| test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:303 |
+| test549 | `test_549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | tests/test_media_urn.py:313 |
+| test550 | `test_550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | tests/test_media_urn.py:325 |
+| test551 | `test_551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | tests/test_media_urn.py:339 |
+| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:346 |
+| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:362 |
+| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:371 |
+| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | tests/test_media_urn.py:380 |
 | test559 | `test_559_without_tag` | TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys | tests/test_cap_urn.py:713 |
 | test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:738 |
 | test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:759 |
@@ -540,16 +547,16 @@ This catalog lists all tests in the Python codebase.
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
 | test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:111 |
 | test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:128 |
-| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:439 |
-| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:447 |
-| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_def.py:470 |
-| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_def.py:491 |
+| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:423 |
+| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:431 |
+| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension->URN pairs | tests/test_media_def.py:454 |
+| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_def.py:475 |
 | test611 | `test_611_insert_schema_populates_cache` | TEST611: insert_schema seeds the cache so subsequent validation hits a real compiled schema rather than the skip-on-unknown path. A registry that silently dropped inserts would let validation calls return None even for inputs that violate the schema. | tests/test_media_profile.py:65 |
 | test612 | `test_612_clear_cache` | TEST612: clear_cache empties all in-memory schemas | tests/test_media_profile.py:78 |
 | test613 | `test_613_validate_cached` | TEST613: validate_cached validates against seeded schemas | tests/test_media_profile.py:86 |
-| test614 | `test_614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | tests/test_media_def.py:512 |
-| test616 | `test_616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | tests/test_media_def.py:525 |
-| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_def.py:544 |
+| test614 | `test_614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | tests/test_media_def.py:496 |
+| test616 | `test_616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | tests/test_media_def.py:509 |
+| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_def.py:528 |
 | test618 | `test_618_registry_creation` | TEST618: A freshly constructed registry is operational and reports an empty cache. Schemas must be inserted explicitly — none are bundled. | tests/test_media_profile.py:103 |
 | test619 | `test_619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has no cached schemas. The well-known profile URLs are not bundled into the library; callers must seed them (via insert_schema) or fetch and seed from the public registry. | tests/test_media_profile.py:111 |
 | test620 | `test_620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | tests/test_media_profile.py:121 |
@@ -560,16 +567,16 @@ This catalog lists all tests in the Python codebase.
 | test625 | `test_625_string_array_validation` | TEST625: Verify string array schema validates string arrays and rejects mixed arrays | tests/test_media_profile.py:159 |
 | test626 | `test_626_unknown_profile_skips_validation` | TEST626: Verify unknown profile URL skips validation and returns None | tests/test_media_profile.py:167 |
 | test627 | `test_627_insert_schema_rejects_invalid_schema` | TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. Silent acceptance of an invalid schema would hide the configuration error until the first validation call against it. | tests/test_media_profile.py:175 |
-| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:491 |
-| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:499 |
-| test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with an empty cartridge list. | tests/test_cartridge_repo.py:527 |
-| test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with an empty cache and non-empty URLs. | tests/test_cartridge_repo.py:534 |
-| test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:540 |
-| test633 | `test_633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description / args / output parses. | tests/test_cartridge_repo.py:557 |
-| test634 | `test_634_deserialize_cap_group` | TEST634: A cap_group parses with caps + adapter_urns. | tests/test_cartridge_repo.py:596 |
-| test635 | `test_635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields become empty strings. | tests/test_cartridge_repo.py:614 |
-| test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes cleanly (the null_as_empty_string deserializer is the only tolerated coercion). | tests/test_cartridge_repo.py:656 |
-| test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:677 |
+| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:488 |
+| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:496 |
+| test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with an empty cartridge list. | tests/test_cartridge_repo.py:530 |
+| test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with an empty cache and non-empty URLs. | tests/test_cartridge_repo.py:537 |
+| test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:543 |
+| test633 | `test_633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description / args / output parses. | tests/test_cartridge_repo.py:560 |
+| test634 | `test_634_deserialize_cap_group` | TEST634: A cap_group parses with caps + adapter_urns. | tests/test_cartridge_repo.py:599 |
+| test635 | `test_635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields become empty strings. | tests/test_cartridge_repo.py:617 |
+| test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes cleanly (the null_as_empty_string deserializer is the only tolerated coercion). | tests/test_cartridge_repo.py:659 |
+| test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:680 |
 | test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in collapses to the same illegal bare top form | tests/test_cap_urn.py:913 |
 | test641 | `test_641_wildcard_out_only_defaults_in` | TEST641: cap:out collapses to the same illegal bare top form | tests/test_cap_urn.py:919 |
 | test642 | `test_642_wildcard_in_out_no_values` | TEST642: cap:in;out collapses to the same illegal bare top form | tests/test_cap_urn.py:925 |
@@ -584,12 +591,12 @@ This catalog lists all tests in the Python codebase.
 | test651 | `test_651_wildcard_identity_forms_equivalent` | TEST651: Explicit identity forms produce the same CapUrn | tests/test_cap_urn.py:989 |
 | test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:1005 |
 | test653 | `test_653_wildcard_identity_routing_isolation` | TEST653: invalid effect=none declarations fail at construction | tests/test_cap_urn.py:1020 |
-| test661 | `test_661_cartridge_death_keeps_known_caps_advertised` | TEST661: Cartridge death keeps known_caps advertised for on-demand respawn | tests/test_cartridge_host.py:933 |
-| test662 | `test_662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth (set at registration, refreshed on HELLO), and advertisement does not gate on `running`. | tests/test_cartridge_host.py:974 |
-| test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1003 |
-| test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1029 |
-| test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — running cartridges contribute their post-HELLO cap_groups, registered but-not-yet-spawned cartridges contribute their probe-time cap_groups. The cap_table is rebuilt from cap_groups uniformly. | tests/test_cartridge_host.py:1069 |
-| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:813 |
+| test661 | `test_661_cartridge_death_keeps_known_caps_advertised` | TEST661: Cartridge death keeps known_caps advertised for on-demand respawn | tests/test_cartridge_host.py:951 |
+| test662 | `test_662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps. cap_groups is the source of truth (set at registration, refreshed on HELLO), and advertisement does not gate on `running`. | tests/test_cartridge_host.py:992 |
+| test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1021 |
+| test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1047 |
+| test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — running cartridges contribute their post-HELLO cap_groups, registered but-not-yet-spawned cartridges contribute their probe-time cap_groups. The cap_table is rebuilt from cap_groups uniformly. | tests/test_cartridge_host.py:1087 |
+| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:858 |
 | test667 | `test_667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | tests/test_cbor_frame.py:538 |
 | test668 | `test_668_resolve_slot_with_populated_byte_slot_values` | TEST668: resolve_slot_with_populated_byte_slot_values | tests/test_planner_argument_binding.py:37 |
 | test669 | `test_669_resolve_slot_falls_back_to_default` | TEST669: resolve_slot_falls_back_to_default | tests/test_planner_argument_binding.py:54 |
@@ -754,22 +761,22 @@ This catalog lists all tests in the Python codebase.
 | test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:918 |
 | test850 | `test_850_all_format_conversion_paths_build_valid_urns` | TEST850: all_format_conversion_paths each entry builds a valid parseable CapUrn | tests/test_standard_format_conversion.py:9 |
 | test851 | `test_851_format_conversion_urn_specs` | TEST851: format_conversion_urn in/out specs match the input constants | tests/test_standard_format_conversion.py:23 |
-| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:419 |
-| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:426 |
-| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones | tests/test_media_urn.py:436 |
-| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:446 |
-| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:456 |
-| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:463 |
-| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:470 |
-| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:481 |
+| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:415 |
+| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:422 |
+| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones. Two text values with differing serialization formats share their encoding but not their fmt. | tests/test_media_urn.py:433 |
+| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:443 |
+| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:453 |
+| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:460 |
+| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:467 |
+| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:478 |
 | test860 | `test_860_seq_assigner_same_rid_different_xids_independent` | TEST860: Same RID with different XIDs get independent seq counters | tests/test_cbor_frame.py:687 |
 | test880 | `test_880_no_duplicates_with_unique_caps` | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | tests/test_plan_builder.py:167 |
 | test886 | `test_886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | tests/test_plan_builder.py:294 |
 | test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | tests/test_cap_urn.py:1222 |
 | test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1301 |
-| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:373 |
-| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:395 |
-| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:417 |
+| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:357 |
+| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:379 |
+| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:401 |
 | test902 | `test_902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | tests/test_cbor_frame.py:1514 |
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
@@ -954,7 +961,7 @@ This catalog lists all tests in the Python codebase.
 | test1267 | `test_1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | tests/test_orchestrator_parser.py:261 |
 | test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:280 |
 | test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:299 |
-| test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:506 |
+| test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:503 |
 | test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:145 |
 | test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:152 |
 | test1275 | `test_1275_adapter_selection_dispatchable_by_specific_provider` | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. | tests/test_standard_caps.py:166 |
@@ -964,7 +971,7 @@ This catalog lists all tests in the Python codebase.
 | test1281 | `test_1281_no_adapter_for_unknown` | TEST1281: has_adapter_for_extension returns false for unregistered extension | tests/test_input_resolver.py:526 |
 | test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2382 |
 | test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2389 |
-| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:299 |
+| test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:304 |
 | test1285 | `test_1285_confirmed_no_adapters_fails` | TEST1285: detect_file_confirmed fails when no adapters are registered for the extension | tests/test_input_resolver.py:533 |
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:543 |
 | test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:560 |
@@ -988,7 +995,7 @@ This catalog lists all tests in the Python codebase.
 | test1803 | `test_1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | tests/test_cap_urn.py:1460 |
 | test1804 | `test_1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | tests/test_cap_urn.py:1471 |
 | test1805 | `test_1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. Pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | tests/test_cap_urn.py:1483 |
-| test1810 | `test_1810_media_void_is_atomic` | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. | tests/test_media_urn.py:523 |
+| test1810 | `test_1810_media_void_is_atomic` | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. | tests/test_media_urn.py:520 |
 | test1820 | `test_1820_specificity_question_is_zero` | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. | tests/test_cap_urn.py:1525 |
 | test1821 | `test_1821_specificity_must_not_have_is_five` | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). | tests/test_cap_urn.py:1536 |
 | test1822 | `test_1822_specificity_must_have_any_is_two` | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. | tests/test_cap_urn.py:1542 |
@@ -1005,11 +1012,25 @@ This catalog lists all tests in the Python codebase.
 | test1844 | `test_1844_axis_weighting_out_dominates` | TEST1844: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1706 |
 | test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out, in-axis dominates over y-axis. | tests/test_cap_urn.py:1718 |
 | test1846 | `test_1846_axis_weighting_decoded_layout` | TEST1846: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1730 |
+| test1847 | `test_1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and primary_package() must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field, native format wins. | tests/test_cartridge_repo.py:768 |
+| test1849 | `test_1849_resolve_for_host_compatible_latest` | TEST1849: latest version has a host build -> Compatible, resolving to the latest version and that platform's native-format package. | tests/test_cartridge_repo.py:853 |
+| test1850 | `test_1850_resolve_for_host_compatible_outdated` | TEST1850: the latest version lacks a host build but an older version has one -> CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. | tests/test_cartridge_repo.py:873 |
+| test1851 | `test_1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build -> Incompatible, no resolved version/package, reason states the host platform. | tests/test_cartridge_repo.py:894 |
+| test1852 | `test_1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | tests/test_cartridge_repo.py:912 |
+| test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:934 |
+| test1872 | `test_1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: registry_url_from_build_env passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry; a published build must report exactly the URL it was compiled with. | tests/test_manifest.py:329 |
+| test1873 | `test_1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. | tests/test_manifest.py:337 |
+| test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env ("") is neither a dev build nor a valid identity and MUST fail hard, so the build can never silently hash the empty string into a fake registry slug. We assert the failure rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:345 |
+| test1875 | `test_1875_scan_all_reaches_both_dev_and_registry_slugs` | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HANDSHAKE_FAILED — proving discovery REACHED them (was not filtered out by a registry pin). A registry-pin rejection would instead surface BAD_INSTALLATION and never probe. | tests/test_cartridge_discovery.py:128 |
+| test1876 | `test_1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's release/ folder is invisible to a nightly host even though the slug folder is present (its nightly/ subtree is absent). | tests/test_cartridge_discovery.py:159 |
+| test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:175 |
+| test1878 | `test_1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked installed_from=bundle with no baked hash in BUNDLED_PROVIDER_HASHES (empty under a plain test build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:191 |
+| test1879 | `test_1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1131 |
 ---
 
 *Generated from Python source tree*
-*Total tests: 989*
-*Total numbered tests: 989*
+*Total tests: 1010*
+*Total numbered tests: 1010*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 0*
