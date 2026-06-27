@@ -72,20 +72,20 @@ def _expect_incompatible(out, kind):
     assert entry.error.kind == kind, f"wrong attachment-error kind: {entry.error.message}"
 
 
-# TEST0090: Absent scan root yields empty roster
+# TEST90: Absent scan root yields empty roster
 def test_0090_absent_scan_root_yields_empty_roster(tmp_path):
     out = discover_cartridges(tmp_path / "nope", _nightly_dev_identity())
     assert out == [], "no install tree must be an empty roster, not an error"
 
 
-# TEST0091: Missing cartridge json is manifest invalid
+# TEST91: Missing cartridge json is manifest invalid
 def test_0091_missing_cartridge_json_is_manifest_invalid(tmp_path):
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", None, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MANIFEST_INVALID)
 
 
-# TEST0092: Channel mismatch is bad installation
+# TEST92: Channel mismatch is bad installation
 def test_0092_channel_mismatch_is_bad_installation(tmp_path):
     # Declares release but lives under nightly/ — host is nightly.
     json_str = _dev_cartridge_json("release", 1)
@@ -94,7 +94,7 @@ def test_0092_channel_mismatch_is_bad_installation(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
 
 
-# TEST0094: Fabric manifest mismatch is flagged
+# TEST94: Fabric manifest mismatch is flagged
 def test_0094_fabric_manifest_mismatch_is_flagged(tmp_path):
     json_str = _dev_cartridge_json("nightly", 999)
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
@@ -102,7 +102,7 @@ def test_0094_fabric_manifest_mismatch_is_flagged(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH)
 
 
-# TEST0120: Registry url under dev slug is rejected
+# TEST120: Registry url under dev slug is rejected
 def test_0120_registry_url_under_dev_slug_is_rejected(tmp_path):
     # A non-null registry_url placed under the reserved dev slug violates
     # the three-place rule — read_from_dir rejects it as a bad install
@@ -118,13 +118,7 @@ def test_0120_registry_url_under_dev_slug_is_rejected(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
 
 
-# TEST1875: scan-all — a registry slug folder AND the dev slot present on
-# disk are BOTH scanned, regardless of the host's own baked registry. The
-# dev cartridge (null registry under dev/) and the registry cartridge (its
-# url hashing to its slug folder) each reach their probe. Both fixtures lack
-# a real bifaci binary, so both end at HANDSHAKE_FAILED — proving discovery
-# REACHED them (was not filtered out by a registry pin). A registry-pin
-# rejection would instead surface BAD_INSTALLATION and never probe.
+# TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe.
 def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
     url = "https://cartridges.example.com/manifest"
     rslug = slug_for(url)
@@ -153,9 +147,7 @@ def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
         )
 
 
-# TEST1876: only the host's channel subtree is scanned. A cartridge under a
-# slug's release/ folder is invisible to a nightly host even though the slug
-# folder is present (its nightly/ subtree is absent).
+# TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent).
 def test_1876_other_channel_subtree_is_skipped(tmp_path):
     url = "https://cartridges.example.com/manifest"
     rslug = slug_for(url)
@@ -169,9 +161,7 @@ def test_1876_other_channel_subtree_is_skipped(tmp_path):
     )
 
 
-# TEST1877: a registry cartridge hand-copied under the WRONG registry slug
-# folder fails the three-place rule (BadInstallation) — scan-all does not
-# mean "accept anywhere", placement must still be self-consistent.
+# TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent.
 def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
     url = "https://cartridges.example.com/manifest"
     wrong_slug = slug_for("https://somewhere-else.example.com/manifest")
@@ -181,12 +171,7 @@ def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
 
 
-# TEST1878: a cartridge marked installed_from=bundle with no baked hash in
-# BUNDLED_PROVIDER_HASHES (empty under a plain test build) is rejected as
-# BadInstallation — the bundled-integrity gate fires before the probe. Proves
-# the verify is wired into discovery. Non-macOS only: on macOS the baked-hash
-# path is intentionally absent (OS code-signature is the guard), so a bundled
-# provider is accepted there and would instead end at the probe.
+# TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
 @pytest.mark.skipif(sys.platform == "darwin", reason="macOS uses code-signature, not baked hashes")
 def test_1878_bundled_provider_without_baked_hash_is_rejected(tmp_path):
     # Dev slug (null registry) but installed_from=bundle — placement is

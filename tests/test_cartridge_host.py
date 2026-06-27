@@ -139,8 +139,8 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
 IDENTITY_CAP_JSON = '{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}'
 
 
-# TEST480: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
-def test_480_parse_cap_groups_rejects_manifest_without_identity():
+# TEST6600: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
+def test_6600_parse_cap_groups_rejects_manifest_without_identity():
     manifest = b'{"name":"Broken","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:test"}]}]}'
 
     with pytest.raises(ValueError) as exc_info:
@@ -250,7 +250,7 @@ def test_489_full_path_identity_verification():
     cartridge.join(timeout=2)
 
 
-# TEST490: Identity verification with multiple cartridges through single relay
+# TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed.
 def test_490_identity_verification_multiple_cartridges():
     manifest_a = '{"name":"CartridgeA","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:alpha"}]}]}'
     manifest_b = '{"name":"CartridgeB","version":"1.0","description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',{"urn":"cap:beta"}]}]}'
@@ -352,12 +352,12 @@ def test_413_register_cartridge_adds_cap_table():
         assert not host._cartridges[0].running, "registered cartridge must not be running"
 
 
-# TEST6595: capabilities() with registered cartridge advertises after a
+# TEST6594: capabilities() with registered cartridge advertises after a
 # rebuild. Mirrors Rust: registration populates cap_groups, then a
 # call to `_rebuild_capabilities` materialises the inventory snapshot.
 # The run loop normally drives rebuild as cartridges attach/die; for a
 # unit test that drives registration directly we trigger it explicitly.
-def test_6595_capabilities_empty_initially():
+def test_6594_capabilities_empty_initially():
     host = CartridgeHost()
     assert host.capabilities() is None, "no cartridges → None capabilities"
     host.register_cartridge("/path/to/cartridge", [{
@@ -947,8 +947,8 @@ def _aggregate_cap_urns(capabilities_json: bytes) -> List[str]:
     return out
 
 
-# TEST661: Cartridge death keeps known_caps advertised for on-demand respawn
-def test_661_cartridge_death_keeps_known_caps_advertised():
+# TEST6623: Cartridge death keeps caps advertised for on-demand respawn.
+def test_6623_cartridge_death_keeps_known_caps_advertised():
     host = CartridgeHost()
     cap_groups = [{
         "name": "default",
@@ -986,9 +986,7 @@ def test_661_cartridge_death_keeps_known_caps_advertised():
     assert any("thumbnail" in cap for cap in caps)
 
 
-# TEST662: rebuild_capabilities includes non-running cartridges' caps.
-# cap_groups is the source of truth (set at registration, refreshed on
-# HELLO), and advertisement does not gate on `running`.
+# TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).
 def test_662_rebuild_capabilities_includes_non_running_cartridges():
     host = CartridgeHost()
     host.register_cartridge("/fake/cartridge1", [{
@@ -1042,9 +1040,9 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
         assert not any("broken" in cap for cap in caps)
 
 
-# TEST6624: Running cartridge uses manifest caps; the post-HELLO
+# TEST664: Running cartridge uses manifest caps; the post-HELLO
 # cap_groups overwrite the registration-time ones.
-def test_6624_running_cartridge_uses_manifest_caps():
+def test_664_running_cartridge_uses_manifest_caps():
     host = CartridgeHost()
     host.register_cartridge("/fake/path", [{
         "name": "default",
@@ -1080,10 +1078,7 @@ def test_6624_running_cartridge_uses_manifest_caps():
     assert not any("extract" in cap for cap in caps)
 
 
-# TEST665: Cap table aggregates caps from every healthy cartridge —
-# running cartridges contribute their post-HELLO cap_groups, registered
-# but-not-yet-spawned cartridges contribute their probe-time
-# cap_groups. The cap_table is rebuilt from cap_groups uniformly.
+# TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.
 def test_665_cap_table_mixed_running_and_non_running():
     host = CartridgeHost()
     host.register_cartridge("/fake/running", [{
@@ -1123,11 +1118,7 @@ def test_665_cap_table_mixed_running_and_non_running():
     assert any("ocr" in cap for cap in advertised)
 
 
-# TEST1879: SyncRoster updates the LIVE host inventory in place — the engine
-# sees an added registered-dir cartridge via a fresh RelayNotify without
-# reconnecting, and a subsequent empty sync removes it. This is the
-# `syncDiscoveryOutcomes` parity path the daemon uses after a registry
-# verdict flips a held cartridge to Listed.
+# TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
 def test_1879_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
     from capdag.bifaci.host_runtime import RegisteredDirSpec
     from capdag.bifaci.cartridge_repo import CartridgeChannel

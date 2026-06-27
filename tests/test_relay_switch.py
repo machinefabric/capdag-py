@@ -906,7 +906,7 @@ def test_666_preferred_cap_routing():
 # the bug class these tests guard against.
 
 
-def test_6276_reattach_by_id_preserves_slot_index():
+def test_133_reattach_by_id_preserves_slot_index():
     """After ``handle_master_death`` the slot stays in place, and a
     reconnect via ``add_master`` with the same id MUST land back in
     the same slot index — not append a new slot."""
@@ -974,8 +974,8 @@ def test_6276_reattach_by_id_preserves_slot_index():
     )
 
 
-# TEST6278: Add master with duplicate healthy id errors
-def test_6278_add_master_with_duplicate_healthy_id_errors():
+# TEST134: Add master with duplicate healthy id errors
+def test_134_add_master_with_duplicate_healthy_id_errors():
     """Adding a master with the id of an already-healthy slot is a
     wiring bug; surface as a hard ProtocolError."""
     engine_read, slave_write = socket.socketpair()
@@ -1014,8 +1014,8 @@ def test_6278_add_master_with_duplicate_healthy_id_errors():
     )
 
 
-# TEST6252: Relay switch init rejects duplicate ids
-def test_6252_relay_switch_init_rejects_duplicate_ids():
+# TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
+def test_6745_relay_switch_init_rejects_duplicate_ids():
     """The constructor rejects duplicate ids before any I/O. Without
     this guard the first reconnect would reattach to whichever slot
     is found first by the linear scan, leaving the other stuck
@@ -1031,7 +1031,7 @@ def test_6252_relay_switch_init_rejects_duplicate_ids():
     assert "duplicate master id 'dup-id'" in str(exc_info.value)
 
 
-# TEST0136: All masters ready false when expected count unset
+# TEST136: All masters ready false when expected count unset
 def test_0136_all_masters_ready_false_when_expected_count_unset():
     """Even with a connected, fully-RelayNotify'd master, the predicate
     must return false until the engine explicitly declares its expected
@@ -1073,7 +1073,7 @@ def test_0136_all_masters_ready_false_when_expected_count_unset():
     )
 
 
-# TEST0137: All masters ready false when partially connected
+# TEST137: All masters ready false when partially connected
 def test_0137_all_masters_ready_false_when_partially_connected():
     """1 master connected, 2 expected. This is the live regression: the
     internal master had caps from t=0 but the external-providers master
@@ -1089,7 +1089,7 @@ def test_0137_all_masters_ready_false_when_partially_connected():
     )
 
 
-# TEST0139: All masters ready true when masters connected but capless
+# TEST139: All masters ready true when masters connected but capless
 def test_0139_all_masters_ready_true_when_masters_connected_but_capless():
     """Cartridges in discovered/inspecting/verifying contribute zero caps
     to their master's RelayNotify. The engine readiness gate must still
@@ -1107,7 +1107,7 @@ def test_0139_all_masters_ready_true_when_masters_connected_but_capless():
     )
 
 
-# TEST0140: All masters ready does not overshoot
+# TEST140: All masters ready does not overshoot
 def test_0140_all_masters_ready_does_not_overshoot():
     """2 masters connected, 1 expected. The predicate should still report
     ready — the engine got more masters than it declared, which is fine;
@@ -1121,3 +1121,138 @@ def test_0140_all_masters_ready_does_not_overshoot():
     assert switch.all_masters_ready() is True, (
         "all_masters_ready uses >= not == against expected_master_count"
     )
+
+
+# TEST132: add_master dynamically connects new host to running switch
+def test_132_add_master_dynamic():
+    from capdag.bifaci.in_process_host import (
+        FrameHandler,
+        InProcessCartridgeHost,
+        InProcessHostIdentity,
+    )
+    from capdag.bifaci.relay import RelaySlave
+    from capdag.cap.caller import CapArgumentValue
+    from capdag.cap.definition import Cap
+    from capdag.urn.cap_urn import CapUrn
+
+    class ConstHandler(FrameHandler):
+        """Handler that returns a constant byte string (ignores input)."""
+
+        def __init__(self, value: str):
+            self.value = value
+
+        def handle_request(self, cap_urn, input_q, output, peer):
+            while True:
+                frame = input_q.get()
+                if frame is None:
+                    break
+                if frame.frame_type == FrameType.END:
+                    break
+            output.emit_response("media:", self.value.encode("utf-8"))
+
+    threads = []
+
+    def wire_host(host):
+        """Wire host -> slave -> switch; return the switch-side SocketPair plus
+        the sockets to keep alive."""
+        # host <-> slave-local
+        host_sock_a, slave_local_a = socket.socketpair()
+        # slave <-> switch
+        slave_sock_a, switch_sock_a = socket.socketpair()
+
+        host_read = host_sock_a.makefile("rb")
+        host_write = host_sock_a.makefile("wb")
+
+        def host_run():
+            host.run(host_read, host_write)
+
+        ht = threading.Thread(target=host_run, daemon=True)
+        ht.start()
+        threads.append(ht)
+
+        slave_local_reader = FrameReader(slave_local_a.makefile("rb"))
+        slave_local_writer = FrameWriter(slave_local_a.makefile("wb"))
+        slave = RelaySlave(slave_local_reader, slave_local_writer)
+
+        slave_socket_reader = FrameReader(slave_sock_a.makefile("rb"))
+        slave_socket_writer = FrameWriter(slave_sock_a.makefile("wb"))
+
+        def slave_run():
+            slave.run(slave_socket_reader, slave_socket_writer, None)
+
+        st = threading.Thread(target=slave_run, daemon=True)
+        st.start()
+        threads.append(st)
+
+        switch_pair = SocketPair(
+            id=None,  # filled by caller
+            read=switch_sock_a.makefile("rb"),
+            write=switch_sock_a.makefile("wb"),
+        )
+        return switch_pair
+
+    def make_const_host(host_id: str, cap_urn: str, value: str):
+        cap = Cap(CapUrn.from_string(cap_urn), value, "")
+        return InProcessCartridgeHost(
+            InProcessHostIdentity.for_test(host_id),
+            [(value, [cap], ConstHandler(value))],
+        )
+
+    # Create initial switch with handler A.
+    cap_a = 'cap:in="media:void";alpha;out="media:void"'
+    host_a = make_const_host("alpha-host", cap_a, "alpha")
+    pair_a = wire_host(host_a)
+    pair_a = SocketPair(id="test-master-0", read=pair_a.read, write=pair_a.write)
+
+    switch = RelaySwitch([pair_a])
+    with switch._lock:
+        assert len(switch._masters) == 1
+
+    # Add handler B dynamically.
+    cap_b = 'cap:in="media:void";beta;out="media:void"'
+    host_b = make_const_host("beta-host", cap_b, "beta")
+    pair_b = wire_host(host_b)
+    pair_b = SocketPair(id="test-master-1", read=pair_b.read, write=pair_b.write)
+
+    idx = switch.add_master(pair_b)
+    assert idx == 1
+    with switch._lock:
+        assert len(switch._masters) == 2
+
+    # Verify both caps are in aggregate capabilities.
+    caps_payload = json.loads(switch.capabilities())
+    advertised = [
+        cap["urn"]
+        for ic in caps_payload.get("installed_cartridges", [])
+        for group in ic.get("cap_groups", [])
+        for cap in group.get("caps", [])
+    ]
+    assert any("alpha" in c for c in advertised)
+    assert any("beta" in c for c in advertised)
+
+    # Execute against beta (dynamically added master).
+    rid = MessageId.new_uuid()
+    max_chunk = switch.limits().max_chunk
+    frames = CapArgumentValue.build_request_frames(rid, cap_b, [], max_chunk)
+    for frame in frames:
+        switch.send_to_master(frame, None)
+
+    response_data = bytearray()
+    while True:
+        frame = switch.read_from_masters()
+        if frame is None:
+            break
+        if frame.id != rid:
+            continue
+        if frame.frame_type == FrameType.CHUNK:
+            if frame.payload is not None:
+                import cbor2
+                value = cbor2.loads(frame.payload)
+                assert isinstance(value, bytes), f"unexpected CBOR: {value!r}"
+                response_data.extend(value)
+        elif frame.frame_type == FrameType.END:
+            break
+        elif frame.frame_type == FrameType.ERR:
+            raise AssertionError(f"ERR: {frame.error_message()}")
+
+    assert bytes(response_data) == b"beta"

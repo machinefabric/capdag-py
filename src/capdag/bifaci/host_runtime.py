@@ -1115,3 +1115,138 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
     return cap_groups
 
 
+# =========================================================================
+# Cartridge host runtime — bounded routing tables with age-based GC
+# =========================================================================
+#
+# This is the engine-side per-host runtime that routes frames between a
+# relay connection and a single managed cartridge. The Python mirror does
+# not yet host the full async run loop (that lives in CartridgeHost above
+# for the relay-host path); what is ported here is the bounded routing-table
+# subsystem and its garbage collector, which is exercised in isolation by
+# the routing-GC tests. It mirrors Rust ``CartridgeHostRuntime`` exactly:
+# four routing maps each with a parallel ``*_touched`` clock map, a
+# monotonic ``routing_touch_seq`` stamp, and a GC that evicts the
+# least-recently-touched entries when a table crosses the soft watermark,
+# with a secondary hard-cap pass for extreme runaway.
+
+
+class CartridgeHostRuntime:
+    """Engine-side runtime owning bounded routing tables for one host.
+
+    Mirrors the Rust ``CartridgeHostRuntime`` routing-table discipline:
+    the "intentionally leaked until cartridge death" semantics on
+    ``incoming_rxids`` (and the parallel structure on the other three
+    tables) means a cartridge that creates many distinct request IDs
+    without dying would accumulate entries forever, so the GC evicts the
+    oldest entries by touch-sequence once a table crosses its soft
+    watermark.
+    """
+
+    # Generous cap on the per-host routing tables. ~14x headroom over a
+    # long-session steady state (~568 entries) so the GC runs ahead of
+    # bursts while still catching a runaway producer.
+    ROUTING_TABLE_HARD_CAP: int = 8192
+    # Soft watermark — when a table reaches this size, the GC fires and
+    # evicts the oldest 25% by touch sequence. ~80% of the hard cap so the
+    # GC runs ahead of the cap rather than spinning right at it.
+    ROUTING_TABLE_SOFT_WATERMARK: int = 6553
+    # Fraction of entries to drop in one GC pass.
+    ROUTING_TABLE_GC_EVICTION_FRACTION: float = 0.25
+
+    def __init__(self) -> None:
+        # List 1: OUTGOING_RIDS — peer requests sent by cartridges
+        # (RID -> cartridge_idx) plus its parallel touched clock.
+        self.outgoing_rids: dict = {}
+        self.outgoing_rids_touched: dict = {}
+        # List 2: INCOMING_RXIDS — incoming requests from relay
+        # ((XID, RID) -> cartridge_idx). Continuations route by this table.
+        self.incoming_rxids: dict = {}
+        self.incoming_rxids_touched: dict = {}
+        # Which incoming request spawned which outgoing peer RIDs
+        # (parent (XID, RID) -> list of child peer RIDs) for cancel cascade.
+        self.incoming_to_peer_rids: dict = {}
+        self.incoming_to_peer_rids_touched: dict = {}
+        # Max-seen seq per flow for cartridge-originated frames (FlowKey -> seq).
+        self.outgoing_max_seq: dict = {}
+        self.outgoing_max_seq_touched: dict = {}
+        # Monotonic stamp source — a strict ordering, not wall-clock.
+        self.routing_touch_seq: int = 0
+        # Observability counters.
+        self.routing_gc_runs_total: int = 0
+        self.routing_gc_evicted_total: int = 0
+
+    # --- touch helpers (called on insert and on every read that hits) ---
+
+    def touch_incoming_rxid(self, key) -> None:
+        self.routing_touch_seq += 1
+        self.incoming_rxids_touched[key] = self.routing_touch_seq
+
+    def touch_outgoing_rid(self, rid) -> None:
+        self.routing_touch_seq += 1
+        self.outgoing_rids_touched[rid] = self.routing_touch_seq
+
+    def touch_incoming_to_peer_rids(self, key) -> None:
+        self.routing_touch_seq += 1
+        self.incoming_to_peer_rids_touched[key] = self.routing_touch_seq
+
+    def touch_outgoing_max_seq(self, key) -> None:
+        self.routing_touch_seq += 1
+        self.outgoing_max_seq_touched[key] = self.routing_touch_seq
+
+    # --- garbage collector ---
+
+    def gc_routing_tables_if_needed(self) -> None:
+        """Run the GC on any table that has crossed its soft watermark.
+
+        Each table is GC'd independently (their key sets don't overlap so
+        there's no benefit to ganging them).
+        """
+        if len(self.incoming_rxids) >= self.ROUTING_TABLE_SOFT_WATERMARK:
+            self._gc_routing_table(self.incoming_rxids, self.incoming_rxids_touched)
+        if len(self.outgoing_rids) >= self.ROUTING_TABLE_SOFT_WATERMARK:
+            self._gc_routing_table(self.outgoing_rids, self.outgoing_rids_touched)
+        if len(self.incoming_to_peer_rids) >= self.ROUTING_TABLE_SOFT_WATERMARK:
+            self._gc_routing_table(
+                self.incoming_to_peer_rids, self.incoming_to_peer_rids_touched
+            )
+        if len(self.outgoing_max_seq) >= self.ROUTING_TABLE_SOFT_WATERMARK:
+            self._gc_routing_table(self.outgoing_max_seq, self.outgoing_max_seq_touched)
+
+    def _gc_routing_table(self, primary: dict, touched: dict) -> None:
+        """Drop the oldest ``GC_EVICTION_FRACTION`` of ``primary`` (and its
+        matching ``touched`` entries) by touch-sequence ascending.
+
+        Keys missing from ``touched`` are treated as oldest (sequence 0) —
+        evicting them is safer than letting them linger.
+        """
+        before_count = len(primary)
+        evict_count = max(
+            1, int(before_count * self.ROUTING_TABLE_GC_EVICTION_FRACTION)
+        )
+
+        # Pick the oldest N by touched-at (ascending).
+        candidates = sorted(
+            primary.keys(), key=lambda k: touched.get(k, 0)
+        )
+        for key in candidates[:evict_count]:
+            primary.pop(key, None)
+            touched.pop(key, None)
+
+        self.routing_gc_runs_total += 1
+        self.routing_gc_evicted_total += evict_count
+
+        # Secondary "hard cap" pass: if still at or above the hard cap
+        # (extreme runaway), evict more aggressively until back under the
+        # soft watermark. Bounded loop — a couple of iterations at most.
+        while len(primary) >= self.ROUTING_TABLE_HARD_CAP:
+            extra_evict = max(
+                1, len(primary) - self.ROUTING_TABLE_SOFT_WATERMARK
+            )
+            extras = sorted(primary.keys(), key=lambda k: touched.get(k, 0))
+            for key in extras[:extra_evict]:
+                primary.pop(key, None)
+                touched.pop(key, None)
+            self.routing_gc_evicted_total += extra_evict
+
+

@@ -227,7 +227,7 @@ def test_977_os_files_excluded_integration(tmp_path: Path):
     assert "real.txt" in str(result.files[0].path)
 
 
-# TEST1090: 1 file -> is_sequence=false
+# TEST1090: 1 file → is_sequence=false
 def test_1090_single_file_scalar(tmp_path: Path):
     (tmp_path / "only.txt").write_text("hello")
     result = resolve_paths([str(tmp_path / "only.txt")], _create_test_media_registry(tmp_path))
@@ -235,7 +235,7 @@ def test_1090_single_file_scalar(tmp_path: Path):
     assert not result.is_sequence
 
 
-# TEST1092: 2 files -> is_sequence=true
+# TEST1092: 2 files → is_sequence=true
 def test_1092_two_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("a")
     (tmp_path / "b.txt").write_text("b")
@@ -244,7 +244,7 @@ def test_1092_two_files(tmp_path: Path):
     assert result.is_sequence
 
 
-# TEST1093: 1 dir with 1 file -> is_sequence=false
+# TEST1093: 1 dir with 1 file → is_sequence=false
 def test_1093_dir_single_file(tmp_path: Path):
     (tmp_path / "only.pdf").write_text("%PDF-1.4")
     result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
@@ -252,7 +252,7 @@ def test_1093_dir_single_file(tmp_path: Path):
     assert not result.is_sequence
 
 
-# TEST1094: 1 dir with 3 files -> is_sequence=true
+# TEST1094: 1 dir with 3 files → is_sequence=true
 def test_1094_dir_multiple_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("hello")
     (tmp_path / "b.txt").write_text("world")
@@ -433,12 +433,7 @@ def test_1235_disc_1_plain_text_eliminates_model_specs(tmp_path: Path):
         assert "model-spec" not in survivor
 
 
-# TEST1236: Discrimination matches a candidate's validation pattern
-# against the file content. media:model-spec is a value type with no
-# associated file extension, so it does NOT appear among txt
-# candidates. When passed in explicitly as a candidate, content that
-# matches its `^(scheme):\S+$` regex must survive; content that
-# doesn't (plain prose) must be filtered out.
+# TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. TEST1236: Discrimination matches a candidate's validation pattern against the file content. media:model-spec is a value type with no associated file extension, so it does NOT appear among txt candidates. When passed in explicitly as a candidate, content that matches its `^(scheme):\S+$` regex must survive; content that doesn't (plain prose with whitespace) must be filtered out.
 def test_1236_disc_2_model_spec_validation_pattern_filters_content(tmp_path: Path):
     registry = _create_test_media_registry(tmp_path)
     from capdag.input_resolver.resolver import discriminate_candidates_by_validation
@@ -464,7 +459,7 @@ def test_1236_disc_2_model_spec_validation_pattern_filters_content(tmp_path: Pat
     assert "media:enc=utf-8;model-spec" not in survivors_prose
 
 
-# TEST1237: Empty candidates -> empty result
+# TEST1237: Empty candidates → empty result
 def test_1237_disc_5_empty_candidates(tmp_path: Path):
     registry = _create_test_media_registry(tmp_path)
     from capdag.input_resolver.resolver import discriminate_candidates_by_validation
@@ -481,15 +476,15 @@ def test_1238_disc_6_unknown_urn_survives(tmp_path: Path):
     assert discriminate_candidates_by_validation(b"anything", candidates, registry, "media:") == candidates
 
 
-# TEST6256: Registration of a cap group with non-conflicting adapters succeeds
-def test_6256_register_non_conflicting(tmp_path: Path):
+# TEST1276: Registration of a cap group with non-conflicting adapters succeeds
+def test_1276_register_non_conflicting(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("text-formats", ["media:fmt=json", "media:fmt=yaml"], "txtcartridge")
     assert registry.has_adapter_for_extension("json")
 
 
-# TEST6260: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
-def test_6260_reject_conforming_overlap(tmp_path: Path):
+# TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
+def test_1277_reject_conforming_overlap(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
     with pytest.raises(Exception) as exc_info:
@@ -499,7 +494,7 @@ def test_6260_reject_conforming_overlap(tmp_path: Path):
     assert "group-a" in message
 
 
-# TEST1278: Registration rejects the entire group - no partial registration
+# TEST1278: Registration rejects the entire group — no partial registration
 def test_1278_reject_entire_group(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
@@ -586,7 +581,7 @@ async def test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_pat
 # Tests ported from Rust input_resolver/types.rs (1143-1146)
 # =============================================================================
 
-# TEST1143: InputItem.from_string distinguishes glob pattern, existing directory, and non-directory path.
+# TEST1143: InputItem::from_string distinguishes glob patterns, directories, and files
 def test_1143_input_item_from_string_distinguishes_glob_directory_and_file(tmp_path: Path):
     # Existing directory -> InputItem.directory
     dir_item = InputItem.from_string(str(tmp_path))
@@ -604,7 +599,7 @@ def test_1143_input_item_from_string_distinguishes_glob_directory_and_file(tmp_p
     assert glob_item.value == "fixtures/**/*.pdf"
 
 
-# TEST1144: ContentStructure is_list/is_record helpers and string values are correct.
+# TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct
 def test_1144_content_structure_helpers_and_display():
     assert not ContentStructure.is_list(ContentStructure.SCALAR_OPAQUE)
     assert not ContentStructure.is_record(ContentStructure.SCALAR_OPAQUE)
@@ -615,7 +610,7 @@ def test_1144_content_structure_helpers_and_display():
     assert ContentStructure.LIST_RECORD == "list/record"
 
 
-# TEST1145: ResolvedInputSet.new uses URN equivalence for common_media and file count for is_sequence.
+# TEST1145: ResolvedInputSet uses URN equivalence for common_media and file count for is_sequence
 def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinality():
     from capdag.input_resolver.types import ResolvedFile, ResolvedInputSet
 
@@ -649,8 +644,8 @@ def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinalit
     assert equivalent_ordering.common_media == "media:application;fmt=json;record"
 
 
-# TEST6694: InputResolverError subclass display messages and exception hierarchy are correct.
-def test_6694_input_resolver_error_display_and_source():
+# TEST1146: InputResolverError subclass display messages and exception hierarchy are correct.
+def test_1146_input_resolver_error_display_and_source():
     from capdag.input_resolver.types import IoError, InvalidGlobError, InputResolverError
 
     io_error = IoError(Path("/tmp/data.bin"), Exception("no access"))

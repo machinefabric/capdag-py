@@ -43,11 +43,7 @@ def test_148_cap_manifest_creation():
     assert manifest.author is None
 
 
-# TEST117: A manifest's channel round-trips through serde and the
-# serialized form uses the canonical lowercase wire word
-# ("release" / "nightly"). CapManifest rejects unknown channel values —
-# the closed enum is {release, nightly}. A missing or unrecognized
-# channel is a hard parse error — no defaults.
+# TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). A missing or unrecognized channel is a hard parse error — no defaults.
 def test_117_cap_manifest_channel_roundtrip():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Extract Metadata", "extract-metadata")
@@ -90,10 +86,7 @@ def test_117_cap_manifest_channel_roundtrip():
         CapManifest.from_json(no_registry)
 
 
-# TEST118: A dev manifest carries registry_url: null and serializes the
-# field explicitly. The null-vs-absent distinction matters because the
-# parser refuses to accept absent (test117) — so an old SDK can't
-# accidentally pass for a dev build.
+# TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.
 def test_118_dev_manifest_registry_url_is_explicit_null():
     urn = CapUrn.from_string(_test_urn("dev"))
     cap = Cap(urn, "Dev", "dev")
@@ -241,7 +234,7 @@ def test_154_cap_manifest_optional_fields():
     assert '"page_url"' not in json1
 
 
-# TEST155: ComponentMetadata pattern
+# TEST155: ComponentMetadata trait
 def test_155_cap_manifest_complex_roundtrip():
     urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process", "process")
@@ -322,27 +315,70 @@ def test_1284_cap_group_with_adapter_urns():
     assert len(deserialized.cap_groups[0].adapter_urns) == 2
 
 
-# TEST1872: registry_url_from_build_env passes a non-empty registry URL
-# through unchanged. This is the function that decides the engine's baked
-# PRIMARY registry; a published build must report exactly the URL it was
-# compiled with.
+# TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with.
 def test_1872_registry_url_from_build_env_passes_through_nonempty():
     url = "https://cartridges.machinefabric.com/manifest"
     assert registry_url_from_build_env(url) == url
 
 
-# TEST1873: an unset env (None) yields None — a dev build has no baked
-# registry, so the engine reports an empty primary-registry URL and loads
-# only `dev/` cartridges.
+# TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row.
 def test_1873_registry_url_from_build_env_none_for_dev():
     assert registry_url_from_build_env(None) is None
 
 
-# TEST6742: an exported-but-empty env ("") is neither a dev build nor a
-# valid identity and MUST fail hard, so the build can never silently hash
-# the empty string into a fake registry slug. We assert the failure rather
-# than letting a bogus empty primary registry ship.
-def test_6742_registry_url_from_build_env_rejects_empty_string():
+# TEST6363: Cap manifest with page_url — the optional page_url is carried
+# and serialized as `page_url`.
+def test_6363_cap_manifest_with_page_url():
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
+    cap = Cap(urn, "Metadata Extractor", "extract-metadata")
+    manifest = CapManifest(
+        name="TestComponent",
+        version="0.1.0",
+        channel="release",
+        registry_url=None,
+        description="A test component for validation",
+        cap_groups=[default_group([cap])],
+    ).with_author("Test Author").with_page_url("https://github.com/example/test")
+
+    assert manifest.page_url == "https://github.com/example/test"
+    json_str = manifest.to_json()
+    assert (
+        '"page_url": "https://github.com/example/test"' in json_str
+        or '"page_url":"https://github.com/example/test"' in json_str
+    ), f"expected page_url in serialized form, got: {json_str}"
+
+
+# TEST6371: Cap manifest compatibility — cartridge-style and provider-style
+# manifests serialize to the same JSON shape (same keys).
+def test_6371_cap_manifest_compatibility():
+    urn = CapUrn.from_string(_test_urn("process"))
+    cap = Cap(urn, "Data Processor", "process")
+    cartridge = CapManifest(
+        name="CartridgeComponent",
+        version="0.1.0",
+        channel="release",
+        registry_url=None,
+        description="Cartridge-style component",
+        cap_groups=[default_group([cap])],
+    )
+    provider = CapManifest(
+        name="ProviderComponent",
+        version="0.1.0",
+        channel="release",
+        registry_url=None,
+        description="Provider-style component",
+        cap_groups=[default_group([cap])],
+    )
+    cartridge_map = json.loads(cartridge.to_json())
+    provider_map = json.loads(provider.to_json())
+    assert len(cartridge_map) == len(provider_map)
+    for key in ("name", "version", "description", "cap_groups", "channel"):
+        assert key in cartridge_map, f"missing key {key}"
+        assert key in provider_map, f"missing key {key}"
+
+
+# TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship.
+def test_1874_registry_url_from_build_env_rejects_empty_string():
     with pytest.raises(ValueError) as exc_info:
         registry_url_from_build_env("")
     assert "MFR_CARTRIDGE_REGISTRY_URL must be unset" in str(exc_info.value)

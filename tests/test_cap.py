@@ -27,114 +27,117 @@ def test_108_cap_creation():
 
 
 # TEST109: Test creating cap with metadata initializes and retrieves metadata correctly
-def test_109_cap_with_args():
-    urn = CapUrn.from_string(_test_urn("process"))
-    cap = Cap(urn, "Process Data", "process-data")
+def test_109_cap_with_metadata():
+    urn = CapUrn.from_string(_test_urn("arithmetic;compute;subtype=math"))
+    metadata = {
+        "precision": "double",
+        "operations": "add,subtract,multiply,divide",
+    }
+    cap = Cap.with_metadata(urn, "Perform Mathematical Operations", "test-command", metadata)
 
-    # Add positional argument
-    arg = CapArg(
-        media_urn=MEDIA_STRING,
-        required=True,
-        sources=[PositionSource(0)],
-    )
-    cap.add_arg(arg)
-
-    args = cap.get_args()
-    assert len(args) == 1
-    assert args[0].media_urn == MEDIA_STRING
-    assert args[0].required is True
-
-
-# TEST110: Test cap matching with subset semantics for request fulfillment
-def test_110_cap_with_stdin():
-    urn = CapUrn.from_string(_test_urn("convert"))
-    cap = Cap(urn, "Convert", "convert")
-
-    # Add stdin argument
-    stdin_arg = CapArg(
-        media_urn="media:ext=pdf",
-        required=True,
-        sources=[StdinSource("media:ext=pdf")],
-    )
-    cap.add_arg(stdin_arg)
-
-    assert cap.get_stdin_media_urn() == "media:ext=pdf"
-
-
-# TEST111: Test getting and setting cap title updates correctly
-def test_111_cap_without_stdin():
-    urn = CapUrn.from_string(_test_urn("process"))
-    cap = Cap(urn, "Process", "process")
-
-    # Add non-stdin argument
-    arg = CapArg(
-        media_urn=MEDIA_STRING,
-        required=True,
-        sources=[PositionSource(0)],
-    )
-    cap.add_arg(arg)
-
-    assert cap.get_stdin_media_urn() is None
-
-
-# TEST112: Test cap equality based on URN and title matching
-def test_112_cap_with_output():
-    urn = CapUrn.from_string(_test_urn("generate"))
-    cap = Cap(urn, "Generate", "generate")
-
-    output = CapOutput(
-        media_urn=MEDIA_OBJECT,
-        output_description="Generated output",
-    )
-    cap.set_output(output)
-
-    assert cap.output is not None
-    assert cap.output.media_urn == MEDIA_OBJECT
-    assert cap.output.output_description == "Generated output"
-
-
-# TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
-def test_113_cap_with_metadata():
-    urn = CapUrn.from_string(_test_urn("test"))
-    metadata = {"supports_streaming": "true", "version": "2.0"}
-    cap = Cap.with_metadata(urn, "Test Cap", "test-cap", metadata)
-
-    assert cap.has_metadata("supports_streaming")
-    assert cap.get_metadata("supports_streaming") == "true"
-    assert cap.has_metadata("version")
-    assert cap.get_metadata("version") == "2.0"
+    assert cap.title == "Perform Mathematical Operations"
+    assert cap.get_metadata("precision") == "double"
+    assert cap.get_metadata("operations") == "add,subtract,multiply,divide"
+    assert cap.has_metadata("precision")
     assert not cap.has_metadata("nonexistent")
 
 
+# TEST110: Test cap matching with subset semantics for request fulfillment
+def test_110_cap_matching():
+    urn = CapUrn.from_string(_test_urn("transform;format=json;type=data_processing"))
+    cap = Cap(urn, "Transform JSON Data", "test-command")
+
+    assert cap.accepts_request(_test_urn("transform;format=json;type=data_processing"))
+    assert cap.accepts_request(_test_urn("transform;format=*;type=data_processing"))
+    assert cap.accepts_request(_test_urn("type=data_processing"))
+    assert not cap.accepts_request(_test_urn("type=compute"))
+
+
+# TEST111: Test getting and setting cap title updates correctly
+def test_111_cap_title():
+    urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
+    cap = Cap(urn, "Extract Document Metadata", "extract-metadata")
+
+    assert cap.title == "Extract Document Metadata"
+
+    cap.title = "Extract File Metadata"
+    assert cap.title == "Extract File Metadata"
+
+
+# TEST112: Test cap equality based on URN and title matching
+def test_112_cap_definition_equality():
+    urn1 = CapUrn.from_string(_test_urn("transform;format=json"))
+    urn2 = CapUrn.from_string(_test_urn("transform;format=json"))
+
+    cap1 = Cap(urn1, "Transform JSON Data", "transform")
+    cap2 = Cap(urn2, "Transform JSON Data", "transform")
+    cap3 = Cap(CapUrn.from_string(_test_urn("transform;format=json")), "Convert JSON Format", "transform")
+
+    assert cap1 == cap2
+    assert cap1 != cap3
+    assert cap2 != cap3
+
+
+# TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
+def test_113_cap_stdin():
+    urn = CapUrn.from_string(_test_urn("generate;target=embeddings"))
+    cap = Cap(urn, "Generate Embeddings", "generate")
+
+    # By default, caps should not accept stdin
+    assert not cap.accepts_stdin()
+    assert cap.get_stdin_media_urn() is None
+
+    # Enable stdin support by adding an arg with a stdin source
+    cap.add_arg(CapArg(
+        media_urn="media:enc=utf-8",
+        required=True,
+        sources=[StdinSource("media:enc=utf-8")],
+        arg_description="Input text",
+    ))
+
+    assert cap.accepts_stdin()
+    assert cap.get_stdin_media_urn() == "media:enc=utf-8"
+
+    # Serialization preserves the args + stdin source.
+    serialized = json.dumps(cap.to_dict())
+    assert '"args"' in serialized
+    assert '"stdin"' in serialized
+    restored = Cap.from_dict(json.loads(serialized))
+    assert restored.accepts_stdin()
+    assert restored.get_stdin_media_urn() == "media:enc=utf-8"
+
+
 # TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors
-def test_114_cap_json_serialization():
+def test_114_arg_source_types():
+    stdin_src = StdinSource("media:enc=utf-8")
+    assert stdin_src.stdin == "media:enc=utf-8"
+
+    pos_src = PositionSource(2)
+    assert pos_src.position == 2
+
+    flag_src = CliFlagSource("--verbose")
+    assert flag_src.cli_flag == "--verbose"
+
+
+# TEST8101: (py-specific) Cap.to_dict emits the full wire shape including args
+# and output. Behavior beyond the shared cross-mirror set, kept here as
+# implementation-specific coverage.
+def test_8101_cap_to_dict_wire_shape():
     urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Process", "process-cmd")
     cap.set_description("A processing capability")
-
-    arg = CapArg(
+    cap.add_arg(CapArg(
         media_urn=MEDIA_STRING,
         required=True,
         sources=[PositionSource(0)],
         arg_description="Input file",
-    )
-    cap.add_arg(arg)
-
-    output = CapOutput(
-        media_urn=MEDIA_OBJECT,
-        output_description="Processed output",
-    )
-    cap.set_output(output)
+    ))
+    cap.set_output(CapOutput(media_urn=MEDIA_OBJECT, output_description="Processed output"))
 
     cap_dict = cap.to_dict()
-
-    assert "urn" in cap_dict
-    assert "title" in cap_dict
     assert cap_dict["title"] == "Process"
-    assert "command" in cap_dict
     assert cap_dict["command"] == "process-cmd"
     assert "cap_description" in cap_dict
-    assert "args" in cap_dict
     assert len(cap_dict["args"]) == 1
     assert "output" in cap_dict
 
@@ -429,3 +432,79 @@ def test_6215_cap_version_nonzero_round_trip():
     d2["version"] = 3
     cap2 = Cap.from_dict(d2)
     assert cap2.version == 3, f"expected version==3 after round-trip, got {cap2.version}"
+
+
+# TEST1127: Documentation field round-trips through JSON serialize/deserialize.
+def test_1127_cap_documentation_round_trip_with_markdown_body():
+    urn = CapUrn.from_string(_test_urn("documented"))
+    cap = Cap(urn, "Documented Cap", "documented")
+
+    # A non-trivial markdown body — multi-line, headings, code blocks,
+    # backticks, embedded quotes, and a literal CRLF and Unicode dingbat
+    # (★) — to make sure escaping is end-to-end correct.
+    body = "# Documented Cap\r\n\nDoes the thing.\n\n```bash\necho \"hi\"\n```\n\nSee also: ★\n"
+    cap.set_documentation(body)
+    assert cap.get_documentation() == body
+
+    serialized = json.dumps(cap.to_dict())
+    # The serializer must emit the documentation field.
+    assert '"documentation"' in serialized, \
+        f"documentation field absent in JSON output: {serialized}"
+
+    deserialized = Cap.from_dict(json.loads(serialized))
+    assert deserialized.get_documentation() == body, \
+        "documentation body mutated during round-trip"
+
+    # Identity through copy/equality
+    import copy
+    cloned = copy.deepcopy(deserialized)
+    assert cloned == deserialized
+
+
+# TEST1128: When documentation is None, the serializer must skip the field entirely.
+def test_1128_cap_documentation_omitted_when_none():
+    urn = CapUrn.from_string(_test_urn("undocumented"))
+    cap = Cap(urn, "Undocumented Cap", "undocumented")
+    assert cap.get_documentation() is None
+
+    serialized = json.dumps(cap.to_dict())
+    assert "documentation" not in serialized, \
+        f"documentation field must be omitted when None, got: {serialized}"
+
+    # Round-trip through deserialize: should still be None.
+    deserialized = Cap.from_dict(json.loads(serialized))
+    assert deserialized.get_documentation() is None
+
+
+# TEST1129: A JSON document produced by capfab with a `documentation` field must
+# deserialize into a Cap with the body intact.
+def test_1129_cap_documentation_parses_from_capfab_json():
+    data = {
+        "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",
+        "title": "Doc Parse",
+        "command": "docparse",
+        "cap_description": "short",
+        "documentation": "## Heading\n\nbody text",
+        "metadata": {},
+    }
+    cap = Cap.from_dict(data)
+    assert cap.get_documentation() == "## Heading\n\nbody text"
+    assert cap.cap_description == "short"
+
+
+# TEST1130: documentation set/clear lifecycle parallels cap_description.
+def test_1130_cap_documentation_set_and_clear_lifecycle():
+    urn = CapUrn.from_string(_test_urn("lifecycle"))
+    cap = Cap.with_description(urn, "Lifecycle", "lifecycle", "short")
+    assert cap.cap_description == "short"
+    assert cap.get_documentation() is None
+
+    cap.set_documentation("long body")
+    assert cap.get_documentation() == "long body"
+    # setter must not touch cap_description
+    assert cap.cap_description == "short"
+
+    cap.clear_documentation()
+    assert cap.get_documentation() is None
+    # clearer must not touch cap_description
+    assert cap.cap_description == "short"

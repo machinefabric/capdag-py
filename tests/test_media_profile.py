@@ -58,11 +58,11 @@ def create_empty_test_registry():
     return ProfileSchemaRegistry()
 
 
-# TEST611: insert_schema seeds the cache so subsequent validation hits a real
+# TEST6605: insert_schema seeds the cache so subsequent validation hits a real
 # compiled schema rather than the skip-on-unknown path. A registry that
 # silently dropped inserts would let validation calls return None even for
 # inputs that violate the schema.
-def test_611_insert_schema_populates_cache():
+def test_6605_insert_schema_populates_cache():
     registry = create_empty_test_registry()
     assert not registry.schema_exists(PROFILE_STR)
 
@@ -74,7 +74,7 @@ def test_611_insert_schema_populates_cache():
     assert errors is not None, "Number must not validate against the string schema"
 
 
-# TEST612: clear_cache empties all in-memory schemas
+# TEST612: clear_cache empties the in-memory cache for seeded schemas.
 def test_612_clear_cache():
     registry = create_test_registry()
     assert len(registry.get_cached_profiles()) > 0
@@ -82,7 +82,7 @@ def test_612_clear_cache():
     assert len(registry.get_cached_profiles()) == 0
 
 
-# TEST613: validate_cached validates against seeded schemas
+# TEST613: validate_cached validates against cached standard schemas
 def test_613_validate_cached():
     registry = create_test_registry()
 
@@ -105,10 +105,8 @@ def test_6607_registry_creation():
     assert registry.get_cached_profiles() == []
 
 
-# TEST6608: A freshly constructed registry has no cached schemas. The well-known
-# profile URLs are not bundled into the library; callers must seed them
-# (via insert_schema) or fetch and seed from the public registry.
-def test_6608_fresh_registry_cache_is_empty():
+# TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema.
+def test_619_fresh_registry_cache_is_empty():
     registry = create_empty_test_registry()
     assert registry.get_cached_profiles() == [], (
         "Fresh registry must have no cached schemas; nothing is bundled into the library"
@@ -163,15 +161,13 @@ def test_625_string_array_validation():
     assert registry.validate(PROFILE_STR_ARRAY, "hello") is not None
 
 
-# TEST626: Verify unknown profile URL skips validation and returns None
+# TEST626: Verify unknown profile URL skips validation and returns Ok
 def test_626_unknown_profile_skips_validation():
     registry = create_empty_test_registry()
     assert registry.validate("https://example.com/unknown", "anything") is None
 
 
-# TEST627: insert_schema rejects malformed JSON Schemas instead of caching them.
-# Silent acceptance of an invalid schema would hide the configuration error
-# until the first validation call against it.
+# TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. A registry that silently accepted invalid schemas would hide compilation problems until the first validation call.
 def test_627_insert_schema_rejects_invalid_schema():
     registry = create_empty_test_registry()
     bad = {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": 99}

@@ -106,8 +106,12 @@ class RelaySlave:
                     if frame is None:
                         return  # Local side closed
 
-                    if frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
-                        pass  # Relay frames from local side — drop
+                    # Forward all frames, including RelayNotify (capability
+                    # updates from the local cartridge host runtime). RelayState
+                    # is still dropped (deprecated/unused). Mirrors Rust
+                    # RelaySlave::run local->socket forwarding.
+                    if frame.frame_type == FrameType.RELAY_STATE:
+                        pass  # Drop RelayState frames
                     else:
                         socket_writer.write(frame)
             except Exception as e:

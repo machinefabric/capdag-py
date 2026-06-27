@@ -31,7 +31,7 @@ from capdag.urn.media_urn import (
 from capdag.cap.definition import CliFlagSource
 
 
-# TEST307: Test model_availability_urn builds valid cap URN with correct marker and media defs
+# TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs
 def test_307_model_availability_urn():
     urn = model_availability_urn()
     assert urn.has_marker_tag("model-availability"), "URN must have model-availability marker"
@@ -39,7 +39,7 @@ def test_307_model_availability_urn():
     assert urn.out_spec() == MEDIA_AVAILABILITY_OUTPUT, "output must be availability output"
 
 
-# TEST308: Test model_path_urn builds valid cap URN with correct marker and media defs
+# TEST308: Test model_path_urn builds valid cap URN with correct op and media defs
 def test_308_model_path_urn():
     urn = model_path_urn()
     assert urn.has_marker_tag("model-path"), "URN must have model-path marker"
@@ -54,7 +54,7 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-# TEST310: llm_generate_text_urn() produces a valid cap URN with text (enc=utf-8) in/out specs
+# TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output.
 def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"
@@ -161,8 +161,7 @@ def test_1273_adapter_selection_urn_builder():
         f"out_spec '{urn.out_spec()}' should conform to adapter-selection URN"
 
 
-# TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests;
-# identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement.
+# TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement.
 def test_1275_adapter_selection_dispatchable_by_specific_provider():
     adapter_request = adapter_selection_urn()
 

@@ -8,6 +8,7 @@ import pytest
 from capdag.bifaci.host_runtime import (
     ResponseChunk,
     CartridgeResponse,
+    CartridgeHostRuntime,
     AsyncHostError,
     CborErrorWrapper,
     IoError,
@@ -19,7 +20,25 @@ from capdag.bifaci.host_runtime import (
     SendError,
     RecvError,
 )
-from capdag.bifaci.frame import FrameType
+from capdag.bifaci.frame import FrameType, MessageId
+
+
+def seed_incoming_rxids_for_test(runtime, count):
+    """Seed the incoming_rxids table with ``count`` entries, key i aged at i.
+
+    Bypasses ``touch_incoming_rxid`` so the test controls which entry is
+    "oldest": direct-seeding the touched map with the insertion index
+    produces the same ordering the production monotonic counter would have
+    produced if entries had been inserted at exactly these times. Returns
+    the seeded keys in insertion (age) order.
+    """
+    keys = []
+    for i in range(count):
+        key = (MessageId(i), MessageId(i))
+        runtime.incoming_rxids[key] = 0
+        runtime.incoming_rxids_touched[key] = i
+        keys.append(key)
+    return keys
 
 
 # TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly
@@ -280,3 +299,107 @@ def test_119_concatenated_vs_final_payload_divergence():
     # They must NOT be equal (this is the divergence the large_payload bug exposed)
     assert response.concatenated() != response.final_payload(), \
         "concatenated and final_payload must diverge for multi-chunk responses"
+
+
+# TEST988: GC keeps the table strictly below the hard cap and the single soft-watermark pass evicts exactly EVICTION_FRACTION of the pre-state.
+def test_988_gc_reduces_table_below_soft_watermark_in_one_pass():
+    runtime = CartridgeHostRuntime()
+    pre_count = CartridgeHostRuntime.ROUTING_TABLE_SOFT_WATERMARK + 256
+    assert pre_count < CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP, (
+        "Test precondition: pre_count must stay under the hard cap so we verify "
+        "the SOFT watermark path, not the secondary hard-cap pass."
+    )
+
+    seed_incoming_rxids_for_test(runtime, pre_count)
+    assert len(runtime.incoming_rxids) == pre_count, (
+        "Seeder must populate exactly pre_count entries before the GC runs"
+    )
+
+    runtime.gc_routing_tables_if_needed()
+
+    assert len(runtime.incoming_rxids) < CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP, (
+        f"Post-GC table size {len(runtime.incoming_rxids)} must stay strictly under "
+        f"the hard cap ({CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP})."
+    )
+    assert runtime.routing_gc_runs_total == 1, (
+        f"Exactly one GC pass should have fired; {runtime.routing_gc_runs_total} "
+        "runs means the single-pass invariant has changed."
+    )
+    expected_evicted = max(
+        1,
+        int(pre_count * CartridgeHostRuntime.ROUTING_TABLE_GC_EVICTION_FRACTION),
+    )
+    assert runtime.routing_gc_evicted_total == expected_evicted, (
+        f"GC pass evicted {runtime.routing_gc_evicted_total} entries; expected "
+        f"{expected_evicted} (eviction fraction "
+        f"{CartridgeHostRuntime.ROUTING_TABLE_GC_EVICTION_FRACTION} of pre_count {pre_count})."
+    )
+
+
+# TEST129: The GC drops the OLDEST entries by touch-sequence, not arbitrary keys; the post-GC keyset is exactly what the test computes should survive.
+def test_129_gc_evicts_oldest_entries_by_touch_sequence():
+    runtime = CartridgeHostRuntime()
+    pre_count = CartridgeHostRuntime.ROUTING_TABLE_SOFT_WATERMARK + 256
+    eviction_count = max(
+        1,
+        int(pre_count * CartridgeHostRuntime.ROUTING_TABLE_GC_EVICTION_FRACTION),
+    )
+
+    # Seed: key i has touched_at == i. Smallest i means oldest.
+    # Expected victims: keys 0 ..< eviction_count.
+    # Expected survivors: keys eviction_count ..< pre_count.
+    keys = seed_incoming_rxids_for_test(runtime, pre_count)
+
+    runtime.gc_routing_tables_if_needed()
+
+    for i, key in enumerate(keys[:eviction_count]):
+        assert key not in runtime.incoming_rxids, (
+            f"Key index {i} should have been evicted (touched_at={i}, one of the "
+            f"{eviction_count} oldest), but it survived the GC."
+        )
+        assert key not in runtime.incoming_rxids_touched, (
+            f"Touched-map entry for key index {i} must be removed alongside the "
+            "primary entry."
+        )
+    for i, key in enumerate(keys[eviction_count:], start=eviction_count):
+        assert key in runtime.incoming_rxids, (
+            f"Key index {i} should have survived the GC (touched_at={i}, one of the "
+            f"{pre_count - eviction_count} most-recently-touched), but was evicted."
+        )
+
+
+# TEST987: The secondary hard-cap pass kicks in if the table exceeds HARD_CAP — a single eviction-fraction pass is not enough to recover headroom.
+def test_987_gc_secondary_pass_enforces_hard_cap():
+    runtime = CartridgeHostRuntime()
+    # Size the seed so a SINGLE eviction-fraction pass is NOT enough to
+    # bring the table under the hard cap: pre >= hard_cap / (1 - fraction),
+    # plus 256 headroom so a small fraction change doesn't accidentally let
+    # the primary pass alone succeed.
+    one_minus_fraction = 1.0 - CartridgeHostRuntime.ROUTING_TABLE_GC_EVICTION_FRACTION
+    import math
+    pre_count = (
+        math.ceil(CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP / one_minus_fraction)
+        + 256
+    )
+    seed_incoming_rxids_for_test(runtime, pre_count)
+    assert len(runtime.incoming_rxids) >= CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP, (
+        "Seeder must populate at or above the hard cap so the secondary pass "
+        "actually fires."
+    )
+
+    runtime.gc_routing_tables_if_needed()
+
+    assert len(runtime.incoming_rxids) < CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP, (
+        f"Post-GC table size {len(runtime.incoming_rxids)} must be strictly under "
+        f"the hard cap ({CartridgeHostRuntime.ROUTING_TABLE_HARD_CAP})."
+    )
+    # The secondary pass uses the same evicted counter but does not
+    # increment runs_total; verify the eviction count exceeds one full
+    # eviction-fraction pass over the pre-count.
+    single_pass_max = int(
+        pre_count * CartridgeHostRuntime.ROUTING_TABLE_GC_EVICTION_FRACTION
+    )
+    assert runtime.routing_gc_evicted_total > single_pass_max, (
+        f"Total evicted {runtime.routing_gc_evicted_total} should exceed single-pass "
+        f"max {single_pass_max} (the secondary pass must have evicted additional entries)."
+    )

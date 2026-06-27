@@ -26,6 +26,8 @@ Equivalence:
 
 from __future__ import annotations
 
+import time
+from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
 from capdag.urn.cap_urn import CapUrn
@@ -355,3 +357,95 @@ class Machine:
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+class MachineRunStatus(Enum):
+    """Lifecycle status of a single MachineRun."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+def _unix_now() -> int:
+    """Current UNIX time in whole seconds."""
+    return int(time.time())
+
+
+class MachineRun:
+    """A single execution attempt of a Machine."""
+
+    __slots__ = (
+        "id",
+        "machine_notation",
+        "resolved_strand",
+        "status",
+        "error_message",
+        "created_at_unix",
+        "started_at_unix",
+        "completed_at_unix",
+    )
+
+    def __init__(
+        self,
+        id: str,
+        machine_notation: str,
+        resolved_strand: "Strand",
+        status: MachineRunStatus,
+        error_message: Optional[str],
+        created_at_unix: int,
+        started_at_unix: Optional[int],
+        completed_at_unix: Optional[int],
+    ):
+        self.id = id
+        self.machine_notation = machine_notation
+        self.resolved_strand = resolved_strand
+        self.status = status
+        self.error_message = error_message
+        self.created_at_unix = created_at_unix
+        self.started_at_unix = started_at_unix
+        self.completed_at_unix = completed_at_unix
+
+    @classmethod
+    def new(cls, id: str, machine: "Machine", resolved_strand: "Strand") -> "MachineRun":
+        """Construct a new MachineRun bound to a machine and its resolved strand.
+
+        The machine's canonical notation is computed and stored as the run's
+        stable identifier. Fails hard with NoCapabilityStepsError if the
+        machine has no strands (its data-flow serializes to an empty string).
+        """
+        from capdag.machine.error import NoCapabilityStepsError
+
+        machine_notation = machine.to_machine_notation()
+        if machine_notation == "":
+            raise NoCapabilityStepsError()
+        return cls(
+            id=id,
+            machine_notation=machine_notation,
+            resolved_strand=resolved_strand,
+            status=MachineRunStatus.PENDING,
+            error_message=None,
+            created_at_unix=_unix_now(),
+            started_at_unix=None,
+            completed_at_unix=None,
+        )
+
+    def start(self) -> None:
+        self.status = MachineRunStatus.RUNNING
+        self.started_at_unix = _unix_now()
+
+    def complete(self) -> None:
+        self.status = MachineRunStatus.COMPLETED
+        self.completed_at_unix = _unix_now()
+        self.error_message = None
+
+    def fail(self, error_message: str) -> None:
+        self.status = MachineRunStatus.FAILED
+        self.completed_at_unix = _unix_now()
+        self.error_message = error_message
+
+    def cancel(self) -> None:
+        self.status = MachineRunStatus.CANCELLED
+        self.completed_at_unix = _unix_now()

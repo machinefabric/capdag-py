@@ -48,8 +48,7 @@ def _build_cap(cap_urn_str: str, title: str, arg_urns, out_urn: str) -> Cap:
 # --- TEST1880-1882: pure helpers -------------------------------------------
 
 
-# TEST1880: alias name normalization lowercases and accepts the allowed char
-# class; rejects colon, whitespace, and out-of-class chars.
+# TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name.
 def test_1880_alias_name_normalization_rules():
     assert normalize_alias_name("JSONDoc") == "jsondoc"
     assert normalize_alias_name("pdf2text") == "pdf2text"
@@ -65,7 +64,7 @@ def test_1880_alias_name_normalization_rules():
         normalize_alias_name("a/b")
 
 
-# TEST1881: URN-vs-alias detection keys purely on the presence of ':'.
+# TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 def test_1881_token_urn_vs_alias_detection():
     assert token_is_urn('cap:in="media:ext=pdf";extract;out="media:enc=utf-8"')
     assert token_is_urn("media:fmt=json;record")
@@ -74,8 +73,7 @@ def test_1881_token_urn_vs_alias_detection():
     assert not is_alias_token("media:enc=utf-8")
 
 
-# TEST1882: alias target classification distinguishes cap from media by prefix
-# and rejects a non-URN target.
+# TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this.
 def test_1882_classify_alias_target_by_prefix():
     assert classify_alias_target("media:fmt=json;record") == ALIAS_TARGET_MEDIA
     assert (
@@ -107,8 +105,7 @@ def test_1887_manifest_serde_round_trips_aliases():
 # --- TEST1888-1892: registry alias resolution ------------------------------
 
 
-# TEST1888: resolve_alias returns the alias target untyped; case-insensitive;
-# malformed name rejected.
+# TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup.
 @pytest.mark.asyncio
 async def test_1888_resolve_alias_returns_target():
     registry = FabricRegistry.new_for_test()
@@ -137,8 +134,7 @@ async def test_1889_resolve_alias_typed_enforces_kind():
         await registry.resolve_alias_typed("jsondoc", ALIAS_TARGET_CAP)
 
 
-# TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media
-# alias passed to get_cap fails hard (typed boundary).
+# TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface.
 @pytest.mark.asyncio
 async def test_1890_get_cap_via_alias_and_type_mismatch():
     registry = FabricRegistry.new_for_test()
@@ -162,8 +158,7 @@ async def test_1890_get_cap_via_alias_and_type_mismatch():
         await registry.get_cap("jsondoc")
 
 
-# TEST1891: get_media_def accepts a media alias and returns the aliased spec;
-# a cap alias passed to get_media_def fails hard.
+# TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard.
 @pytest.mark.asyncio
 async def test_1891_get_media_def_via_alias_and_type_mismatch():
     registry = FabricRegistry.new_for_test()
@@ -189,7 +184,7 @@ async def test_1891_get_media_def_via_alias_and_type_mismatch():
         await registry.get_media_def("pdf2text")
 
 
-# TEST1892: an unknown alias name is a hard NotFound, never a silent empty.
+# TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract.
 @pytest.mark.asyncio
 async def test_1892_unknown_alias_is_not_found():
     registry = FabricRegistry.new_for_test()
@@ -256,8 +251,7 @@ def test_1885_cap_position_alias_to_media_is_error():
     assert isinstance(exc_info.value.cause, AliasNotACapError)
 
 
-# TEST1886: a cap-position name that is neither a local header nor a registered
-# alias raises UndefinedAlias.
+# TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name.
 def test_1886_unregistered_cap_name_is_undefined_alias():
     registry, _ = _extract_with_alias_registry()
     with pytest.raises(MachineParseError) as exc_info:

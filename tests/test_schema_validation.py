@@ -144,7 +144,7 @@ async def test_166_skip_validation_without_schema(registry):
     await validator.validate_argument(arg, "any string value", registry)
 
 
-# TEST167: Test validation fails hard when media URN cannot be resolved.
+# TEST167: Test validation fails hard when media URN cannot be resolved from any source
 @pytest.mark.asyncio
 async def test_167_unresolvable_media_urn_fails_hard(registry):
     """An unresolvable media URN is a real problem — fail hard.
@@ -382,3 +382,90 @@ async def test_6360_output_validation_with_details(registry):
 
     # Error should contain validation details
     assert exc_info.value.details
+
+
+# TEST6314: Complex nested schema validation
+@pytest.mark.asyncio
+async def test_6314_complex_nested_schema_validation(registry):
+    validator = SchemaValidator()
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "profile": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "settings": {
+                                "type": "object",
+                                "properties": {
+                                    "theme": {"type": "string"},
+                                    "notifications": {"type": "boolean"}
+                                }
+                            }
+                        },
+                        "required": ["name"]
+                    },
+                    "permissions": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["read", "write", "admin"]}
+                    }
+                },
+                "required": ["profile", "permissions"]
+            }
+        },
+        "required": ["user"]
+    }
+
+    registry.add_spec(MediaDef(
+        urn="media:user-data;enc=utf-8;record",
+        media_type="application/json",
+        title="User Data",
+        schema=schema,
+    ).to_stored())
+
+    arg = CapArg("media:user-data;enc=utf-8;record", True, [PositionSource(0)])
+
+    valid = {
+        "user": {
+            "profile": {"name": "John Doe", "settings": {"theme": "dark", "notifications": True}},
+            "permissions": ["read", "write"]
+        }
+    }
+    await validator.validate_argument(arg, valid, registry)
+
+    # Invalid: permission outside the enum.
+    invalid = {
+        "user": {
+            "profile": {"name": "John Doe"},
+            "permissions": ["read", "invalid_permission"]
+        }
+    }
+    with pytest.raises(ArgumentValidationError):
+        await validator.validate_argument(arg, invalid, registry)
+
+
+# TEST6317: Media urn resolution with registry
+@pytest.mark.asyncio
+async def test_6317_media_urn_resolution_with_registry():
+    from capdag.media.spec import resolve_media_urn
+
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp(prefix="capdag-fabric-")))
+    for urn, mt in [
+        ("media:enc=utf-8", "text/plain"),
+        ("media:integer;numeric", "text/plain"),
+        ("media:fmt=json;record", "application/json"),
+    ]:
+        registry.add_spec(MediaDef(
+            urn=urn,
+            media_type=mt,
+            title=urn,
+        ).to_stored())
+
+    resolved = await resolve_media_urn("media:enc=utf-8", registry)
+    assert resolved.media_type == "text/plain"
+    json_resolved = await resolve_media_urn("media:fmt=json;record", registry)
+    assert json_resolved.media_type == "application/json"

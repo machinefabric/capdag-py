@@ -40,6 +40,12 @@ from capdag.orchestrator.cbor_util import (
     assemble_cbor_sequence,
 )
 
+from capdag.orchestrator.executor import (
+    CapProgressFn,
+    map_progress,
+    ProgressMapper,
+)
+
 __all__ = [
     # Error types
     "ParseOrchestrationError",
@@ -71,4 +77,8 @@ __all__ = [
     "assemble_cbor_array",
     "split_cbor_sequence",
     "assemble_cbor_sequence",
+    # Progress mapping
+    "CapProgressFn",
+    "map_progress",
+    "ProgressMapper",
 ]

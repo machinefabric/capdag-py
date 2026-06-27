@@ -18,6 +18,8 @@ from capdag.machine.graph import (
     MachineEdge,
     MachineStrand,
     Machine,
+    MachineRun,
+    MachineRunStatus,
     NodeId,
 )
 from capdag.machine.resolve import (
@@ -106,7 +108,7 @@ def test_1188_resolve_strand_no_cap_steps_fails_hard():
         resolve_pre_interned([], [], reg, 0)
 
 
-# TEST1187: Resolving a strand fails hard when a referenced cap is not in the registry.
+# TEST1187: Strand resolution fails when a referenced cap is not found in the registry.
 def test_1187_unknown_cap_error_when_not_in_registry():
     reg = _registry_with([])  # empty registry
     cap_urn = _cap_urn("cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\"")
@@ -303,8 +305,8 @@ def test_1182_match_sources_ambiguous_raises_ambiguous_error():
     assert err.strand_index == 3
 
 
-# TEST6719: A wiring that forms a cycle raises CyclicMachineStrandError.
-def test_6719_cyclic_strand_fails_hard():
+# TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.
+def test_1308_cyclic_strand_fails_hard():
     """TEST1123: A wiring that feeds a cap's output back into itself raises CyclicMachineStrandError.
 
     Cycle: node 0 → cap A → node 1 → cap B → node 0
@@ -587,8 +589,8 @@ def test_1135_strand_node_urn_accessor():
 # Mirror-specific coverage: parse_machine undefined alias raises MachineParseError with syntax cause
 # =============================================================================
 
-def test_6690_parse_machine_undefined_alias_raises_syntax_error():
-    """TEST6690: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
+def test_1136_parse_machine_undefined_alias_raises_syntax_error():
+    """TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
     reg = _registry_with([])
     notation = "[doc -> undefined_alias -> text]"
 
@@ -683,14 +685,14 @@ def test_6692_assignment_bindings_sorted_by_slot_urn():
 # Tests ported from Rust machine/error.rs (1147-1149)
 # =============================================================================
 
-# TEST6696: InvalidWiringError display message is human-readable and specific.
-def test_6696_machine_syntax_error_display_is_specific():
+# TEST1147: InvalidWiringError display message is human-readable and specific.
+def test_1147_machine_syntax_error_display_is_specific():
     from capdag.machine.error import InvalidWiringError
     err = InvalidWiringError(7, "expected source -> cap -> target")
     assert str(err) == "invalid wiring at statement 7: expected source -> cap -> target"
 
 
-# TEST1148: MachineParseError wrapping a MachineSyntaxError preserves the syntax cause.
+# TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant
 def test_1148_machine_parse_error_from_syntax_preserves_variant():
     from capdag.machine.error import UndefinedAliasError
     syntax_err = UndefinedAliasError("extract")
@@ -700,7 +702,7 @@ def test_1148_machine_parse_error_from_syntax_preserves_variant():
     assert "extract" in str(parse_err.cause)
 
 
-# TEST1149: MachineParseError wrapping a MachineAbstractionError preserves the resolution cause.
+# TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant
 def test_1149_machine_parse_error_from_resolution_preserves_variant():
     ambiguous = AmbiguousMachineNotationError(2, "cap:in=\"media:ext=pdf\";out=media:text")
     parse_err = MachineParseError(ambiguous)
@@ -720,8 +722,8 @@ def _pdf_extract_embed_registry() -> "FabricRegistry":
     return _registry_with([cap_e, cap_b])
 
 
-# TEST6699: Parsing notation that declares the same alias twice is rejected as a syntax error.
-def test_6699_parse_duplicate_alias_is_syntax_error():
+# TEST1166: Duplicate header aliases are reported as syntax errors.
+def test_1166_parse_duplicate_alias_is_syntax_error():
     reg = _pdf_extract_embed_registry()
     notation = (
         f"[extract {_URN_EXTRACT}]"
@@ -800,7 +802,7 @@ def test_1170_parse_then_serialize_round_trips_to_canonical_form():
 # Tests ported from Rust serializer.rs (1172-1177, minus 1176/1177 which need render_payload_json)
 # =============================================================================
 
-# TEST1172: Serializing a two-step strand emits global edge_N aliases and nN node names.
+# TEST1172: Serializing a two-step strand emits the expected aliases and node names.
 def test_1172_serialize_two_step_strand_emits_global_aliases_and_node_names():
     import capdag.machine.serializer  # ensure methods are attached
     reg = _pdf_extract_embed_registry()
@@ -894,8 +896,8 @@ def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
 # Tests ported from Rust resolve.rs (1181, 1183, 1189, 1190)
 # =============================================================================
 
-# TEST6705: Two sources disambiguated by specificity — unique minimum-cost assignment.
-def test_6705_match_two_sources_disambiguated_by_specificity():
+# TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
+def test_1181_match_two_sources_disambiguated_by_specificity():
     urn = "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\""
     sources = [_media("media:ext=png;image"), _media("media:enc=utf-8;model-spec")]
     args = [_media("media:ext=png;image"), _media("media:enc=utf-8")]
@@ -957,3 +959,187 @@ def test_1190_resolve_strand_inverse_format_converters_no_cycle():
     int_target = resolved.edges()[0].target
     num_source = resolved.edges()[1].assignment[0].source
     assert int_target == num_source
+
+
+# =============================================================================
+# Tests ported from Rust graph.rs (1160), parser.rs (1163), resolve.rs (1178, 1185, 1186, 1191)
+# =============================================================================
+
+# TEST1160: Creating a MachineRun stores the canonical notation and starts in the pending state.
+def test_1160_machine_run_new_stores_canonical_notation():
+    import capdag.machine.serializer  # ensure to_machine_notation is attached
+    cap_urn_str = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
+    cap = _simple_cap(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    reg = _registry_with([cap])
+
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;ext=txt")])
+    machine = Machine.from_strand(strand, reg)
+    canonical = machine.to_machine_notation()
+    run = MachineRun.new("run-id-1", machine, strand)
+    assert run.id == "run-id-1"
+    assert run.machine_notation == canonical
+    assert run.status == MachineRunStatus.PENDING
+
+
+# TEST1163: Parsing one connected strand yields a single machine strand with both caps connected by the shared node.
+def test_1163_parse_single_strand_two_caps_connected_via_shared_node():
+    urn1 = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
+    urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    reg = _registry_with([cap1, cap2])
+
+    notation = (
+        f"[extract {urn1}]"
+        f"[embed {urn2}]"
+        "[doc -> extract -> txt]"
+        "[txt -> embed -> vec]"
+    )
+    machine = parse_machine(notation, reg)
+    # Two wirings, one shared node `txt` → ONE connected component → ONE strand.
+    assert machine.strand_count() == 1
+    strand = machine.strands()[0]
+    assert len(strand.edges()) == 2
+    # The intermediate node must be the same NodeId for both edges.
+    extract_target = strand.edges()[0].target
+    embed_source = strand.edges()[1].assignment[0].source
+    assert extract_target == embed_source
+
+
+# TEST1178: One source is assigned to the single compatible cap argument.
+def test_1178_match_single_source_picks_unique_arg():
+    sources = [_media("media:ext=pdf")]
+    args = [_media("media:ext=pdf")]
+    cap_urn = _cap_urn("cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\"")
+    pairs = match_sources_to_args(sources, args, cap_urn, 0)
+    assert len(pairs) == 1
+    assert pairs[0][0].is_equivalent(_media("media:ext=pdf"))
+    assert pairs[0][1].is_equivalent(_media("media:ext=pdf"))
+
+
+# TEST1185: Resolving a chained strand reuses the intermediate node between adjacent caps.
+def test_1185_resolve_strand_chained_caps_share_intermediate_node():
+    urn_extract = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
+    urn_embed = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
+    extract = _simple_cap(urn_extract, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    embed = _simple_cap(urn_embed, "media:enc=utf-8", "media:vec;record")
+    reg = _registry_with([extract, embed])
+
+    strand = _strand_with_cap_steps([
+        (urn_extract, "media:ext=pdf", "media:enc=utf-8;ext=txt"),
+        (urn_embed, "media:enc=utf-8;ext=txt", "media:vec;record"),
+    ])
+
+    resolved = resolve_strand(strand, reg, 0)
+    assert len(resolved.edges()) == 2
+    assert len(resolved.nodes()) == 3, \
+        "three distinct data positions: pdf, txt, vec;record"
+
+    # The first edge's target NodeId must equal the second edge's primary source NodeId.
+    extract_target = resolved.edges()[0].target
+    embed_source = resolved.edges()[1].assignment[0].source
+    assert extract_target == embed_source, \
+        "intermediate data position must be one shared NodeId"
+
+    # Anchors.
+    inputs = resolved.input_anchors()
+    outputs = resolved.output_anchors()
+    assert len(inputs) == 1
+    assert len(outputs) == 1
+    assert inputs[0].is_equivalent(_media("media:ext=pdf"))
+    assert outputs[0].is_equivalent(_media("media:vec;record"))
+
+
+# TEST1186: Resolving a strand with ForEach marks the following cap edge as a loop.
+def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
+    urn_disbind = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
+    urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
+    disbind = _simple_cap(urn_disbind, "media:ext=pdf", "media:enc=utf-8;page")
+    make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
+    reg = _registry_with([disbind, make_decision])
+
+    disbind_step = StrandStep(
+        step_type=StrandStepType.CAP,
+        from_spec=_media("media:ext=pdf"),
+        to_spec=_media("media:enc=utf-8;page"),
+        cap_urn=_cap_urn(urn_disbind),
+    )
+    foreach_step = StrandStep(
+        step_type=StrandStepType.FOR_EACH,
+        from_spec=_media("media:enc=utf-8;page"),
+        to_spec=_media("media:enc=utf-8;page"),
+        media_def=_media("media:enc=utf-8;page"),
+    )
+    decision_step = StrandStep(
+        step_type=StrandStepType.CAP,
+        from_spec=_media("media:enc=utf-8"),
+        to_spec=_media("media:decision;fmt=json;record"),
+        cap_urn=_cap_urn(urn_decision),
+    )
+    collect_step = StrandStep(
+        step_type=StrandStepType.COLLECT,
+        from_spec=_media("media:decision;fmt=json;record"),
+        to_spec=_media("media:decision;fmt=json;record"),
+        media_def=_media("media:decision;fmt=json;record"),
+    )
+    strand = Strand(
+        steps=[disbind_step, foreach_step, decision_step, collect_step],
+        source_media_urn=_media("media:ext=pdf"),
+        target_media_urn=_media("media:decision;fmt=json;record"),
+        total_steps=4,
+        cap_step_count=2,
+        description="disbind+foreach+make_decision",
+    )
+
+    resolved = resolve_strand(strand, reg, 0)
+    assert len(resolved.edges()) == 2
+
+    # First edge (disbind) is not a loop; second (make-decision) is.
+    disbind_edge = next(
+        e for e in resolved.edges() if "disbind" in str(e.cap_urn)
+    )
+    decision_edge = next(
+        e for e in resolved.edges() if "make-decision" in str(e.cap_urn)
+    )
+    assert not disbind_edge.is_loop, "disbind is not in a loop"
+    assert decision_edge.is_loop, "make_decision is inside ForEach"
+
+    # disbind's target NodeId must be the same as make_decision's source NodeId.
+    disbind_target = disbind_edge.target
+    decision_source = decision_edge.assignment[0].source
+    assert disbind_target == decision_source, \
+        "disbind target and make_decision source must share the same NodeId (positional interning)"
+    # The canonical URN at that shared node must be the more-specific one.
+    assert resolved.node_urn(disbind_target).is_equivalent(_media("media:enc=utf-8;page")), \
+        f"shared node URN must be the more-specific media:enc=utf-8;page, got: {resolved.node_urn(disbind_target)}"
+
+
+# TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding.
+def test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity():
+    # A cap whose arg slot identity differs from its stdin source URN.
+    # slot identity = media:enc=utf-8;file-path, stdin source = media:ext=pdf.
+    cap_urn_str = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
+    urn = CapUrn.from_string(cap_urn_str)
+    cap = Cap.with_description(urn, "disbind", "disbind", "disbind cap")
+    cap.add_arg(CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("media:ext=pdf")],
+    ))
+    cap.set_output(CapOutput("media:enc=utf-8;page", "page output"))
+    reg = _registry_with([cap])
+
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;page")])
+
+    resolved = resolve_strand(strand, reg, 0)
+    assert len(resolved.edges()) == 1
+    binding = resolved.edges()[0].assignment[0]
+
+    # The binding's cap_arg_media_urn must be the SLOT identity.
+    assert binding.cap_arg_media_urn.is_equivalent(_media("media:enc=utf-8;file-path")), \
+        f"binding cap_arg_media_urn must be the slot identity, got: {binding.cap_arg_media_urn}"
+
+    # The source NodeId must point at a node whose URN is media:ext=pdf.
+    source_urn = resolved.node_urn(binding.source)
+    assert source_urn.is_equivalent(_media("media:ext=pdf")), \
+        f"source node URN must be media:ext=pdf (the data-type URN), got: {source_urn}"

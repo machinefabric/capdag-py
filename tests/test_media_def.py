@@ -39,10 +39,7 @@ async def create_test_registry():
 # =============================================================================
 
 
-# TEST088: Resolving a media URN seeded into the registry returns the
-# seeded spec verbatim. A regression in the registry-resolution path
-# would surface as a `None`-shaped result here, since there is no
-# local-override fallback to mask it. Mirrors Rust test088.
+# TEST88: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it.
 @pytest.mark.asyncio
 async def test_088_resolve_seeded_spec():
     registry = await create_test_registry()
@@ -56,10 +53,7 @@ async def test_088_resolve_seeded_spec():
     assert resolved.profile_uri is None
 
 
-# TEST089: A seeded record-shaped media def carries its schema and
-# profile_uri intact through resolution. Catches a regression that
-# dropped optional fields when copying into ResolvedMediaDef.
-# Mirrors Rust test089.
+# TEST89: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef.
 @pytest.mark.asyncio
 async def test_089_resolve_seeded_record_spec():
     registry = await create_test_registry()
@@ -80,10 +74,7 @@ async def test_089_resolve_seeded_record_spec():
     assert resolved.schema == schema
 
 
-# TEST093: Resolving a URN that is neither in the registry cache nor
-# available online fails hard. A regression that made the fail path
-# silently return a stub `ResolvedMediaDef` would surface here as a
-# missing error. Mirrors Rust test093.
+# TEST93: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error.
 @pytest.mark.asyncio
 async def test_093_resolve_unresolvable_fails_hard():
     registry = await create_test_registry()
@@ -98,7 +89,7 @@ async def test_093_resolve_unresolvable_fails_hard():
 # =============================================================================
 
 
-# TEST095: Test MediaDef serializes with required fields and skips None fields
+# TEST95: Test MediaDef serializes with required fields and skips None fields
 def test_095_media_def_def_serialize():
     spec_def = MediaDef(
         urn="media:fmt=json;test",
@@ -122,7 +113,7 @@ def test_095_media_def_def_serialize():
     assert "description" not in data
 
 
-# TEST096: Test deserializing MediaDef from JSON object
+# TEST96: Test deserializing MediaDef from JSON object
 def test_096_media_def_def_deserialize():
     data = {
         "urn": "media:fmt=json;test",
@@ -141,7 +132,7 @@ def test_096_media_def_def_deserialize():
 # =============================================================================
 
 
-# TEST097: Test duplicate URN validation catches duplicates
+# TEST97: Test duplicate URN validation catches duplicates
 def test_097_validate_no_duplicate_urns_catches_duplicates():
     media_defs = [
         MediaDef(
@@ -160,7 +151,7 @@ def test_097_validate_no_duplicate_urns_catches_duplicates():
     assert "media:dup;fmt=json" in str(exc_info.value)
 
 
-# TEST098: Test duplicate URN validation passes for unique URNs
+# TEST98: Test duplicate URN validation passes for unique URNs
 def test_098_validate_no_duplicate_urns_passes_for_unique():
     media_defs = [
         MediaDef(
@@ -183,9 +174,25 @@ def test_098_validate_no_duplicate_urns_passes_for_unique():
 # =============================================================================
 
 
-# TEST099: REMOVED — ResolvedMediaDef.is_binary() was deleted along with the
-# binary/text distinction. Everything is bytes at the byte level; text-
-# representability is now the orthogonal `enc=` tag, exercised by test_104.
+# TEST099: The identity media (`media:`) carries no encoding, no record
+# marker, and no format. The old is_binary() delegate is gone (binary/text is
+# no longer a distinction); a media is text-representable iff it declares enc=.
+def test_099_resolved_is_binary():
+    resolved = ResolvedMediaDef(
+        media_urn="media:",
+        media_type="application/octet-stream",
+        profile_uri=None,
+        schema=None,
+        title=None,
+        description=None,
+        documentation=None,
+        validation=None,
+        metadata=None,
+        extensions=[],
+    )
+    assert resolved._parse_media_urn().get_tag("enc") is None
+    assert not resolved.is_record()
+    assert not resolved.is_json()
 
 
 # TEST100: Test ResolvedMediaDef is_record returns true when record marker is present
@@ -242,7 +249,7 @@ def test_102_resolved_is_list():
     assert not resolved.is_scalar()
 
 
-# TEST103: Test ResolvedMediaDef is_json returns true when fmt=json tag is present
+# TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
 def test_103_resolved_is_json():
     resolved = ResolvedMediaDef(
         media_urn="media:fmt=json;record",
@@ -259,8 +266,8 @@ def test_103_resolved_is_json():
     assert resolved.is_record()
 
 
-# TEST6299: Test ResolvedMediaDef text-representability is carried by the enc= tag
-def test_6299_resolved_is_text():
+# TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag
+def test_104_resolved_is_text():
     resolved = ResolvedMediaDef(
         media_urn="media:enc=utf-8",
         media_type="text/plain",
@@ -336,7 +343,7 @@ async def test_106_metadata_with_validation():
 # =============================================================================
 
 
-# TEST107: Test extensions field propagates from registry spec to resolved
+# TEST107: Test extensions field propagates from media def def to resolved
 @pytest.mark.asyncio
 async def test_107_extensions_propagation():
     registry = await create_test_registry()
@@ -450,7 +457,7 @@ def test_608_media_urns_for_extension_populated():
     assert urns == urns_upper
 
 
-# TEST609: get_extension_mappings returns all registered extension->URN pairs
+# TEST609: get_extension_mappings returns all registered extension→URN pairs.
 def test_609_get_extension_mappings():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
@@ -492,8 +499,8 @@ def test_610_get_cached_spec():
     assert retrieved.title == "Test Spec"
 
 
-# TEST614: Verify registry creation succeeds and cache directory exists
-def test_614_registry_creation():
+# TEST618: Verify profile schema registry creation succeeds with temp cache
+def test_618_registry_creation():
     cache_dir = Path(tempfile.mkdtemp()) / "media"
     registry = FabricRegistry.new_for_test(cache_dir)
     assert registry.cache_dir.exists()
@@ -530,6 +537,90 @@ def test_617_normalize_media_urn():
     urn2 = normalize_media_urn("media:string")
     assert urn1
     assert urn2
+
+
+# =============================================================================
+# Documentation propagation / round-trip / lifecycle tests
+# =============================================================================
+
+
+# TEST288: Documentation propagates from MediaDef through resolve_media_urn
+# into ResolvedMediaDef.
+#
+# This is the resolution path used by every consumer that asks the
+# registry for a media def — info panels, the cap navigator, the UI
+# — so a regression here makes the new field invisible everywhere.
+@pytest.mark.asyncio
+async def test_288_media_documentation_propagates_through_resolve():
+    registry = await create_test_registry()
+    body = "## Markdown body\n\nWith `code` and a [link](https://example.com)."
+    registry.add_spec(StoredMediaDef(
+        urn="media:doc-test;enc=utf-8",
+        media_type="text/plain",
+        title="Documented",
+        description="short desc",
+        documentation=body,
+    ))
+
+    resolved = await resolve_media_urn("media:doc-test;enc=utf-8", registry)
+    assert resolved.documentation == body, \
+        "documentation must propagate from MediaDef into ResolvedMediaDef"
+    # The short description must remain distinct from the long
+    # documentation body — they are different fields with different
+    # semantics, and the resolver must not collapse one into the other.
+    assert resolved.description == "short desc"
+
+
+# TEST289: MediaDef serializes documentation only when present and
+# round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
+def test_289_media_def_def_documentation_round_trip():
+    body = "Body with newline\nand backslash \\"
+    with_doc = MediaDef(
+        urn="media:rt-test",
+        media_type="text/plain",
+        title="Round Trip",
+        documentation=body,
+    )
+    data = with_doc.to_dict()
+    assert "documentation" in data
+    parsed = MediaDef.from_dict(data)
+    assert parsed.documentation == body
+
+    without_doc = MediaDef(
+        urn="media:rt-test-2",
+        media_type="text/plain",
+        title="No Doc",
+        documentation=None,
+    )
+    data2 = without_doc.to_dict()
+    assert "documentation" not in data2, \
+        f"documentation must be omitted from MediaDef JSON when None, got: {data2}"
+
+
+# TEST1133: MediaDef set/clear lifecycle for documentation. Catches a
+# regression where the setter or clearer accidentally writes to or reads
+# from `description` (the short field) instead of `documentation` (the
+# long markdown body).
+def test_1133_media_def_def_documentation_lifecycle():
+    spec = MediaDef(
+        urn="media:doc-test",
+        media_type="text/plain",
+        title="Doc Test",
+        description="short",
+        documentation=None,
+    )
+    assert spec.get_documentation() is None
+    assert spec.description == "short"
+
+    spec.set_documentation("body")
+    assert spec.get_documentation() == "body"
+    # setter must not touch description
+    assert spec.description == "short"
+
+    spec.clear_documentation()
+    assert spec.get_documentation() is None
+    # clearer must not touch description
+    assert spec.description == "short"
 
 
 # TESTs 895-897 (deleted): asserted that a freshly-created

@@ -27,8 +27,8 @@ def _test_urn(tags: str) -> str:
     return f'cap:in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";{tags}'
 
 
-# TEST135: Test registry creation with temporary cache directory succeeds
-def test_135_registry_creation():
+# TEST614: Verify registry creation succeeds and cache directory exists
+def test_614_registry_creation():
     """Test registry creation with custom cache directory"""
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir = Path(temp_dir)
@@ -48,8 +48,8 @@ def test_135_registry_creation():
 # semantically-equal URN spellings).
 
 
-# TEST6187: Test parsing registry JSON without stdin args verifies cap structure
-def test_6187_parse_registry_json():
+# TEST6382: Test parsing registry JSON without stdin args verifies cap structure
+def test_6382_parse_registry_json():
     """Test parsing cap JSON without stdin args"""
     # JSON without stdin args - means cap doesn't accept stdin
     json_str = '''{
@@ -116,11 +116,11 @@ def test_138_parse_registry_json_with_stdin():
     assert cap.get_stdin_media_urn() == "media:ext=pdf"  # As specified in JSON
 
 
-# TEST6188: Per-cap URLs use SHA-256 of the canonical URN as the path key.
+# TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key.
 # The path scheme is /caps/<sha256-hex> — no colons, no quotes, no
 # percent-encoding gymnastics. Same hash function across every capdag
 # implementation guarantees a single bucket key per equivalence class.
-def test_6188_per_cap_url_uses_sha256():
+def test_6388_per_cap_url_uses_sha256():
     """Per-cap lookup URL is /caps/<sha256-of-canonical-urn>"""
     import hashlib
     config = RegistryConfig()
@@ -163,6 +163,27 @@ def test_6189_same_cap_different_spellings_same_hash():
     assert digest_a == digest_b, f"hashes diverged: {digest_a} vs {digest_b}"
 
 
+def cap_registry_url(config: "RegistryConfig", cap_urn: str) -> str:
+    """Build the per-cap registry URL: <base>/caps/<sha256-of-canonical-urn>.
+
+    Mirrors the Rust test helper of the same name, which constructs the
+    URL the same way `cap_url_and_cache_path` does in production: canonicalise
+    the URN, SHA-256 it, and hex-encode under the `/caps/` prefix.
+    """
+    import hashlib
+    digest = hashlib.sha256(normalize_cap_urn(cap_urn).encode("utf-8")).hexdigest()
+    return f"{config.registry_base_url}/caps/{digest}"
+
+
+# TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key,
+# so the per-cap registry URL is identical regardless of URN spelling.
+def test_6391_same_cap_different_spellings_same_url():
+    config = RegistryConfig()
+    a = cap_registry_url(config, 'cap:in="media:listing-id";use-grinder;out="media:id;task"')
+    b = cap_registry_url(config, 'cap:out="media:id;task";in="media:listing-id";use-grinder')
+    assert a == b, "equivalent URNs must hash to the same registry key"
+
+
 # TEST141: URL has the right shape — protocol, host, /caps/ prefix,
 # 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape
 # and ObjC's test141_perCapURLShape; the previous Python TEST141
@@ -199,8 +220,8 @@ def test_938_different_caps_different_hashes():
     assert digest_a != digest_b
 
 
-# TEST6396: Test normalize handles different tag orders producing same canonical form
-def test_6396_normalize_handles_different_tag_orders():
+# TEST142: Test normalize handles different tag orders producing same canonical form
+def test_142_normalize_handles_different_tag_orders():
     """Test that different tag orders normalize to same form"""
     # Different tag orders should normalize to the same canonical form
     urn1 = 'cap:test;in="media:string";out="media:object"'
@@ -212,8 +233,7 @@ def test_6396_normalize_handles_different_tag_orders():
     assert normalized1 == normalized2
 
 
-# TEST143: Default config points at https://fabric.capdag.com or the
-# CDG_FABRIC_REGISTRY_URL env-var override.
+# TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL.
 def test_143_default_config():
     """Test default configuration"""
     config = RegistryConfig()
@@ -236,7 +256,7 @@ def test_144_custom_registry_url():
     assert config.schema_base_url == "https://localhost:8888/schema"
 
 
-# TEST908: Cached caps remain accessible when offline
+# TEST908: cached caps remain accessible while offline.
 @pytest.mark.asyncio
 async def test_908_cached_caps_accessible_when_offline():
     registry = FabricRegistry.new_for_test()

@@ -718,7 +718,7 @@ def test_234_handshake_with_very_small_limits():
     assert received.hello_max_frame() == 256
 
 
-# TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END
+# TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity.
 def test_1140_write_stream_chunked_reassembly():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))

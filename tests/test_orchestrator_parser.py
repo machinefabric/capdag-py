@@ -40,9 +40,9 @@ def _media(s: str) -> MediaUrn:
     return MediaUrn.from_string(s)
 
 
-# TEST6714: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
+# TEST1256: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
 @pytest.mark.asyncio
-async def test_6714_parse_simple_machine():
+async def test_1256_parse_simple_machine():
     registry = _build_registry([
         ('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:ext=pdf"], "media:enc=utf-8;ext=txt"),
     ])
@@ -84,8 +84,8 @@ async def test_1257_parse_two_step_chain():
         f"Intermediate node B should be media:enc=utf-8;ext=txt, got {node_b}"
 
 
-# TEST6716: A cap URN not present in the registry cache causes a parse orchestration error.
-def test_6716_cap_not_found_in_registry():
+# TEST1261: A cap URN not present in the registry cache causes a parse orchestration error.
+def test_1261_cap_not_found_in_registry():
     # Python raises MachineSyntaxParseFailedError (wraps UnknownCapError from parse_machine)
     # rather than CapNotFoundError, because the cap lookup happens inside parse_machine.
     import asyncio
@@ -206,7 +206,7 @@ async def test_1264_incompatible_media_types_at_shared_node():
         await parse_machine_to_cap_dag(notation, registry)
 
 
-# TEST6717: Shared nodes accept compatible media URNs when one is a more specific form of the other.
+# TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
 # xfail: Python's match_sources_to_args requires strict tag conformance — source media:ext=png;image
 # does not conform to cap arg media:bytes;ext=png;image (normalized: media:bytes;ext=png;image).
 # Rust's is_comparable accepts subset/superset tag chains at the orchestrator level.
@@ -218,7 +218,7 @@ async def test_1264_incompatible_media_types_at_shared_node():
 )
 # TEST1265: Compatible media urns at shared node
 @pytest.mark.asyncio
-async def test_6717_compatible_media_urns_at_shared_node():
+async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([
         ('cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
          ["media:ext=pdf"], "media:ext=png;image"),
@@ -235,7 +235,7 @@ async def test_6717_compatible_media_urns_at_shared_node():
     assert result is not None, "Compatible media URNs (image;png vs image;png;bytes) should not conflict"
 
 
-# TEST1266: Record-to-opaque structure mismatches are skipped until structure checking is implemented.
+# TEST1266: Record-to-opaque structure mismatches are rejected once structure checking is enabled.
 @pytest.mark.skip(reason="structure mismatch detection between node media and cap input not yet implemented")
 @pytest.mark.asyncio
 async def test_1266_structure_mismatch_record_to_opaque():
@@ -304,3 +304,124 @@ async def test_1269_parse_multiline_machine():
     notation = '\n[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]\n'
     result = await parse_machine_to_cap_dag(notation, registry)
     assert result is not None, "Multi-line parse failed"
+
+
+# =============================================================================
+# Tests ported from Rust tests/orchestrator_integration.rs — testcartridge
+# parser-level cases. The execute_dag-based peers (multi-machine pipelines)
+# depend on building and running the Rust `testcartridge` binary, a subsystem
+# absent in the Python mirror, so only the pure-parse cases are ported here.
+# =============================================================================
+
+
+def _build_testcartridge_registry() -> FabricRegistry:
+    """Build a registry with the testcartridge caps, mirroring Rust's
+    `create_test_fabric_registry`. Each cap declares one stdin arg matching
+    its `in=` spec so source-to-cap-arg matching can succeed."""
+    return _build_registry([
+        ('cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"',
+         ["media:enc=utf-8;node1"], "media:enc=utf-8;node2"),
+        ('cap:in="media:enc=utf-8;node2";test-edge2;out="media:enc=utf-8;node3"',
+         ["media:enc=utf-8;node2"], "media:enc=utf-8;node3"),
+        ('cap:in="media:enc=utf-8;node3";test-edge3;out="media:enc=utf-8;list;node4"',
+         ["media:enc=utf-8;node3"], "media:enc=utf-8;list;node4"),
+        ('cap:in="media:enc=utf-8;list;node4";test-edge4;out="media:enc=utf-8;node5"',
+         ["media:enc=utf-8;list;node4"], "media:enc=utf-8;node5"),
+        ('cap:in="media:enc=utf-8;node3";test-edge7;out="media:enc=utf-8;node6"',
+         ["media:enc=utf-8;node3"], "media:enc=utf-8;node6"),
+        ('cap:in="media:enc=utf-8;node6";test-edge8;out="media:enc=utf-8;node7"',
+         ["media:enc=utf-8;node6"], "media:enc=utf-8;node7"),
+        ('cap:in="media:enc=utf-8;node7";test-edge9;out="media:enc=utf-8;node8"',
+         ["media:enc=utf-8;node7"], "media:enc=utf-8;node8"),
+        ('cap:in="media:enc=utf-8;node8";test-edge10;out="media:enc=utf-8;node1"',
+         ["media:enc=utf-8;node8"], "media:enc=utf-8;node1"),
+        ('cap:in="media:void";test-large;out="media:"',
+         ["media:void"], "media:"),
+        ('cap:in="media:enc=utf-8;node1";test-peer;out="media:enc=utf-8;node3"',
+         ["media:enc=utf-8;node1"], "media:enc=utf-8;node3"),
+        ('cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1"',
+         ["media:enc=utf-8;node1"], "media:enc=utf-8;node1"),
+    ])
+
+
+# TEST919: Parse simple machine notation graph with test-edge1
+@pytest.mark.asyncio
+async def test_919_parse_simple_testcartridge_graph():
+    registry = _build_testcartridge_registry()
+
+    route = (
+        '\n'
+        '[test_edge1 cap:in="media:enc=utf-8;node1";test-edge1;out="media:enc=utf-8;node2"]\n'
+        '[A -> test_edge1 -> B]\n'
+    )
+
+    graph = await parse_machine_to_cap_dag(route, registry)
+    assert len(graph.nodes) == 2
+    assert len(graph.edges) == 1
+
+    node_a = MediaUrn.from_string(graph.nodes["A"])
+    expected_a = MediaUrn.from_string("media:enc=utf-8;node1")
+    assert node_a.is_equivalent(expected_a)
+
+    node_b = MediaUrn.from_string(graph.nodes["B"])
+    expected_b = MediaUrn.from_string("media:enc=utf-8;node2")
+    assert node_b.is_equivalent(expected_b)
+
+
+# TEST950: Validate that cycles are rejected
+@pytest.mark.asyncio
+async def test_950_reject_cycles():
+    registry = _build_testcartridge_registry()
+
+    # Create a self-loop using identity cap
+    route = (
+        '\n'
+        '[identity cap:in="media:enc=utf-8;node1";identity;out="media:enc=utf-8;node1"]\n'
+        '[A -> identity -> A]\n'
+    )
+
+    # Rust expects ParseOrchestrationError::NotADag. Python's self-loop is
+    # caught either by the machine parser (which wraps it as a syntax parse
+    # failure) or by the DAG validator (NotADagError); both are
+    # ParseOrchestrationError subclasses.
+    with pytest.raises((NotADagError, MachineSyntaxParseFailedError)):
+        await parse_machine_to_cap_dag(route, registry)
+
+
+# TEST949: Empty machine notation (no edges)
+@pytest.mark.asyncio
+async def test_949_empty_graph():
+    registry = _build_testcartridge_registry()
+
+    route = ""
+
+    with pytest.raises(MachineSyntaxParseFailedError):
+        await parse_machine_to_cap_dag(route, registry)
+
+
+# TEST948: Invalid cap URN in machine notation
+@pytest.mark.asyncio
+async def test_948_invalid_cap_urn():
+    registry = _build_testcartridge_registry()
+
+    route = "[bad cap:INVALID]" "[A -> bad -> B]"
+
+    with pytest.raises(ParseOrchestrationError):
+        await parse_machine_to_cap_dag(route, registry)
+
+
+# TEST947: Cap not found in registry
+@pytest.mark.asyncio
+async def test_947_cap_not_found():
+    registry = _build_testcartridge_registry()
+
+    route = (
+        '\n'
+        '[nonexistent cap:in="media:unknown";nonexistent;out="media:unknown"]\n'
+        '[A -> nonexistent -> B]\n'
+    )
+
+    # Rust expects MachineSyntaxParseFailedError: the parser resolves header
+    # caps and wraps the registry lookup failure during parse_machine.
+    with pytest.raises(MachineSyntaxParseFailedError):
+        await parse_machine_to_cap_dag(route, registry)

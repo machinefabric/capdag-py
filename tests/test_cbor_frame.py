@@ -1543,8 +1543,8 @@ def test_904_stream_end_with_chunk_count():
     assert frame.chunk_count == 42, "chunk_count should be set"
 
 
-# TEST907: Offline flag blocks fetch_from_registry without making HTTP request
-def test_907_cbor_rejects_stream_end_without_chunk_count():
+# TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
+def test_6672_cbor_rejects_stream_end_without_chunk_count():
     req_id = MessageId.random()
 
     # Create STREAM_END without chunk_count

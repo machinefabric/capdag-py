@@ -39,7 +39,7 @@ def _test_urn_with_input(tags: str) -> str:
     return f'cap:in="{MEDIA_STRING}";out="{MEDIA_OBJECT}";{tags}'
 
 
-# TEST051: Test input validation succeeds with valid positional argument
+# TEST51: Test input validation succeeds with valid positional argument
 @pytest.mark.asyncio
 async def test_051_input_validation_success(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
@@ -64,7 +64,7 @@ async def test_051_input_validation_success(registry):
     await validate_positional_arguments(cap, input_args, registry)
 
 
-# TEST052: Test input validation fails with MissingRequiredArgument when required arg missing
+# TEST52: Test input validation fails with MissingRequiredArgument when required arg missing
 @pytest.mark.asyncio
 async def test_052_input_validation_missing_required(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
@@ -113,7 +113,7 @@ async def test_6368_input_validation_too_many_args(registry):
     assert exc_info.value.actual_count == 3
 
 
-# TEST053: Test input validation fails with InvalidArgumentType when wrong type provided
+# TEST53: Test input validation fails with InvalidArgumentType when wrong type provided
 @pytest.mark.asyncio
 async def test_053_input_validation_wrong_type(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))

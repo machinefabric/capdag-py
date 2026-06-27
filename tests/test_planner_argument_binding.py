@@ -33,8 +33,8 @@ def _empty_context(**overrides):
     defaults.update(overrides)
     return ArgumentResolutionContext(**defaults)
 
-# TEST6626: resolve_slot_with_populated_byte_slot_values
-def test_6626_resolve_slot_with_populated_byte_slot_values():
+# TEST668: resolve_slot_with_populated_byte_slot_values
+def test_668_resolve_slot_with_populated_byte_slot_values():
     slot_values = {
         "step_0:media:numeric;width": b"800",
     }
@@ -50,8 +50,8 @@ def test_6626_resolve_slot_with_populated_byte_slot_values():
     assert result.value == b"800"
     assert result.source == ArgumentSource.SLOT
 
-# TEST6627: resolve_slot_falls_back_to_default
-def test_6627_resolve_slot_falls_back_to_default():
+# TEST669: resolve_binding falls back to cap default value when slot has no data
+def test_669_resolve_slot_falls_back_to_default():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:numeric;quality")
     result = resolve_binding(binding, ctx, "cap:compress", "step_0", 85, False)
@@ -59,16 +59,16 @@ def test_6627_resolve_slot_falls_back_to_default():
     assert result.value == json.dumps(85, separators=(",", ":")).encode("utf-8")
     assert result.source == ArgumentSource.CAP_DEFAULT
 
-# TEST6628: resolve_required_slot_no_value_returns_err
-def test_6628_resolve_required_slot_no_value_returns_err():
+# TEST670: resolve_binding returns error when required slot has no value and no default
+def test_670_resolve_required_slot_no_value_returns_err():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:enc=utf-8;question")
     with pytest.raises(InternalError) as exc_info:
         resolve_binding(binding, ctx, "cap:generate", "step_0", None, True)
     assert "media:enc=utf-8;question" in str(exc_info.value)
 
-# TEST6629: resolve_optional_slot_no_value_returns_none
-def test_6629_resolve_optional_slot_no_value_returns_none():
+# TEST671: resolve_binding returns None when optional slot has no value and no default
+def test_671_resolve_optional_slot_no_value_returns_none():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:enc=utf-8;suffix")
     result = resolve_binding(binding, ctx, "cap:rename", "step_0", None, False)
@@ -80,7 +80,6 @@ def test_6629_resolve_optional_slot_no_value_returns_none():
 # ---------------------------------------------------------------------------
 
 # TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve.
-# This is the core disambiguation scenario that step-index keying was designed to solve.
 def test_1105_two_steps_same_cap_urn_different_slot_values():
     cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;list;question"
@@ -108,7 +107,6 @@ def test_1105_two_steps_same_cap_urn_different_slot_values():
 
 
 # TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
-# cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 def test_1106_slot_falls_through_to_cap_settings_shared():
     cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;language"
@@ -129,7 +127,6 @@ def test_1106_slot_falls_through_to_cap_settings_shared():
 
 
 # TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback.
-# Proves per-step override works while shared settings remain as fallback.
 def test_1107_slot_value_overrides_cap_settings_per_step():
     cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;language"

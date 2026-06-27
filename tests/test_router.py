@@ -5,8 +5,8 @@ from capdag.bifaci.router import NoPeerRouter
 from capdag.bifaci.host_runtime import PeerInvokeNotSupported
 
 
-# TEST6227: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported
-def test_6227_no_peer_router_rejects_all():
+# TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported
+def test_638_no_peer_router_rejects_all():
     router = NoPeerRouter()
     req_id = bytes(16)
 

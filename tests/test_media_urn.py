@@ -35,7 +35,7 @@ from capdag import (
 )
 
 
-# TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix
+# TEST60: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix
 def test_060_wrong_prefix_fails():
     with pytest.raises(MediaUrnError, match="Invalid prefix"):
         MediaUrn.from_string("cap:string")
@@ -47,7 +47,7 @@ def test_060_wrong_prefix_fails():
 # test_067 below. No replacement assertion is meaningful here.
 
 
-# TEST062: Test is_record returns true when record marker tag is present indicating key-value structure
+# TEST62: Test is_record returns true when record marker tag is present indicating key-value structure
 def test_062_is_record():
     obj_urn = MediaUrn.from_string(MEDIA_OBJECT)
     assert obj_urn.is_record()
@@ -61,7 +61,7 @@ def test_062_is_record():
     assert not string_urn.is_record()
 
 
-# TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default)
+# TEST63: Test is_scalar returns true when list marker tag is absent (scalar is default)
 def test_063_is_scalar():
     assert MediaUrn.from_string(MEDIA_STRING).is_scalar()
     assert MediaUrn.from_string(MEDIA_INTEGER).is_scalar()
@@ -72,7 +72,7 @@ def test_063_is_scalar():
     assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_scalar()
 
 
-# TEST064: Test is_list returns true when list marker tag is present indicating ordered collection
+# TEST64: Test is_list returns true when list marker tag is present indicating ordered collection
 def test_064_is_list():
     list_urn = MediaUrn.from_string(MEDIA_STRING_LIST)
     assert list_urn.is_list()
@@ -85,7 +85,7 @@ def test_064_is_list():
     assert not scalar_urn.is_list()
 
 
-# TEST065: Test is_opaque returns true when record marker is absent (opaque is default)
+# TEST65: Test is_opaque returns true when record marker is absent (opaque is default)
 def test_065_is_opaque():
     assert MediaUrn.from_string(MEDIA_STRING).is_opaque()
     assert MediaUrn.from_string(MEDIA_STRING_LIST).is_opaque()
@@ -96,7 +96,7 @@ def test_065_is_opaque():
     assert not MediaUrn.from_string("media:list;record").is_opaque()
 
 
-# TEST066: Test is_json returns true only when json marker tag is present for JSON representation
+# TEST66: Test is_json returns true only when json marker tag is present for JSON representation
 def test_066_is_json():
     json_urn = MediaUrn.from_string(MEDIA_JSON)
     assert json_urn.is_json()
@@ -106,10 +106,7 @@ def test_066_is_json():
     assert not obj_urn.is_json()
 
 
-# TEST067: Text-representability is now carried by the orthogonal `enc=` tag
-# (the old `textable` marker and is_text() are gone). A media is "text" iff it
-# declares an encoding. enc is orthogonal to format/numeric, so only media that
-# actually carry enc= are text.
+# TEST67: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
 def test_067_is_text():
     # Has enc= → text-representable
     assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf-8
@@ -122,7 +119,7 @@ def test_067_is_text():
     assert MediaUrn.from_string(MEDIA_OBJECT).get_tag("enc") is None  # media:record
 
 
-# TEST068: Test is_void returns true when void flag or type=void tag is present
+# TEST68: Test is_void returns true when void flag or type=void tag is present
 def test_068_is_void():
     void_urn = MediaUrn.from_string(MEDIA_VOID)
     assert void_urn.is_void()
@@ -132,7 +129,7 @@ def test_068_is_void():
     assert not string_urn.is_void()
 
 
-# TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure
+# TEST71: Test to_string roundtrip ensures serialization and deserialization preserve URN structure
 def test_071_to_string_roundtrip():
     original = "media:application;subtype=json;v=1"
     urn = MediaUrn.from_string(original)
@@ -141,7 +138,7 @@ def test_071_to_string_roundtrip():
     assert urn == reparsed
 
 
-# TEST072: Test all media URN constants parse successfully as valid media URNs
+# TEST72: Test all media URN constants parse successfully as valid media URNs
 def test_072_all_constants_parse():
     constants = [
         MEDIA_VOID,
@@ -162,7 +159,7 @@ def test_072_all_constants_parse():
         assert urn == reparsed
 
 
-# TEST073: Test extension helper functions create media URNs with ext tag and correct format
+# TEST73: Test extension helper functions create media URNs with ext tag and correct format
 def test_073_extension_helpers():
     # Bare file with extension — no enc/fmt claim
     file_ext = file_media_urn_for_ext("dat")
@@ -187,7 +184,7 @@ def test_073_extension_helpers():
     assert audio_urn.extension() == "mp3"
 
 
-# TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
+# TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 def test_074_media_urn_matching():
     # A more-specific URN must conform to a less-specific URN with the
     # same tags-minus-one. media:ext=pdf carries the keyed ext tag plus
@@ -206,7 +203,7 @@ def test_074_media_urn_matching():
     assert string_urn.conforms_to(string_req)
 
 
-# TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests
+# TEST75: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests
 def test_075_matching():
     handler = MediaUrn.from_string("media:string")
     request = MediaUrn.from_string("media:string")
@@ -219,7 +216,7 @@ def test_075_matching():
     assert handler.accepts(same)
 
 
-# TEST076: Test specificity increases with more tags for ranking conformance
+# TEST76: Test specificity increases with more tags for ranking conformance
 def test_076_specificity():
     # More tags = higher specificity. Use the same enc=utf-8 base and add
     # markers so each URN is a strict superset of the previous — the
@@ -236,7 +233,7 @@ def test_076_specificity():
     assert s3 >= s2
 
 
-# TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly
+# TEST77: Test serde roundtrip serializes to JSON string and deserializes back correctly
 def test_077_serde_roundtrip():
     original_str = "media:application;subtype=json;v=1"
     urn = MediaUrn.from_string(original_str)
@@ -245,7 +242,7 @@ def test_077_serde_roundtrip():
     assert urn == reparsed
 
 
-# TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING
+# TEST78: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING
 def test_078_object_does_not_conform_to_string():
     str_urn = MediaUrn.from_string(MEDIA_STRING)
     obj_urn = MediaUrn.from_string(MEDIA_OBJECT)
@@ -336,9 +333,7 @@ def test_550_is_bool():
     assert not MediaUrn.from_string(MEDIA_IDENTITY).is_bool()
 
 
-# TEST551: is_file_path returns true for the single file-path media URN,
-# false for everything else. There is no "array" variant — cardinality is
-# carried by is_sequence on the wire, not by URN tags.
+# TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags.
 def test_551_is_file_path():
     assert MediaUrn.from_string(MEDIA_FILE_PATH).is_file_path()
     assert not MediaUrn.from_string(MEDIA_STRING).is_file_path()
@@ -514,12 +509,7 @@ def test_1271_media_adapter_selection_constant():
         f"Must have record tag, got: {urn.to_string()}"
 
 
-# TEST1810: media:void is atomic — refinements are parse errors.
-#
-# Mirrored across every language port (Rust, Go, Python, Swift/ObjC,
-# JS) under the SAME number. Any divergence is a wire-level
-# inconsistency — the unit type's atomicity is part of the protocol's
-# deepest layer, not a per-port detail.
+# TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args.
 def test_1810_media_void_is_atomic():
     # Bare void: must parse successfully.
     bare = MediaUrn.from_string("media:void")

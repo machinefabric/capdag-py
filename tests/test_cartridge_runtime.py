@@ -366,7 +366,7 @@ def test_259_extract_effective_payload_non_cbor():
     assert result == payload
 
 
-# TEST260: Test extract_effective_payload with empty content_type returns raw payload unchanged
+# TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged
 def test_260_extract_effective_payload_no_content_type():
     cap = create_test_cap('cap:in=media:void;test;out=media:void', "Test", "test", [])
     payload = b"raw data"
@@ -841,10 +841,10 @@ def test_343_non_file_path_args_unaffected():
     assert result.decode('utf-8') == "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 
-# TEST344: A scalar file-path arg receiving a nonexistent path fails hard
+# TEST6586: A scalar file-path arg receiving a nonexistent path fails hard
 # with a clear error that names the path. The runtime refuses to silently
 # swallow user mistakes like typos or wrong directories.
-def test_344_file_path_array_invalid_json_fails():
+def test_6586_file_path_array_invalid_json_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
@@ -873,9 +873,8 @@ def test_344_file_path_array_invalid_json_fails():
     assert "File not found" in err, f"Error should be clear; got: {err}"
 
 
-# TEST345: file-path arg with literal nonexistent path fails hard.
-# Mirrors Rust test345_file_path_array_one_file_missing_fails_hard.
-def test_345_file_path_array_one_file_missing_fails_hard(tmp_path):
+# TEST6587: file-path-array with literal nonexistent path fails hard
+def test_6587_file_path_array_one_file_missing_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     missing_path = tmp_path / "test345_missing.txt"
@@ -1103,10 +1102,10 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     assert received_payload[0] == test_content, "Handler should receive file bytes, not path"
 
 
-# TEST351: file-path arg in CBOR mode with empty Array returns empty.
+# TEST6588: file-path arg in CBOR mode with empty Array returns empty.
 # CBOR Array (not JSON-encoded) is the multi-input wire form for sequence
 # args. Mirrors Rust test351_file_path_array_empty_array.
-def test_351_file_path_array_empty_array():
+def test_6588_file_path_array_empty_array():
     from capdag.cap.definition import CapArg, StdinSource
 
     cap = create_test_cap(
@@ -1274,7 +1273,7 @@ def test_355_glob_pattern_skips_directories(tmp_path):
     assert result[0] == b"content1"
 
 
-# TEST356: Multiple glob patterns combined via newline separation.
+# TEST356: Multiple glob patterns combined
 def test_356_multiple_glob_patterns_combined(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1385,8 +1384,7 @@ def test_358_binary_file_non_utf8(tmp_path):
     assert result == binary_data, "Binary data should read correctly"
 
 
-# TEST359: Invalid glob pattern fails with clear error.
-# Mirrors Rust test359_invalid_glob_pattern_fails.
+# TEST359: Invalid glob pattern fails with clear error
 def test_359_invalid_glob_pattern_fails():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
@@ -1493,13 +1491,6 @@ def test_361_cli_mode_file_path(tmp_path):
 
 
 # TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload
-#
-# This test simulates real-world conditions:
-# - Pure binary data piped to stdin (NOT CBOR)
-# - CLI mode detected (command arg present)
-# - Cap accepts stdin source
-# - Binary is chunked on-the-fly and accumulated
-# - Handler receives complete CBOR payload
 def test_362_cli_mode_piped_binary():
     from capdag.cap.definition import CapArg, StdinSource
     import io
@@ -2242,7 +2233,7 @@ def test_678_find_stream_equivalent_urn():
     assert result == b"hello world"
 
 
-# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:llm-generation-request;json;record".
+# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record".
 def test_679_find_stream_base_vs_full_fails():
     streams = [
         ("media:enc=utf-8;ext=txt", b"hello"),

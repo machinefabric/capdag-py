@@ -669,6 +669,17 @@ def handshake_accept(
     return limits
 
 
+def identity_nonce() -> bytes:
+    """CBOR-encoded Text("bifaci") — deterministic 7-byte nonce for identity verification.
+
+    Mirrors Rust ``bifaci::io::identity_nonce``. Used by the in-process
+    cartridge host's identity handler, which echoes the raw nonce bytes
+    back unchanged (no CBOR decode/encode).
+    """
+    import cbor2
+    return cbor2.dumps("bifaci")
+
+
 def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
     """Verify a peer's CAP_IDENTITY handler by round-tripping a nonce."""
     request_id = MessageId.new_uuid()
