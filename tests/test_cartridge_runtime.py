@@ -1902,8 +1902,8 @@ def test_533_input_stream_error_propagation():
 
 # TEST534: InputStream::media_urn returns correct URN
 def test_534_input_stream_media_urn():
-    stream = make_input_stream("media:image;format=png", [b"data"])
-    assert stream.media_urn() == "media:image;format=png"
+    stream = make_input_stream("media:ext=png;image", [b"data"])
+    assert stream.media_urn() == "media:ext=png;image"
 
 
 # TEST535: InputPackage recv yields streams

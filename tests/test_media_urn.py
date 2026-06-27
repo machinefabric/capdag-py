@@ -474,12 +474,12 @@ def test_858_lub_three_inputs():
 
 # TEST859: LUB with valued tags (non-marker) that differ
 def test_859_lub_valued_tags():
-    v1 = MediaUrn.from_string("media:image;format=png")
-    v2 = MediaUrn.from_string("media:image;format=jpeg")
+    v1 = MediaUrn.from_string("media:ext=png;image")
+    v2 = MediaUrn.from_string("media:ext=jpeg;image")
     lub = MediaUrn.least_upper_bound([v1, v2])
     expected = MediaUrn.from_string("media:image")
     assert lub.is_equivalent(expected), \
-        f"LUB should drop conflicting format tag, got {lub.to_string()}"
+        f"LUB should drop conflicting ext tag, got {lub.to_string()}"
 
 
 # TEST628: Verify media URN constants all start with "media:" prefix
