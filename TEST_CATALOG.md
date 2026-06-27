@@ -1026,19 +1026,19 @@ This catalog lists all tests in the Python codebase.
 | test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:175 |
 | test1878 | `test_1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked installed_from=bundle with no baked hash in BUNDLED_PROVIDER_HASHES (empty under a plain test build) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:191 |
 | test1879 | `test_1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1131 |
-| test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars. | tests/test_fabric_alias.py:49 |
-| test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. | tests/test_fabric_alias.py:65 |
-| test1882 | `test_1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. | tests/test_fabric_alias.py:75 |
-| test1883 | `test_1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header resolves as a cap alias. | tests/test_fabric_alias.py:214 |
-| test1884 | `test_1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. | tests/test_fabric_alias.py:224 |
-| test1885 | `test_1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error. | tests/test_fabric_alias.py:236 |
-| test1886 | `test_1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias raises UndefinedAlias. | tests/test_fabric_alias.py:254 |
-| test1887 | `test_1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map. | tests/test_fabric_alias.py:90 |
-| test1888 | `test_1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped; case-insensitive; malformed name rejected. | tests/test_fabric_alias.py:109 |
-| test1889 | `test_1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. | tests/test_fabric_alias.py:122 |
-| test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). | tests/test_fabric_alias.py:139 |
-| test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:164 |
-| test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard NotFound, never a silent empty. | tests/test_fabric_alias.py:190 |
+| test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed char class; rejects colon, whitespace, and out-of-class chars. | tests/test_fabric_alias.py:53 |
+| test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. | tests/test_fabric_alias.py:69 |
+| test1882 | `test_1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. | tests/test_fabric_alias.py:79 |
+| test1883 | `test_1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header resolves as a cap alias. | tests/test_fabric_alias.py:218 |
+| test1884 | `test_1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. | tests/test_fabric_alias.py:228 |
+| test1885 | `test_1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error. | tests/test_fabric_alias.py:240 |
+| test1886 | `test_1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias raises UndefinedAlias. | tests/test_fabric_alias.py:261 |
+| test1887 | `test_1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map. | tests/test_fabric_alias.py:94 |
+| test1888 | `test_1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped; case-insensitive; malformed name rejected. | tests/test_fabric_alias.py:113 |
+| test1889 | `test_1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. | tests/test_fabric_alias.py:126 |
+| test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). | tests/test_fabric_alias.py:143 |
+| test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:168 |
+| test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard NotFound, never a silent empty. | tests/test_fabric_alias.py:194 |
 ---
 
 *Generated from Python source tree*
