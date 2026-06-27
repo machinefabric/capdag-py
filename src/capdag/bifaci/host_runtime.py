@@ -24,6 +24,7 @@ host.run(relay_reader, relay_writer, resource_fn=lambda: b"")
 ```
 """
 
+import hashlib
 import json
 import subprocess
 import threading
@@ -40,7 +41,12 @@ from capdag.bifaci.io import (
     verify_identity,
     CborError,
 )
-from capdag.bifaci.relay_switch import InstalledCartridgeRecord
+from capdag.bifaci.relay_switch import (
+    InstalledCartridgeRecord,
+    CartridgeLifecycle,
+    CartridgeAttachmentError,
+    CartridgeAttachmentErrorKind,
+)
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.urn.cap_urn import CapUrn, CapUrnError
@@ -388,23 +394,42 @@ class CartridgeHost:
         the handle stays valid for the lifetime of ``run()``."""
         return CartridgeProcessHandle(self._command_queue)
 
-    def register_cartridge(self, path: str, cap_groups: List[Any]) -> None:
+    def register_cartridge(
+        self,
+        path: str,
+        name: str,
+        version: str,
+        channel: CartridgeChannel,
+        registry_url: Optional[str],
+        cap_groups: List[Any],
+    ) -> None:
         """Register a cartridge binary for on-demand spawning.
 
-        ``cap_groups`` is the single source of truth for what caps
-        this cartridge handles — populated at registration time
-        (probe HELLO at discovery) and refreshed on each spawn/HELLO.
-        Mirrors the Rust ``CartridgeHostRuntime::register_cartridge``.
+        ``cap_groups`` is the single source of truth for what caps this
+        cartridge handles — populated at registration time (probe HELLO at
+        discovery) and refreshed on each spawn/HELLO. The install identity
+        is stamped from the binary: ``(name, version, channel, registry_url)``
+        come from the cartridge's own manifest (the binary path has no bearing
+        on them), and the sha256 is taken over the binary bytes. This mirrors
+        the reference ``CartridgeHostRuntime::register_cartridge`` /
+        ``new_registered_binary`` — advertisement is identity-gated, so a
+        cartridge with no resolvable identity is dropped from every
+        RelayNotify, never silently advertised under a synthetic id.
 
         Args:
             path: Path to the cartridge binary
-            cap_groups: Cap groups this cartridge handles. Each entry
-                is a dict with at least ``name`` and ``caps`` keys;
-                each cap is ``{"urn": ..., "title": ..., "command": ..., "args": [...]}``.
+            name: Cartridge id from its manifest
+            version: Cartridge version from its manifest
+            channel: Distribution channel from its manifest
+            registry_url: Registry URL from its manifest (None ⇔ dev)
+            cap_groups: Cap groups this cartridge handles.
         """
         with self._lock:
             cartridge_idx = len(self._cartridges)
             cartridge = _ManagedCartridge(path=path, cap_groups=cap_groups)
+            cartridge.installed_identity = _installed_cartridge_record_from_binary(
+                path, name, version, channel, registry_url
+            )
             self._cartridges.append(cartridge)
 
             for urn in cartridge.cap_urns():
@@ -446,12 +471,18 @@ class CartridgeHost:
                     version=version,
                     sha256=sha256,
                     cap_groups=list(cap_groups),
+                    # Engine-spawned external providers are operational by
+                    # construction: discovery validated the install context and
+                    # probed the cartridge before this registration.
+                    lifecycle=CartridgeLifecycle.OPERATIONAL,
                 )
-            except Exception:
-                # Unhashable directory: record a bare identity and mark the
-                # cartridge permanently failed so it is excluded from the
-                # cap table and RelayNotify aggregate (never hosted), but
-                # still carries a resolvable id for reporting.
+            except Exception as e:
+                # Unhashable directory: record an identity carrying the
+                # attachment error and mark the cartridge permanently failed so
+                # it is excluded from the cap table and RelayNotify aggregate
+                # (never hosted), but still surfaces the real reason. Mirrors
+                # the reference new_registered_dir error path.
+                import time
                 cartridge.installed_identity = InstalledCartridgeRecord(
                     registry_url=registry_url,
                     id=cartridge_id,
@@ -459,6 +490,15 @@ class CartridgeHost:
                     version=version,
                     sha256="",
                     cap_groups=list(cap_groups),
+                    attachment_error=CartridgeAttachmentError(
+                        kind=CartridgeAttachmentErrorKind.ENTRY_POINT_MISSING,
+                        message=f"Cartridge directory not hashable at '{version_dir}': {e}",
+                        detected_at_unix_seconds=int(time.time()),
+                    ),
+                    # attachment_error is set ⇒ lifecycle is irrelevant per the
+                    # mutual-exclusivity contract; default to DISCOVERED (the
+                    # safe sentinel) rather than asserting OPERATIONAL.
+                    lifecycle=CartridgeLifecycle.DISCOVERED,
                 )
                 cartridge.hello_failed = True
             self._cartridges.append(cartridge)
@@ -503,6 +543,13 @@ class CartridgeHost:
             cartridge.limits = result.limits
             cartridge.cap_groups = cap_groups
             cartridge.running = True
+            # Derive the install identity from the HELLO manifest. Advertisement
+            # is identity-gated, so without this the attached cartridge is
+            # silently excluded from every RelayNotify and the engine can never
+            # route to it (the dev/interop relay path).
+            cartridge.installed_identity = _installed_cartridge_record_from_manifest(
+                result.manifest
+            )
 
             self._cartridges.append(cartridge)
 
@@ -904,37 +951,40 @@ class CartridgeHost:
 
     def _build_installed_cartridge_identities(self) -> List[dict]:
         """Build the ``installed_cartridges`` list for a RelayNotify
-        payload. Every cartridge that has not permanently failed HELLO is
-        advertised, carrying its resolved (registry_url, channel, id,
-        version, sha256) identity when one exists. Cartridges registered
-        without an on-disk anchor (``register_cartridge`` / probe / attach
-        in tests) have no identity, so a stable per-index id is
-        synthesized for them — identity-bearing registered-dir cartridges
-        carry their real id end-to-end. Mirrors the Rust
-        ``build_installed_cartridge_identities``."""
+        payload.
+
+        Identity gates advertisement: a cartridge that has permanently failed
+        HELLO, or that has no resolvable ``installed_identity``, is NOT part of
+        the inventory the engine can route to and is dropped — mirroring the
+        reference ``build_installed_cartridge_identities``. (Attached
+        cartridges get a manifest-derived identity at attach time, so a missing
+        identity here means a genuinely anchorless cartridge; we expose that by
+        dropping it rather than fabricating a synthetic ``cartridge-N`` record
+        that would hide the gap.) The base identity is overlaid with the live
+        cap_groups and runtime stats before emission."""
+        from capdag.bifaci.relay_switch import (
+            CartridgeRuntimeStats,
+            _installed_cartridge_record_to_wire,
+        )
+        import dataclasses
+
         installed: List[dict] = []
-        for idx, cartridge in enumerate(self._cartridges):
+        for cartridge in self._cartridges:
             if cartridge.hello_failed:
                 continue
             rec = cartridge.installed_cartridge_record()
-            if rec is not None:
-                installed.append({
-                    "registry_url": rec.registry_url,
-                    "channel": rec.channel,
-                    "id": rec.id,
-                    "version": rec.version,
-                    "sha256": rec.sha256,
-                    "cap_groups": cartridge.cap_groups,
-                })
-            else:
-                installed.append({
-                    "registry_url": None,
-                    "channel": "release",
-                    "id": f"cartridge-{idx}",
-                    "version": "0.0.0",
-                    "sha256": "",
-                    "cap_groups": cartridge.cap_groups,
-                })
+            if rec is None:
+                continue
+            pid = None
+            if cartridge.process is not None:
+                pid = cartridge.process.pid
+            stats = CartridgeRuntimeStats(running=cartridge.running, pid=pid)
+            out = dataclasses.replace(
+                rec,
+                cap_groups=cartridge.cap_groups,
+                runtime_stats=stats,
+            )
+            installed.append(_installed_cartridge_record_to_wire(out))
         return installed
 
     def _rebuild_capabilities(self, emit: bool = False) -> None:
@@ -1081,6 +1131,81 @@ class CartridgeHost:
 # =========================================================================
 # Helpers
 # =========================================================================
+
+def _installed_cartridge_record_from_binary(
+    path: str,
+    name: str,
+    version: str,
+    channel: CartridgeChannel,
+    registry_url: Optional[str],
+) -> Optional["InstalledCartridgeRecord"]:
+    """Build the install identity for a cartridge registered by binary path
+    (on-demand spawn). The identity tuple ``(registry_url, channel, id,
+    version)`` comes from the cartridge's manifest (supplied by the caller —
+    the binary path has no bearing on them); the sha256 is taken over the
+    binary bytes. Mirrors the reference
+    ``installed_cartridge_record_from_binary``. Returns ``None`` if the binary
+    is unreadable (the cartridge is then dropped from advertisement rather
+    than advertised without a resolvable identity)."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    sha256 = hashlib.sha256(data).hexdigest()
+    return InstalledCartridgeRecord(
+        registry_url=registry_url,
+        id=name,
+        channel=channel.value,
+        version=version,
+        sha256=sha256,
+        # On-demand binary: not yet probed/verified at registration time.
+        lifecycle=CartridgeLifecycle.DISCOVERED,
+    )
+
+
+def _installed_cartridge_record_from_manifest(
+    manifest: bytes,
+) -> Optional["InstalledCartridgeRecord"]:
+    """Build the install identity for a cartridge attached over raw streams
+    (no on-disk anchor: the dev/host-embedded/interop path).
+
+    Advertisement is identity-gated — a cartridge with no identity is
+    silently dropped from every RelayNotify (see
+    ``_build_installed_cartridge_identities``), so an attached cartridge MUST
+    carry a resolvable identity or the host advertises an empty inventory and
+    the engine can never route to it. An attached cartridge has already
+    completed HELLO + identity verification by the time this is called, so it
+    is operational by construction; its identity is sourced from the manifest
+    it sent during HELLO (the same ``(registry_url, channel, id, version)``
+    tuple a registered install carries), with the sha256 taken over the
+    manifest bytes (the only stable artefact available without a file on
+    disk). Mirrors the reference ``installed_cartridge_record_from_manifest``.
+    Returns ``None`` if the manifest does not parse (the caller still
+    attaches; the record is honestly absent).
+    """
+    if not manifest:
+        return None
+    try:
+        parsed = json.loads(manifest)
+    except (ValueError, TypeError):
+        return None
+    name = parsed.get("name")
+    version = parsed.get("version")
+    channel = parsed.get("channel")
+    if not isinstance(name, str) or not isinstance(version, str) or not isinstance(channel, str):
+        return None
+    sha256 = hashlib.sha256(manifest).hexdigest()
+    return InstalledCartridgeRecord(
+        registry_url=parsed.get("registry_url"),
+        id=name,
+        channel=channel,
+        version=version,
+        sha256=sha256,
+        # Attached ⇒ HELLO + identity verification already succeeded.
+        lifecycle=CartridgeLifecycle.OPERATIONAL,
+    )
+
 
 def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
     """Parse the cartridge's cap_groups from a JSON manifest.

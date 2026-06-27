@@ -144,6 +144,48 @@ class SocketPair:
     write: object  # file-like object for writing
 
 
+class CartridgeLifecycle(str, Enum):
+    """Positive lifecycle phase of an installed cartridge.
+
+    Mutually exclusive with ``attachment_error``: when an attachment error
+    is present this field is irrelevant. When there is no attachment error, a
+    cartridge is dispatchable iff it has reached ``OPERATIONAL``. Mirrors the
+    reference ``CartridgeLifecycle`` (snake_case wire values).
+    """
+
+    #: Found on disk; not yet inspected. Safe default — never dispatchable.
+    DISCOVERED = "discovered"
+    #: Manifest/identity being read.
+    INSPECTING = "inspecting"
+    #: Registry/verifier round-trip in progress.
+    VERIFYING = "verifying"
+    #: Fully verified and dispatchable.
+    OPERATIONAL = "operational"
+
+    @staticmethod
+    def default() -> "CartridgeLifecycle":
+        """The safe sentinel: a freshly-constructed identity is
+        ``DISCOVERED``, never ``OPERATIONAL`` (which would falsely advertise
+        a cartridge as dispatchable)."""
+        return CartridgeLifecycle.DISCOVERED
+
+
+@dataclass
+class CartridgeRuntimeStats:
+    """Live runtime statistics from the owning host. Mirrors the reference
+    ``CartridgeRuntimeStats``. Absent (``None``) for cartridges that are not
+    yet running (e.g. dir-registered, spawn-on-demand)."""
+
+    running: bool = False
+    pid: Optional[int] = None
+    active_request_count: int = 0
+    peer_request_count: int = 0
+    memory_footprint_mb: int = 0
+    memory_rss_mb: int = 0
+    last_heartbeat_unix_seconds: Optional[int] = None
+    restart_count: int = 0
+
+
 @dataclass
 class InstalledCartridgeRecord:
     """Identity of an installed cartridge.
@@ -163,6 +205,12 @@ class InstalledCartridgeRecord:
     engine can register content-inspection adapters per cartridge. The
     flat cap-urn snapshot is computed from these groups, never stored
     alongside them on the wire.
+
+    ``attachment_error`` is present when the cartridge failed attachment
+    (manifest, handshake, identity, …) and absent when attached and healthy.
+    ``lifecycle`` is the positive phase, mutually exclusive with
+    ``attachment_error``. ``runtime_stats`` carries live host-side stats.
+    These three mirror the reference ``InstalledCartridgeRecord`` wire shape.
     """
     registry_url: Optional[str]
     id: str
@@ -170,6 +218,18 @@ class InstalledCartridgeRecord:
     version: str
     sha256: str
     cap_groups: List[Any] = field(default_factory=list)
+    attachment_error: Optional[CartridgeAttachmentError] = None
+    runtime_stats: Optional[CartridgeRuntimeStats] = None
+    #: Defaults to ``DISCOVERED`` (the safe sentinel) so a producer that
+    #: forgets to set it never accidentally appears as ``OPERATIONAL``.
+    lifecycle: CartridgeLifecycle = field(default_factory=CartridgeLifecycle.default)
+
+    def effective_lifecycle(self) -> "CartridgeLifecycle":
+        """The lifecycle phase, defaulting to ``DISCOVERED`` when unset.
+        Callers SHOULD use this rather than reading ``lifecycle`` directly so
+        an unset field cannot be mistaken for ``OPERATIONAL``. Mirrors the Go
+        ``EffectiveLifecycle``."""
+        return self.lifecycle or CartridgeLifecycle.DISCOVERED
 
     def registry_slug(self) -> str:
         """On-disk slug derived from ``registry_url``. ``None`` →
@@ -874,16 +934,8 @@ class RelaySwitch:
         engine sees one combined view and derives the flat cap-urn list
         itself.
         """
-        installed: List[dict] = []
-        for ic in self._aggregate_installed_cartridges:
-            installed.append({
-                "registry_url": ic.registry_url,
-                "id": ic.id,
-                "channel": ic.channel,
-                "version": ic.version,
-                "sha256": ic.sha256,
-                "cap_groups": ic.cap_groups,
-            })
+        installed = [_installed_cartridge_record_to_wire(ic)
+                     for ic in self._aggregate_installed_cartridges]
 
         manifest = {"installed_cartridges": installed}
         self._aggregate_capabilities = json.dumps(manifest).encode("utf-8")
@@ -939,6 +991,48 @@ class _MasterConnection:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def _installed_cartridge_record_to_wire(ic: InstalledCartridgeRecord) -> dict:
+    """Serialize an ``InstalledCartridgeRecord`` to its wire dict.
+
+    Field presence mirrors the reference ``skip_serializing_if`` rules: empty
+    ``cap_groups``, absent ``attachment_error`` / ``runtime_stats``, and a
+    default (``DISCOVERED``) ``lifecycle`` are omitted so the JSON is
+    byte-identical to what the Rust/Go producers emit for the same record.
+    """
+    out: dict = {
+        "registry_url": ic.registry_url,
+        "id": ic.id,
+        "channel": ic.channel,
+        "version": ic.version,
+        "sha256": ic.sha256,
+    }
+    if ic.cap_groups:
+        out["cap_groups"] = ic.cap_groups
+    if ic.attachment_error is not None:
+        ae = ic.attachment_error
+        out["attachment_error"] = {
+            "kind": ae.kind.value if isinstance(ae.kind, Enum) else ae.kind,
+            "message": ae.message,
+            "detected_at_unix_seconds": ae.detected_at_unix_seconds,
+        }
+    if ic.runtime_stats is not None:
+        rs = ic.runtime_stats
+        out["runtime_stats"] = {
+            "running": rs.running,
+            "pid": rs.pid,
+            "active_request_count": rs.active_request_count,
+            "peer_request_count": rs.peer_request_count,
+            "memory_footprint_mb": rs.memory_footprint_mb,
+            "memory_rss_mb": rs.memory_rss_mb,
+            "last_heartbeat_unix_seconds": rs.last_heartbeat_unix_seconds,
+            "restart_count": rs.restart_count,
+        }
+    lifecycle = ic.effective_lifecycle()
+    if lifecycle != CartridgeLifecycle.DISCOVERED:
+        out["lifecycle"] = lifecycle.value
+    return out
+
 
 def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeRecord]]:
     """Parse installed cartridges (with cap_groups) from a RelayNotify manifest JSON.
@@ -1023,6 +1117,39 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
                 new_caps.append(new_cap)
             new_group["caps"] = new_caps
             cap_groups_canonical.append(new_group)
+        # Optional attachment_error (present ⇔ the cartridge failed to attach).
+        attachment_error = None
+        ae_raw = item.get("attachment_error")
+        if isinstance(ae_raw, dict):
+            attachment_error = CartridgeAttachmentError(
+                kind=CartridgeAttachmentErrorKind(ae_raw.get("kind")),
+                message=str(ae_raw.get("message", "")),
+                detected_at_unix_seconds=int(ae_raw.get("detected_at_unix_seconds", 0)),
+            )
+
+        # Optional runtime_stats.
+        runtime_stats = None
+        rs_raw = item.get("runtime_stats")
+        if isinstance(rs_raw, dict):
+            runtime_stats = CartridgeRuntimeStats(
+                running=bool(rs_raw.get("running", False)),
+                pid=rs_raw.get("pid"),
+                active_request_count=int(rs_raw.get("active_request_count", 0)),
+                peer_request_count=int(rs_raw.get("peer_request_count", 0)),
+                memory_footprint_mb=int(rs_raw.get("memory_footprint_mb", 0)),
+                memory_rss_mb=int(rs_raw.get("memory_rss_mb", 0)),
+                last_heartbeat_unix_seconds=rs_raw.get("last_heartbeat_unix_seconds"),
+                restart_count=int(rs_raw.get("restart_count", 0)),
+            )
+
+        # Optional lifecycle — defaults to DISCOVERED (the safe sentinel) when
+        # absent, so an unset field is never mistaken for OPERATIONAL.
+        lifecycle_raw = item.get("lifecycle")
+        if lifecycle_raw is None:
+            lifecycle = CartridgeLifecycle.DISCOVERED
+        else:
+            lifecycle = CartridgeLifecycle(lifecycle_raw)
+
         installed_cartridges.append(InstalledCartridgeRecord(
             registry_url=registry_url_raw,
             id=str(item.get("id", "")),
@@ -1030,6 +1157,9 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
             version=str(item.get("version", "")),
             sha256=str(item.get("sha256", "")),
             cap_groups=cap_groups_canonical,
+            attachment_error=attachment_error,
+            runtime_stats=runtime_stats,
+            lifecycle=lifecycle,
         ))
 
     # Derive the flat cap-urn union from cap_groups across all installed
