@@ -48,6 +48,7 @@ from capdag.machine.error import (
     EmptyMachineError,
     InvalidCapUrnError,
     UndefinedAliasError,
+    AliasNotACapError,
     DuplicateAliasError,
     InvalidWiringError,
     InvalidMediaUrnError,
@@ -154,6 +155,34 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
 
     if not raw_wirings and headers:
         raise NoEdgesError()
+
+    # Phase 3b: cap-alias resolution against the fabric registry.
+    #
+    # A wiring's cap-position name not defined by a local header is taken to
+    # be a fabric cap alias and resolved through the registry — an identifier
+    # with no local definition is resolved as an alias before it is declared
+    # undefined. The resolved cap URN is injected into alias_map as if a
+    # header had defined it. Media URNs never appear in a wiring (they are
+    # implicit), so only cap aliases are resolved here; an alias that points
+    # at a media URN in cap position is a hard error. The lookup is the
+    # synchronous in-memory cache (resolve_alias_cached); a name that
+    # resolves to nothing is left for Phase 4's UndefinedAliasError.
+    unresolved_cap_names: List[str] = []
+    _seen_unresolved = set()
+    for _sources, cap_alias, _target, _is_loop, _position in raw_wirings:
+        if cap_alias not in alias_map and cap_alias not in _seen_unresolved:
+            _seen_unresolved.add(cap_alias)
+            unresolved_cap_names.append(cap_alias)
+    for name in unresolved_cap_names:
+        target = registry.resolve_alias_cached(name)
+        if target is None:
+            continue  # not a known alias → Phase 4 yields UndefinedAliasError
+        try:
+            resolved_cap_urn = CapUrn.from_string(target)
+        except Exception:
+            raise AliasNotACapError(name, target)
+        synthetic_pos = len(headers) + len(raw_wirings) + len(alias_map)
+        alias_map[name] = (resolved_cap_urn, synthetic_pos)
 
     # Phase 4: Resolve raw wirings — derive node media URNs and build flat wiring records.
     # node_media: node_name -> MediaUrn (assigned by first use)

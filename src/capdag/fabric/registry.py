@@ -15,9 +15,10 @@ and the caller sees the error.
 import hashlib
 import json
 import os
+import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -136,6 +137,7 @@ class StoredMediaDef:
         urn: str,
         media_type: str,
         title: str,
+        version: int = 0,
         profile_uri: Optional[str] = None,
         schema: Optional[Any] = None,
         description: Optional[str] = None,
@@ -145,6 +147,9 @@ class StoredMediaDef:
         extensions: Optional[List[str]] = None,
     ):
         self.urn = urn
+        # Per-definition version. 0 ⇒ v0 (frozen flat-path); >= 1 ⇒ pinned at
+        # media/<sha256-of-urn>/<version>.json and referenced by a manifest.
+        self.version = version
         self.media_type = media_type
         self.title = title
         self.profile_uri = profile_uri
@@ -161,6 +166,8 @@ class StoredMediaDef:
             "media_type": self.media_type,
             "title": self.title,
         }
+        if self.version != 0:
+            result["version"] = self.version
         if self.profile_uri is not None:
             result["profile_uri"] = self.profile_uri
         if self.schema is not None:
@@ -183,6 +190,7 @@ class StoredMediaDef:
             urn=data["urn"],
             media_type=data["media_type"],
             title=data["title"],
+            version=int(data.get("version", 0)),
             profile_uri=data.get("profile_uri"),
             schema=data.get("schema"),
             description=data.get("description"),
@@ -217,6 +225,169 @@ class MediaCacheEntry:
             spec=StoredMediaDef.from_dict(data["spec"]),
             cached_at=data["cached_at"],
             ttl_hours=data["ttl_hours"],
+        )
+
+
+# =============================================================================
+# Aliases
+# =============================================================================
+
+
+# Alias target kinds. An alias resolves to exactly one cap or media URN.
+ALIAS_TARGET_CAP = "cap"
+ALIAS_TARGET_MEDIA = "media"
+
+_ALIAS_NAME_RE = re.compile(r"^[a-z0-9._-]+$")
+
+
+def token_is_urn(token: str) -> bool:
+    """A contiguous token "looks like a URN" iff it contains a colon. Every
+    tagged URN has the shape ``prefix:...``; the presence of ':' is the
+    unambiguous discriminator between a URN and an alias name."""
+    return ":" in token
+
+
+def is_alias_token(token: str) -> bool:
+    """Complement of :func:`token_is_urn` — a colon-free token is an alias
+    candidate (still subject to :func:`normalize_alias_name` validation)."""
+    return not token_is_urn(token)
+
+
+def normalize_alias_name(name: str) -> str:
+    """Normalize and validate an alias name. Lowercases the input, then
+    requires it to be non-empty, contain no ':' (so it can never look like a
+    tagged URN), contain no whitespace, and match ``[a-z0-9._-]+``. Returns
+    the canonical lowercased name or raises ``ValueError`` — no lenient path.
+    """
+    if not name:
+        raise ValueError("alias name is empty")
+    if ":" in name:
+        raise ValueError(
+            f"alias name '{name}' contains ':' — aliases must never look like a tagged URN"
+        )
+    if any(ch.isspace() for ch in name):
+        raise ValueError(f"alias name '{name}' contains whitespace")
+    lowered = name.lower()
+    if not _ALIAS_NAME_RE.match(lowered):
+        raise ValueError(
+            f"alias name '{name}' contains invalid characters; "
+            f"allowed: lowercase letters, digits, '.', '_', '-'"
+        )
+    return lowered
+
+
+def classify_alias_target(target: str) -> Optional[str]:
+    """Classify an alias target URN by prefix. Returns ALIAS_TARGET_CAP,
+    ALIAS_TARGET_MEDIA, or None (not a cap/media URN)."""
+    try:
+        CapUrn.from_string(target)
+        return ALIAS_TARGET_CAP
+    except Exception:
+        pass
+    try:
+        MediaUrn.from_string(target)
+        return ALIAS_TARGET_MEDIA
+    except Exception:
+        pass
+    return None
+
+
+class StoredAlias:
+    """Stored alias definition. Mirrors ``fabric/alias.schema.json`` on the
+    wire and is the body cached at ``aliases/<sha256-of-name>/<defver>.json``.
+    """
+
+    def __init__(self, name: str, target: str, version: int):
+        self.name = name
+        self.target = target
+        self.version = version
+
+    def to_dict(self) -> Dict:
+        return {"name": self.name, "target": self.target, "version": self.version}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "StoredAlias":
+        return cls(
+            name=data["name"],
+            target=data["target"],
+            version=data["version"],
+        )
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, StoredAlias)
+            and self.name == other.name
+            and self.target == other.target
+            and self.version == other.version
+        )
+
+
+class AliasCacheEntry:
+    """On-disk cache entry for an alias."""
+
+    def __init__(self, alias: StoredAlias, cached_at: int, ttl_hours: int):
+        self.alias = alias
+        self.cached_at = cached_at
+        self.ttl_hours = ttl_hours
+
+    def is_expired(self) -> bool:
+        return int(time.time()) > self.cached_at + (self.ttl_hours * 3600)
+
+    def to_dict(self) -> Dict:
+        return {
+            "alias": self.alias.to_dict(),
+            "cached_at": self.cached_at,
+            "ttl_hours": self.ttl_hours,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "AliasCacheEntry":
+        return cls(
+            alias=StoredAlias.from_dict(data["alias"]),
+            cached_at=data["cached_at"],
+            ttl_hours=data["ttl_hours"],
+        )
+
+
+# =============================================================================
+# Manifest (registry snapshot)
+# =============================================================================
+
+
+@dataclass
+class Manifest:
+    """A versioned registry snapshot. Mirrors ``fabric/manifest.schema.json``
+    on the wire. v0 (the implicit pre-versioning state) has no manifest
+    object; manifests at version >= 1 name every cap URN, media URN, and
+    alias name in the snapshot paired with its per-definition version."""
+
+    version: int
+    previous: int
+    caps: Dict[str, int] = field(default_factory=dict)
+    media: Dict[str, int] = field(default_factory=dict)
+    aliases: Dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def empty(cls, version: int) -> "Manifest":
+        return cls(version=version, previous=max(0, version - 1))
+
+    def to_dict(self) -> Dict:
+        return {
+            "version": self.version,
+            "previous": self.previous,
+            "caps": dict(self.caps),
+            "media": dict(self.media),
+            "aliases": dict(self.aliases),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Manifest":
+        return cls(
+            version=data["version"],
+            previous=data["previous"],
+            caps=dict(data.get("caps", {})),
+            media=dict(data.get("media", {})),
+            aliases=dict(data.get("aliases", {})),
         )
 
 
@@ -287,6 +458,8 @@ class FabricRegistry:
         cache_dir: Path,
         config: RegistryConfig,
         client: Optional["httpx.AsyncClient"] = None,
+        manifest_version: int = 0,
+        manifest: Optional[Manifest] = None,
     ):
         if not HTTPX_AVAILABLE and client is None:
             raise ImportError(
@@ -296,12 +469,20 @@ class FabricRegistry:
         self.cache_dir = cache_dir
         self.caps_cache_dir = cache_dir / "caps"
         self.media_cache_dir = cache_dir / "media"
+        self.aliases_cache_dir = cache_dir / "aliases"
         self.config = config
         self.client = client
 
         self.cached_caps: Dict[str, Cap] = {}
         self.cached_specs: Dict[str, StoredMediaDef] = {}
+        self.cached_aliases: Dict[str, StoredAlias] = {}
         self.extension_index: Dict[str, List[str]] = {}
+
+        # Manifest pin. manifest_version == 0 is legacy v0 / flat-path mode
+        # (no manifest consulted). >= 1 is manifest-driven: every URN lookup
+        # resolves to a (urn, defver) pair via the manifest before fetching.
+        self.manifest_version = manifest_version
+        self.manifest = manifest if manifest is not None else Manifest.empty(manifest_version)
 
         self.cache_lock = threading.Lock()
         self._offline = False
@@ -310,23 +491,143 @@ class FabricRegistry:
     # Constructors
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _baked_manifest_version() -> int:
+        """The workspace-pinned fabric manifest version. Mirrors Rust's
+        compile-time-baked ``capdag::FABRIC_MANIFEST_VERSION``; in Python it
+        is read from ``MFR_FABRIC_MANIFEST_VERSION`` (the same env var the
+        build exports). Absent ⇒ 0 (legacy v0 / flat-path mode)."""
+        raw = os.getenv("MFR_FABRIC_MANIFEST_VERSION")
+        if raw is None or raw == "":
+            return 0
+        try:
+            return int(raw)
+        except ValueError:
+            raise FabricRegistryError(
+                f"MFR_FABRIC_MANIFEST_VERSION must be an integer, got {raw!r}"
+            )
+
     @classmethod
     async def new(cls) -> "FabricRegistry":
-        """Create a new FabricRegistry with default configuration."""
+        """Create a new FabricRegistry with default configuration, pinned at
+        the workspace-baked manifest version."""
         return await cls.with_config(RegistryConfig())
 
     @classmethod
     async def with_config(cls, config: RegistryConfig) -> "FabricRegistry":
-        """Create a new FabricRegistry with custom configuration."""
+        """Create a new FabricRegistry with custom configuration, pinned at
+        the workspace-baked manifest version."""
+        return await cls.with_config_and_manifest_version(
+            config, cls._baked_manifest_version()
+        )
+
+    @classmethod
+    async def with_config_and_manifest_version(
+        cls, config: RegistryConfig, manifest_version: int
+    ) -> "FabricRegistry":
+        """Full constructor: custom config + explicit pinned manifest version.
+
+        ``manifest_version == 0`` ⇒ legacy v0 / flat-path mode (no manifest
+        fetch). ``>= 1`` ⇒ manifest-driven: the constructor loads
+        ``manifest/<N>.json`` from the local cache, else blocks on a network
+        fetch. If neither can provide it, raises ``NotFoundError`` — there is
+        no fallback to v0.
+        """
         cache_dir = cls._get_cache_dir()
         cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "caps").mkdir(parents=True, exist_ok=True)
+        (cache_dir / "media").mkdir(parents=True, exist_ok=True)
+        (cache_dir / "aliases").mkdir(parents=True, exist_ok=True)
+        (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
 
-        registry = cls(cache_dir, config, client)
+        if manifest_version == 0:
+            manifest = Manifest.empty(0)
+        else:
+            manifest = await cls._load_or_fetch_manifest(
+                cache_dir / "manifests", client, config, manifest_version
+            )
+
+        registry = cls(cache_dir, config, client, manifest_version, manifest)
         registry._load_all_cached_caps()
         registry._load_all_cached_specs()
+        registry._load_all_cached_aliases()
+        # Filter loaded caches to the pinned manifest's defvers (v >= 1).
+        if manifest_version >= 1:
+            with registry.cache_lock:
+                registry.cached_caps = {
+                    urn: cap
+                    for urn, cap in registry.cached_caps.items()
+                    if manifest.caps.get(urn, 0) == cap.version
+                }
+                registry.cached_specs = {
+                    urn: spec
+                    for urn, spec in registry.cached_specs.items()
+                    if manifest.media.get(urn, 0) == spec.version
+                }
+                registry.cached_aliases = {
+                    name: alias
+                    for name, alias in registry.cached_aliases.items()
+                    if manifest.aliases.get(name, 0) == alias.version
+                }
+                registry.extension_index = {}
+                for spec in registry.cached_specs.values():
+                    registry._update_extension_index(spec)
+        else:
+            with registry.cache_lock:
+                registry.cached_aliases = {}
+        registry.ensure_identity_cap()
         return registry
+
+    @staticmethod
+    async def _load_or_fetch_manifest(
+        manifests_dir: Path,
+        client: Optional["httpx.AsyncClient"],
+        config: RegistryConfig,
+        version: int,
+    ) -> Manifest:
+        cache_file = manifests_dir / f"{version}.json"
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r") as f:
+                    data = json.load(f)
+                m = Manifest.from_dict(data)
+                if m.version != version:
+                    raise ParseError(
+                        f"Cached manifest at {cache_file} reports version {m.version} "
+                        f"but file is {version}.json"
+                    )
+                return m
+            except (json.JSONDecodeError, KeyError):
+                cache_file.unlink(missing_ok=True)
+
+        if not HTTPX_AVAILABLE or client is None:
+            raise HttpError("httpx not available - cannot fetch manifest")
+        url = f"{config.registry_base_url}/manifest/{version}.json"
+        try:
+            response = await client.get(url)
+        except httpx.HTTPError as e:
+            raise HttpError(f"Failed to fetch manifest v{version} at {url}: {e}")
+        if not response.is_success:
+            raise NotFoundError(
+                f"Manifest v{version} not found in registry (HTTP {response.status_code}) at {url}"
+            )
+        body = response.text
+        try:
+            manifest = Manifest.from_dict(json.loads(body))
+        except (json.JSONDecodeError, KeyError) as e:
+            raise ParseError(f"Failed to parse manifest v{version}: {e}")
+        if manifest.version != version:
+            raise ParseError(
+                f"Manifest fetched as v{version} reports version {manifest.version}"
+            )
+        try:
+            with open(cache_file, "w") as f:
+                f.write(body)
+        except Exception as e:
+            raise CacheError(f"Failed to write manifest cache to {cache_file}: {e}")
+        return manifest
 
     @staticmethod
     def _get_cache_dir() -> Path:
@@ -343,14 +644,17 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     def _load_all_cached_caps(self) -> None:
+        """Walk the cap cache dir recursively, picking up both v0 flat files
+        (caps/<sha>.json) and v >= 1 versioned files (caps/<sha>/<defver>.json).
+        TTL applies only to v0 entries — versioned entries are immutable."""
         if not self.caps_cache_dir.exists():
             return
-        for cache_file in self.caps_cache_dir.glob("*.json"):
+        for cache_file in self.caps_cache_dir.rglob("*.json"):
             try:
                 with open(cache_file, "r") as f:
                     data = json.load(f)
                 entry = CacheEntry.from_dict(data)
-                if entry.is_expired():
+                if entry.definition.version == 0 and entry.is_expired():
                     cache_file.unlink(missing_ok=True)
                     continue
                 normalized_urn = normalize_cap_urn(entry.definition.urn_string())
@@ -363,12 +667,12 @@ class FabricRegistry:
     def _load_all_cached_specs(self) -> None:
         if not self.media_cache_dir.exists():
             return
-        for cache_file in self.media_cache_dir.glob("*.json"):
+        for cache_file in self.media_cache_dir.rglob("*.json"):
             try:
                 with open(cache_file, "r") as f:
                     data = json.load(f)
                 entry = MediaCacheEntry.from_dict(data)
-                if entry.is_expired():
+                if entry.spec.version == 0 and entry.is_expired():
                     cache_file.unlink(missing_ok=True)
                     continue
                 normalized_urn = normalize_media_urn(entry.spec.urn)
@@ -379,23 +683,47 @@ class FabricRegistry:
                 print(f"[WARN] Failed to load media cache file {cache_file}: {e}")
                 cache_file.unlink(missing_ok=True)
 
+    def _load_all_cached_aliases(self) -> None:
+        """Walk the alias cache dir (aliases/<sha>/<defver>.json). Aliases are
+        versioned-only — no v0 flat path, no TTL expiry."""
+        if not self.aliases_cache_dir.exists():
+            return
+        for cache_file in self.aliases_cache_dir.rglob("*.json"):
+            try:
+                with open(cache_file, "r") as f:
+                    data = json.load(f)
+                entry = AliasCacheEntry.from_dict(data)
+                with self.cache_lock:
+                    self.cached_aliases[entry.alias.name] = entry.alias
+            except Exception as e:
+                print(f"[WARN] Failed to load alias cache file {cache_file}: {e}")
+                cache_file.unlink(missing_ok=True)
+
     # -------------------------------------------------------------------------
     # Disk-cache writers
     # -------------------------------------------------------------------------
 
-    def _cap_cache_file_path(self, urn: str) -> Path:
+    def _cap_cache_file_path(self, urn: str, defver: int) -> Path:
         normalized_urn = normalize_cap_urn(urn)
         digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        return self.caps_cache_dir / f"{digest}.json"
+        if defver == 0:
+            return self.caps_cache_dir / f"{digest}.json"
+        return self.caps_cache_dir / digest / f"{defver}.json"
 
-    def _media_cache_file_path(self, urn: str) -> Path:
+    def _media_cache_file_path(self, urn: str, defver: int) -> Path:
         normalized_urn = normalize_media_urn(urn)
         digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        return self.media_cache_dir / f"{digest}.json"
+        if defver == 0:
+            return self.media_cache_dir / f"{digest}.json"
+        return self.media_cache_dir / digest / f"{defver}.json"
+
+    def _alias_cache_file_path(self, normalized_name: str, defver: int) -> Path:
+        digest = hashlib.sha256(normalized_name.encode("utf-8")).hexdigest()
+        return self.aliases_cache_dir / digest / f"{defver}.json"
 
     def _save_cap_to_cache(self, cap: Cap) -> None:
-        self.caps_cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = self._cap_cache_file_path(cap.urn_string())
+        cache_file = self._cap_cache_file_path(cap.urn_string(), cap.version)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = CacheEntry(definition=cap, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
         try:
             with open(cache_file, "w") as f:
@@ -404,14 +732,24 @@ class FabricRegistry:
             raise CacheError(f"Failed to write cap cache file: {e}")
 
     def _save_media_def_to_cache(self, spec: StoredMediaDef) -> None:
-        self.media_cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = self._media_cache_file_path(spec.urn)
+        cache_file = self._media_cache_file_path(spec.urn, spec.version)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = MediaCacheEntry(spec=spec, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
         try:
             with open(cache_file, "w") as f:
                 json.dump(entry.to_dict(), f, indent=2)
         except Exception as e:
             raise CacheError(f"Failed to write media def cache file: {e}")
+
+    def _save_alias_to_cache(self, alias: StoredAlias) -> None:
+        cache_file = self._alias_cache_file_path(alias.name, alias.version)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        entry = AliasCacheEntry(alias=alias, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(entry.to_dict(), f, indent=2)
+        except Exception as e:
+            raise CacheError(f"Failed to write alias cache file: {e}")
 
     # -------------------------------------------------------------------------
     # Extension index
@@ -428,7 +766,7 @@ class FabricRegistry:
     # HTTP fetch
     # -------------------------------------------------------------------------
 
-    async def _fetch_cap_from_registry(self, urn: str) -> Cap:
+    async def _fetch_cap_from_registry(self, urn: str, defver: int) -> Cap:
         if not HTTPX_AVAILABLE or self.client is None:
             raise HttpError("httpx not available - cannot fetch from registry")
 
@@ -439,7 +777,10 @@ class FabricRegistry:
             raise FabricRegistryError(f"Invalid cap URN '{normalized_urn}': {e}")
 
         digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        url = f"{self.config.registry_base_url}/caps/{digest}"
+        if defver == 0:
+            url = f"{self.config.registry_base_url}/caps/{digest}"
+        else:
+            url = f"{self.config.registry_base_url}/caps/{digest}/{defver}.json"
 
         try:
             response = await self.client.get(url)
@@ -453,7 +794,7 @@ class FabricRegistry:
         except json.JSONDecodeError as e:
             raise ParseError(f"Failed to parse registry response for cap '{urn}': {e}")
 
-    async def _fetch_media_def_from_registry(self, urn: str) -> StoredMediaDef:
+    async def _fetch_media_def_from_registry(self, urn: str, defver: int) -> StoredMediaDef:
         if not HTTPX_AVAILABLE or self.client is None:
             raise HttpError("httpx not available - cannot fetch from registry")
 
@@ -464,7 +805,10 @@ class FabricRegistry:
             raise FabricRegistryError(f"Invalid media URN '{normalized_urn}': {e}")
 
         digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        url = f"{self.config.registry_base_url}/media/{digest}"
+        if defver == 0:
+            url = f"{self.config.registry_base_url}/media/{digest}"
+        else:
+            url = f"{self.config.registry_base_url}/media/{digest}/{defver}.json"
 
         try:
             response = await self.client.get(url)
@@ -477,6 +821,100 @@ class FabricRegistry:
             raise HttpError(f"Failed to fetch media def from registry: {e}")
         except (json.JSONDecodeError, KeyError) as e:
             raise ParseError(f"Failed to parse registry response for media '{urn}': {e}")
+
+    async def _fetch_alias_from_registry(self, normalized_name: str, defver: int) -> StoredAlias:
+        if not HTTPX_AVAILABLE or self.client is None:
+            raise HttpError("httpx not available - cannot fetch from registry")
+        if defver < 1:
+            raise NotFoundError(
+                f"alias '{normalized_name}' has non-positive defver {defver}; "
+                f"aliases are versioned-only"
+            )
+        digest = hashlib.sha256(normalized_name.encode("utf-8")).hexdigest()
+        url = f"{self.config.registry_base_url}/aliases/{digest}/{defver}.json"
+        try:
+            response = await self.client.get(url)
+            if not response.is_success:
+                raise NotFoundError(
+                    f"alias '{normalized_name}' not found in registry "
+                    f"(HTTP {response.status_code}) at {url}"
+                )
+            alias = StoredAlias.from_dict(response.json())
+        except httpx.HTTPError as e:
+            raise HttpError(f"Failed to fetch alias '{normalized_name}': {e}")
+        except (json.JSONDecodeError, KeyError) as e:
+            raise ParseError(f"Failed to parse alias '{normalized_name}': {e}")
+        # The fetched body must match what was requested, and the target must
+        # classify as a cap or media URN — a mismatched object is a hard error.
+        if alias.name != normalized_name:
+            raise ParseError(
+                f"alias object name '{alias.name}' does not match requested name "
+                f"'{normalized_name}'"
+            )
+        if alias.version != defver:
+            raise ParseError(
+                f"alias '{alias.name}' object reports version {alias.version} "
+                f"but manifest pins defver {defver}"
+            )
+        if classify_alias_target(alias.target) is None:
+            raise ValidationError(
+                f"alias '{alias.name}' target '{alias.target}' is neither a cap nor a media URN"
+            )
+        return alias
+
+    # -------------------------------------------------------------------------
+    # Defver resolution (manifest pin)
+    # -------------------------------------------------------------------------
+
+    def _cap_defver(self, normalized_urn: str) -> int:
+        """Resolve a normalized cap URN to its defver under the pinned
+        manifest. At v0 → 0. At v >= 1 the URN must be in the manifest's caps
+        map; absence is a hard NotFoundError (no fallback to flat paths)."""
+        if self.manifest_version == 0:
+            return 0
+        defver = self.manifest.caps.get(normalized_urn)
+        if defver is None:
+            raise NotFoundError(
+                f"cap '{normalized_urn}' is not part of manifest v{self.manifest_version}"
+            )
+        return defver
+
+    def _media_defver(self, normalized_urn: str) -> int:
+        if self.manifest_version == 0:
+            return 0
+        # The bare `media:` wildcard is a sentinel with no published spec.
+        if normalized_urn == "media:":
+            return 0
+        defver = self.manifest.media.get(normalized_urn)
+        if defver is None:
+            raise NotFoundError(
+                f"media def '{normalized_urn}' is not part of manifest v{self.manifest_version}"
+            )
+        return defver
+
+    def _alias_defver(self, normalized_name: str) -> int:
+        """Resolve a normalized alias name to its defver. Aliases exist only
+        in the versioned regime: at v0 any alias lookup is a hard NotFound."""
+        if self.manifest_version == 0:
+            raise NotFoundError(
+                f"alias '{normalized_name}' cannot resolve: registry is pinned at v0 "
+                f"(aliases are a versioned-regime concept)"
+            )
+        defver = self.manifest.aliases.get(normalized_name)
+        if defver is None:
+            raise NotFoundError(
+                f"alias '{normalized_name}' is not part of manifest v{self.manifest_version}"
+            )
+        return defver
+
+    def cap_defver_for(self, urn: str) -> int:
+        return self._cap_defver(normalize_cap_urn(urn))
+
+    def media_defver_for(self, urn: str) -> int:
+        return self._media_defver(normalize_media_urn(urn))
+
+    def alias_defver_for(self, name: str) -> int:
+        return self._alias_defver(normalize_alias_name(name))
 
     # -------------------------------------------------------------------------
     # Atomic cap fetch — the core of the merged registry
@@ -530,7 +968,9 @@ class FabricRegistry:
         spec fetch), the cap is NOT cached — the caller sees the
         propagated error.
         """
-        cap = await self._fetch_cap_from_registry(urn)
+        normalized_urn = normalize_cap_urn(urn)
+        defver = self._cap_defver(normalized_urn)
+        cap = await self._fetch_cap_from_registry(urn, defver)
 
         referenced = self._collect_referenced_media_urns(cap)
         for media_urn in referenced:
@@ -538,7 +978,8 @@ class FabricRegistry:
                 already_cached = media_urn in self.cached_specs
             if already_cached:
                 continue
-            spec = await self._fetch_media_def_from_registry(media_urn)
+            media_defver = self._media_defver(media_urn)
+            spec = await self._fetch_media_def_from_registry(media_urn, media_defver)
             self._save_media_def_to_cache(spec)
             with self.cache_lock:
                 self.cached_specs[normalize_media_urn(spec.urn)] = spec
@@ -555,7 +996,16 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     async def get_cap(self, urn: str) -> Cap:
-        """Get a cap by URN. Hits in-memory cache, then network."""
+        """Get a cap by URN or alias. Hits in-memory cache, then network.
+
+        ``urn`` may be a cap URN (``cap:...``) or an alias (a colon-free
+        token). An alias is resolved first; because this is the typed cap
+        boundary, an alias whose target is not a cap URN is a hard error.
+        """
+        if is_alias_token(urn):
+            target = await self.resolve_alias_typed(urn, ALIAS_TARGET_CAP)
+            return await self.get_cap(target)
+
         normalized_urn = normalize_cap_urn(urn)
         with self.cache_lock:
             cached = self.cached_caps.get(normalized_urn)
@@ -608,6 +1058,16 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     async def get_media_def(self, urn: str) -> StoredMediaDef:
+        """Get a media def by URN or alias.
+
+        ``urn`` may be a media URN (``media:...``) or an alias (a colon-free
+        token). An alias is resolved first; because this is the typed media
+        boundary, an alias whose target is not a media URN is a hard error.
+        """
+        if is_alias_token(urn):
+            target = await self.resolve_alias_typed(urn, ALIAS_TARGET_MEDIA)
+            return await self.get_media_def(target)
+
         normalized_urn = normalize_media_urn(urn)
         with self.cache_lock:
             cached = self.cached_specs.get(normalized_urn)
@@ -619,7 +1079,8 @@ class FabricRegistry:
                 f"Network access blocked while offline: cannot fetch media def {urn!r}"
             )
 
-        spec = await self._fetch_media_def_from_registry(urn)
+        defver = self._media_defver(normalized_urn)
+        spec = await self._fetch_media_def_from_registry(urn, defver)
         self._save_media_def_to_cache(spec)
         with self.cache_lock:
             self.cached_specs[normalize_media_urn(spec.urn)] = spec
@@ -669,6 +1130,68 @@ class FabricRegistry:
             return [(k, list(v)) for k, v in self.extension_index.items()]
 
     # -------------------------------------------------------------------------
+    # Public alias API
+    # -------------------------------------------------------------------------
+
+    async def get_alias(self, name: str) -> StoredAlias:
+        """Fetch the full StoredAlias for a name (cache-first, then network).
+        The name is normalized; a malformed name is a hard ValidationError."""
+        try:
+            normalized = normalize_alias_name(name)
+        except ValueError as e:
+            raise ValidationError(f"invalid alias name: {e}")
+        with self.cache_lock:
+            cached = self.cached_aliases.get(normalized)
+        if cached is not None:
+            return cached
+        if self._offline:
+            raise NetworkBlockedError(
+                f"Network access blocked while offline: cannot fetch alias {name!r}"
+            )
+        defver = self._alias_defver(normalized)
+        alias = await self._fetch_alias_from_registry(normalized, defver)
+        self._save_alias_to_cache(alias)
+        with self.cache_lock:
+            self.cached_aliases[alias.name] = alias
+        return alias
+
+    async def resolve_alias(self, name: str) -> str:
+        """Resolve an alias to the cap or media URN it points at (untyped):
+        returns whatever the alias targets."""
+        alias = await self.get_alias(name)
+        return alias.target
+
+    async def resolve_alias_typed(self, name: str, expected: Optional[str]) -> str:
+        """Resolve an alias and assert its target kind. If ``expected`` is
+        ALIAS_TARGET_CAP/ALIAS_TARGET_MEDIA and the resolved target is the
+        other kind, fail hard. ``None`` accepts either kind."""
+        alias = await self.get_alias(name)
+        actual = classify_alias_target(alias.target)
+        if actual is None:
+            raise ValidationError(
+                f"alias '{alias.name}' target '{alias.target}' is neither a cap nor a media URN"
+            )
+        if expected is not None and actual != expected:
+            raise ValidationError(
+                f"alias '{alias.name}' resolves to a {actual} URN ('{alias.target}') "
+                f"but a {expected} was required here"
+            )
+        return alias.target
+
+    def resolve_alias_cached(self, name: str) -> Optional[str]:
+        """Synchronous, in-memory-only alias resolution. Returns the target
+        URN if the alias is already cached, else None. Returns None (not an
+        error) for a malformed name so callers treat 'not a valid alias' and
+        'not cached' uniformly as 'no resolution'."""
+        try:
+            normalized = normalize_alias_name(name)
+        except ValueError:
+            return None
+        with self.cache_lock:
+            alias = self.cached_aliases.get(normalized)
+        return alias.target if alias is not None else None
+
+    # -------------------------------------------------------------------------
     # Offline / cache control
     # -------------------------------------------------------------------------
 
@@ -676,18 +1199,21 @@ class FabricRegistry:
         self._offline = offline
 
     def clear_cache(self) -> None:
-        """Clear in-memory and on-disk caches for both caps and media defs."""
+        """Clear in-memory and on-disk caches for caps, media defs, aliases."""
         import shutil
 
         with self.cache_lock:
             self.cached_caps.clear()
             self.cached_specs.clear()
+            self.cached_aliases.clear()
             self.extension_index.clear()
 
         if self.cache_dir.exists():
             try:
                 shutil.rmtree(self.cache_dir)
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
+                for sub in ("caps", "media", "aliases", "manifests"):
+                    (self.cache_dir / sub).mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 raise CacheError(f"Failed to clear cache directory: {e}")
 
@@ -705,10 +1231,16 @@ class FabricRegistry:
         from capdag.standard.caps import identity_cap
 
         identity = identity_cap()
+        # STANDARD_CAPS travel with the manifest: their per-def version is the
+        # registry's pinned manifest version (mirrors Rust).
+        if self.manifest_version >= 1:
+            identity.version = self.manifest_version
         normalized_urn = normalize_cap_urn(identity.urn_string())
         with self.cache_lock:
             if normalized_urn not in self.cached_caps:
                 self.cached_caps[normalized_urn] = identity
+            if self.manifest_version >= 1:
+                self.manifest.caps[normalized_urn] = self.manifest_version
 
     # -------------------------------------------------------------------------
     # Test helpers
@@ -728,7 +1260,9 @@ class FabricRegistry:
             cache_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
         cache_dir.mkdir(parents=True, exist_ok=True)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
-        registry = cls(cache_dir, RegistryConfig(), client)
+        # Pin at v1 with an empty manifest so test helpers flow caps/media/
+        # aliases into the manifest at their declared version (mirrors Rust).
+        registry = cls(cache_dir, RegistryConfig(), client, 1, Manifest.empty(1))
         registry.ensure_identity_cap()
         return registry
 
@@ -742,22 +1276,44 @@ class FabricRegistry:
             cache_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
         cache_dir.mkdir(parents=True, exist_ok=True)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
-        registry = cls(cache_dir, config, client)
+        registry = cls(cache_dir, config, client, 1, Manifest.empty(1))
         registry.ensure_identity_cap()
         return registry
 
     def add_caps_to_cache(self, caps: List[Cap]) -> None:
-        """Insert caps directly into the in-memory cache (test helper)."""
+        """Insert caps directly into the in-memory cache (test helper).
+
+        Records each cap in the manifest at its version. A cap whose version
+        is 0 is stamped to the pinned manifest version (matching Rust's
+        'test forgot to set it' handling)."""
         with self.cache_lock:
             for cap in caps:
-                self.cached_caps[normalize_cap_urn(cap.urn_string())] = cap
+                if cap.version == 0 and self.manifest_version >= 1:
+                    cap.version = self.manifest_version
+                normalized = normalize_cap_urn(cap.urn_string())
+                self.cached_caps[normalized] = cap
+                if self.manifest_version >= 1:
+                    self.manifest.caps[normalized] = cap.version
 
     def add_spec(self, spec: StoredMediaDef) -> None:
         """Insert a media def directly into the in-memory cache (test helper).
 
-        Updates the extension index as a side effect so
-        `media_urns_for_extension` finds the seeded spec.
+        Updates the extension index and records the spec in the manifest.
+        A spec whose version is 0 is stamped to the pinned manifest version.
         """
         with self.cache_lock:
-            self.cached_specs[normalize_media_urn(spec.urn)] = spec
+            if spec.version == 0 and self.manifest_version >= 1:
+                spec.version = self.manifest_version
+            normalized = normalize_media_urn(spec.urn)
+            self.cached_specs[normalized] = spec
             self._update_extension_index(spec)
+            if self.manifest_version >= 1:
+                self.manifest.media[normalized] = spec.version
+
+    def insert_cached_alias_for_test(self, alias: StoredAlias) -> None:
+        """Insert an alias directly into the in-memory cache and register its
+        defver in the manifest, bypassing the network (test helper)."""
+        with self.cache_lock:
+            self.cached_aliases[alias.name] = alias
+            if self.manifest_version >= 1:
+                self.manifest.aliases[alias.name] = alias.version

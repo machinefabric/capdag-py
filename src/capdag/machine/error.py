@@ -31,11 +31,28 @@ class InvalidCapUrnError(MachineSyntaxError):
 
 
 class UndefinedAliasError(MachineSyntaxError):
-    """A wiring statement references an alias that was never defined in a header."""
+    """A wiring's cap-position name is neither a local header nor a registered
+    cap alias in the fabric registry."""
 
     def __init__(self, alias: str):
         self.alias = alias
-        super().__init__(f"wiring references undefined alias '{alias}'")
+        super().__init__(
+            f"wiring references undefined alias '{alias}' "
+            f"(not a local header and not a registered cap alias)"
+        )
+
+
+class AliasNotACapError(MachineSyntaxError):
+    """A wiring's cap-position name resolved to a fabric alias whose target is
+    a media URN, not a cap. The cap position requires a cap."""
+
+    def __init__(self, alias: str, target: str):
+        self.alias = alias
+        self.target = target
+        super().__init__(
+            f"alias '{alias}' in cap position resolves to a media URN ('{target}'), "
+            f"but a cap is required there"
+        )
 
 
 class DuplicateAliasError(MachineSyntaxError):
