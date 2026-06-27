@@ -199,8 +199,8 @@ def test_938_different_caps_different_hashes():
     assert digest_a != digest_b
 
 
-# TEST142: Test normalize handles different tag orders producing same canonical form
-def test_142_normalize_handles_different_tag_orders():
+# TEST6396: Test normalize handles different tag orders producing same canonical form
+def test_6396_normalize_handles_different_tag_orders():
     """Test that different tag orders normalize to same form"""
     # Different tag orders should normalize to the same canonical form
     urn1 = 'cap:test;in="media:string";out="media:object"'
@@ -295,9 +295,9 @@ def test_147_registry_for_test_with_config():
     assert registry.config.registry_base_url == "https://test-registry.local"
 
 
-# TEST123: Test adding caps to the registry cache and retrieving them
+# TEST6333: Test adding caps to the registry cache and retrieving them
 @pytest.mark.asyncio
-async def test_123_registry_add_caps_to_cache():
+async def test_6333_registry_add_caps_to_cache():
     registry = FabricRegistry.new_for_test()
 
     urn = CapUrn.from_string(_test_urn("test"))
@@ -310,8 +310,8 @@ async def test_123_registry_add_caps_to_cache():
     assert "Test Cap" in titles
 
 
-# TEST124: Test registry configuration builder sets registry and schema URLs
-def test_124_registry_config_builder_pattern():
+# TEST6336: Test registry configuration builder sets registry and schema URLs
+def test_6336_registry_config_builder_pattern():
     config = (RegistryConfig()
               .with_registry_url("https://custom.registry")
               .with_schema_url("https://custom.schemas"))
@@ -320,9 +320,9 @@ def test_124_registry_config_builder_pattern():
     assert config.schema_base_url == "https://custom.schemas"
 
 
-# TEST125: normalize_cap_urn strips trailing semicolons, producing the
+# TEST6340: normalize_cap_urn strips trailing semicolons, producing the
 # same canonical form with or without a trailing semicolon
-def test_125_normalize_urn_with_trailing_semicolon():
+def test_6340_normalize_urn_with_trailing_semicolon():
     urn1 = _test_urn("test")
     urn2 = _test_urn("test") + ";"
 

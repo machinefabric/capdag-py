@@ -396,8 +396,8 @@ def test_598_cap_output_lifecycle():
     assert output3.get_metadata() is None
 
 
-# TEST0054: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict
-def test_0054_cap_version_zero_round_trip():
+# TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict
+def test_6211_cap_version_zero_round_trip():
     urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
 
@@ -413,8 +413,8 @@ def test_0054_cap_version_zero_round_trip():
     assert cap2.version == 0, f"expected version==0 after deserializing from dict without version key, got {cap2.version}"
 
 
-# TEST0055: Cap.version nonzero round-trip — emitted in dict and restored on deserialization
-def test_0055_cap_version_nonzero_round_trip():
+# TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization
+def test_6215_cap_version_nonzero_round_trip():
     urn = CapUrn.from_string(_test_urn("test"))
     cap = Cap(urn, "Test", "cmd")
     cap.version = 3

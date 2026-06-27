@@ -98,17 +98,17 @@ def test_613_validate_cached():
     assert registry.validate_cached("https://example.com/unknown", "anything") is None
 
 
-# TEST618: A freshly constructed registry is operational and reports an empty
+# TEST6607: A freshly constructed registry is operational and reports an empty
 # cache. Schemas must be inserted explicitly — none are bundled.
-def test_618_registry_creation():
+def test_6607_registry_creation():
     registry = create_empty_test_registry()
     assert registry.get_cached_profiles() == []
 
 
-# TEST619: A freshly constructed registry has no cached schemas. The well-known
+# TEST6608: A freshly constructed registry has no cached schemas. The well-known
 # profile URLs are not bundled into the library; callers must seed them
 # (via insert_schema) or fetch and seed from the public registry.
-def test_619_fresh_registry_cache_is_empty():
+def test_6608_fresh_registry_cache_is_empty():
     registry = create_empty_test_registry()
     assert registry.get_cached_profiles() == [], (
         "Fresh registry must have no cached schemas; nothing is bundled into the library"

@@ -490,8 +490,8 @@ def test_027_with_wildcard_tag():
     assert cap4.out_spec() == "media:"
 
 
-# TEST028: empty cap URN is the illegal bare top form
-def test_028_empty_cap_urn_is_illegal():
+# TEST6201: empty cap URN is the illegal bare top form
+def test_6201_empty_cap_urn_is_illegal():
     with pytest.raises(CapUrnError):
         CapUrn.from_string("cap:")
 
@@ -679,8 +679,8 @@ def test_047_matching_semantics_thumbnail_void_input():
     assert cap.accepts(request), "Test 7b: Thumbnail fallback with void input should accept"
 
 
-# TEST048: Matching semantics - generic legal wildcard cap matches specific caps
-def test_048_matching_semantics_wildcard_direction():
+# TEST6203: Matching semantics - generic legal wildcard cap matches specific caps
+def test_6203_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:generate")
     request = CapUrn.from_string(f'cap:ext=pdf;in="media:enc=utf-8";generate;out="{MEDIA_OBJECT}"')
     assert cap.accepts(request), "Test 8: Wildcard direction should accept any direction"
@@ -903,8 +903,8 @@ def test_567_str_variants():
 # =============================================================================
 
 
-# TEST0059: cap: (empty) is the illegal bare top form
-def test_0059_wildcard_empty_cap_defaults():
+# TEST6231: cap: (empty) is the illegal bare top form
+def test_6231_wildcard_empty_cap_defaults():
     with pytest.raises(CapUrnError):
         CapUrn.from_string("cap:")
 
@@ -958,8 +958,8 @@ def test_647_wildcard_invalid_out_spec():
         CapUrn.from_string("cap:in=media:;out=bar")
 
 
-# TEST648: Legal generic cap with top directions matches specific caps
-def test_648_wildcard_accepts_specific():
+# TEST6614: Legal generic cap with top directions matches specific caps
+def test_6614_wildcard_accepts_specific():
     wildcard = CapUrn.from_string("cap:raw")
     specific = CapUrn.from_string("cap:out=media:text;raw")
 
@@ -967,8 +967,8 @@ def test_648_wildcard_accepts_specific():
     assert specific.conforms_to(wildcard), "Specific should conform to wildcard"
 
 
-# TEST649: Specificity - generic marker-only cap has y-axis specificity only
-def test_649_wildcard_specificity_scoring():
+# TEST6616: Specificity - generic marker-only cap has y-axis specificity only
+def test_6616_wildcard_specificity_scoring():
     wildcard = CapUrn.from_string("cap:raw")
     specific = CapUrn.from_string("cap:out=media:text;raw")
 
@@ -976,8 +976,8 @@ def test_649_wildcard_specificity_scoring():
     assert specific.specificity() > 0, "Specific cap should have non-zero specificity"
 
 
-# TEST650: legal top-to-top generic transform preserves other tags
-def test_650_wildcard_preserve_other_tags():
+# TEST6617: legal top-to-top generic transform preserves other tags
+def test_6617_wildcard_preserve_other_tags():
     cap = CapUrn.from_string("cap:in=media:;out=media:;test")
     assert cap.in_spec() == "media:"
     assert cap.out_spec() == "media:"
@@ -985,8 +985,8 @@ def test_650_wildcard_preserve_other_tags():
     assert cap.has_marker_tag("test")
 
 
-# TEST651: Explicit identity forms produce the same CapUrn
-def test_651_wildcard_identity_forms_equivalent():
+# TEST6619: Explicit identity forms produce the same CapUrn
+def test_6619_wildcard_identity_forms_equivalent():
     forms = [
         "cap:effect=none",
         "cap:in=media:;out=media:;effect=none",

@@ -82,9 +82,9 @@ async def test_052_input_validation_missing_required(registry):
     assert exc_info.value.cap_urn == cap.urn_string()
 
 
-# TEST131: Input validation succeeds when optional positional argument is omitted
+# TEST6364: Input validation succeeds when optional positional argument is omitted
 @pytest.mark.asyncio
-async def test_131_input_validation_optional_arg(registry):
+async def test_6364_input_validation_optional_arg(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 
@@ -95,9 +95,9 @@ async def test_131_input_validation_optional_arg(registry):
     await validate_positional_arguments(cap, input_args, registry)
 
 
-# TEST132: Input validation fails with TooManyArgumentsError when extra positional args supplied
+# TEST6368: Input validation fails with TooManyArgumentsError when extra positional args supplied
 @pytest.mark.asyncio
-async def test_132_input_validation_too_many_args(registry):
+async def test_6368_input_validation_too_many_args(registry):
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", "test-command")
 

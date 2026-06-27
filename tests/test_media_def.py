@@ -259,8 +259,8 @@ def test_103_resolved_is_json():
     assert resolved.is_record()
 
 
-# TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag
-def test_104_resolved_is_text():
+# TEST6299: Test ResolvedMediaDef text-representability is carried by the enc= tag
+def test_6299_resolved_is_text():
     resolved = ResolvedMediaDef(
         media_urn="media:enc=utf-8",
         media_type="text/plain",

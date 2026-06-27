@@ -144,8 +144,8 @@ def test_1184_single_edge_strand_resolves_correctly():
     assert ms.nodes()[ms.output_anchor_ids()[0]].is_equivalent(_media("media:enc=utf-8;ext=txt"))
 
 
-# TEST1185: Resolving a strand with two chained caps shares the intermediate node.
-def test_1185_two_step_chain_shares_intermediate_node():
+# TEST6709: Resolving a strand with two chained caps shares the intermediate node.
+def test_6709_two_step_chain_shares_intermediate_node():
     urn1 = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
     urn2 = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:ext=pdf", "media:enc=utf-8;ext=txt")
@@ -252,8 +252,8 @@ def test_1159_strand_is_equivalent_consistent_node_bijection():
     assert m1.strands()[0].is_equivalent(m2.strands()[0])
 
 
-# TEST1178: Source-to-arg matching: single source picks the unique arg.
-def test_1178_match_sources_to_args_single_trivial():
+# TEST6703: Source-to-arg matching: single source picks the unique arg.
+def test_6703_match_sources_to_args_single_trivial():
     sources = [_media("media:ext=pdf")]
     args = [_media("media:ext=pdf")]
     cap_urn_str = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
@@ -303,8 +303,8 @@ def test_1182_match_sources_ambiguous_raises_ambiguous_error():
     assert err.strand_index == 3
 
 
-# TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError.
-def test_1308_cyclic_strand_fails_hard():
+# TEST6719: A wiring that forms a cycle raises CyclicMachineStrandError.
+def test_6719_cyclic_strand_fails_hard():
     """TEST1123: A wiring that feeds a cap's output back into itself raises CyclicMachineStrandError.
 
     Cycle: node 0 → cap A → node 1 → cap B → node 0
@@ -399,10 +399,10 @@ def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
 
 
 # =============================================================================
-# TEST1163: Two caps whose wirings share a node name are folded into a single strand with two edges.
+# TEST6698: Two caps whose wirings share a node name are folded into a single strand with two edges.
 # =============================================================================
 
-def test_1163_parse_machine_shared_node_name_yields_one_strand():
+def test_6698_parse_machine_shared_node_name_yields_one_strand():
     urn1 = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
     urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:ext=pdf", "media:enc=utf-8;ext=txt")
@@ -424,10 +424,10 @@ def test_1163_parse_machine_shared_node_name_yields_one_strand():
 
 
 # =============================================================================
-# TEST1191: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN.
+# TEST6713: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN.
 # =============================================================================
 
-def test_1191_binding_slot_identity_is_outer_media_urn():
+def test_6713_binding_slot_identity_is_outer_media_urn():
     """TEST1129: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn),
     not the stdin inner URN.
 
@@ -492,10 +492,10 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 
 
 # =============================================================================
-# TEST1186: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True.
+# TEST6710: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True.
 # =============================================================================
 
-def test_1186_resolve_strand_foreach_sets_is_loop_on_next_cap():
+def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
     cap_urn_str = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
     cap = _simple_cap(cap_urn_str, "media:enc=utf-8", "media:vec;record")
     reg = _registry_with([cap])
@@ -551,8 +551,8 @@ def test_1311_machine_from_string_delegates_to_parse_machine():
 # Mirror-specific coverage: MachineAbstractionError subclass hierarchy is correct
 # =============================================================================
 
-def test_1134_abstraction_error_subclass_hierarchy():
-    """TEST1134: All resolution error subclasses are instances of MachineAbstractionError."""
+def test_6689_abstraction_error_subclass_hierarchy():
+    """TEST6689: All resolution error subclasses are instances of MachineAbstractionError."""
     err_no_steps = NoCapabilityStepsError()
     err_unknown = UnknownCapError("cap:x")
     err_unmatched = UnmatchedSourceInCapArgsError(0, "cap:x", "media:ext=pdf")
@@ -587,8 +587,8 @@ def test_1135_strand_node_urn_accessor():
 # Mirror-specific coverage: parse_machine undefined alias raises MachineParseError with syntax cause
 # =============================================================================
 
-def test_1136_parse_machine_undefined_alias_raises_syntax_error():
-    """TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
+def test_6690_parse_machine_undefined_alias_raises_syntax_error():
+    """TEST6690: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError."""
     reg = _registry_with([])
     notation = "[doc -> undefined_alias -> text]"
 
@@ -603,8 +603,8 @@ def test_1136_parse_machine_undefined_alias_raises_syntax_error():
 # Mirror-specific coverage: Two-strand machine to_machine_notation produces valid string
 # =============================================================================
 
-def test_1137_two_strand_machine_serializes_to_notation():
-    """TEST1137: Machine with two strands serializes to a non-empty notation string."""
+def test_6691_two_strand_machine_serializes_to_notation():
+    """TEST6691: Machine with two strands serializes to a non-empty notation string."""
     import capdag.machine.serializer  # ensure methods are attached
 
     urn1 = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
@@ -628,8 +628,8 @@ def test_1137_two_strand_machine_serializes_to_notation():
 # Mirror-specific coverage: Assignment bindings are sorted by cap_arg_media_urn for canonical form
 # =============================================================================
 
-def test_1138_assignment_bindings_sorted_by_slot_urn():
-    """TEST1138: EdgeAssignmentBinding list is sorted by cap_arg_media_urn, enabling
+def test_6692_assignment_bindings_sorted_by_slot_urn():
+    """TEST6692: EdgeAssignmentBinding list is sorted by cap_arg_media_urn, enabling
     canonical comparison across different creation orders.
 
     Build a two-source cap where the arg order and source order could produce
@@ -683,8 +683,8 @@ def test_1138_assignment_bindings_sorted_by_slot_urn():
 # Tests ported from Rust machine/error.rs (1147-1149)
 # =============================================================================
 
-# TEST1147: InvalidWiringError display message is human-readable and specific.
-def test_1147_machine_syntax_error_display_is_specific():
+# TEST6696: InvalidWiringError display message is human-readable and specific.
+def test_6696_machine_syntax_error_display_is_specific():
     from capdag.machine.error import InvalidWiringError
     err = InvalidWiringError(7, "expected source -> cap -> target")
     assert str(err) == "invalid wiring at statement 7: expected source -> cap -> target"
@@ -720,8 +720,8 @@ def _pdf_extract_embed_registry() -> "FabricRegistry":
     return _registry_with([cap_e, cap_b])
 
 
-# TEST1166: Parsing notation that declares the same alias twice is rejected as a syntax error.
-def test_1166_parse_duplicate_alias_is_syntax_error():
+# TEST6699: Parsing notation that declares the same alias twice is rejected as a syntax error.
+def test_6699_parse_duplicate_alias_is_syntax_error():
     reg = _pdf_extract_embed_registry()
     notation = (
         f"[extract {_URN_EXTRACT}]"
@@ -894,8 +894,8 @@ def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
 # Tests ported from Rust resolve.rs (1181, 1183, 1189, 1190)
 # =============================================================================
 
-# TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
-def test_1181_match_two_sources_disambiguated_by_specificity():
+# TEST6705: Two sources disambiguated by specificity — unique minimum-cost assignment.
+def test_6705_match_two_sources_disambiguated_by_specificity():
     urn = "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\""
     sources = [_media("media:ext=png;image"), _media("media:enc=utf-8;model-spec")]
     args = [_media("media:ext=png;image"), _media("media:enc=utf-8")]

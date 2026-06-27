@@ -178,8 +178,8 @@ def test_1275_adapter_selection_dispatchable_by_specific_provider():
         "wildcard output cannot satisfy a specific output requirement"
 
 
-# TEST0069: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
-def test_0069_lookup_cap_fabric_has_defver_arg():
+# TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
+def test_6235_lookup_cap_fabric_has_defver_arg():
     cap = lookup_cap_fabric_cap()
 
     defver_args = [
@@ -203,8 +203,8 @@ def test_0069_lookup_cap_fabric_has_defver_arg():
     )
 
 
-# TEST0070: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
-def test_0070_lookup_media_def_fabric_has_defver_arg():
+# TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False
+def test_6239_lookup_media_def_fabric_has_defver_arg():
     cap = lookup_media_def_fabric_cap()
 
     defver_args = [

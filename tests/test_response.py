@@ -57,8 +57,8 @@ def test_170_binary_response():
     assert retrieved[0] == 0x89
 
 
-# TEST0056: is_empty returns true for empty response, false for non-empty
-def test_0056_is_empty():
+# TEST6219: is_empty returns true for empty response, false for non-empty
+def test_6219_is_empty():
     empty_json = ResponseWrapper.from_json(b"")
     assert empty_json.is_empty()
 
@@ -72,8 +72,8 @@ def test_0056_is_empty():
     assert not non_empty.is_empty()
 
 
-# TEST0057: size returns exact byte count for all content types
-def test_0057_size():
+# TEST6223: size returns exact byte count for all content types
+def test_6223_size():
     text = ResponseWrapper.from_text(b"hello")
     assert text.size() == 5
 

@@ -368,8 +368,8 @@ def test_1293_roundtrip_requires_cap_steps():
 # Tests ported from Rust planner/live_cap_fab.rs (1150-1154)
 # =============================================================================
 
-# TEST1150: Adding a cap creates one edge and two node entries; reachable targets include the output.
-def test_1150_add_cap_and_basic_traversal():
+# TEST6697: Adding a cap creates one edge and two node entries; reachable targets include the output.
+def test_6697_add_cap_and_basic_traversal():
     graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_text", "Extract Text"))
 

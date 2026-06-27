@@ -791,8 +791,8 @@ def test_1141_exact_max_chunk_stream_chunked():
     assert frames[3].frame_type == FrameType.END
 
 
-# TEST121: Test payload of max_chunk + 1 bytes produces exactly two chunks
-def test_121_max_chunk_plus_one_splits_into_two_chunks():
+# TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks
+def test_6326_max_chunk_plus_one_splits_into_two_chunks():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 
@@ -827,8 +827,8 @@ def test_121_max_chunk_plus_one_splits_into_two_chunks():
     assert reassembled == data
 
 
-# TEST122: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
-def test_122_chunking_data_integrity_3x():
+# TEST6330: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload
+def test_6330_chunking_data_integrity_3x():
     buf = io.BytesIO()
     writer = FrameWriter(buf, Limits(DEFAULT_MAX_FRAME, 100))
 

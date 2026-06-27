@@ -338,11 +338,11 @@ def test_1873_registry_url_from_build_env_none_for_dev():
     assert registry_url_from_build_env(None) is None
 
 
-# TEST1874: an exported-but-empty env ("") is neither a dev build nor a
+# TEST6742: an exported-but-empty env ("") is neither a dev build nor a
 # valid identity and MUST fail hard, so the build can never silently hash
 # the empty string into a fake registry slug. We assert the failure rather
 # than letting a bogus empty primary registry ship.
-def test_1874_registry_url_from_build_env_rejects_empty_string():
+def test_6742_registry_url_from_build_env_rejects_empty_string():
     with pytest.raises(ValueError) as exc_info:
         registry_url_from_build_env("")
     assert "MFR_CARTRIDGE_REGISTRY_URL must be unset" in str(exc_info.value)

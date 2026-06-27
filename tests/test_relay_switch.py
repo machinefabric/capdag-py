@@ -906,7 +906,7 @@ def test_666_preferred_cap_routing():
 # the bug class these tests guard against.
 
 
-def test_0133_reattach_by_id_preserves_slot_index():
+def test_6276_reattach_by_id_preserves_slot_index():
     """After ``handle_master_death`` the slot stays in place, and a
     reconnect via ``add_master`` with the same id MUST land back in
     the same slot index — not append a new slot."""
@@ -974,8 +974,8 @@ def test_0133_reattach_by_id_preserves_slot_index():
     )
 
 
-# TEST0134: Add master with duplicate healthy id errors
-def test_0134_add_master_with_duplicate_healthy_id_errors():
+# TEST6278: Add master with duplicate healthy id errors
+def test_6278_add_master_with_duplicate_healthy_id_errors():
     """Adding a master with the id of an already-healthy slot is a
     wiring bug; surface as a hard ProtocolError."""
     engine_read, slave_write = socket.socketpair()
@@ -1014,8 +1014,8 @@ def test_0134_add_master_with_duplicate_healthy_id_errors():
     )
 
 
-# TEST0081: Relay switch init rejects duplicate ids
-def test_0081_relay_switch_init_rejects_duplicate_ids():
+# TEST6252: Relay switch init rejects duplicate ids
+def test_6252_relay_switch_init_rejects_duplicate_ids():
     """The constructor rejects duplicate ids before any I/O. Without
     this guard the first reconnect would reattach to whichever slot
     is found first by the linear scan, leaving the other stuck

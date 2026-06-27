@@ -33,8 +33,8 @@ def _empty_context(**overrides):
     defaults.update(overrides)
     return ArgumentResolutionContext(**defaults)
 
-# TEST668: resolve_slot_with_populated_byte_slot_values
-def test_668_resolve_slot_with_populated_byte_slot_values():
+# TEST6626: resolve_slot_with_populated_byte_slot_values
+def test_6626_resolve_slot_with_populated_byte_slot_values():
     slot_values = {
         "step_0:media:numeric;width": b"800",
     }
@@ -50,8 +50,8 @@ def test_668_resolve_slot_with_populated_byte_slot_values():
     assert result.value == b"800"
     assert result.source == ArgumentSource.SLOT
 
-# TEST669: resolve_slot_falls_back_to_default
-def test_669_resolve_slot_falls_back_to_default():
+# TEST6627: resolve_slot_falls_back_to_default
+def test_6627_resolve_slot_falls_back_to_default():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:numeric;quality")
     result = resolve_binding(binding, ctx, "cap:compress", "step_0", 85, False)
@@ -59,16 +59,16 @@ def test_669_resolve_slot_falls_back_to_default():
     assert result.value == json.dumps(85, separators=(",", ":")).encode("utf-8")
     assert result.source == ArgumentSource.CAP_DEFAULT
 
-# TEST670: resolve_required_slot_no_value_returns_err
-def test_670_resolve_required_slot_no_value_returns_err():
+# TEST6628: resolve_required_slot_no_value_returns_err
+def test_6628_resolve_required_slot_no_value_returns_err():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:enc=utf-8;question")
     with pytest.raises(InternalError) as exc_info:
         resolve_binding(binding, ctx, "cap:generate", "step_0", None, True)
     assert "media:enc=utf-8;question" in str(exc_info.value)
 
-# TEST671: resolve_optional_slot_no_value_returns_none
-def test_671_resolve_optional_slot_no_value_returns_none():
+# TEST6629: resolve_optional_slot_no_value_returns_none
+def test_6629_resolve_optional_slot_no_value_returns_none():
     ctx = _empty_context()
     binding = ArgumentBinding.slot("media:enc=utf-8;suffix")
     result = resolve_binding(binding, ctx, "cap:rename", "step_0", None, False)

@@ -481,15 +481,15 @@ def test_1238_disc_6_unknown_urn_survives(tmp_path: Path):
     assert discriminate_candidates_by_validation(b"anything", candidates, registry, "media:") == candidates
 
 
-# TEST0082: Registration of a cap group with non-conflicting adapters succeeds
-def test_0082_register_non_conflicting(tmp_path: Path):
+# TEST6256: Registration of a cap group with non-conflicting adapters succeeds
+def test_6256_register_non_conflicting(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("text-formats", ["media:fmt=json", "media:fmt=yaml"], "txtcartridge")
     assert registry.has_adapter_for_extension("json")
 
 
-# TEST0083: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
-def test_0083_reject_conforming_overlap(tmp_path: Path):
+# TEST6260: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
+def test_6260_reject_conforming_overlap(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
     with pytest.raises(Exception) as exc_info:
@@ -569,9 +569,9 @@ async def test_1287_confirmed_all_adapters_no_match(tmp_path: Path):
         await detect_file_confirmed(path, registry, _MockInvoker(None))
 
 
-# TEST1139: Resolve inputs confirmed wraps detect file confirmed
+# TEST6693: Resolve inputs confirmed wraps detect file confirmed
 @pytest.mark.asyncio
-async def test_1139_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
+async def test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
     path = tmp_path / "data.json"
     path.write_text('{"key":"value"}')
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
@@ -649,8 +649,8 @@ def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinalit
     assert equivalent_ordering.common_media == "media:application;fmt=json;record"
 
 
-# TEST1146: InputResolverError subclass display messages and exception hierarchy are correct.
-def test_1146_input_resolver_error_display_and_source():
+# TEST6694: InputResolverError subclass display messages and exception hierarchy are correct.
+def test_6694_input_resolver_error_display_and_source():
     from capdag.input_resolver.types import IoError, InvalidGlobError, InputResolverError
 
     io_error = IoError(Path("/tmp/data.bin"), Exception("no access"))

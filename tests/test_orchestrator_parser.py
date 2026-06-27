@@ -40,9 +40,9 @@ def _media(s: str) -> MediaUrn:
     return MediaUrn.from_string(s)
 
 
-# TEST1256: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
+# TEST6714: Parsing a single-cap machine notation produces a graph with 2 nodes and 1 edge.
 @pytest.mark.asyncio
-async def test_1256_parse_simple_machine():
+async def test_6714_parse_simple_machine():
     registry = _build_registry([
         ('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:ext=pdf"], "media:enc=utf-8;ext=txt"),
     ])
@@ -84,8 +84,8 @@ async def test_1257_parse_two_step_chain():
         f"Intermediate node B should be media:enc=utf-8;ext=txt, got {node_b}"
 
 
-# TEST1261: A cap URN not present in the registry cache causes a parse orchestration error.
-def test_1261_cap_not_found_in_registry():
+# TEST6716: A cap URN not present in the registry cache causes a parse orchestration error.
+def test_6716_cap_not_found_in_registry():
     # Python raises MachineSyntaxParseFailedError (wraps UnknownCapError from parse_machine)
     # rather than CapNotFoundError, because the cap lookup happens inside parse_machine.
     import asyncio
@@ -206,7 +206,7 @@ async def test_1264_incompatible_media_types_at_shared_node():
         await parse_machine_to_cap_dag(notation, registry)
 
 
-# TEST1265: Shared nodes accept compatible media URNs when one is a more specific form of the other.
+# TEST6717: Shared nodes accept compatible media URNs when one is a more specific form of the other.
 # xfail: Python's match_sources_to_args requires strict tag conformance — source media:ext=png;image
 # does not conform to cap arg media:bytes;ext=png;image (normalized: media:bytes;ext=png;image).
 # Rust's is_comparable accepts subset/superset tag chains at the orchestrator level.
@@ -218,7 +218,7 @@ async def test_1264_incompatible_media_types_at_shared_node():
 )
 # TEST1265: Compatible media urns at shared node
 @pytest.mark.asyncio
-async def test_1265_compatible_media_urns_at_shared_node():
+async def test_6717_compatible_media_urns_at_shared_node():
     registry = _build_registry([
         ('cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
          ["media:ext=pdf"], "media:ext=png;image"),

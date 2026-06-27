@@ -159,8 +159,8 @@ def test_320_construct_cartridge_info_and_verify_fields():
     assert sum(1 for _ in cartridge.iter_caps()) == 1
 
 
-# TEST321: is_signed() requires both team_id and signed_at to be non-empty.
-def test_321_cartridge_info_is_signed():
+# TEST6552: is_signed() requires both team_id and signed_at to be non-empty.
+def test_6552_cartridge_info_is_signed():
     cartridge = _make_cartridge_info()
     assert cartridge.is_signed()
 
@@ -172,9 +172,9 @@ def test_321_cartridge_info_is_signed():
     assert not cartridge.is_signed()
 
 
-# TEST322: build_for_platform returns the matching build for the latest
+# TEST6554: build_for_platform returns the matching build for the latest
 # version, None for an unknown platform.
-def test_322_cartridge_info_build_for_platform():
+def test_6554_cartridge_info_build_for_platform():
     cartridge = _make_cartridge_info()
     build = cartridge.build_for_platform("darwin-arm64")
     assert build is not None
@@ -960,8 +960,8 @@ def _make_cartridge_json(**kwargs) -> CartridgeJson:
     return CartridgeJson(**defaults)
 
 
-# TEST0084: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict
-def test_0084_cartridge_json_fabric_manifest_version_zero_round_trip():
+# TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict
+def test_6264_cartridge_json_fabric_manifest_version_zero_round_trip():
     cj = _make_cartridge_json()
 
     # Default must be 0
@@ -980,8 +980,8 @@ def test_0084_cartridge_json_fabric_manifest_version_zero_round_trip():
     )
 
 
-# TEST0085: CartridgeJson fabric_manifest_version nonzero is emitted and restored
-def test_0085_cartridge_json_fabric_manifest_version_nonzero_round_trip():
+# TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored
+def test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip():
     cj = _make_cartridge_json(fabric_manifest_version=7)
 
     # Serialized dict must contain the key

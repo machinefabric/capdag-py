@@ -1202,10 +1202,10 @@ def test_353_cbor_payload_format_consistency():
     assert arr[0]["value"] == b"test value"
 
 
-# TEST354: A glob pattern with no matches fails hard. Silent empty results
+# TEST6589: A glob pattern with no matches fails hard. Silent empty results
 # mask real user mistakes (typo'd path, wrong directory), so the runtime
 # surfaces them rather than returning an empty array.
-def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
+def test_6589_glob_pattern_no_matches_fails_hard(tmp_path):
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(

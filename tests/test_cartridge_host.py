@@ -352,12 +352,12 @@ def test_413_register_cartridge_adds_cap_table():
         assert not host._cartridges[0].running, "registered cartridge must not be running"
 
 
-# TEST414: capabilities() with registered cartridge advertises after a
+# TEST6595: capabilities() with registered cartridge advertises after a
 # rebuild. Mirrors Rust: registration populates cap_groups, then a
 # call to `_rebuild_capabilities` materialises the inventory snapshot.
 # The run loop normally drives rebuild as cartridges attach/die; for a
 # unit test that drives registration directly we trigger it explicitly.
-def test_414_capabilities_empty_initially():
+def test_6595_capabilities_empty_initially():
     host = CartridgeHost()
     assert host.capabilities() is None, "no cartridges → None capabilities"
     host.register_cartridge("/path/to/cartridge", [{
@@ -1042,9 +1042,9 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
         assert not any("broken" in cap for cap in caps)
 
 
-# TEST664: Running cartridge uses manifest caps; the post-HELLO
+# TEST6624: Running cartridge uses manifest caps; the post-HELLO
 # cap_groups overwrite the registration-time ones.
-def test_664_running_cartridge_uses_manifest_caps():
+def test_6624_running_cartridge_uses_manifest_caps():
     host = CartridgeHost()
     host.register_cartridge("/fake/path", [{
         "name": "default",

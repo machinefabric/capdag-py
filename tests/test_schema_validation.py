@@ -169,9 +169,9 @@ async def test_167_unresolvable_media_urn_fails_hard(registry):
 # Additional comprehensive schema validation tests
 
 
-# TEST126: Schema validation with nested object schemas
+# TEST6344: Schema validation with nested object schemas
 @pytest.mark.asyncio
-async def test_126_nested_object_schema_validation(registry):
+async def test_6344_nested_object_schema_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -221,9 +221,9 @@ async def test_126_nested_object_schema_validation(registry):
         await validator.validate_argument(arg, invalid_value, registry)
 
 
-# TEST127: Schema validation with array schemas including minItems and item constraints
+# TEST6348: Schema validation with array schemas including minItems and item constraints
 @pytest.mark.asyncio
-async def test_127_array_schema_validation(registry):
+async def test_6348_array_schema_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -264,9 +264,9 @@ async def test_127_array_schema_validation(registry):
         await validator.validate_argument(arg, [{"name": "Item 1"}], registry)
 
 
-# TEST128: Schema validation with type constraints (integer, number, boolean)
+# TEST6352: Schema validation with type constraints (integer, number, boolean)
 @pytest.mark.asyncio
-async def test_128_type_constraint_validation(registry):
+async def test_6352_type_constraint_validation(registry):
     validator = SchemaValidator()
 
     schema = {
@@ -298,9 +298,9 @@ async def test_128_type_constraint_validation(registry):
         await validator.validate_argument(arg, invalid_value, registry)
 
 
-# TEST129: Schema validation with multiple arguments validates each independently
+# TEST6356: Schema validation with multiple arguments validates each independently
 @pytest.mark.asyncio
-async def test_129_validate_multiple_arguments(registry):
+async def test_6356_validate_multiple_arguments(registry):
     validator = SchemaValidator()
 
     schema1 = {
@@ -351,9 +351,9 @@ async def test_129_validate_multiple_arguments(registry):
         await validator.validate_arguments(cap, ["John", 150], registry)
 
 
-# TEST130: Output validation surfaces schema violation details
+# TEST6360: Output validation surfaces schema violation details
 @pytest.mark.asyncio
-async def test_130_output_validation_with_details(registry):
+async def test_6360_output_validation_with_details(registry):
     validator = SchemaValidator()
 
     schema = {
