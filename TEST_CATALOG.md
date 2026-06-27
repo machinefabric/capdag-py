@@ -1,4 +1,4 @@
-# CapDag-Py Test Catalog
+# Python Test Catalog
 
 **Total Tests:** 1023
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the CapDag-Py codebase.
+This catalog lists all tests in the Python codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -1041,7 +1041,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 ---
 
-*Generated from CapDag-Py source tree*
+*Generated from Python source tree*
 *Total tests: 1023*
 *Total numbered tests: 1023*
 *Total unnumbered tests: 0*
