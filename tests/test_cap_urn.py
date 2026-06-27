@@ -1088,7 +1088,7 @@ def test_653_effect_none_illegal_declaration_rejected():
         CapUrn.from_string('cap:in="media:ext=pdf";out="media:enc=utf-8";effect=none')
 
 
-# TEST0125: effect=none preserves runtime media identity
+# TEST125: effect=none preserves runtime media identity
 def test_0125_effect_none_preserves_runtime_media():
     decimate = CapUrn.from_string("cap:decimate-sequence;effect=none")
     png = MediaUrn.from_string("media:ext=png;image")
@@ -1097,14 +1097,14 @@ def test_0125_effect_none_preserves_runtime_media():
     assert decimate.infer_runtime_output_media(pdf).to_string() == pdf.to_string()
 
 
-# TEST0126: default effect=declared uses the declared output
+# TEST126: default effect=declared uses the declared output
 def test_0126_effect_declared_uses_declared_output():
     resize = CapUrn.from_string("cap:in=media:image;out=media:image;resize")
     png = MediaUrn.from_string("media:ext=png;image;width=4000")
     assert resize.infer_runtime_output_media(png).to_string() == "media:image"
 
 
-# TEST0128: omitted effect means declared; unconstrained effect must be explicit
+# TEST128: omitted effect means declared; unconstrained effect must be explicit
 def test_0128_effect_dispatch_requires_explicit_wildcard():
     none_provider = CapUrn.from_string("cap:effect=none")
     declared_request = CapUrn.from_string("cap:raw")

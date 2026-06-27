@@ -326,8 +326,7 @@ def test_1873_registry_url_from_build_env_none_for_dev():
     assert registry_url_from_build_env(None) is None
 
 
-# TEST6363: Cap manifest with page_url — the optional page_url is carried
-# and serialized as `page_url`.
+# TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`.
 def test_6363_cap_manifest_with_page_url():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
     cap = Cap(urn, "Metadata Extractor", "extract-metadata")
@@ -348,8 +347,7 @@ def test_6363_cap_manifest_with_page_url():
     ), f"expected page_url in serialized form, got: {json_str}"
 
 
-# TEST6371: Cap manifest compatibility — cartridge-style and provider-style
-# manifests serialize to the same JSON shape (same keys).
+# TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
 def test_6371_cap_manifest_compatibility():
     urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Data Processor", "process")

@@ -229,7 +229,7 @@ def test_914_progress_mapper_sub_mapper():
     assert abs(reported[1] - 0.8) < 0.001, "sub 100% maps to 0.8"
 
 
-# TEST915: Per-group subdivision produces monotonic, bounded progress for N groups
+# TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding.
 def test_915_per_group_subdivision_monotonic_bounded():
     all_progress = []
 
@@ -267,7 +267,7 @@ def test_915_per_group_subdivision_monotonic_bounded():
     assert abs(all_progress[14] - 1.0) < 0.001
 
 
-# TEST917: High-frequency progress emission does not violate bounds
+# TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded)
 def test_917_high_frequency_progress_bounded():
     state = {"count": 0, "max": float("-inf"), "min": float("inf")}
 

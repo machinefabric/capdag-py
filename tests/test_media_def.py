@@ -174,9 +174,7 @@ def test_098_validate_no_duplicate_urns_passes_for_unique():
 # =============================================================================
 
 
-# TEST099: The identity media (`media:`) carries no encoding, no record
-# marker, and no format. The old is_binary() delegate is gone (binary/text is
-# no longer a distinction); a media is text-representable iff it declares enc=.
+# TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=.
 def test_099_resolved_is_binary():
     resolved = ResolvedMediaDef(
         media_urn="media:",
@@ -544,12 +542,7 @@ def test_617_normalize_media_urn():
 # =============================================================================
 
 
-# TEST288: Documentation propagates from MediaDef through resolve_media_urn
-# into ResolvedMediaDef.
-#
-# This is the resolution path used by every consumer that asks the
-# registry for a media def — info panels, the cap navigator, the UI
-# — so a regression here makes the new field invisible everywhere.
+# TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere.
 @pytest.mark.asyncio
 async def test_288_media_documentation_propagates_through_resolve():
     registry = await create_test_registry()
@@ -571,8 +564,7 @@ async def test_288_media_documentation_propagates_through_resolve():
     assert resolved.description == "short desc"
 
 
-# TEST289: MediaDef serializes documentation only when present and
-# round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
+# TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side.
 def test_289_media_def_def_documentation_round_trip():
     body = "Body with newline\nand backslash \\"
     with_doc = MediaDef(
@@ -597,10 +589,7 @@ def test_289_media_def_def_documentation_round_trip():
         f"documentation must be omitted from MediaDef JSON when None, got: {data2}"
 
 
-# TEST1133: MediaDef set/clear lifecycle for documentation. Catches a
-# regression where the setter or clearer accidentally writes to or reads
-# from `description` (the short field) instead of `documentation` (the
-# long markdown body).
+# TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body).
 def test_1133_media_def_def_documentation_lifecycle():
     spec = MediaDef(
         urn="media:doc-test",

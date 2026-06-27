@@ -175,8 +175,7 @@ def cap_registry_url(config: "RegistryConfig", cap_urn: str) -> str:
     return f"{config.registry_base_url}/caps/{digest}"
 
 
-# TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key,
-# so the per-cap registry URL is identical regardless of URN spelling.
+# TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
 def test_6391_same_cap_different_spellings_same_url():
     config = RegistryConfig()
     a = cap_registry_url(config, 'cap:in="media:listing-id";use-grinder;out="media:id;task"')
@@ -350,3 +349,45 @@ def test_6340_normalize_urn_with_trailing_semicolon():
     normalized2 = normalize_cap_urn(urn2)
 
     assert normalized1 == normalized2
+
+
+# TEST1893: Cache root is namespaced per registry origin. Without the
+# per-origin namespace, a cache populated from one registry (prod) is
+# reused to satisfy a lookup against a different registry (staging) — and
+# they serve different bytes for the same URN/version, so the lookup
+# resolves against the wrong snapshot. This pins three properties: distinct
+# origins must NOT share a cache root; the same origin must map to a stable
+# (deterministic) root, or caching never hits; and the slug is the same
+# slug_for(url) scheme the cartridge registry layout uses, living directly
+# under the shared "capdag" cache directory.
+def test_1893_cache_root_is_namespaced_per_registry_origin():
+    from capdag.bifaci.cartridge_slug import slug_for
+
+    prod_url = "https://fabric.capdag.com"
+    staging_url = "https://fabric-staging.capdag.com"
+
+    prod = FabricRegistry._get_cache_dir(prod_url)
+    staging = FabricRegistry._get_cache_dir(staging_url)
+    staging_again = FabricRegistry._get_cache_dir(staging_url)
+
+    # Distinct origins → distinct cache roots: prod and staging serve
+    # different bytes for the same URN/version, so they must never share.
+    assert prod != staging, (
+        "prod and staging must not share a cache root — they serve "
+        "different bytes for the same URN/version"
+    )
+    # Same origin → identical (deterministic) root, or caching never hits.
+    assert staging == staging_again, (
+        "the same registry origin must map to a stable cache root, or "
+        "caching never hits"
+    )
+
+    # The final path component is exactly the cartridge-registry slug of the
+    # origin URL — one slug scheme across the codebase.
+    assert staging.name == slug_for(staging_url), (
+        "cache root must end in slug_for(registry_url)"
+    )
+    # And the parent of that slug is the shared "capdag" cache directory.
+    assert staging.parent.name == "capdag", (
+        "the per-origin slug must live under the capdag cache directory"
+    )

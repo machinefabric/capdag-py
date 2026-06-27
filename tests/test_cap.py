@@ -476,8 +476,7 @@ def test_1128_cap_documentation_omitted_when_none():
     assert deserialized.get_documentation() is None
 
 
-# TEST1129: A JSON document produced by capfab with a `documentation` field must
-# deserialize into a Cap with the body intact.
+# TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
 def test_1129_cap_documentation_parses_from_capfab_json():
     data = {
         "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",

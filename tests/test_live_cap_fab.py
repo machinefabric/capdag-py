@@ -478,11 +478,7 @@ def test_1154_sync_from_caps():
 # Tests ported from Rust planner/live_cap_fab.rs (1111-1120)
 # =============================================================================
 
-# TEST1111: ForEach works for user-provided list sources not in the graph.
-# This is the original bug — media:enc=utf-8;ext=txt;list is a user import source,
-# not a cap output. Previously, no ForEach edge existed for it because
-# insert_cardinality_transitions() only pre-computed edges for cap outputs.
-# With dynamic synthesis, ForEach is available for ANY list source.
+# TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source.
 def test_1111_foreach_for_user_provided_list_source():
     graph = LiveCapFab()
 
@@ -527,8 +523,7 @@ def test_1111_foreach_for_user_provided_list_source():
         "ForEach media_def should be the same as source"
 
 
-# TEST1112: Collect is not synthesized during path finding.
-# Reaching a list target type requires the cap itself to output a list type.
+# TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type.
 def test_1112_no_collect_in_path_finding():
     graph = LiveCapFab()
 
@@ -692,8 +687,7 @@ def test_1118_no_foreach_without_cap_consumers():
     assert foreach_edge is None, "Should NOT synthesize ForEach without cap consumers"
 
 
-# TEST1119: Strand::knit returns a single-strand Machine via the new
-# resolver. Smoke test the registry-threaded API end-to-end.
+# TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end.
 def test_1119_strand_knit_with_registry_returns_single_strand_machine():
     cap = _make_test_cap("media:ext=pdf", "media:enc=utf-8;ext=txt", "extract", "Extract")
     registry = FabricRegistry.new_for_test()
@@ -733,10 +727,7 @@ def test_1119_strand_knit_with_registry_returns_single_strand_machine():
     assert direct == via_machine
 
 
-# TEST1120: Strand::knit fails hard when the cap is not in
-# the registry — the planner produces strands referencing
-# caps that must be present in the cap registry's cache for
-# resolution to succeed.
+# TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed.
 def test_1120_strand_knit_unknown_cap_fails_hard():
     registry = FabricRegistry.new_for_test()
     # Note: no caps added to the registry.

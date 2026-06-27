@@ -28,6 +28,7 @@ try:
 except ImportError:
     HTTPX_AVAILABLE = False
 
+from capdag.bifaci.cartridge_slug import slug_for
 from capdag.cap.definition import Cap, StdinSource
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
@@ -533,7 +534,7 @@ class FabricRegistry:
         fetch. If neither can provide it, raises ``NotFoundError`` — there is
         no fallback to v0.
         """
-        cache_dir = cls._get_cache_dir()
+        cache_dir = cls._get_cache_dir(config.registry_base_url)
         cache_dir.mkdir(parents=True, exist_ok=True)
         (cache_dir / "caps").mkdir(parents=True, exist_ok=True)
         (cache_dir / "media").mkdir(parents=True, exist_ok=True)
@@ -630,14 +631,26 @@ class FabricRegistry:
         return manifest
 
     @staticmethod
-    def _get_cache_dir() -> Path:
+    def _get_cache_dir(registry_base_url: str) -> Path:
+        """On-disk cache root, namespaced per registry origin.
+
+        The cache root is ``<os-cache>/capdag/<slug>`` where ``slug`` is
+        ``slug_for(registry_base_url)`` — the SAME slug scheme the cartridge
+        registry layout uses (truncated sha256 hex of the URL). Without this
+        per-origin namespace a cache populated from one registry (e.g.
+        https://fabric.capdag.com) would be reused to satisfy a lookup against
+        a different registry (e.g. https://fabric-staging.capdag.com), which
+        serves DIFFERENT bytes for the same URN/version — silently resolving
+        against the wrong snapshot. Same origin → stable root, so caching hits;
+        distinct origins → distinct roots.
+        """
         if os.name == "nt":
             cache_base = Path(os.getenv("LOCALAPPDATA", os.path.expanduser("~/.cache")))
         elif os.name == "posix":
             cache_base = Path(os.getenv("XDG_CACHE_HOME", os.path.expanduser("~/.cache")))
         else:
             cache_base = Path.home() / ".cache"
-        return cache_base / "capdag"
+        return cache_base / "capdag" / slug_for(registry_base_url)
 
     # -------------------------------------------------------------------------
     # Disk-cache loaders

@@ -1,18 +1,18 @@
-# Python Test Catalog
+# CapDag-Py Test Catalog
 
-**Total Tests:** 1095
+**Total Tests:** 1096
 
-**Numbered Tests:** 1095
+**Numbered Tests:** 1096
 
 **Unnumbered Tests:** 0
 
 **Numbered Tests Missing Descriptions:** 0
 
-**Numbering Mismatches:** 83
+**Numbering Mismatches:** 87
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Python codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -96,15 +96,15 @@ This catalog lists all tests in the Python codebase.
 | test096 | `test_096_media_def_def_deserialize` | TEST96: Test deserializing MediaDef from JSON object | tests/test_media_def.py:117 |
 | test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST97: Test duplicate URN validation catches duplicates | tests/test_media_def.py:136 |
 | test098 | `test_098_validate_no_duplicate_urns_passes_for_unique` | TEST98: Test duplicate URN validation passes for unique URNs | tests/test_media_def.py:155 |
-| test099 | `test_099_resolved_is_binary` | TEST099: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. | tests/test_media_def.py:180 |
-| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present | tests/test_media_def.py:199 |
-| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent | tests/test_media_def.py:217 |
-| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present | tests/test_media_def.py:235 |
-| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present | tests/test_media_def.py:253 |
-| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag | tests/test_media_def.py:270 |
-| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media def def to resolved media def | tests/test_media_def.py:293 |
-| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media definition | tests/test_media_def.py:315 |
-| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from media def def to resolved | tests/test_media_def.py:348 |
+| test099 | `test_099_resolved_is_binary` | TEST99: The identity media (`media:`) carries no encoding, no record marker, and no format. The old is_binary() delegate is gone (binary/text is no longer a distinction); a media is text-representable iff it declares enc=. | tests/test_media_def.py:178 |
+| test100 | `test_100_resolved_is_record` | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present | tests/test_media_def.py:197 |
+| test101 | `test_101_resolved_is_scalar` | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent | tests/test_media_def.py:215 |
+| test102 | `test_102_resolved_is_list` | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present | tests/test_media_def.py:233 |
+| test103 | `test_103_resolved_is_json` | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present | tests/test_media_def.py:251 |
+| test104 | `test_104_resolved_is_text` | TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag | tests/test_media_def.py:268 |
+| test105 | `test_105_metadata_propagation` | TEST105: Test metadata propagates from media def def to resolved media def | tests/test_media_def.py:291 |
+| test106 | `test_106_metadata_with_validation` | TEST106: Test metadata and validation can coexist in media definition | tests/test_media_def.py:313 |
+| test107 | `test_107_extensions_propagation` | TEST107: Test extensions field propagates from media def def to resolved | tests/test_media_def.py:346 |
 | test108 | `test_108_cap_creation` | TEST108: Test creating new cap with URN, title, and command verifies correct initialization | tests/test_cap.py:19 |
 | test109 | `test_109_cap_with_metadata` | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly | tests/test_cap.py:30 |
 | test110 | `test_110_cap_matching` | TEST110: Test cap matching with subset semantics for request fulfillment | tests/test_cap.py:46 |
@@ -118,10 +118,10 @@ This catalog lists all tests in the Python codebase.
 | test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:90 |
 | test119 | `test_119_concatenated_vs_final_payload_divergence` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk | tests/test_cartridge_host_runtime.py:284 |
 | test0120 | `test_0120_registry_url_under_dev_slug_is_rejected` | TEST120: Registry url under dev slug is rejected | tests/test_cartridge_discovery.py:106 |
-| test0125 | `test_0125_effect_none_preserves_runtime_media` | TEST0125: effect=none preserves runtime media identity | tests/test_cap_urn.py:1092 |
-| test0126 | `test_0126_effect_declared_uses_declared_output` | TEST0126: default effect=declared uses the declared output | tests/test_cap_urn.py:1101 |
+| test0125 | `test_0125_effect_none_preserves_runtime_media` | TEST125: effect=none preserves runtime media identity | tests/test_cap_urn.py:1092 |
+| test0126 | `test_0126_effect_declared_uses_declared_output` | TEST126: default effect=declared uses the declared output | tests/test_cap_urn.py:1101 |
 | test127 | `test_127_wildcard_identity_routing_isolation` | TEST127: invalid effect=none declarations fail hard | tests/test_cap_urn.py:1080 |
-| test0128 | `test_0128_effect_dispatch_requires_explicit_wildcard` | TEST0128: omitted effect means declared; unconstrained effect must be explicit | tests/test_cap_urn.py:1108 |
+| test0128 | `test_0128_effect_dispatch_requires_explicit_wildcard` | TEST128: omitted effect means declared; unconstrained effect must be explicit | tests/test_cap_urn.py:1108 |
 | test129 | `test_129_gc_evicts_oldest_entries_by_touch_sequence` | TEST129: The GC drops the OLDEST entries by touch-sequence, not arbitrary keys; the post-GC keyset is exactly what the test computes should survive. | tests/test_cartridge_host_runtime.py:340 |
 | test132 | `test_132_add_master_dynamic` | TEST132: add_master dynamically connects new host to running switch | tests/test_relay_switch.py:1127 |
 | test133 | `test_133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:909 |
@@ -131,13 +131,13 @@ This catalog lists all tests in the Python codebase.
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:97 |
 | test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1093 |
 | test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1111 |
-| test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:192 |
-| test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:224 |
-| test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | tests/test_registry.py:237 |
-| test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:251 |
-| test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:287 |
-| test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:298 |
-| test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:310 |
+| test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:191 |
+| test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:223 |
+| test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | tests/test_registry.py:236 |
+| test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:250 |
+| test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:286 |
+| test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:297 |
+| test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:309 |
 | test148 | `test_148_cap_manifest_creation` | TEST148: Manifest creation with cap groups | tests/test_manifest.py:25 |
 | test149 | `test_149_cap_manifest_with_author` | TEST149: Author field | tests/test_manifest.py:108 |
 | test150 | `test_150_cap_manifest_json_serialization` | TEST150: JSON roundtrip | tests/test_manifest.py:124 |
@@ -273,8 +273,8 @@ This catalog lists all tests in the Python codebase.
 | test285 | `test_285_request_response_simple` | TEST285: Simple request-response flow (REQ → END with payload) | tests/test_cbor_integration.py:92 |
 | test286 | `test_286_streaming_chunks` | TEST286: Streaming response with multiple CHUNK frames | tests/test_cbor_integration.py:132 |
 | test287 | `test_287_heartbeat_from_host` | TEST287: Host-initiated heartbeat | tests/test_cbor_integration.py:184 |
-| test288 | `test_288_media_documentation_propagates_through_resolve` | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_media_def.py:554 |
-| test289 | `test_289_media_def_def_documentation_round_trip` | TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_media_def.py:576 |
+| test288 | `test_288_media_documentation_propagates_through_resolve` | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_media_def.py:547 |
+| test289 | `test_289_media_def_def_documentation_round_trip` | TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_media_def.py:568 |
 | test290 | `test_290_limits_negotiation` | TEST290: Limit negotiation picks minimum | tests/test_cbor_integration.py:222 |
 | test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:254 |
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:299 |
@@ -524,16 +524,16 @@ This catalog lists all tests in the Python codebase.
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
 | test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:111 |
 | test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:128 |
-| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:430 |
-| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:438 |
-| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | tests/test_media_def.py:461 |
-| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_def.py:482 |
+| test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:428 |
+| test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:436 |
+| test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | tests/test_media_def.py:459 |
+| test610 | `test_610_get_cached_spec` | TEST610: get_cached_spec returns None for unknown and Some for known | tests/test_media_def.py:480 |
 | test612 | `test_612_clear_cache` | TEST612: clear_cache empties the in-memory cache for seeded schemas. | tests/test_media_profile.py:78 |
 | test613 | `test_613_validate_cached` | TEST613: validate_cached validates against cached standard schemas | tests/test_media_profile.py:86 |
 | test614 | `test_614_registry_creation` | TEST614: Verify registry creation succeeds and cache directory exists | tests/test_registry.py:31 |
-| test616 | `test_616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | tests/test_media_def.py:516 |
-| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_def.py:535 |
-| test618 | `test_618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | tests/test_media_def.py:503 |
+| test616 | `test_616_stored_media_def_to_def` | TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields | tests/test_media_def.py:514 |
+| test617 | `test_617_normalize_media_urn` | TEST617: Verify normalize_media_urn produces consistent non-empty results | tests/test_media_def.py:533 |
+| test618 | `test_618_registry_creation` | TEST618: Verify profile schema registry creation succeeds with temp cache | tests/test_media_def.py:501 |
 | test619 | `test_619_fresh_registry_cache_is_empty` | TEST619: A freshly constructed registry has an empty cache. The well-known profile schemas are no longer bundled in the binary; callers must either fetch them on demand or seed via insert_schema. | tests/test_media_profile.py:109 |
 | test620 | `test_620_string_validation` | TEST620: Verify string schema validates strings and rejects non-strings | tests/test_media_profile.py:119 |
 | test621 | `test_621_integer_validation` | TEST621: Verify integer schema validates integers and rejects floats and strings | tests/test_media_profile.py:126 |
@@ -753,9 +753,9 @@ This catalog lists all tests in the Python codebase.
 | test886 | `test_886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | tests/test_plan_builder.py:294 |
 | test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic provider matches specific request | tests/test_cap_urn.py:1313 |
 | test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1389 |
-| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:364 |
-| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:386 |
-| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:408 |
+| test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:362 |
+| test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:384 |
+| test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:406 |
 | test898 | `test_898_binary_integrity_through_relay` | TEST898: Binary data integrity through full relay path (256 byte values) | tests/test_cbor_integration.py:670 |
 | test899 | `test_899_streaming_chunks_through_relay` | TEST899: Streaming chunks flow through relay without accumulation | tests/test_cbor_integration.py:781 |
 | test900 | `test_900_two_cartridges_routed_independently` | TEST900: Two cartridges routed independently by cap_urn | tests/test_cbor_integration.py:880 |
@@ -763,14 +763,14 @@ This catalog lists all tests in the Python codebase.
 | test902 | `test_902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | tests/test_cbor_frame.py:1514 |
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1520 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1536 |
-| test908 | `test_908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | tests/test_registry.py:261 |
+| test908 | `test_908_cached_caps_accessible_when_offline` | TEST908: cached caps remain accessible while offline. | tests/test_registry.py:260 |
 | test910 | `test_910_map_progress_monotonic` | TEST910: map_progress output is monotonic for monotonically increasing input | tests/test_executor.py:152 |
 | test911 | `test_911_map_progress_bounded` | TEST911: map_progress output is bounded within [base, base+weight] | tests/test_executor.py:162 |
 | test912 | `test_912_progress_mapper_reports_through_parent` | TEST912: ProgressMapper correctly maps through a CapProgressFn | tests/test_executor.py:174 |
 | test913 | `test_913_progress_mapper_as_cap_progress_fn` | TEST913: ProgressMapper.as_cap_progress_fn produces same mapping | tests/test_executor.py:192 |
 | test914 | `test_914_progress_mapper_sub_mapper` | TEST914: ProgressMapper.sub_mapper chains correctly | tests/test_executor.py:212 |
-| test915 | `test_915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups | tests/test_executor.py:233 |
-| test917 | `test_917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds | tests/test_executor.py:271 |
+| test915 | `test_915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | tests/test_executor.py:233 |
+| test917 | `test_917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | tests/test_executor.py:271 |
 | test919 | `test_919_parse_simple_testcartridge_graph` | TEST919: Parse simple machine notation graph with test-edge1 | tests/test_orchestrator_parser.py:349 |
 | test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1422 |
 | test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1450 |
@@ -790,7 +790,7 @@ This catalog lists all tests in the Python codebase.
 | test935 | `test_935_find_first_foreach_linear` | TEST935: find_first_foreach returns None for linear plans | tests/test_plan.py:385 |
 | test936 | `test_936_has_foreach` | TEST936: has_foreach detects ForEach nodes | tests/test_plan.py:391 |
 | test937 | `test_937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | tests/test_plan.py:413 |
-| test938 | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:213 |
+| test938 | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:212 |
 | test939 | `test_939_cap_urn_canonical_form_drops_wildcard_in_out` | TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form. | tests/test_cap_urn.py:263 |
 | test947 | `test_947_cap_not_found` | TEST947: Cap not found in registry | tests/test_orchestrator_parser.py:415 |
 | test948 | `test_948_invalid_cap_urn` | TEST948: Invalid cap URN in machine notation | tests/test_orchestrator_parser.py:404 |
@@ -873,24 +873,24 @@ This catalog lists all tests in the Python codebase.
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:130 |
 | test1108 | `test_1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | tests/test_planner_argument_binding.py:157 |
 | test1109 | `test_1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | tests/test_planner_argument_binding.py:184 |
-| test1111 | `test_1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_live_cap_fab.py:486 |
-| test1112 | `test_1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_live_cap_fab.py:532 |
-| test1113 | `test_1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_live_cap_fab.py:554 |
-| test1114 | `test_1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | tests/test_live_cap_fab.py:576 |
-| test1115 | `test_1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_live_cap_fab.py:607 |
-| test1116 | `test_1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | tests/test_live_cap_fab.py:636 |
-| test1117 | `test_1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_live_cap_fab.py:658 |
-| test1118 | `test_1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_live_cap_fab.py:681 |
-| test1119 | `test_1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_live_cap_fab.py:697 |
-| test1120 | `test_1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_live_cap_fab.py:740 |
+| test1111 | `test_1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_live_cap_fab.py:482 |
+| test1112 | `test_1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_live_cap_fab.py:527 |
+| test1113 | `test_1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_live_cap_fab.py:549 |
+| test1114 | `test_1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | tests/test_live_cap_fab.py:571 |
+| test1115 | `test_1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_live_cap_fab.py:602 |
+| test1116 | `test_1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | tests/test_live_cap_fab.py:631 |
+| test1117 | `test_1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_live_cap_fab.py:653 |
+| test1118 | `test_1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_live_cap_fab.py:676 |
+| test1119 | `test_1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_live_cap_fab.py:691 |
+| test1120 | `test_1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_live_cap_fab.py:731 |
 | test1122 | `test_1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_cbor_integration.py:489 |
 | test1123 | `test_1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_cbor_integration.py:592 |
 | test1126 | `test_1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | tests/test_executor.py:143 |
 | test1127 | `test_1127_cap_documentation_round_trip_with_markdown_body` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. | tests/test_cap.py:438 |
 | test1128 | `test_1128_cap_documentation_omitted_when_none` | TEST1128: When documentation is None, the serializer must skip the field entirely. | tests/test_cap.py:465 |
-| test1129 | `test_1129_cap_documentation_parses_from_capfab_json` | TEST1129: A JSON document produced by capfab with a `documentation` field must deserialize into a Cap with the body intact. | tests/test_cap.py:481 |
-| test1130 | `test_1130_cap_documentation_set_and_clear_lifecycle` | TEST1130: documentation set/clear lifecycle parallels cap_description. | tests/test_cap.py:496 |
-| test1133 | `test_1133_media_def_def_documentation_lifecycle` | TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_media_def.py:604 |
+| test1129 | `test_1129_cap_documentation_parses_from_capfab_json` | TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming. | tests/test_cap.py:480 |
+| test1130 | `test_1130_cap_documentation_set_and_clear_lifecycle` | TEST1130: documentation set/clear lifecycle parallels cap_description. | tests/test_cap.py:495 |
+| test1133 | `test_1133_media_def_def_documentation_lifecycle` | TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_media_def.py:593 |
 | test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:573 |
 | test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:592 |
 | test1140 | `test_1140_write_stream_chunked_reassembly` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity. | tests/test_cbor_io.py:722 |
@@ -1030,7 +1030,7 @@ This catalog lists all tests in the Python codebase.
 | test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:902 |
 | test1872 | `test_1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | tests/test_manifest.py:319 |
 | test1873 | `test_1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | tests/test_manifest.py:325 |
-| test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:381 |
+| test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:379 |
 | test1875 | `test_1875_scan_all_reaches_both_dev_and_registry_slugs` | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. | tests/test_cartridge_discovery.py:122 |
 | test1876 | `test_1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | tests/test_cartridge_discovery.py:151 |
 | test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:165 |
@@ -1049,6 +1049,7 @@ This catalog lists all tests in the Python codebase.
 | test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | tests/test_fabric_alias.py:139 |
 | test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:163 |
 | test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | tests/test_fabric_alias.py:189 |
+| test1893 | `test_1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: Cache root is namespaced per registry origin. Without the per-origin namespace, a cache populated from one registry (prod) is reused to satisfy a lookup against a different registry (staging) — and they serve different bytes for the same URN/version, so the lookup resolves against the wrong snapshot. This pins three properties: distinct origins must NOT share a cache root; the same origin must map to a stable (deterministic) root, or caching never hits; and the slug is the same slug_for(url) scheme the cartridge registry layout uses, living directly under the shared "capdag" cache directory. | tests/test_registry.py:363 |
 | test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 | test6203 | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:701 |
 | test6211 | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
@@ -1058,27 +1059,27 @@ This catalog lists all tests in the Python codebase.
 | test6239 | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:206 |
 | test6264 | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:932 |
 | test6268 | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:952 |
-| test6282 | `test_6282_resolve_custom_media_def` | TEST6282: Test resolving a custom media URN from a registry-seeded media def | tests/test_media_def.py:633 |
-| test6283 | `test_6283_resolve_custom_with_schema` | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def | tests/test_media_def.py:651 |
+| test6282 | `test_6282_resolve_custom_media_def` | TEST6282: Test resolving a custom media URN from a registry-seeded media def | tests/test_media_def.py:622 |
+| test6283 | `test_6283_resolve_custom_with_schema` | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def | tests/test_media_def.py:640 |
 | test6314 | `test_6314_complex_nested_schema_validation` | TEST6314: Complex nested schema validation | tests/test_schema_validation.py:389 |
 | test6317 | `test_6317_media_urn_resolution_with_registry` | TEST6317: Media urn resolution with registry | tests/test_schema_validation.py:453 |
 | test6326 | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:795 |
 | test6330 | `test_6330_chunking_data_integrity_3x` | TEST6330: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:831 |
-| test6333 | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:320 |
-| test6336 | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:334 |
-| test6340 | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:345 |
+| test6333 | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:319 |
+| test6336 | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:333 |
+| test6340 | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:344 |
 | test6344 | `test_6344_nested_object_schema_validation` | TEST6344: Schema validation with nested object schemas | tests/test_schema_validation.py:174 |
 | test6348 | `test_6348_array_schema_validation` | TEST6348: Schema validation with array schemas including minItems and item constraints | tests/test_schema_validation.py:226 |
 | test6352 | `test_6352_type_constraint_validation` | TEST6352: Schema validation with type constraints (integer, number, boolean) | tests/test_schema_validation.py:269 |
 | test6356 | `test_6356_validate_multiple_arguments` | TEST6356: Schema validation with multiple arguments validates each independently | tests/test_schema_validation.py:303 |
 | test6360 | `test_6360_output_validation_with_details` | TEST6360: Output validation surfaces schema violation details | tests/test_schema_validation.py:356 |
-| test6363 | `test_6363_cap_manifest_with_page_url` | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. | tests/test_manifest.py:331 |
+| test6363 | `test_6363_cap_manifest_with_page_url` | TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`. | tests/test_manifest.py:330 |
 | test6364 | `test_6364_input_validation_optional_arg` | TEST6364: Input validation succeeds when optional positional argument is omitted | tests/test_validation.py:87 |
 | test6368 | `test_6368_input_validation_too_many_args` | TEST6368: Input validation fails with TooManyArgumentsError when extra positional args supplied | tests/test_validation.py:100 |
-| test6371 | `test_6371_cap_manifest_compatibility` | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). | tests/test_manifest.py:353 |
+| test6371 | `test_6371_cap_manifest_compatibility` | TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys). | tests/test_manifest.py:351 |
 | test6382 | `test_6382_parse_registry_json` | TEST6382: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:52 |
 | test6388 | `test_6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:123 |
-| test6391 | `test_6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key, so the per-cap registry URL is identical regardless of URN spelling. | tests/test_registry.py:180 |
+| test6391 | `test_6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | tests/test_registry.py:179 |
 | test6544 | `test_6544_builder_rejects_structural_keys` | TEST6544: Builder rejects reserved structural keys on tag/marker helpers | tests/test_cap_urn.py:403 |
 | test6586 | `test_6586_file_path_array_invalid_json_fails` | TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:847 |
 | test6587 | `test_6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | tests/test_cartridge_runtime.py:877 |
@@ -1195,7 +1196,11 @@ These tests have a numbering disagreement between the function name and the auth
 - `test096` / `test96` / `test_096_media_def_def_deserialize` — tests/test_media_def.py:117
 - `test097` / `test97` / `test_097_validate_no_duplicate_urns_catches_duplicates` — tests/test_media_def.py:136
 - `test098` / `test98` / `test_098_validate_no_duplicate_urns_passes_for_unique` — tests/test_media_def.py:155
+- `test099` / `test99` / `test_099_resolved_is_binary` — tests/test_media_def.py:178
 - `test0120` / `test120` / `test_0120_registry_url_under_dev_slug_is_rejected` — tests/test_cartridge_discovery.py:106
+- `test0125` / `test125` / `test_0125_effect_none_preserves_runtime_media` — tests/test_cap_urn.py:1092
+- `test0126` / `test126` / `test_0126_effect_declared_uses_declared_output` — tests/test_cap_urn.py:1101
+- `test0128` / `test128` / `test_0128_effect_dispatch_requires_explicit_wildcard` — tests/test_cap_urn.py:1108
 - `test0136` / `test136` / `test_0136_all_masters_ready_false_when_expected_count_unset` — tests/test_relay_switch.py:1035
 - `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1077
 - `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1093
@@ -1203,9 +1208,9 @@ These tests have a numbering disagreement between the function name and the auth
 
 ---
 
-*Generated from Python source tree*
-*Total tests: 1095*
-*Total numbered tests: 1095*
+*Generated from CapDag-Py source tree*
+*Total tests: 1096*
+*Total numbered tests: 1096*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
-*Total numbering mismatches: 83*
+*Total numbering mismatches: 87*
