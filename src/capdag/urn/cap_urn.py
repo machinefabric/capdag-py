@@ -136,7 +136,16 @@ class CapUrn:
 
     @staticmethod
     def _validate_non_structural_tags(tags: Dict[str, str]) -> None:
-        TaggedUrn.from_string(TaggedUrn("cap", tags).to_string())
+        # Round-trip the tags through the tagged-urn layer so its key/value
+        # constraints (e.g. a purely numeric tag key) are enforced. Surface any
+        # violation as CapUrnError — the cap-URN API must raise its own error
+        # type, not leak the substrate's TaggedUrnError. Mirrors the mirrors
+        # (Go's capUrnErrorFromTaggedUrn → ErrorNumericKey) and matches the
+        # wrapping from_string() already applies.
+        try:
+            TaggedUrn.from_string(TaggedUrn("cap", tags).to_string())
+        except TaggedUrnError as e:
+            raise CapUrnError(f"Invalid cap URN: {e}") from e
 
     def _validate_admissible(self) -> None:
         in_media = self.in_media_urn()
@@ -303,18 +312,27 @@ class CapUrn:
         """
         from .media_urn import MEDIA_IDENTITY
 
-        builder = TaggedUrnBuilder(self.PREFIX)
-        if self.in_urn != MEDIA_IDENTITY:
-            builder.tag("in", self.in_urn)
-        if self.out_urn != MEDIA_IDENTITY:
-            builder.tag("out", self.out_urn)
-        if self.effect != CapEffect.DECLARED.value:
-            builder.tag("effect", self.effect)
+        # Constraints from the underlying tagged-urn layer (e.g. a purely
+        # numeric tag key) are cap-URN validity failures at this boundary, so
+        # surface them as CapUrnError — the same wrapping from_string() applies
+        # to parse-time TaggedUrnError. Letting the raw TaggedUrnError escape
+        # would make the cap-URN API leak its substrate's exception type, which
+        # the mirrors (Go's capUrnErrorFromTaggedUrn / ErrorNumericKey) do not.
+        try:
+            builder = TaggedUrnBuilder(self.PREFIX)
+            if self.in_urn != MEDIA_IDENTITY:
+                builder.tag("in", self.in_urn)
+            if self.out_urn != MEDIA_IDENTITY:
+                builder.tag("out", self.out_urn)
+            if self.effect != CapEffect.DECLARED.value:
+                builder.tag("effect", self.effect)
 
-        for k, v in self.tags.items():
-            builder.tag(k, v)
+            for k, v in self.tags.items():
+                builder.tag(k, v)
 
-        return builder.build_allow_empty()
+            return builder.build_allow_empty()
+        except TaggedUrnError as e:
+            raise CapUrnError(f"Invalid cap URN: {e}") from e
 
     def tags_to_string(self) -> str:
         """Serialize just the tags portion (without "cap:" prefix)
