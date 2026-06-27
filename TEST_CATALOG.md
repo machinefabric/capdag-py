@@ -1,4 +1,4 @@
-# Python Test Catalog
+# CapDag-Py Test Catalog
 
 **Total Tests:** 1023
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Python codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -147,12 +147,9 @@ This catalog lists all tests in the Python codebase.
 | test135 | `test_135_registry_creation` | TEST135: Test registry creation with temporary cache directory succeeds | tests/test_registry.py:31 |
 | test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST0136: All masters ready false when expected count unset | tests/test_relay_switch.py:1035 |
 | test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST0137: All masters ready false when partially connected | tests/test_relay_switch.py:1077 |
-| test137 | `test_137_parse_registry_json` | TEST137: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:52 |
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:97 |
 | test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST0139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1093 |
-| test139 | `test_139_per_cap_url_uses_sha256` | TEST139: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:123 |
 | test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST0140: All masters ready does not overshoot | tests/test_relay_switch.py:1111 |
-| test140 | `test_140_same_cap_different_spellings_same_hash` | TEST140: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 | test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:171 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:203 |
 | test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com or the CDG_FABRIC_REGISTRY_URL env-var override. | tests/test_registry.py:217 |
@@ -1039,9 +1036,12 @@ This catalog lists all tests in the Python codebase.
 | test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). | tests/test_fabric_alias.py:143 |
 | test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:168 |
 | test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard NotFound, never a silent empty. | tests/test_fabric_alias.py:194 |
+| test6187 | `test_6187_parse_registry_json` | TEST6187: Test parsing registry JSON without stdin args verifies cap structure | tests/test_registry.py:52 |
+| test6188 | `test_6188_per_cap_url_uses_sha256` | TEST6188: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:123 |
+| test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:150 |
 ---
 
-*Generated from Python source tree*
+*Generated from CapDag-Py source tree*
 *Total tests: 1023*
 *Total numbered tests: 1023*
 *Total unnumbered tests: 0*

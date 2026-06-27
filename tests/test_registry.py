@@ -48,8 +48,8 @@ def test_135_registry_creation():
 # semantically-equal URN spellings).
 
 
-# TEST137: Test parsing registry JSON without stdin args verifies cap structure
-def test_137_parse_registry_json():
+# TEST6187: Test parsing registry JSON without stdin args verifies cap structure
+def test_6187_parse_registry_json():
     """Test parsing cap JSON without stdin args"""
     # JSON without stdin args - means cap doesn't accept stdin
     json_str = '''{
@@ -116,11 +116,11 @@ def test_138_parse_registry_json_with_stdin():
     assert cap.get_stdin_media_urn() == "media:ext=pdf"  # As specified in JSON
 
 
-# TEST139: Per-cap URLs use SHA-256 of the canonical URN as the path key.
+# TEST6188: Per-cap URLs use SHA-256 of the canonical URN as the path key.
 # The path scheme is /caps/<sha256-hex> — no colons, no quotes, no
 # percent-encoding gymnastics. Same hash function across every capdag
 # implementation guarantees a single bucket key per equivalence class.
-def test_139_per_cap_url_uses_sha256():
+def test_6188_per_cap_url_uses_sha256():
     """Per-cap lookup URL is /caps/<sha256-of-canonical-urn>"""
     import hashlib
     config = RegistryConfig()
@@ -141,13 +141,13 @@ def test_139_per_cap_url_uses_sha256():
     assert all(c in "0123456789abcdef" for c in digest)
 
 
-# TEST140: Different URN spellings of the same cap (different tag order,
+# TEST6189: Different URN spellings of the same cap (different tag order,
 # whitespace, quoting) MUST produce the same SHA-256 hash, because the
 # canonicaliser reduces them to the same string before hashing. This is
 # the property that makes cross-language lookups land at the same
 # registry key regardless of which capdag implementation issued the
 # request.
-def test_140_same_cap_different_spellings_same_hash():
+def test_6189_same_cap_different_spellings_same_hash():
     """Equivalent URNs hash identically after canonicalisation"""
     import hashlib
     urn_a = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
