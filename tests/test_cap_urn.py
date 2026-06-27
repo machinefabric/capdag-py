@@ -399,6 +399,33 @@ def test_023_builder_preserves_case():
     assert cap.has_tag("op", "Generate")
 
 
+# TEST6544: Builder rejects reserved structural keys on tag/marker helpers
+def test_6544_builder_rejects_structural_keys():
+    # Reserved structural keys must be set via in_spec/out_spec/effect, never
+    # as a free-form tag or marker. The builder rejects them eagerly.
+    with pytest.raises(CapUrnError, match="reserved structural key"):
+        CapUrnBuilder().tag("in", "media:void")
+
+    with pytest.raises(CapUrnError, match="reserved structural key"):
+        CapUrnBuilder().tag("out", "media:void")
+
+    with pytest.raises(CapUrnError, match="reserved structural key"):
+        CapUrnBuilder().tag("effect", "declared")
+
+    with pytest.raises(CapUrnError, match="reserved structural key"):
+        CapUrnBuilder().marker("effect")
+
+    # Pure-numeric keys are rejected at build time (inherited from tagged-urn).
+    with pytest.raises(CapUrnError, match="numeric"):
+        (
+            CapUrnBuilder()
+            .in_spec(MEDIA_VOID)
+            .out_spec(MEDIA_OBJECT)
+            .tag("123", "value")
+            .build()
+        )
+
+
 # TEST24: Directional accepts — pattern's tags are constraints, instance must satisfy
 def test_024_directional_accepts():
     cap1 = CapUrn.from_string(_test_urn("generate;ext=pdf"))

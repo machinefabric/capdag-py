@@ -623,6 +623,52 @@ def test_1133_media_def_def_documentation_lifecycle():
     assert spec.description == "short"
 
 
+# =============================================================================
+# Resolve custom media defs from the registry
+# =============================================================================
+
+
+# TEST6282: Test resolving a custom media URN from a registry-seeded media def
+@pytest.mark.asyncio
+async def test_6282_resolve_custom_media_def():
+    registry = await create_test_registry()
+    registry.add_spec(StoredMediaDef(
+        urn="media:custom-spec;fmt=json",
+        media_type="application/json",
+        title="Custom Spec",
+        profile_uri="https://example.com/schema",
+    ))
+    resolved = await resolve_media_urn("media:custom-spec;fmt=json", registry)
+    assert resolved.media_urn == "media:custom-spec;fmt=json"
+    assert resolved.media_type == "application/json"
+    assert resolved.profile_uri == "https://example.com/schema"
+    assert resolved.schema is None
+
+
+# TEST6283: Test resolving a custom record media def carrying a schema from a
+# registry-seeded media def
+@pytest.mark.asyncio
+async def test_6283_resolve_custom_with_schema():
+    registry = await create_test_registry()
+    schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+    }
+    registry.add_spec(StoredMediaDef(
+        urn="media:fmt=json;output-spec;record",
+        media_type="application/json",
+        title="Output Spec",
+        profile_uri="https://example.com/schema/output",
+        schema=schema,
+    ))
+    resolved = await resolve_media_urn("media:fmt=json;output-spec;record", registry)
+    assert resolved.media_urn == "media:fmt=json;output-spec;record"
+    assert resolved.media_type == "application/json"
+    assert resolved.profile_uri == "https://example.com/schema/output"
+    assert resolved.schema is not None
+    assert resolved.schema["type"] == "object"
+
+
 # TESTs 895-897 (deleted): asserted that a freshly-created
 # `FabricRegistry.new_for_test()` was pre-populated with every
 # concrete-file-format spec in the standard library. The unified
