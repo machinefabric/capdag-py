@@ -14,6 +14,7 @@ and the caller sees the error.
 
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -36,6 +37,8 @@ from capdag.urn.media_urn import MediaUrn
 
 DEFAULT_REGISTRY_BASE_URL = "https://fabric.capdag.com"
 CACHE_DURATION_HOURS = 24
+
+_log = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -81,21 +84,36 @@ class ExtensionNotFoundError(FabricRegistryError):
 
 
 def normalize_cap_urn(urn: str) -> str:
-    """Normalize a Cap URN. Returns the input unchanged on parse failure
-    so the lookup proceeds and the caller sees the real fetch error."""
+    """Normalize a Cap URN to its canonical string form.
+
+    A URN that fails to parse is malformed; this raises ``ParseError``
+    rather than passing the raw string through. Swallowing the parse
+    error here lets the lookup proceed and the failure resurfaces
+    downstream as a misleading "not part of manifest" instead of the
+    truth ("malformed cap URN: <parse error>"). The error is a normal,
+    catchable ``FabricRegistryError`` — callers handle it gracefully
+    (propagate on resolution paths, log + degrade on cache lookups and
+    hydration); it must never escape uncaught and crash the app.
+    """
     try:
         return CapUrn.from_string(urn).to_string()
-    except Exception:
-        return urn
+    except Exception as e:
+        raise ParseError(f"malformed cap URN '{urn}': {e}")
 
 
 def normalize_media_urn(urn: str) -> str:
-    """Normalize a Media URN. Returns the input unchanged on parse
-    failure so the lookup proceeds and the caller sees the real fetch error."""
+    """Normalize a Media URN to its canonical string form.
+
+    A URN that fails to parse is malformed; this raises ``ParseError``
+    rather than passing the raw string through (see
+    :func:`normalize_cap_urn` for the rationale). The error is a normal,
+    catchable ``FabricRegistryError`` that callers handle gracefully; it
+    must never escape uncaught and crash the app.
+    """
     try:
         return MediaUrn.from_string(urn).to_string()
-    except Exception:
-        return urn
+    except Exception as e:
+        raise ParseError(f"malformed media URN '{urn}': {e}")
 
 
 # =============================================================================
@@ -670,7 +688,15 @@ class FabricRegistry:
                 if entry.definition.version == 0 and entry.is_expired():
                     cache_file.unlink(missing_ok=True)
                     continue
-                normalized_urn = normalize_cap_urn(entry.definition.urn_string())
+                try:
+                    normalized_urn = normalize_cap_urn(entry.definition.urn_string())
+                except ParseError as e:
+                    # Hydration with a malformed URN is a graceful no-op: log
+                    # and skip this entry. Never cache under a raw key.
+                    _log.warning(
+                        "Skipping cap cache file %s: %s", cache_file, e
+                    )
+                    continue
                 with self.cache_lock:
                     self.cached_caps[normalized_urn] = entry.definition
             except Exception as e:
@@ -688,7 +714,15 @@ class FabricRegistry:
                 if entry.spec.version == 0 and entry.is_expired():
                     cache_file.unlink(missing_ok=True)
                     continue
-                normalized_urn = normalize_media_urn(entry.spec.urn)
+                try:
+                    normalized_urn = normalize_media_urn(entry.spec.urn)
+                except ParseError as e:
+                    # Hydration with a malformed URN is a graceful no-op: log
+                    # and skip this entry. Never cache under a raw key.
+                    _log.warning(
+                        "Skipping media cache file %s: %s", cache_file, e
+                    )
+                    continue
                 with self.cache_lock:
                     self.cached_specs[normalized_urn] = entry.spec
                     self._update_extension_index(entry.spec)
@@ -1040,8 +1074,16 @@ class FabricRegistry:
             return list(self.cached_caps.values())
 
     def get_cached_cap(self, urn: str) -> Optional[Cap]:
-        """Synchronous in-memory cache probe; never touches the network."""
-        normalized_urn = normalize_cap_urn(urn)
+        """Synchronous in-memory cache probe; never touches the network.
+
+        A malformed URN can never match a cache entry, so it degrades to
+        the same graceful "not found" as a cache miss: log a warning and
+        return None rather than raising on this latency-critical path."""
+        try:
+            normalized_urn = normalize_cap_urn(urn)
+        except ParseError as e:
+            _log.warning("get_cached_cap: %s", e)
+            return None
         with self.cache_lock:
             return self.cached_caps.get(normalized_urn)
 
@@ -1108,8 +1150,16 @@ class FabricRegistry:
             return list(self.cached_specs.values())
 
     def get_cached_media_def(self, urn: str) -> Optional[StoredMediaDef]:
-        """Synchronous in-memory cache probe; never touches the network."""
-        normalized_urn = normalize_media_urn(urn)
+        """Synchronous in-memory cache probe; never touches the network.
+
+        A malformed URN can never match a cache entry, so it degrades to
+        the same graceful "not found" as a cache miss: log a warning and
+        return None rather than raising on this latency-critical path."""
+        try:
+            normalized_urn = normalize_media_urn(urn)
+        except ParseError as e:
+            _log.warning("get_cached_media_def: %s", e)
+            return None
         with self.cache_lock:
             return self.cached_specs.get(normalized_urn)
 
@@ -1248,7 +1298,14 @@ class FabricRegistry:
         # registry's pinned manifest version (mirrors Rust).
         if self.manifest_version >= 1:
             identity.version = self.manifest_version
-        normalized_urn = normalize_cap_urn(identity.urn_string())
+        try:
+            normalized_urn = normalize_cap_urn(identity.urn_string())
+        except ParseError as e:
+            # The identity cap URN is a built-in constant and should always
+            # parse; if it ever does not, log an error and skip caching
+            # identity rather than crashing registry construction.
+            _log.error("ensure_identity_cap: skipping identity seed: %s", e)
+            return
         with self.cache_lock:
             if normalized_urn not in self.cached_caps:
                 self.cached_caps[normalized_urn] = identity
@@ -1303,7 +1360,13 @@ class FabricRegistry:
             for cap in caps:
                 if cap.version == 0 and self.manifest_version >= 1:
                     cap.version = self.manifest_version
-                normalized = normalize_cap_urn(cap.urn_string())
+                try:
+                    normalized = normalize_cap_urn(cap.urn_string())
+                except ParseError as e:
+                    # Skip a cap with a malformed URN: log and continue the
+                    # batch. Never cache under a raw key, never crash.
+                    _log.warning("add_caps_to_cache: skipping cap: %s", e)
+                    continue
                 self.cached_caps[normalized] = cap
                 if self.manifest_version >= 1:
                     self.manifest.caps[normalized] = cap.version
@@ -1317,7 +1380,13 @@ class FabricRegistry:
         with self.cache_lock:
             if spec.version == 0 and self.manifest_version >= 1:
                 spec.version = self.manifest_version
-            normalized = normalize_media_urn(spec.urn)
+            try:
+                normalized = normalize_media_urn(spec.urn)
+            except ParseError as e:
+                # Skip a spec with a malformed URN: log and no-op. Never
+                # cache under a raw key, never crash.
+                _log.warning("add_spec: skipping media def: %s", e)
+                return
             self.cached_specs[normalized] = spec
             self._update_extension_index(spec)
             if self.manifest_version >= 1:

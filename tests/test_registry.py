@@ -16,6 +16,7 @@ from capdag.cap.registry import (
     normalize_cap_urn,
     NetworkBlockedError,
     NotFoundError,
+    ParseError,
     ValidationError,
     CacheError,
 )
@@ -349,6 +350,27 @@ def test_6340_normalize_urn_with_trailing_semicolon():
     normalized2 = normalize_cap_urn(urn2)
 
     assert normalized1 == normalized2
+
+
+# TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be
+# passed through raw (the old fallback) and surface later as a misleading
+# NotFound. The `out` value below contains an unquoted `=`, which the cap
+# grammar rejects. Against the old `except Exception: return urn` fallback,
+# normalize_cap_urn returned the raw string and _cap_defver then reported
+# "not part of manifest" (a NotFoundError); this test asserts the truthful
+# error type on both the direct and the public (get_cap) paths.
+@pytest.mark.asyncio
+async def test_6396_malformed_cap_urn_fails_hard():
+    malformed = 'cap:coerce;in="media:integer;numeric";out=media:enc=utf-8'
+
+    # Direct normalization path must raise ParseError, NOT return the raw URN.
+    with pytest.raises(ParseError):
+        normalize_cap_urn(malformed)
+
+    # Public path (get_cap) must surface ParseError, NOT NotFoundError.
+    registry = FabricRegistry.new_for_test()
+    with pytest.raises(ParseError):
+        await registry.get_cap(malformed)
 
 
 # TEST1893: Cache root is namespaced per registry origin. Without the
