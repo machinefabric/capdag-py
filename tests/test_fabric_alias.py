@@ -26,7 +26,11 @@ from capdag.fabric.registry import (
     token_is_urn,
 )
 from capdag.machine.parser import parse_machine
-from capdag.machine.error import UndefinedAliasError, AliasNotACapError
+from capdag.machine.error import (
+    MachineParseError,
+    UndefinedAliasError,
+    AliasNotACapError,
+)
 
 
 # --- helpers (mirror the Rust test fixtures) -------------------------------
@@ -245,13 +249,17 @@ def test_1885_cap_position_alias_to_media_is_error():
     registry.insert_cached_alias_for_test(
         StoredAlias("jsondoc", "media:fmt=json;record", 1)
     )
-    with pytest.raises(AliasNotACapError):
+    # parse_machine wraps syntax errors in MachineParseError; the cause is the
+    # specific AliasNotACapError.
+    with pytest.raises(MachineParseError) as exc_info:
         parse_machine("[doc -> jsondoc -> out]", registry)
+    assert isinstance(exc_info.value.cause, AliasNotACapError)
 
 
 # TEST1886: a cap-position name that is neither a local header nor a registered
 # alias raises UndefinedAlias.
 def test_1886_unregistered_cap_name_is_undefined_alias():
     registry, _ = _extract_with_alias_registry()
-    with pytest.raises(UndefinedAliasError):
+    with pytest.raises(MachineParseError) as exc_info:
         parse_machine("[doc -> nosuchalias -> out]", registry)
+    assert isinstance(exc_info.value.cause, UndefinedAliasError)
