@@ -295,6 +295,23 @@ def normalize_alias_name(name: str) -> str:
     return lowered
 
 
+def select_display_alias(names: Iterable[str]) -> Optional[str]:
+    """Pick the display alias from a set of alias names that all target the
+    same URN: the SHORTEST name, ties broken alphabetically. Returns ``None``
+    for an empty set.
+
+    The ordering is total and deterministic: ``(len, name)`` lexicographic. So
+    ``png`` beats ``png-image`` (shorter), and between equal-length ``a16`` /
+    ``a09`` the alphabetical-smaller ``a09`` wins. Stable across processes for a
+    given alias set, which is what makes aliased UI/notation reproducible.
+    """
+    best: Optional[str] = None
+    for name in names:
+        if best is None or (len(name), name) < (len(best), best):
+            best = name
+    return best
+
+
 def classify_alias_target(target: str) -> Optional[str]:
     """Classify an alias target URN by prefix. Returns ALIAS_TARGET_CAP,
     ALIAS_TARGET_MEDIA, or None (not a cap/media URN)."""
