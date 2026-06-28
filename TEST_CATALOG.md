@@ -1,8 +1,8 @@
 # Python Test Catalog
 
-**Total Tests:** 1098
+**Total Tests:** 1102
 
-**Numbered Tests:** 1098
+**Numbered Tests:** 1102
 
 **Unnumbered Tests:** 0
 
@@ -945,6 +945,7 @@ This catalog lists all tests in the Python codebase.
 | test1189 | `test_1189_resolve_strand_canonical_anchor_order_is_stable` | TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs. | tests/test_machine.py:929 |
 | test1190 | `test_1190_resolve_strand_inverse_format_converters_no_cycle` | TEST1190: Inverse format converters resolve without introducing a cycle in the strand graph. | tests/test_machine.py:944 |
 | test1191 | `test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity` | TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding. | tests/test_machine.py:1118 |
+| test1196 | `test_1196_aliased_serialization_uses_alias_and_round_trips` | TEST1196: `to_machine_notation_aliased` renders a cap by its registered display alias (shortest, then alphabetical), referenced directly in the wiring with no header; falls back to the raw URN + header for a cap with no alias; and the result round-trips back to the same machine (the parser resolves the alias from the warm cache). | tests/test_machine.py:1153 |
 | test1221 | `test_1221_refine_with_matching_adapter` | TEST1221: Matching value adapters refine the base media URN when the value fits. | tests/test_input_resolver.py:358 |
 | test1222 | `test_1222_refine_no_matching_adapter` | TEST1222: Base URNs without a registered adapter are returned unchanged. | tests/test_input_resolver.py:367 |
 | test1223 | `test_1223_refine_adapter_returns_none` | TEST1223: Adapters that decline to refine leave the original media URN intact. | tests/test_input_resolver.py:374 |
@@ -1036,20 +1037,23 @@ This catalog lists all tests in the Python codebase.
 | test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:165 |
 | test1878 | `test_1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:176 |
 | test1879 | `test_1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1185 |
-| test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | tests/test_fabric_alias.py:52 |
-| test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | tests/test_fabric_alias.py:68 |
-| test1882 | `test_1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | tests/test_fabric_alias.py:77 |
-| test1883 | `test_1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header resolves as a cap alias. | tests/test_fabric_alias.py:213 |
-| test1884 | `test_1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. | tests/test_fabric_alias.py:223 |
-| test1885 | `test_1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error. | tests/test_fabric_alias.py:235 |
-| test1886 | `test_1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name. | tests/test_fabric_alias.py:255 |
-| test1887 | `test_1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map. | tests/test_fabric_alias.py:92 |
-| test1888 | `test_1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup. | tests/test_fabric_alias.py:110 |
-| test1889 | `test_1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. | tests/test_fabric_alias.py:123 |
-| test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | tests/test_fabric_alias.py:139 |
-| test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:163 |
-| test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | tests/test_fabric_alias.py:189 |
+| test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | tests/test_fabric_alias.py:53 |
+| test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | tests/test_fabric_alias.py:69 |
+| test1882 | `test_1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | tests/test_fabric_alias.py:78 |
+| test1883 | `test_1883_cap_position_alias_resolves_to_cap` | TEST1883: a cap-position name with no local header resolves as a cap alias. | tests/test_fabric_alias.py:214 |
+| test1884 | `test_1884_local_header_shadows_cap_alias` | TEST1884: a local header alias shadows a fabric alias of the same name. | tests/test_fabric_alias.py:224 |
+| test1885 | `test_1885_cap_position_alias_to_media_is_error` | TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error. | tests/test_fabric_alias.py:236 |
+| test1886 | `test_1886_unregistered_cap_name_is_undefined_alias` | TEST1886: a cap-position name that is neither a local header nor a registered alias still raises UndefinedAlias. The alias mechanism must not mask a genuinely undefined name. | tests/test_fabric_alias.py:256 |
+| test1887 | `test_1887_manifest_serde_round_trips_aliases` | TEST1887: the Manifest type round-trips an `aliases` map. | tests/test_fabric_alias.py:93 |
+| test1888 | `test_1888_resolve_alias_returns_target` | TEST1888: resolve_alias returns the alias target untyped. Seeding a media alias and resolving it yields the media URN; a malformed alias name is rejected before any lookup. | tests/test_fabric_alias.py:111 |
+| test1889 | `test_1889_resolve_alias_typed_enforces_kind` | TEST1889: resolve_alias_typed enforces the expected kind. | tests/test_fabric_alias.py:124 |
+| test1890 | `test_1890_get_cap_via_alias_and_type_mismatch` | TEST1890: get_cap accepts a cap alias and returns the aliased cap; a media alias passed to get_cap fails hard (typed boundary). This proves alias substitution AND type enforcement at the registry's cap surface. | tests/test_fabric_alias.py:140 |
+| test1891 | `test_1891_get_media_def_via_alias_and_type_mismatch` | TEST1891: get_media_def accepts a media alias and returns the aliased spec; a cap alias passed to get_media_def fails hard. | tests/test_fabric_alias.py:164 |
+| test1892 | `test_1892_unknown_alias_is_not_found` | TEST1892: an unknown alias name is a hard not-found, never a silent empty; unknown and malformed names are treated the same. This is the "expose issues, no fallback" contract. | tests/test_fabric_alias.py:190 |
 | test1893 | `test_1893_cache_root_is_namespaced_per_registry_origin` | TEST1893: Cache root is namespaced per registry origin. Without the per-origin namespace, a cache populated from one registry (prod) is reused to satisfy a lookup against a different registry (staging) — and they serve different bytes for the same URN/version, so the lookup resolves against the wrong snapshot. This pins three properties: distinct origins must NOT share a cache root; the same origin must map to a stable (deterministic) root, or caching never hits; and the slug is the same slug_for(url) scheme the cartridge registry layout uses, living directly under the shared "capdag" cache directory. | tests/test_registry.py:385 |
+| test1894 | `test_1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | tests/test_fabric_alias.py:267 |
+| test1895 | `test_1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | tests/test_fabric_alias.py:279 |
+| test1896 | `test_1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | tests/test_fabric_alias.py:319 |
 | test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:151 |
 | test6203 | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:701 |
 | test6211 | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
@@ -1211,8 +1215,8 @@ These tests have a numbering disagreement between the function name and the auth
 ---
 
 *Generated from Python source tree*
-*Total tests: 1098*
-*Total numbered tests: 1098*
+*Total tests: 1102*
+*Total numbered tests: 1102*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 87*
