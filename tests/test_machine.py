@@ -1143,3 +1143,53 @@ def test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity():
     source_urn = resolved.node_urn(binding.source)
     assert source_urn.is_equivalent(_media("media:ext=pdf")), \
         f"source node URN must be media:ext=pdf (the data-type URN), got: {source_urn}"
+
+
+# TEST1196: `to_machine_notation_aliased` renders a cap by its registered
+# display alias (shortest, then alphabetical), referenced directly in the
+# wiring with no header; falls back to the raw URN + header for a cap with no
+# alias; and the result round-trips back to the same machine (the parser
+# resolves the alias from the warm cache).
+def test_1196_aliased_serialization_uses_alias_and_round_trips():
+    import capdag.machine.serializer  # ensure aliased serializer is attached
+    from capdag.fabric.registry import StoredAlias
+
+    extract_urn = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
+    embed_urn = "cap:embed;in=\"media:enc=utf-8;ext=txt\";out=\"media:vec;record\""
+    extract_cap = _simple_cap(extract_urn, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    embed_cap = _simple_cap(embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record")
+    reg = _registry_with([extract_cap, embed_cap])
+
+    # Two aliases on the extract cap; "ex" is shorter than "extract-pdf".
+    reg.insert_cached_alias_for_test(StoredAlias("extract-pdf", extract_urn, 1))
+    reg.insert_cached_alias_for_test(StoredAlias("ex", extract_urn, 1))
+    # No alias for the embed cap -> it must stay a raw URN.
+
+    strand = _strand_with_cap_steps([
+        (extract_urn, "media:ext=pdf", "media:enc=utf-8;ext=txt"),
+        (embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record"),
+    ])
+    m1 = Machine.from_strand(strand, reg)
+    aliased = m1.to_machine_notation_aliased(reg, "bracketed")
+
+    # The extract cap is aliased: referenced directly in the wiring by its
+    # SHORTER alias `ex`, with NO header, and the URN must not appear.
+    assert "-> ex ->" in aliased, \
+        f"extract cap must be referenced in the wiring by the shortest alias `ex`, got: {aliased}"
+    assert "cap:extract" not in aliased, \
+        f"the aliased extract cap URN must not appear, got: {aliased}"
+    # The embed cap has no alias -> it keeps its synthetic header + URN.
+    assert "cap:embed" in aliased, \
+        f"the un-aliased embed cap must keep its header URN, got: {aliased}"
+
+    # Round-trip: parse the aliased notation back. The alias is already in the
+    # warm cache (seeded above), so the sync parser resolves it.
+    m2 = parse_machine(aliased, reg)
+    assert m1.is_equivalent(m2), \
+        "aliased serialize -> parse must preserve strict equivalence"
+
+    # The canonical (no-arg) identity form is unchanged: it still names both
+    # caps by their full URN and is independent of the alias cache.
+    canonical = m1.to_machine_notation()
+    assert "cap:extract" in canonical and "cap:embed" in canonical
+    assert "-> ex ->" not in canonical

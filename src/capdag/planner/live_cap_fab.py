@@ -180,11 +180,19 @@ class Strand:
         return Machine.from_strand(self, registry)
 
     def to_machine_notation(self, registry) -> str:
-        """Serialize to canonical one-line machine notation.
+        """Serialize to ALIASED one-line machine notation — the "store aliased"
+        form used for path generation and persistence.
 
-        The registry is required for source-to-cap-arg assignment matching.
+        Each cap is rendered by its registered display alias (shortest name,
+        ties alphabetical) when one exists, referenced directly in the wiring
+        with no header; un-aliased caps keep their synthetic ``edge_N`` token +
+        ``[edge_N cap:...]`` header. The canonical alias-independent identity
+        still comes from the no-arg ``Machine.to_machine_notation``.
+
+        The registry is required both for source-to-cap-arg assignment matching
+        and for reverse-resolving URNs to aliases.
         """
-        return self.knit(registry).to_machine_notation()
+        return self.knit(registry).to_machine_notation_aliased(registry, "bracketed")
 
 
 class ReachableTargetInfo:

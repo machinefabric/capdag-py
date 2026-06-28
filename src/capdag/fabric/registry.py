@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     import httpx
@@ -1408,6 +1408,56 @@ class FabricRegistry:
             self._update_extension_index(spec)
             if self.manifest_version >= 1:
                 self.manifest.media[normalized] = spec.version
+
+    def display_alias_for_urn(self, urn: str) -> Optional[str]:
+        """Reverse-resolve a cap or media URN to its display alias name.
+
+        The query URN is canonicalised by kind first (cap vs media, via the
+        same classifier the alias publisher uses for targets), so a
+        non-canonical query (different tag order, redundant whitespace) that
+        would otherwise miss still resolves. A URN that is neither a cap nor a
+        media URN, or that fails to parse, returns ``None`` (it cannot have an
+        alias).
+
+        When multiple aliases target the same URN, the winner is the SHORTEST
+        name, ties broken alphabetically (see :func:`select_display_alias`).
+        This is deterministic and stable across processes for a given alias
+        set.
+        """
+        # Canonicalise by kind. classify_alias_target keys off the prefix and
+        # is the same classifier the alias publisher uses for targets, so a
+        # query and a stored target canonicalise identically.
+        kind = classify_alias_target(urn)
+        if kind is None:
+            return None
+        try:
+            if kind == ALIAS_TARGET_CAP:
+                canonical = normalize_cap_urn(urn)
+            else:
+                canonical = normalize_media_urn(urn)
+        except FabricRegistryError:
+            return None
+        with self.cache_lock:
+            names = [
+                alias.name
+                for alias in self.cached_aliases.values()
+                if alias.target == canonical
+            ]
+        return select_display_alias(names)
+
+    def cached_cap_aliases(self) -> List[Tuple[str, str]]:
+        """All cached aliases whose target is a CAP URN, as ``(name, cap_urn)``
+        pairs. Used by the notation editor to offer registered cap aliases as
+        wiring completions. Order is unspecified (the caller sorts/filters).
+        Synchronous, cache-only — relies on the startup alias prefetch having
+        warmed the cache.
+        """
+        with self.cache_lock:
+            return [
+                (alias.name, alias.target)
+                for alias in self.cached_aliases.values()
+                if classify_alias_target(alias.target) == ALIAS_TARGET_CAP
+            ]
 
     def insert_cached_alias_for_test(self, alias: StoredAlias) -> None:
         """Insert an alias directly into the in-memory cache and register its

@@ -23,6 +23,7 @@ from capdag.fabric.registry import (
     classify_alias_target,
     is_alias_token,
     normalize_alias_name,
+    select_display_alias,
     token_is_urn,
 )
 from capdag.machine.parser import parse_machine
@@ -257,3 +258,81 @@ def test_1886_unregistered_cap_name_is_undefined_alias():
     with pytest.raises(MachineParseError) as exc_info:
         parse_machine("[doc -> nosuchalias -> out]", registry)
     assert isinstance(exc_info.value.cause, UndefinedAliasError)
+
+
+# --- TEST1894-1896: URN -> display-alias reverse resolution ----------------
+
+
+# TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders.
+def test_1894_select_display_alias_ordering():
+    # Shorter wins over longer regardless of alphabetical order.
+    assert select_display_alias(["png-image", "png", "image-png"]) == "png"
+    # Equal length -> alphabetical (a09 < a16).
+    assert select_display_alias(["a16", "a09", "a12"]) == "a09"
+    # Single candidate returns itself.
+    assert select_display_alias(["solo"]) == "solo"
+    # Empty set -> None.
+    assert select_display_alias([]) is None
+
+
+# TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None.
+def test_1895_display_alias_for_urn():
+    registry = FabricRegistry.new_for_test()
+    # Two aliases on the same cap target; "i2s" is shorter than "int2str".
+    registry.insert_cached_alias_for_test(
+        StoredAlias(
+            "int2str",
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            1,
+        )
+    )
+    registry.insert_cached_alias_for_test(
+        StoredAlias(
+            "i2s",
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            1,
+        )
+    )
+    # A media alias too.
+    registry.insert_cached_alias_for_test(
+        StoredAlias("json", "media:fmt=json;record", 1)
+    )
+
+    # Canonical query -> shortest alias wins.
+    assert (
+        registry.display_alias_for_urn(
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"'
+        )
+        == "i2s"
+    )
+    # NON-canonical query (media tags reordered): must still resolve via
+    # canonicalisation. `media:record;fmt=json` canonicalises to
+    # `media:fmt=json;record`.
+    assert registry.display_alias_for_urn("media:record;fmt=json") == "json"
+    # A real URN with no alias -> None.
+    assert registry.display_alias_for_urn("media:enc=utf-8;ext=pdf") is None
+    # A non-URN (no cap:/media: prefix) -> None, never a crash.
+    assert registry.display_alias_for_urn("int2str") is None
+
+
+# TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions.
+def test_1896_cached_cap_aliases_filters_to_cap_targets():
+    registry = FabricRegistry.new_for_test()
+    registry.insert_cached_alias_for_test(
+        StoredAlias(
+            "int2str",
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            1,
+        )
+    )
+    registry.insert_cached_alias_for_test(
+        StoredAlias("json", "media:fmt=json;record", 1)
+    )
+    cap_aliases = registry.cached_cap_aliases()
+    # Only the cap alias is returned; the media alias is filtered out.
+    assert len(cap_aliases) == 1, f"got: {cap_aliases}"
+    assert cap_aliases[0][0] == "int2str"
+    assert (
+        cap_aliases[0][1]
+        == 'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"'
+    )

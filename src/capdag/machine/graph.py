@@ -332,6 +332,16 @@ class Machine:
             "to_machine_notation is attached by capdag.machine.serializer at import time"
         )
 
+    def to_machine_notation_aliased(self, registry, fmt: str = "bracketed") -> str:
+        """Serialize rendering each cap by its registered display alias when one
+        exists (the "store aliased" form).
+
+        Delegates to the serializer. Attached by serializer.py at import time.
+        """
+        raise NotImplementedError(
+            "to_machine_notation_aliased is attached by capdag.machine.serializer at import time"
+        )
+
     def to_render_payload_json(self) -> str:
         """Serialize to render payload JSON.
 

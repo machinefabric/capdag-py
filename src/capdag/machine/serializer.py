@@ -16,28 +16,55 @@ Node Name Generation:
     each strand's edges). This matches Rust's GlobalNodeCounter.
 
 Canonical Ordering:
-    Headers are emitted sorted by alias (edge_0 < edge_1 < ...).
-    Wirings follow in global emission order (strand 0 edges, then strand 1, ...).
+    Headers are emitted in global edge order (strand 0 edges, then strand 1,
+    ...), then wirings follow in that same global emission order.
+
+Cap rendering (canonical vs aliased):
+    By default (no registry) every edge is rendered by a synthetic ``edge_N``
+    token bound to the cap URN by a ``[edge_N cap:...]`` header — the
+    alias-independent identity form. When a registry is supplied (aliased
+    rendering), a cap that has a registered display alias (shortest name, ties
+    alphabetical) is referenced DIRECTLY in the wiring's cap position by that
+    alias name with NO header — the grammar only permits a ``:``-free alias
+    token in the wiring loop_cap position, never in a header (which requires a
+    ``cap:`` URN). Un-aliased caps keep the ``edge_N`` token + header.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from capdag.machine.graph import Machine, MachineStrand
 
 
 def _build_serialization_maps(
     graph: Machine,
-) -> Tuple[Dict[str, Tuple[int, int, str]], Dict[Tuple[int, int], str], List[Tuple[int, int]]]:
-    """Build alias map, node name map, and emission order for serialization.
+    registry=None,
+) -> Tuple[
+    Dict[Tuple[int, int], str],
+    Dict[Tuple[int, int], bool],
+    Dict[Tuple[int, int], str],
+    List[Tuple[int, int]],
+]:
+    """Build edge-token map, needs-header map, node name map, and emission order.
 
     Returns:
-    - aliases: alias -> (strand_idx, edge_idx_in_strand, cap_urn_string)
+    - edge_tokens: (strand_idx, edge_idx) -> cap-position token. The synthetic
+      ``edge_N`` for canonical/un-aliased rendering, or the cap's display alias
+      for an aliased cap.
+    - needs_header: (strand_idx, edge_idx) -> bool. True when the token is a
+      synthetic ``edge_N`` (needs a ``[edge_N cap:...]`` header); False for a
+      cap alias (referenced directly in the wiring, no header).
     - node_names: (strand_idx, node_id) -> node_name
     - emit_order: list of (strand_idx, edge_idx_in_strand) in emission order
+
+    When ``registry`` is None this is the canonical (alias-independent) form:
+    every edge token is ``edge_N`` and every edge needs a header. When a
+    registry is supplied, an edge whose cap has a registered display alias gets
+    that alias as its token with no header.
     """
-    aliases: Dict[str, Tuple[int, int, str]] = {}
+    edge_tokens: Dict[Tuple[int, int], str] = {}
+    needs_header: Dict[Tuple[int, int], bool] = {}
     node_names: Dict[Tuple[int, int], str] = {}
     emit_order: List[Tuple[int, int]] = []
 
@@ -65,84 +92,98 @@ def _build_serialization_maps(
                 seen_nodes[target_nid] = name
                 node_names[(s_idx, target_nid)] = name
 
-            # Assign global edge alias.
-            alias = f"edge_{global_edge_counter}"
+            # Cap-position token. Aliased rendering: a cap with a registered
+            # display alias is referenced directly in the wiring (no header).
+            alias_name = (
+                registry.display_alias_for_urn(str(edge.cap_urn))
+                if registry is not None
+                else None
+            )
+            if alias_name is not None:
+                edge_tokens[(s_idx, e_idx)] = alias_name
+                needs_header[(s_idx, e_idx)] = False
+            else:
+                edge_tokens[(s_idx, e_idx)] = f"edge_{global_edge_counter}"
+                needs_header[(s_idx, e_idx)] = True
+            # The global edge counter advances for every edge regardless of
+            # whether it produced a synthetic token, mirroring Rust's
+            # `next_alias += 1` after every edge.
             global_edge_counter += 1
-            cap_str = str(edge.cap_urn)
-            aliases[alias] = (s_idx, e_idx, cap_str)
             emit_order.append((s_idx, e_idx))
 
-    return aliases, node_names, emit_order
+    return edge_tokens, needs_header, node_names, emit_order
+
+
+def _format_wiring(
+    edge,
+    token: str,
+    s_idx: int,
+    node_names: Dict[Tuple[int, int], str],
+    open_delim: str,
+    close_delim: str,
+) -> str:
+    """Format one wiring statement for a single edge."""
+    sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
+    sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
+    target_name = node_names[(s_idx, edge.target)]
+    loop_prefix = "LOOP " if edge.is_loop else ""
+
+    if len(sources) == 1:
+        return f"{open_delim}{sources[0]} -> {loop_prefix}{token} -> {target_name}{close_delim}"
+    group = ", ".join(sources)
+    return f"{open_delim}({group}) -> {loop_prefix}{token} -> {target_name}{close_delim}"
+
+
+def _emit(graph: Machine, registry, bracketed: bool, joiner: str) -> str:
+    """Shared emitter for the canonical/aliased bracketed and line-based forms.
+
+    Headers (only for edges whose token is a synthetic ``edge_N``) come first in
+    global edge order, then all wirings in that same order.
+    """
+    edge_tokens, needs_header, node_names, emit_order = _build_serialization_maps(
+        graph, registry
+    )
+
+    open_delim = "[" if bracketed else ""
+    close_delim = "]" if bracketed else ""
+    output_parts: List[str] = []
+
+    # Headers across all strands, in global edge order — only for un-aliased
+    # edges (aliased caps are referenced directly in the wiring, no header).
+    for s_idx, e_idx in emit_order:
+        if needs_header[(s_idx, e_idx)]:
+            edge = graph.strands()[s_idx].edges()[e_idx]
+            token = edge_tokens[(s_idx, e_idx)]
+            output_parts.append(f"{open_delim}{token} {edge.cap_urn}{close_delim}")
+
+    # Wirings across all strands, in global edge order.
+    for s_idx, e_idx in emit_order:
+        edge = graph.strands()[s_idx].edges()[e_idx]
+        token = edge_tokens[(s_idx, e_idx)]
+        output_parts.append(
+            _format_wiring(edge, token, s_idx, node_names, open_delim, close_delim)
+        )
+
+    return joiner.join(output_parts)
 
 
 def to_machine_notation(graph: Machine) -> str:
     """Serialize to canonical one-line machine notation.
 
-    The output is deterministic: same machine -> same string.
-    Matches Rust's MachineSerializer canonical form.
+    The output is deterministic: same machine -> same string. Caps are rendered
+    by their canonical URN (alias-independent identity form). Matches Rust's
+    MachineSerializer canonical form.
     """
     if graph.is_empty():
         return ""
-
-    aliases, node_names, emit_order = _build_serialization_maps(graph)
-    output_parts: List[str] = []
-
-    # Emit headers in alias-sorted order (edge_0, edge_1, ...).
-    sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        output_parts.append(f"[{alias} {edge.cap_urn}]")
-
-    # Emit wirings in emission order (strand order, then edge order within strand).
-    for s_idx, e_idx in emit_order:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        alias = _alias_for(aliases, s_idx, e_idx)
-
-        # Source node names from assignment bindings, sorted by source NodeId.
-        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
-        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
-
-        target_name = node_names[(s_idx, edge.target)]
-        loop_prefix = "LOOP " if edge.is_loop else ""
-
-        if len(sources) == 1:
-            output_parts.append(f"[{sources[0]} -> {loop_prefix}{alias} -> {target_name}]")
-        else:
-            group = ", ".join(sources)
-            output_parts.append(f"[({group}) -> {loop_prefix}{alias} -> {target_name}]")
-
-    return "".join(output_parts)
+    return _emit(graph, None, bracketed=True, joiner="")
 
 
 def to_machine_notation_multiline(graph: Machine) -> str:
-    """Serialize to multi-line machine notation (one statement per line)."""
+    """Serialize to multi-line bracketed machine notation (one statement per line)."""
     if graph.is_empty():
         return ""
-
-    aliases, node_names, emit_order = _build_serialization_maps(graph)
-    output_lines: List[str] = []
-
-    sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        output_lines.append(f"[{alias} {edge.cap_urn}]")
-
-    for s_idx, e_idx in emit_order:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        alias = _alias_for(aliases, s_idx, e_idx)
-
-        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
-        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
-        target_name = node_names[(s_idx, edge.target)]
-        loop_prefix = "LOOP " if edge.is_loop else ""
-
-        if len(sources) == 1:
-            output_lines.append(f"[{sources[0]} -> {loop_prefix}{alias} -> {target_name}]")
-        else:
-            group = ", ".join(sources)
-            output_lines.append(f"[({group}) -> {loop_prefix}{alias} -> {target_name}]")
-
-    return "\n".join(output_lines)
+    return _emit(graph, None, bracketed=True, joiner="\n")
 
 
 def to_machine_notation_formatted(graph: Machine, fmt: str) -> str:
@@ -154,54 +195,29 @@ def to_machine_notation_formatted(graph: Machine, fmt: str) -> str:
     """
     if graph.is_empty():
         return ""
-
-    aliases, node_names, emit_order = _build_serialization_maps(graph)
-
     bracketed = fmt == "bracketed"
-    open_delim = "[" if bracketed else ""
-    close_delim = "]" if bracketed else ""
-    output_parts: List[str] = []
-
-    sorted_aliases = sorted(aliases.items(), key=lambda item: item[0])
-    for alias, (s_idx, e_idx, _cap_str) in sorted_aliases:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        output_parts.append(f"{open_delim}{alias} {edge.cap_urn}{close_delim}")
-
-    for s_idx, e_idx in emit_order:
-        edge = graph.strands()[s_idx].edges()[e_idx]
-        alias = _alias_for(aliases, s_idx, e_idx)
-
-        sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
-        sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
-        target_name = node_names[(s_idx, edge.target)]
-        loop_prefix = "LOOP " if edge.is_loop else ""
-
-        if len(sources) == 1:
-            output_parts.append(
-                f"{open_delim}{sources[0]} -> {loop_prefix}{alias} -> {target_name}{close_delim}"
-            )
-        else:
-            group = ", ".join(sources)
-            output_parts.append(
-                f"{open_delim}({group}) -> {loop_prefix}{alias} -> {target_name}{close_delim}"
-            )
-
-    if bracketed:
-        return "".join(output_parts)
-    else:
-        return "\n".join(output_parts)
+    joiner = "" if bracketed else "\n"
+    return _emit(graph, None, bracketed=bracketed, joiner=joiner)
 
 
-def _alias_for(
-    aliases: Dict[str, Tuple[int, int, str]],
-    s_idx: int,
-    e_idx: int,
-) -> str:
-    """Find the alias assigned to a specific (strand_idx, edge_idx) pair."""
-    for alias, (si, ei, _) in aliases.items():
-        if si == s_idx and ei == e_idx:
-            return alias
-    raise AssertionError(f"no alias found for strand {s_idx} edge {e_idx}")
+def to_machine_notation_aliased(graph: Machine, registry, fmt: str = "bracketed") -> str:
+    """Serialize rendering each cap by its registered display alias when one
+    exists (shortest name, ties alphabetical), falling back to the canonical
+    URN otherwise. This is the "store aliased" form: generated and persisted
+    machines use it so the saved notation reads in terms of aliases. The parser
+    resolves these aliases back to URNs on load (its async warm-up hydrates the
+    alias cache), so the form round-trips.
+
+    Args:
+        graph: The machine to serialize.
+        registry: The FabricRegistry used to reverse-resolve URNs to aliases.
+        fmt: 'bracketed' (default) or 'line-based'.
+    """
+    if graph.is_empty():
+        return ""
+    bracketed = fmt == "bracketed"
+    joiner = "" if bracketed else "\n"
+    return _emit(graph, registry, bracketed=bracketed, joiner=joiner)
 
 
 def from_strand(path, registry) -> Machine:
@@ -232,21 +248,22 @@ def _json_escape(s: str) -> str:
     return "".join(out)
 
 
-def to_render_payload_json(graph: Machine) -> str:
+def to_render_payload_json(graph: Machine, registry=None) -> str:
     """Serialize to render payload JSON.
 
     Produces {"strands":[...]} with nodes, edges, input_anchor_nodes,
     output_anchor_nodes for each strand. Mirrors Rust's to_render_payload_json.
+
+    The render payload is a display surface, so when a registry is supplied
+    edges are labelled by the cap's display alias (aliased rendering), falling
+    back to the synthetic ``edge_N`` for un-aliased caps.
     """
     if graph.is_empty():
         return '{"strands":[]}'
 
-    aliases, node_names, emit_order = _build_serialization_maps(graph)
-
-    # Build (s_idx, e_idx) -> alias reverse map
-    edge_to_alias: Dict[Tuple[int, int], str] = {}
-    for alias, (s_idx, e_idx, _) in aliases.items():
-        edge_to_alias[(s_idx, e_idx)] = alias
+    edge_tokens, _needs_header, node_names, _emit_order = _build_serialization_maps(
+        graph, registry
+    )
 
     strand_parts: List[str] = []
     for s_idx, strand in enumerate(graph.strands()):
@@ -261,7 +278,7 @@ def to_render_payload_json(graph: Machine) -> str:
         # edges
         edges_json_parts: List[str] = []
         for e_idx, edge in enumerate(strand.edges()):
-            alias = edge_to_alias.get((s_idx, e_idx), f"edge_{e_idx}")
+            token = edge_tokens.get((s_idx, e_idx), f"edge_{e_idx}")
             is_loop_str = "true" if edge.is_loop else "false"
             assignment_parts: List[str] = []
             for b in edge.assignment:
@@ -272,7 +289,7 @@ def to_render_payload_json(graph: Machine) -> str:
                 )
             target_name = node_names.get((s_idx, edge.target), f"n{edge.target}")
             edges_json_parts.append(
-                f'{{"alias":"{alias}",'
+                f'{{"alias":"{token}",'
                 f'"cap_urn":"{_json_escape(str(edge.cap_urn))}",'
                 f'"is_loop":{is_loop_str},'
                 f'"assignment":[{",".join(assignment_parts)}],'
@@ -304,5 +321,6 @@ def to_render_payload_json(graph: Machine) -> str:
 Machine.to_machine_notation = to_machine_notation  # type: ignore[attr-defined]
 Machine.to_machine_notation_multiline = to_machine_notation_multiline  # type: ignore[attr-defined]
 Machine.to_machine_notation_formatted = to_machine_notation_formatted  # type: ignore[attr-defined]
+Machine.to_machine_notation_aliased = to_machine_notation_aliased  # type: ignore[attr-defined]
 Machine.to_render_payload_json = to_render_payload_json  # type: ignore[attr-defined]
 Machine.from_strand_path = staticmethod(from_strand)  # type: ignore[attr-defined]
