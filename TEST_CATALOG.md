@@ -1,4 +1,4 @@
-# CapDag-Py Test Catalog
+# Python Test Catalog
 
 **Total Tests:** 1109
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the CapDag-Py codebase.
+This catalog lists all tests in the Python codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -1221,7 +1221,7 @@ These tests have a numbering disagreement between the function name and the auth
 
 ---
 
-*Generated from CapDag-Py source tree*
+*Generated from Python source tree*
 *Total tests: 1109*
 *Total numbered tests: 1109*
 *Total unnumbered tests: 0*
