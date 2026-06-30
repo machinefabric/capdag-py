@@ -61,7 +61,8 @@ class RelaySlave:
 
         Uses two threads for true bidirectional forwarding:
         - Thread 1 (socket -> local): RelayState stored (not forwarded); others pass through
-        - Thread 2 (local -> socket): RelayNotify/RelayState dropped; others pass through
+        - Thread 2 (local -> socket): RelayState dropped; RelayNotify (host capability
+          updates) and all other frames forwarded
 
         Args:
             socket_reader: Reader connected to the master relay socket

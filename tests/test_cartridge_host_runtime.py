@@ -403,3 +403,35 @@ def test_987_gc_secondary_pass_enforces_hard_cap():
         f"Total evicted {runtime.routing_gc_evicted_total} should exceed single-pass "
         f"max {single_pass_max} (the secondary pass must have evicted additional entries)."
     )
+
+
+# TEST462: An attached cartridge (pre-connected over raw streams, no on-disk
+# anchor) gets a resolvable install identity derived from its HELLO manifest.
+# Identity gates advertisement, so a None record means the cartridge is
+# silently dropped from every RelayNotify and the engine can never route to
+# it. Locks the attached-cartridge identity path (the swift mirror regressed
+# here: attached cartridges returned nil and never reached the engine).
+# Mirrors the reference installed_cartridge_record_from_manifest.
+def test_462_attached_cartridge_identity_from_manifest():
+    from capdag.bifaci.host_runtime import _installed_cartridge_record_from_manifest
+    from capdag.bifaci.relay_switch import CartridgeLifecycle
+
+    manifest = (
+        b'{"name":"TestCart","version":"1.2.3","channel":"nightly",'
+        b'"registry_url":null,"description":"d","cap_groups":[{"name":"g",'
+        b'"caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}'
+    )
+
+    rec = _installed_cartridge_record_from_manifest(manifest)
+    assert rec is not None, "attached cartridge identity must be derivable from a valid manifest (else it is dropped from advertisement)"
+    assert rec.id == "TestCart"
+    assert rec.version == "1.2.3"
+    assert rec.channel == "nightly"
+    assert rec.registry_url is None
+    assert rec.sha256, "sha256 taken over manifest bytes"
+    # Attached ⇒ HELLO + identity verification already succeeded ⇒ operational.
+    assert rec.lifecycle == CartridgeLifecycle.OPERATIONAL
+
+    # An unparseable manifest yields no record (honestly absent, not a
+    # fabricated id) — the producer must surface the gap, not hide it.
+    assert _installed_cartridge_record_from_manifest(b"{not json") is None

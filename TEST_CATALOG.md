@@ -1,8 +1,8 @@
-# Python Test Catalog
+# CapDag-Py Test Catalog
 
-**Total Tests:** 1102
+**Total Tests:** 1104
 
-**Numbered Tests:** 1102
+**Numbered Tests:** 1104
 
 **Unnumbered Tests:** 0
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Python codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -358,6 +358,7 @@ This catalog lists all tests in the Python codebase.
 | test411 | `test_411_socket_close_detection` | TEST411: Socket close detection (both directions) | tests/test_cartridge_relay.py:387 |
 | test412 | `test_412_bidirectional_concurrent_flow` | TEST412: Bidirectional concurrent frame flow through relay | tests/test_cartridge_relay.py:421 |
 | test413 | `test_413_register_cartridge_adds_cap_table` | TEST413: Register cartridge adds entries to cap_table | tests/test_cartridge_host.py:396 |
+| test414 | `test_414_relay_slave_forwards_host_relay_notify` | TEST414: RelaySlave forwards host-originated RelayNotify (local -> socket), dropping only RelayState. The CartridgeHost publishes capability updates (the installed-cartridge inventory the engine routes by) as RelayNotify frames through the slave's local->socket path. Regression lock for the drift (seen in the go mirror) where the slave dropped RelayNotify too, stranding the host's inventory so the engine never learned the cartridge existed. Mirrors the reference RelaySlave Task 2 forwarding. | tests/test_cartridge_relay.py:525 |
 | test415 | `test_415_req_triggers_spawn` | TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary) | tests/test_cartridge_host.py:445 |
 | test416 | `test_416_attach_cartridge_handshake` | TEST416: Attach cartridge performs HELLO handshake, extracts manifest, updates capabilities | tests/test_cartridge_host.py:479 |
 | test417 | `test_417_route_req_by_cap_urn` | TEST417: Route REQ to correct cartridge by cap_urn (with two attached cartridges) | tests/test_cartridge_host.py:507 |
@@ -405,6 +406,7 @@ This catalog lists all tests in the Python codebase.
 | test459 | `test_459_reorder_buffer_end_frame` | TEST459: Terminal END frame flows through correctly | tests/test_cbor_frame.py:922 |
 | test460 | `test_460_reorder_buffer_err_frame` | TEST460: Terminal ERR frame flows through correctly | tests/test_cbor_frame.py:936 |
 | test461 | `test_461_write_chunked_seq_zero` | TEST461: write_chunked produces frames with seq=0; SeqAssigner assigns at output stage | tests/test_cbor_io.py:324 |
+| test462 | `test_462_attached_cartridge_identity_from_manifest` | TEST462: An attached cartridge (pre-connected over raw streams, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest. Identity gates advertisement, so a None record means the cartridge is silently dropped from every RelayNotify and the engine can never route to it. Locks the attached-cartridge identity path (the swift mirror regressed here: attached cartridges returned nil and never reached the engine). Mirrors the reference installed_cartridge_record_from_manifest. | tests/test_cartridge_host_runtime.py:415 |
 | test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:351 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:88 |
 | test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:95 |
@@ -1214,9 +1216,9 @@ These tests have a numbering disagreement between the function name and the auth
 
 ---
 
-*Generated from Python source tree*
-*Total tests: 1102*
-*Total numbered tests: 1102*
+*Generated from CapDag-Py source tree*
+*Total tests: 1104*
+*Total numbered tests: 1104*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 87*

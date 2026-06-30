@@ -513,3 +513,65 @@ def test_412_bidirectional_concurrent_flow():
         t.join()
 
     assert len(errors) == 0, f"Thread errors: {errors}"
+
+
+# TEST414: RelaySlave forwards host-originated RelayNotify (local -> socket),
+# dropping only RelayState. The CartridgeHost publishes capability updates
+# (the installed-cartridge inventory the engine routes by) as RelayNotify
+# frames through the slave's local->socket path. Regression lock for the
+# drift (seen in the go mirror) where the slave dropped RelayNotify too,
+# stranding the host's inventory so the engine never learned the cartridge
+# existed. Mirrors the reference RelaySlave Task 2 forwarding.
+def test_414_relay_slave_forwards_host_relay_notify():
+    from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK
+
+    slave_local_r, host_local_w = make_pipe()   # host -> slave (local input)
+    dummy_r, slave_local_w = make_pipe()         # slave -> host (t1, unused)
+    router_r, slave_socket_w = make_pipe()       # slave -> router (socket out)
+    slave_socket_r, router_w = make_pipe()       # router -> slave (t1 input, kept open)
+
+    slave = RelaySlave(FrameReader(slave_local_r), FrameWriter(slave_local_w))
+    initial = b'{"installed_cartridges":[]}'
+
+    def run_slave():
+        slave.run(
+            FrameReader(slave_socket_r),
+            FrameWriter(slave_socket_w),
+            initial_notify=(initial, Limits.default()),
+        )
+
+    t = threading.Thread(target=run_slave, daemon=True)
+    t.start()
+
+    router = FrameReader(router_r)
+
+    # Frame 1: the initial RelayNotify the slave emits on start.
+    f1 = router.read()
+    assert f1 is not None and f1.frame_type == FrameType.RELAY_NOTIFY
+
+    # Host writes a RelayState (must be DROPPED) then a populated RelayNotify
+    # (must be FORWARDED), then closes. The slave drains both, forwards only
+    # the RelayNotify, then EOFs. If a regression drops the RelayNotify too,
+    # the next router read is EOF (None) and the assert fails cleanly.
+    host_writer = FrameWriter(host_local_w)
+    host_writer.write(Frame.relay_state(b'{"memory":1}'))
+    host_writer.write(Frame.relay_notify(
+        b'{"installed_cartridges":[{"id":"CartA"}]}',
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK,
+    ))
+    host_local_w.close()
+
+    f2 = router.read()
+    assert f2 is not None, "RelayNotify was dropped (regression): expected it forwarded, got EOF"
+    assert f2.frame_type == FrameType.RELAY_NOTIFY, f"expected forwarded RELAY_NOTIFY, got {f2.frame_type}"
+    assert f2.relay_notify_manifest() == b'{"installed_cartridges":[{"id":"CartA"}]}'
+
+    # Tear down by EOF-ing the slave's socket reader (close the *write* end,
+    # not a read end a thread is blocked on) so run() returns cleanly.
+    router_w.close()
+    t.join(timeout=2.0)
+    for fobj in (router_r, slave_socket_r, slave_local_r, dummy_r):
+        try:
+            fobj.close()
+        except Exception:
+            pass
