@@ -30,11 +30,16 @@ based on URN matching and request ID tracking.
 import json
 import threading
 import queue
+import time
 from typing import Any, Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
-from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER
-from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity
+from capdag.bifaci.frame import (
+    Frame, FrameType, Limits, MessageId, compute_checksum,
+    DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
+)
+from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity, identity_nonce
+from capdag.standard.caps import CAP_IDENTITY
 from capdag.urn.cap_urn import CapUrn
 
 # =============================================================================
@@ -357,6 +362,34 @@ class RelaySwitch:
         # Channel for reader threads to send frames
         self._frame_queue: queue.Queue = queue.Queue()
 
+        # Routable-capability watch (health-filtered union of cap URNs). This
+        # is the engine-readiness signal: a cap appears here only once its
+        # master is healthy (identity-verified). Initialised to the empty
+        # JSON array so a subscriber that arrives before the first rebuild
+        # still gets a well-formed snapshot.
+        self._routable_caps_bytes: bytes = json.dumps([]).encode("utf-8")
+        self._capabilities_watch = _CapabilityWatch(self._routable_caps_bytes)
+
+        # Deferred runtime identity-probe machinery. When a master transitions
+        # from empty caps to non-empty caps via a RelayNotify update, its
+        # index is queued here and the probe driver thread re-verifies its
+        # identity end-to-end before the new caps become routable. Echo frames
+        # route back through ``_external_response_channels`` keyed by the
+        # probe's request id.
+        self._external_response_channels: Dict[str, "queue.Queue[Frame]"] = {}
+        self._pending_identity_probes: "queue.Queue[Optional[int]]" = queue.Queue()
+        self._xid_counter: int = 0
+        # Background-pump bookkeeping (the pump drains master frames and routes
+        # probe echoes; started on demand via ``start_background_pump``).
+        self._pump_started = False
+        self._pump_stop = False
+        # The probe driver runs for the switch's lifetime; it only does work
+        # while frames are being drained (by the pump or ``read_from_masters``).
+        self._probe_driver = threading.Thread(
+            target=self._probe_driver_loop, daemon=True
+        )
+        self._probe_driver.start()
+
         # Connect to all masters
         for master_idx, sock_pair in enumerate(sockets):
             reader = FrameReader(sock_pair.read)
@@ -377,18 +410,32 @@ class RelaySwitch:
             reader.set_limits(limits)
             writer.set_limits(limits)
 
-            try:
-                verify_identity(reader, writer)
-            except Exception as e:
-                raise ProtocolError(f"identity verification failed: {e}") from e
+            # End-to-end identity verification. The probe only makes sense
+            # when the host advertises at least one cap — an empty cap list
+            # means "no cartridges attached successfully" and there is no
+            # handler chain to test. The master still joins (capless, healthy)
+            # so its installed_cartridges attachment errors reach the engine,
+            # and a later empty→non-empty RelayNotify triggers the deferred
+            # runtime probe. Mirrors the reference ``new`` (which probes only
+            # when caps are non-empty and propagates a probe failure as a
+            # hard construction error).
+            if caps:
+                try:
+                    verify_identity(reader, writer)
+                except Exception as e:
+                    raise ProtocolError(f"identity verification failed: {e}") from e
 
-            # Spawn reader thread for this master
+            # Build the reader thread but DO NOT start it until the master is
+            # in ``self._masters``. A capless master's slave can send a
+            # populated (empty→non-empty) RelayNotify immediately after the
+            # handshake notify; if the reader thread ran before the append it
+            # would observe ``len(self._masters) == 0`` and silently drop the
+            # transition (the deferred identity probe would never fire).
             reader_thread = threading.Thread(
                 target=self._reader_loop,
                 args=(master_idx, reader),
                 daemon=True
             )
-            reader_thread.start()
 
             master_conn = _MasterConnection(
                 id=sock_pair.id,
@@ -401,6 +448,7 @@ class RelaySwitch:
                 reader_handle=reader_thread
             )
             self._masters.append(master_conn)
+            reader_thread.start()
 
         # Build initial routing tables. Order matters:
         # `_rebuild_capabilities` reads `_aggregate_installed_cartridges`
@@ -472,18 +520,30 @@ class RelaySwitch:
             caps, installed_cartridges = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
-            try:
-                verify_identity(reader, writer)
-            except Exception as e:
-                raise ProtocolError(f"identity verification failed: {e}") from e
 
-            # Spawn reader thread bound to master_idx.
+            # End-to-end identity verification — probe only when the host
+            # advertises caps. Unlike the constructor, a probe FAILURE here
+            # does NOT abort registration: the master joins UNHEALTHY with
+            # ``last_error`` populated, so its installed_cartridges remain
+            # visible in the inventory aggregate while its caps are held back
+            # from routing. Mirrors the reference ``add_master``.
+            identity_failure: Optional[str] = None
+            if caps:
+                try:
+                    verify_identity(reader, writer)
+                except Exception as e:
+                    identity_failure = f"identity verification failed: {e}"
+            healthy_at_register = identity_failure is None
+
+            # Build the reader thread bound to master_idx but DO NOT start it
+            # until the slot is committed below — otherwise a capless master's
+            # immediate empty→non-empty RelayNotify could be observed before
+            # the slot exists and the deferred probe would never fire.
             reader_thread = threading.Thread(
                 target=self._reader_loop,
                 args=(master_idx, reader),
                 daemon=True,
             )
-            reader_thread.start()
 
             # Commit the connection state into the slot.
             with self._lock:
@@ -505,8 +565,9 @@ class RelaySwitch:
                         limits=limits,
                         caps=caps,
                         installed_cartridges=installed_cartridges,
-                        healthy=True,
+                        healthy=healthy_at_register,
                         reader_handle=reader_thread,
+                        last_error=identity_failure,
                     ))
                 else:
                     slot = self._masters[master_idx]
@@ -525,13 +586,17 @@ class RelaySwitch:
                     slot.limits = limits
                     slot.caps = caps
                     slot.installed_cartridges = installed_cartridges
-                    slot.healthy = True
+                    slot.healthy = healthy_at_register
                     slot.reader_handle = reader_thread
+                    slot.last_error = identity_failure
 
                 self._rebuild_cap_table()
                 self._rebuild_installed_cartridges()
                 self._rebuild_capabilities()
                 self._rebuild_limits()
+
+            # Slot is committed — now it is safe to start reading.
+            reader_thread.start()
 
             return master_idx
 
@@ -580,21 +645,49 @@ class RelaySwitch:
                     self._frame_queue.put(MasterFrame(master_idx, None, None))
                     return
 
-                # Handle RelayNotify here (intercept before sending to queue)
+                # Handle RelayNotify here (update cap tables) but ALSO forward
+                # it to the engine for visibility — parity with the reference,
+                # whose RelayNotify branch returns the frame through to the
+                # engine after updating internal state.
                 if frame.frame_type == FrameType.RELAY_NOTIFY:
-                    with self._lock:
-                        manifest = frame.relay_notify_manifest()
-                        limits = frame.relay_notify_limits()
-                        if manifest is not None and limits is not None:
-                            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
-                            self._masters[master_idx].manifest = manifest
-                            self._masters[master_idx].limits = limits
-                            self._masters[master_idx].caps = caps
-                            self._masters[master_idx].installed_cartridges = installed_cartridges
-                            self._rebuild_cap_table()
-                            self._rebuild_installed_cartridges()
-                            self._rebuild_capabilities()
-                            self._rebuild_limits()
+                    manifest = frame.relay_notify_manifest()
+                    limits = frame.relay_notify_limits()
+                    if manifest is not None and limits is not None:
+                        caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+                        probe_required = False
+                        with self._lock:
+                            if 0 <= master_idx < len(self._masters):
+                                master = self._masters[master_idx]
+                                # Detect the empty → non-empty transition. The
+                                # initial RelayNotify (during connect) skipped
+                                # the identity probe when caps were empty; if
+                                # the host now advertises a real handler chain
+                                # we must probe it end-to-end before letting the
+                                # new caps become routable. The master is held
+                                # unhealthy until the probe driver confirms
+                                # identity.
+                                prior_caps_empty = len(master.caps) == 0
+                                probe_required = prior_caps_empty and len(caps) > 0
+                                master.manifest = manifest
+                                master.limits = limits
+                                master.caps = caps
+                                master.installed_cartridges = installed_cartridges
+                                if probe_required:
+                                    master.healthy = False
+                                    master.last_error = (
+                                        "runtime identity probe pending — "
+                                        "caps held back from routing"
+                                    )
+                                self._rebuild_cap_table()
+                                self._rebuild_installed_cartridges()
+                                self._rebuild_capabilities()
+                                self._rebuild_limits()
+                        if probe_required:
+                            # Hand off to the probe driver. The queue is
+                            # unbounded so this never blocks the reader.
+                            self._pending_identity_probes.put(master_idx)
+                    # Pass through to engine for visibility.
+                    self._frame_queue.put(MasterFrame(master_idx, frame, None))
                     continue
 
                 self._frame_queue.put(MasterFrame(master_idx, frame, None))
@@ -606,6 +699,32 @@ class RelaySwitch:
         """Get aggregate capabilities (union of all masters)"""
         with self._lock:
             return bytes(self._aggregate_capabilities)
+
+    def subscribe_capabilities(self) -> "_CapabilityWatchReceiver":
+        """Subscribe to changes in the *routable* capability set.
+
+        The returned receiver yields the current routable-cap bytes (a JSON
+        array of cap URNs) immediately on ``borrow()`` and a fresh snapshot
+        every time the routable set changes — including when a deferred
+        identity probe completes and a previously-unhealthy master's caps
+        become routable. An engine-facing relay uses this to advertise
+        readiness tied to master health, not mere inventory presence.
+
+        The snapshot is health-filtered: a cap only appears once its master is
+        identity-verified and healthy — unlike :meth:`installed_cartridges`,
+        which is the inventory view and is deliberately NOT health-filtered.
+        """
+        return self._capabilities_watch.subscribe()
+
+    def routable_capabilities(self) -> bytes:
+        """Current health-filtered routable-cap bytes (JSON array of cap URNs).
+
+        This is the synchronous counterpart to :meth:`subscribe_capabilities`
+        and the snapshot the watch persists/delivers. Distinct from
+        :meth:`capabilities`, which returns the (unfiltered) inventory manifest.
+        """
+        with self._lock:
+            return bytes(self._routable_caps_bytes)
 
     def limits(self) -> Limits:
         """Get negotiated limits (minimum across all masters)"""
@@ -754,6 +873,169 @@ class RelaySwitch:
                 return result_frame
             # Peer request was handled internally, continue reading
 
+    def start_background_pump(self) -> None:
+        """Spawn the persistent background drain pump.
+
+        ``_frame_queue`` accumulates inbound frames from every connected
+        master (RelayNotify capability updates, peer invocations, deferred
+        identity-probe echoes). Without a running drain, the queue fills and
+        control frames — including the probe echoes the deferred-identity
+        state machine awaits — never get routed. This pump runs for the
+        switch's lifetime and feeds frames through ``_handle_master_frame``
+        (the same dispatch path ``read_from_masters`` uses); pass-through
+        frames returned by the handler are discarded because no single
+        consumer owns them.
+
+        Run EITHER this pump OR ``read_from_masters`` — not both — since they
+        share the single ``_frame_queue`` consumer. Idempotent: a second call
+        is a no-op. The deferred probe driver is started in ``__init__`` and
+        only does work once a drain (this pump or ``read_from_masters``) is
+        delivering echoes.
+        """
+        with self._lock:
+            if self._pump_started:
+                return
+            self._pump_started = True
+        t = threading.Thread(target=self._background_pump_loop, daemon=True)
+        t.start()
+        self._pump_thread = t
+
+    def _background_pump_loop(self) -> None:
+        while not self._pump_stop:
+            master_frame = self._frame_queue.get()
+            if master_frame.error is not None:
+                self._handle_master_death(master_frame.master_idx)
+                continue
+            if master_frame.frame is None:
+                self._handle_master_death(master_frame.master_idx)
+                continue
+            # Route the frame (probe echoes go to external channels, peer
+            # frames are forwarded). Pass-through frames are discarded — the
+            # pump has no engine consumer.
+            self._handle_master_frame(master_frame.master_idx, master_frame.frame)
+
+    def _next_xid(self) -> int:
+        """Allocate a fresh routing id (xid). Caller must NOT hold ``_lock``."""
+        with self._lock:
+            self._xid_counter += 1
+            return self._xid_counter
+
+    def _probe_driver_loop(self) -> None:
+        """Serially probe each master that transitioned empty→non-empty caps.
+
+        On success the master flips healthy and its caps become routable; on
+        failure it stays unhealthy with ``last_error`` stamped. Mirrors the
+        reference ``spawn_identity_probe_driver``.
+        """
+        while True:
+            master_idx = self._pending_identity_probes.get()
+            if master_idx is None:
+                return  # shutdown sentinel
+            detail = self._run_identity_probe_via_relay(master_idx)
+            with self._lock:
+                if 0 <= master_idx < len(self._masters):
+                    master = self._masters[master_idx]
+                    if detail is None:
+                        # Probe passed — flip healthy; its caps become routable.
+                        master.healthy = True
+                        master.last_error = None
+                    else:
+                        # Probe failed — keep unhealthy and stamp last_error.
+                        master.healthy = False
+                        master.last_error = detail
+                self._rebuild_cap_table()
+                self._rebuild_capabilities()
+
+    def _run_identity_probe_via_relay(self, master_idx: int) -> Optional[str]:
+        """Run an end-to-end identity probe against a master via the relay.
+
+        Sends CAP_IDENTITY REQ + STREAM_START + CHUNK(nonce) + STREAM_END +
+        END on a fresh flow and awaits the echo, routed back through an
+        external response channel keyed by the request id. Returns ``None`` on
+        success, or a typed error string on failure (for ``last_error``).
+        Mirrors the reference ``run_identity_probe_via_relay``.
+        """
+        RUNTIME_PROBE_TIMEOUT = 10.0
+
+        rid = MessageId.new_uuid()
+        rid_key = rid.to_string()
+        nonce = identity_nonce()
+        stream_id = "identity-verify-runtime"
+        resp_q: "queue.Queue[Frame]" = queue.Queue()
+
+        # Register the response channel and snapshot the writer under the lock.
+        xid_val = self._next_xid()
+        with self._lock:
+            if not (0 <= master_idx < len(self._masters)):
+                return "identity probe: master index out of range"
+            self._external_response_channels[rid_key] = resp_q
+            writer = self._masters[master_idx].socket_writer
+        xid = MessageId(xid_val)
+
+        try:
+            req = Frame.req(rid, CAP_IDENTITY, b"", "application/cbor")
+            req.routing_id = xid
+            ss = Frame.stream_start(rid, stream_id, "media:")
+            ss.routing_id = xid
+            chunk = Frame.chunk(rid, stream_id, 0, nonce, 0, compute_checksum(nonce))
+            chunk.routing_id = xid
+            se = Frame.stream_end(rid, stream_id, 1)
+            se.routing_id = xid
+            end = Frame.end(rid, None)
+            end.routing_id = xid
+
+            # Serialize the writes under the lock so the five probe frames
+            # cannot interleave with an engine ``send_to_master`` writing to
+            # the same master socket. The lock is released before the blocking
+            # echo wait below.
+            try:
+                with self._lock:
+                    for fr in (req, ss, chunk, se, end):
+                        writer.write(fr)
+            except Exception as e:
+                return f"identity probe send failed: {e}"
+
+            # Drain the echo: STREAM_START → CHUNK(nonce) → STREAM_END → END.
+            deadline = time.monotonic() + RUNTIME_PROBE_TIMEOUT
+            accumulated = bytearray()
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return (
+                        f"runtime identity probe timed out after "
+                        f"{RUNTIME_PROBE_TIMEOUT}s"
+                    )
+                try:
+                    frame = resp_q.get(timeout=remaining)
+                except queue.Empty:
+                    return (
+                        f"runtime identity probe timed out after "
+                        f"{RUNTIME_PROBE_TIMEOUT}s"
+                    )
+                if frame.frame_type == FrameType.STREAM_START:
+                    continue
+                if frame.frame_type == FrameType.CHUNK:
+                    if frame.payload is not None:
+                        accumulated.extend(frame.payload)
+                    continue
+                if frame.frame_type == FrameType.STREAM_END:
+                    continue
+                if frame.frame_type == FrameType.END:
+                    if bytes(accumulated) != nonce:
+                        return (
+                            f"identity probe payload mismatch "
+                            f"(expected {len(nonce)} bytes, got {len(accumulated)})"
+                        )
+                    return None
+                if frame.frame_type == FrameType.ERR:
+                    code = frame.error_code() or "UNKNOWN"
+                    msg = frame.error_message() or "no message"
+                    return f"identity probe failed: [{code}] {msg}"
+                return f"identity probe: unexpected frame type {frame.frame_type}"
+        finally:
+            with self._lock:
+                self._external_response_channels.pop(rid_key, None)
+
     def _find_master_for_cap(self, cap_urn: str, preferred_cap: Optional[str] = None) -> Optional[int]:
         """Find master index that can handle a capability.
 
@@ -851,6 +1133,17 @@ class RelaySwitch:
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK,
                                      FrameType.STREAM_END, FrameType.END,
                                      FrameType.ERR, FrameType.LOG):
+                rid_key = frame.id.to_string()
+
+                # Deferred-identity-probe echo: route to the registered
+                # external response channel keyed by the probe's request id.
+                # The probe driver owns channel cleanup (it removes the entry
+                # in its finally), so we only deliver here.
+                ext_q = self._external_response_channels.get(rid_key)
+                if ext_q is not None:
+                    ext_q.put(frame)
+                    return None
+
                 entry = self._request_routing.get(frame.id.to_string())
                 if entry is not None and entry.source_master_idx != ENGINE_SOURCE:
                     # Response to peer request
@@ -860,14 +1153,18 @@ class RelaySwitch:
                     self._masters[dest_idx].socket_writer.write(frame)
 
                     if is_terminal and frame.id.to_string() not in self._peer_requests:
-                        del self._request_routing[frame.id.to_string()]
+                        # Non-panicking removal: the entry may already be gone
+                        # (the reference's ``remove`` tolerates this), e.g. a
+                        # late/duplicate terminal frame or a flow with no
+                        # registered routing entry.
+                        self._request_routing.pop(frame.id.to_string(), None)
 
                     return None
 
                 # Response to engine request
                 is_terminal = frame.frame_type in (FrameType.END, FrameType.ERR)
                 if is_terminal and frame.id.to_string() not in self._peer_requests:
-                    del self._request_routing[frame.id.to_string()]
+                    self._request_routing.pop(frame.id.to_string(), None)
 
                 return frame
 
@@ -912,17 +1209,44 @@ class RelaySwitch:
                     self._cap_table.append((cap, idx))
 
     def _rebuild_installed_cartridges(self):
-        """Rebuild aggregate installed cartridges (union with deduplication, sorted)"""
-        seen: Dict[str, bool] = {}
-        result: List[InstalledCartridgeRecord] = []
+        """Rebuild the aggregate installed-cartridge inventory.
+
+        The inventory aggregate is the "what is physically installed and known
+        to any master" view and is deliberately NOT health-filtered. Filtering
+        by master health caused the "all cartridges disappeared" symptom on
+        every transient master flap (reconnect, restart, RelayNotify race at
+        startup). Reachability lives in
+        ``InstalledCartridgeRecord.runtime_stats.running`` per cartridge, not
+        in whether the parent master happens to be unhealthy this tick.
+
+        Dedup is on the FULL identity tuple
+        ``(registry_url, channel, id, version, sha256)``: two installs of the
+        same id+version from different registries or channels are distinct
+        cartridges with their own process and on-disk tree; collapsing them
+        would make the second invisible to the engine.
+        """
+        records: List[InstalledCartridgeRecord] = []
         for master in self._masters:
-            if master.healthy:
-                for ic in master.installed_cartridges:
-                    key = ic.id + "@" + ic.version
-                    if key not in seen:
-                        seen[key] = True
-                        result.append(ic)
-        result.sort(key=lambda ic: (ic.id, ic.version))
+            for ic in master.installed_cartridges:
+                records.append(ic)
+        # Sort by the identity tuple. ``registry_url`` is Optional; None sorts
+        # before any Some (matching the reference ``Option<String>`` ordering).
+        records.sort(key=lambda ic: (
+            0 if ic.registry_url is None else 1,
+            ic.registry_url or "",
+            ic.channel,
+            ic.id,
+            ic.version,
+            ic.sha256,
+        ))
+        result: List[InstalledCartridgeRecord] = []
+        seen: set = set()
+        for ic in records:
+            key = (ic.registry_url, ic.channel, ic.id, ic.version, ic.sha256)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(ic)
         self._aggregate_installed_cartridges = result
 
     def _rebuild_capabilities(self):
@@ -939,6 +1263,28 @@ class RelaySwitch:
 
         manifest = {"installed_cartridges": installed}
         self._aggregate_capabilities = json.dumps(manifest).encode("utf-8")
+
+        # Routable-capability set: the health-filtered union of cap URNs (the
+        # JSON array of *routable* caps — a cap only appears once its master is
+        # healthy / identity-verified). This is the engine-readiness signal,
+        # distinct from the unfiltered inventory manifest above. Fire the watch
+        # only when the routable set actually CHANGES so a deferred probe
+        # completing (which flips a master healthy and adds its caps) wakes the
+        # engine, without a notify storm from unrelated rebuilds. ``send_replace``
+        # persists the value across zero-subscriber windows.
+        routable: List[str] = []
+        seen_routable: set = set()
+        for master in self._masters:
+            if master.healthy:
+                for cap in master.caps:
+                    if cap not in seen_routable:
+                        seen_routable.add(cap)
+                        routable.append(cap)
+        routable.sort()
+        new_routable = json.dumps(routable).encode("utf-8")
+        if new_routable != self._routable_caps_bytes:
+            self._routable_caps_bytes = new_routable
+            self._capabilities_watch.send_replace(new_routable)
 
     def _rebuild_limits(self):
         """Rebuild negotiated limits (minimum across all masters)"""
@@ -969,6 +1315,80 @@ class RelaySwitch:
 # INTERNAL TYPES
 # =============================================================================
 
+class _CapabilityWatchReceiver:
+    """A subscriber handle for :class:`_CapabilityWatch`.
+
+    Mirrors the read side of a Rust ``tokio::sync::watch::Receiver`` closely
+    enough for the routable-capability signal: ``borrow()`` returns the latest
+    value seen so far (the current snapshot at subscribe time, then every
+    replacement delivered since), and ``changed(timeout)`` blocks for the next
+    replacement. The receiver is seeded with the watch's current value at
+    subscribe time, so the snapshot persists across zero-subscriber windows —
+    the ``send_replace`` semantics the engine-readiness signal depends on.
+    """
+
+    def __init__(self, initial: bytes):
+        self._q: "queue.Queue[bytes]" = queue.Queue()
+        self._latest = initial
+
+    def borrow(self) -> bytes:
+        """Return the most recent value, draining any pending replacements."""
+        try:
+            while True:
+                self._latest = self._q.get_nowait()
+        except queue.Empty:
+            pass
+        return self._latest
+
+    def changed(self, timeout: Optional[float] = None) -> bytes:
+        """Block until the next replacement arrives and return it.
+
+        Raises ``queue.Empty`` if ``timeout`` elapses first.
+        """
+        value = self._q.get(timeout=timeout)
+        self._latest = value
+        return value
+
+    def _offer(self, value: bytes) -> None:
+        self._q.put(value)
+
+
+class _CapabilityWatch:
+    """A minimal ``tokio::sync::watch``-equivalent with ``send_replace``
+    semantics.
+
+    The watch always stores the latest value, so a subscriber that arrives
+    AFTER a replacement still observes the current snapshot on its first
+    ``borrow()`` — unlike a plain broadcast, which would have dropped the
+    value when there were momentarily zero receivers. This is exactly the
+    synchronous-construction case: capabilities are rebuilt inside
+    ``__init__`` before any subscriber exists, and the routable set must not
+    be silently lost.
+    """
+
+    def __init__(self, initial: bytes):
+        self._lock = threading.Lock()
+        self._value = initial
+        self._receivers: List[_CapabilityWatchReceiver] = []
+
+    def send_replace(self, value: bytes) -> None:
+        with self._lock:
+            self._value = value
+            receivers = list(self._receivers)
+        for r in receivers:
+            r._offer(value)
+
+    def subscribe(self) -> _CapabilityWatchReceiver:
+        with self._lock:
+            r = _CapabilityWatchReceiver(self._value)
+            self._receivers.append(r)
+            return r
+
+    def current(self) -> bytes:
+        with self._lock:
+            return self._value
+
+
 @dataclass
 class _MasterConnection:
     """Connection to a single RelayMaster.
@@ -986,6 +1406,11 @@ class _MasterConnection:
     installed_cartridges: List[InstalledCartridgeRecord]
     healthy: bool
     reader_handle: threading.Thread
+    #: Most recent attachment / identity-probe failure reason, or None when
+    #: the slot is healthy. Mirrors the reference ``MasterConnection.last_error``.
+    #: Populated when a connect-time / runtime identity probe fails so the
+    #: inventory surface can show why a master is held back from routing.
+    last_error: Optional[str] = None
 
 
 # =============================================================================

@@ -29,6 +29,7 @@ import json
 import subprocess
 import threading
 import queue
+import time
 from pathlib import Path
 from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
@@ -656,7 +657,25 @@ class CartridgeHost:
 
         threading.Thread(target=relay_reader_thread, daemon=True).start()
 
+        # Periodic runtime-stats refresh cadence. The reference republishes
+        # RelayNotify on a ~2s stats interval so the engine sees current
+        # request counts / memory / heartbeat ages even when no cap change
+        # has fired. Only republished when at least one cartridge is running,
+        # keeping idle hosts quiet.
+        STATS_INTERVAL_SECONDS = 2.0
+        last_stats_publish = time.monotonic()
+
         while True:
+            # Periodic runtime-stats republish — mirrors the reference
+            # ``stats_interval`` tick.
+            now = time.monotonic()
+            if now - last_stats_publish >= STATS_INTERVAL_SECONDS:
+                last_stats_publish = now
+                with self._lock:
+                    any_running = any(c.running for c in self._cartridges)
+                    if any_running:
+                        self._rebuild_capabilities(emit=True)
+
             # Drain external commands (SyncRoster / KillCartridge) first so
             # roster changes are reflected before processing relay traffic.
             try:

@@ -1,8 +1,8 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 1104
+**Total Tests:** 1109
 
-**Numbered Tests:** 1104
+**Numbered Tests:** 1109
 
 **Unnumbered Tests:** 0
 
@@ -123,15 +123,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test127 | `test_127_wildcard_identity_routing_isolation` | TEST127: invalid effect=none declarations fail hard | tests/test_cap_urn.py:1080 |
 | test0128 | `test_0128_effect_dispatch_requires_explicit_wildcard` | TEST128: omitted effect means declared; unconstrained effect must be explicit | tests/test_cap_urn.py:1108 |
 | test129 | `test_129_gc_evicts_oldest_entries_by_touch_sequence` | TEST129: The GC drops the OLDEST entries by touch-sequence, not arbitrary keys; the post-GC keyset is exactly what the test computes should survive. | tests/test_cartridge_host_runtime.py:340 |
-| test132 | `test_132_add_master_dynamic` | TEST132: add_master dynamically connects new host to running switch | tests/test_relay_switch.py:1127 |
-| test133 | `test_133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:909 |
-| test134 | `test_134_add_master_with_duplicate_healthy_id_errors` | TEST134: Add master with duplicate healthy id errors | tests/test_relay_switch.py:978 |
-| test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST136: All masters ready false when expected count unset | tests/test_relay_switch.py:1035 |
-| test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST137: All masters ready false when partially connected | tests/test_relay_switch.py:1077 |
+| test0131 | `test_0131_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST0131: empty→non-empty transition must run a runtime identity probe; a master that fails it ends up unhealthy with last_error and its caps are excluded from routing. | tests/test_relay_switch.py:1381 |
+| test132 | `test_132_add_master_dynamic` | TEST132: add_master dynamically connects new host to running switch | tests/test_relay_switch.py:1128 |
+| test133 | `test_133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:910 |
+| test134 | `test_134_add_master_with_duplicate_healthy_id_errors` | TEST134: Add master with duplicate healthy id errors | tests/test_relay_switch.py:979 |
+| test0135 | `test_0135_runtime_identity_probe_success_makes_caps_routable` | TEST0135: the SUCCESS path — a master that advertises caps after connecting and then passes the probe flips healthy and its caps become routable. | tests/test_relay_switch.py:1407 |
+| test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST136: All masters ready false when expected count unset | tests/test_relay_switch.py:1036 |
+| test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST137: All masters ready false when partially connected | tests/test_relay_switch.py:1078 |
+| test0138 | `test_0138_unhealthy_master_inventory_retained_but_not_routable` | TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing. | tests/test_relay_switch.py:1430 |
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:98 |
-| test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1093 |
-| test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1111 |
+| test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1094 |
+| test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1112 |
+| test0141 | `test_0141_subscribe_capabilities_delivers_routable_set` | TEST0141: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs. | tests/test_relay_switch.py:1464 |
 | test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:192 |
+| test0142 | `test_0142_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1518 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:224 |
 | test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | tests/test_registry.py:237 |
 | test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:251 |
@@ -370,20 +375,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test423 | `test_423_multi_cartridge_distinct_caps` | TEST423: Multiple cartridges registered with distinct caps route independently | tests/test_cartridge_host.py:836 |
 | test424 | `test_424_concurrent_requests_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | tests/test_cartridge_host.py:917 |
 | test425 | `test_425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | tests/test_cartridge_host.py:984 |
-| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:155 |
-| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:205 |
-| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:289 |
-| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:324 |
-| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:506 |
-| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:582 |
-| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:644 |
-| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:652 |
-| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:720 |
-| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:765 |
+| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:156 |
+| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:206 |
+| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:290 |
+| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:325 |
+| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:507 |
+| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:583 |
+| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:645 |
+| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:653 |
+| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:721 |
+| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:766 |
 | test436 | `test_436_compute_checksum` | TEST436: Verify FNV-1a checksum function produces consistent results | tests/test_cbor_frame.py:567 |
-| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:385 |
-| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:425 |
-| test439 | `test_439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:465 |
+| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:386 |
+| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:426 |
+| test439 | `test_439_generic_provider_can_dispatch_specific_request` | TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:466 |
 | test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:930 |
 | test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:950 |
 | test442 | `test_442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | tests/test_cbor_frame.py:587 |
@@ -419,8 +424,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:446 |
 | test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:177 |
 | test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:200 |
-| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:819 |
-| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:836 |
+| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:820 |
+| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:837 |
 | test489 | `test_489_full_path_identity_verification` | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge | tests/test_cartridge_host.py:227 |
 | test490 | `test_490_identity_verification_multiple_cartridges` | TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed. | tests/test_cartridge_host.py:278 |
 | test491 | `test_491_chunk_requires_chunk_index_and_checksum` | TEST491: Frame::chunk constructor requires and sets chunk_index and checksum | tests/test_cbor_frame.py:958 |
@@ -577,7 +582,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1082 |
 | test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1108 |
 | test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | tests/test_cartridge_host.py:1145 |
-| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:858 |
+| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:859 |
 | test667 | `test_667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | tests/test_cbor_frame.py:538 |
 | test668 | `test_668_resolve_slot_with_populated_byte_slot_values` | TEST668: resolve_slot_with_populated_byte_slot_values | tests/test_planner_argument_binding.py:37 |
 | test669 | `test_669_resolve_slot_falls_back_to_default` | TEST669: resolve_binding falls back to cap default value when slot has no data | tests/test_planner_argument_binding.py:54 |
@@ -1114,7 +1119,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6734 | `test_6734_reject_invalid_combinations` | TEST6734: Invalid qualifier combinations must be rejected. | tests/test_cap_urn.py:1757 |
 | test6735 | `test_6735_axis_weighting_out_dominates` | TEST6735: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1778 |
 | test6736 | `test_6736_axis_weighting_decoded_layout` | TEST6736: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1802 |
-| test6745 | `test_6745_relay_switch_init_rejects_duplicate_ids` | TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list. | tests/test_relay_switch.py:1018 |
+| test6745 | `test_6745_relay_switch_init_rejects_duplicate_ids` | TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list. | tests/test_relay_switch.py:1019 |
 | test6748 | `test_6748_routes_req_to_handler` | TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response | tests/test_in_process_host.py:96 |
 | test6749 | `test_6749_identity_verification` | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) | tests/test_in_process_host.py:160 |
 | test6750 | `test_6750_no_handler_returns_err` | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | tests/test_in_process_host.py:206 |
@@ -1209,16 +1214,16 @@ These tests have a numbering disagreement between the function name and the auth
 - `test0125` / `test125` / `test_0125_effect_none_preserves_runtime_media` — tests/test_cap_urn.py:1092
 - `test0126` / `test126` / `test_0126_effect_declared_uses_declared_output` — tests/test_cap_urn.py:1101
 - `test0128` / `test128` / `test_0128_effect_dispatch_requires_explicit_wildcard` — tests/test_cap_urn.py:1108
-- `test0136` / `test136` / `test_0136_all_masters_ready_false_when_expected_count_unset` — tests/test_relay_switch.py:1035
-- `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1077
-- `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1093
-- `test0140` / `test140` / `test_0140_all_masters_ready_does_not_overshoot` — tests/test_relay_switch.py:1111
+- `test0136` / `test136` / `test_0136_all_masters_ready_false_when_expected_count_unset` — tests/test_relay_switch.py:1036
+- `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1078
+- `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1094
+- `test0140` / `test140` / `test_0140_all_masters_ready_does_not_overshoot` — tests/test_relay_switch.py:1112
 
 ---
 
 *Generated from CapDag-Py source tree*
-*Total tests: 1104*
-*Total numbered tests: 1104*
+*Total tests: 1109*
+*Total numbered tests: 1109*
 *Total unnumbered tests: 0*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 87*

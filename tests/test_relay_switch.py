@@ -4,6 +4,7 @@ import itertools
 import json
 import socket
 import threading
+import time
 from io import BytesIO
 
 import pytest
@@ -1256,3 +1257,323 @@ def test_132_add_master_dynamic():
             raise AssertionError(f"ERR: {frame.error_message()}")
 
     assert bytes(response_data) == b"beta"
+
+
+# ============================================================
+# Deferred runtime identity-probe cluster (parity with the Rust
+# RelaySwitch tests of the same numbers). A master that advertises
+# EMPTY caps at connect skips the synchronous probe; a later
+# RelayNotify that transitions empty→non-empty must be re-verified
+# end-to-end before the new caps become routable.
+
+# Canonical form of the post-init advertised non-identity cap. Routability
+# is always checked via the dispatch path (_find_master_for_cap), never by
+# string-comparing URNs.
+DEFERRED_TEST_CAP = 'cap:in="media:void";test;out="media:void"'
+
+
+def _deferred_identity_slave(slave_read, slave_write, caps, succeed: bool):
+    """Mirror of the Rust ``slave_deferred_identity`` helper.
+
+    Sends an EMPTY initial RelayNotify (so construction skips the synchronous
+    probe and the master joins capless+healthy), then a populated RelayNotify
+    carrying ``caps`` (the empty→non-empty transition the relay must
+    re-verify). It then answers the runtime identity probe: if ``succeed`` it
+    echoes the probe's nonce back on the same flow (probe passes → master
+    flips healthy → caps routable); otherwise it replies ERR (probe fails →
+    master stays unhealthy, caps held back).
+    """
+    reader = FrameReader(slave_read.makefile("rb"))
+    writer = FrameWriter(slave_write.makefile("wb"))
+
+    # 1. Empty initial RelayNotify — construction skips the probe.
+    send_notify(writer, {"installed_cartridges": []}, Limits.default())
+
+    # 2. Populated RelayNotify — the empty→non-empty transition.
+    group_caps = [
+        {"urn": urn, "title": "test", "command": "test", "args": []}
+        for urn in caps
+    ]
+    populated = {
+        "installed_cartridges": [
+            {
+                "registry_url": None,
+                "channel": "release",
+                "id": "test-cartridge",
+                "version": "0.0.0",
+                "sha256": "0" * 64,
+                "cap_groups": [
+                    {"name": "test", "caps": group_caps, "adapter_urns": []},
+                ],
+            }
+        ]
+    }
+    send_notify(writer, populated, Limits.default())
+
+    # 3. Answer the runtime identity probe.
+    probe_rid = None
+    probe_xid = None
+    nonce = bytearray()
+    while True:
+        frame = reader.read()
+        if frame is None:
+            return
+        if frame.frame_type == FrameType.REQ:
+            probe_rid = frame.id
+            probe_xid = frame.routing_id
+            if not succeed:
+                err = Frame.err(frame.id, "BROKEN", "test cartridge")
+                err.routing_id = frame.routing_id
+                writer.write(err)
+                return
+        elif frame.frame_type == FrameType.CHUNK:
+            if frame.payload is not None:
+                nonce.extend(frame.payload)
+        elif frame.frame_type == FrameType.END:
+            # Echo the nonce back on the probe's flow → probe passes.
+            stream_id = "identity-echo"
+            ss = Frame.stream_start(probe_rid, stream_id, "media:")
+            ss.routing_id = probe_xid
+            chunk = Frame.chunk(
+                probe_rid, stream_id, 0, bytes(nonce), 0, compute_checksum(bytes(nonce))
+            )
+            chunk.routing_id = probe_xid
+            se = Frame.stream_end(probe_rid, stream_id, 1)
+            se.routing_id = probe_xid
+            end = Frame.end(probe_rid, None)
+            end.routing_id = probe_xid
+            for fr in (ss, chunk, se, end):
+                writer.write(fr)
+            # Stay connected after a successful probe — a real host does not
+            # disconnect right after identity verification. Closing here would
+            # race an EOF-driven master death against the healthy-flip the
+            # probe just performed. Block until the switch tears the socket
+            # down (EOF), keeping the master healthy for the test's assertions.
+            while reader.read() is not None:
+                pass
+            return
+
+
+def _build_deferred_switch(succeed: bool):
+    """Construct a single-master switch whose master defers identity to a
+    runtime RelayNotify, and start the background pump so probe echoes route."""
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    threading.Thread(
+        target=_deferred_identity_slave,
+        args=(slave_read, slave_write, [CAP_IDENTITY, DEFERRED_TEST_CAP], succeed),
+        daemon=True,
+    ).start()
+
+    switch = RelaySwitch([SocketPair(
+        id="deferred-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )])
+    switch.start_background_pump()
+    return switch
+
+
+# TEST0131: empty→non-empty transition must run a runtime identity probe;
+# a master that fails it ends up unhealthy with last_error and its caps are
+# excluded from routing.
+def test_0131_runtime_identity_probe_required_on_empty_to_nonempty_transition():
+    switch = _build_deferred_switch(succeed=False)
+
+    deadline = time.monotonic() + 15
+    master_unhealthy = False
+    while time.monotonic() < deadline:
+        with switch._lock:
+            if switch._masters:
+                m = switch._masters[0]
+                if (not m.healthy) and m.last_error is not None:
+                    master_unhealthy = True
+                    break
+        time.sleep(0.05)
+    assert master_unhealthy, (
+        "master must be marked unhealthy after the runtime identity probe fails"
+    )
+
+    # The unverified master's caps must NOT be routable — checked via the
+    # dispatch path, never by string-comparing URNs.
+    assert switch._find_master_for_cap(DEFERRED_TEST_CAP) is None, (
+        "unverified master's caps must be excluded from routing"
+    )
+
+
+# TEST0135: the SUCCESS path — a master that advertises caps after connecting
+# and then passes the probe flips healthy and its caps become routable.
+def test_0135_runtime_identity_probe_success_makes_caps_routable():
+    switch = _build_deferred_switch(succeed=True)
+
+    deadline = time.monotonic() + 15
+    routable = False
+    while time.monotonic() < deadline:
+        if switch._find_master_for_cap(DEFERRED_TEST_CAP) == 0:
+            routable = True
+            break
+        time.sleep(0.05)
+    assert routable, (
+        "after a successful runtime identity probe the master's post-init "
+        "advertised cap must become routable"
+    )
+    with switch._lock:
+        assert switch._masters[0].healthy is True, (
+            "master must be healthy after a successful runtime identity probe"
+        )
+
+
+# TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A
+# master held unhealthy by a failed probe still has its cartridges visible in
+# the inventory aggregate, even though its caps are excluded from routing.
+def test_0138_unhealthy_master_inventory_retained_but_not_routable():
+    switch = _build_deferred_switch(succeed=False)
+
+    deadline = time.monotonic() + 15
+    unhealthy = False
+    while time.monotonic() < deadline:
+        with switch._lock:
+            if switch._masters:
+                m = switch._masters[0]
+                if (not m.healthy) and m.last_error is not None:
+                    unhealthy = True
+                    break
+        time.sleep(0.05)
+    assert unhealthy, "master must be unhealthy after the probe fails"
+
+    # ROUTING: the unhealthy master's caps are excluded (dispatch path).
+    assert switch._find_master_for_cap(DEFERRED_TEST_CAP) is None, (
+        "an unhealthy master's caps must NOT be routable"
+    )
+
+    # INVENTORY: the cartridge is STILL visible — not health-filtered.
+    inventory = switch.installed_cartridges()
+    assert any(c.id == "test-cartridge" for c in inventory), (
+        "an unhealthy master's installed cartridges must remain visible in "
+        f"the inventory aggregate, got: {[c.id for c in inventory]}"
+    )
+
+
+# TEST0141: the routable-capability watch (subscribe_capabilities). A
+# subscriber must receive the CURRENT routable cap set on subscribe even
+# though it was rebuilt during construction — BEFORE any receiver existed
+# (the watch must persist the value, i.e. send_replace, not a plain
+# broadcast that drops it with zero receivers). The delivered set is the
+# health-filtered routable cap URNs.
+def test_0141_subscribe_capabilities_delivers_routable_set():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    done = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(DEFERRED_TEST_CAP), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    # Capabilities are rebuilt inside __init__ — before we subscribe.
+    switch = RelaySwitch([SocketPair(
+        id="watch-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )])
+
+    rx = switch.subscribe_capabilities()
+    watched = rx.borrow()
+
+    # The watch must mirror the synchronous routable-set getter: identical
+    # serialized snapshot from the same source (a snapshot-identity check,
+    # NOT a URN comparison). This is also what catches the bug the test
+    # guards: the snapshot is rebuilt before any subscriber exists, so the
+    # watch must persist it (send_replace). A plain broadcast would leave the
+    # watch holding the empty initial value while the getter returns the
+    # populated set — making these two diverge.
+    assert watched == switch.routable_capabilities(), (
+        "the capability watch must deliver the same routable-set snapshot as "
+        "routable_capabilities()"
+    )
+
+    # The watch must have persisted a NON-empty routable set (the populated
+    # caps), proving send_replace semantics rather than the dropped-empty bug.
+    assert json.loads(watched), (
+        "the routable set must be non-empty after a healthy master verified"
+    )
+
+    # Prove the snapshot is the live ROUTABLE set the only correct way — via
+    # dispatch conformance, not string comparison of URNs.
+    assert switch._find_master_for_cap(DEFERRED_TEST_CAP) == 0, (
+        "the routable set the watch delivers must make the master's "
+        "advertised cap dispatchable"
+    )
+
+
+# Gap-5 lock: an add_master identity-probe FAILURE registers the master as
+# UNHEALTHY (inventory visible) rather than RAISING — matching the reference
+# add_master (and unlike the constructor, which raises; see test_488).
+def test_0142_add_master_probe_failure_registers_unhealthy_not_raises():
+    # First master: a healthy, fully-verified slot.
+    g_engine_read, g_slave_write = socket.socketpair()
+    g_slave_read, g_engine_write = socket.socketpair()
+    g_done = threading.Event()
+
+    def good_slave():
+        reader = FrameReader(g_slave_read.makefile("rb"))
+        writer = FrameWriter(g_slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(CAP_GENERIC), Limits.default())
+        g_done.set()
+        complete_identity_verification(reader, writer)
+
+    threading.Thread(target=good_slave, daemon=True).start()
+    g_done.wait(timeout=2)
+    switch = RelaySwitch([SocketPair(
+        id="good-master-0",
+        read=g_engine_read.makefile("rb"),
+        write=g_engine_write.makefile("wb"),
+    )])
+
+    # Second master: advertises non-empty caps but its identity handler is
+    # broken (replies ERR). add_master must NOT raise.
+    b_engine_read, b_slave_write = socket.socketpair()
+    b_slave_read, b_engine_write = socket.socketpair()
+    b_done = threading.Event()
+
+    def broken_slave():
+        reader = FrameReader(b_slave_read.makefile("rb"))
+        writer = FrameWriter(b_slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(DEFERRED_TEST_CAP), Limits.default())
+        b_done.set()
+        req = reader.read()
+        assert req is not None and req.frame_type == FrameType.REQ
+        assert req.cap == CAP_IDENTITY
+        writer.write(Frame.err(req.id, "BROKEN", "identity verification broken"))
+
+    threading.Thread(target=broken_slave, daemon=True).start()
+    b_done.wait(timeout=2)
+
+    idx = switch.add_master(SocketPair(
+        id="broken-master-1",
+        read=b_engine_read.makefile("rb"),
+        write=b_engine_write.makefile("wb"),
+    ))
+    assert idx == 1, "add_master must still register the slot (not raise)"
+
+    with switch._lock:
+        broken = switch._masters[1]
+        assert broken.healthy is False, (
+            "a master that fails its add-time identity probe must be unhealthy"
+        )
+        assert broken.last_error is not None, (
+            "an identity-probe failure must populate last_error"
+        )
+
+    # The broken master's caps must not be routable (dispatch path).
+    assert switch._find_master_for_cap(DEFERRED_TEST_CAP) is None, (
+        "an unhealthy master's caps must not be routable"
+    )
+    # The healthy master is unaffected.
+    assert switch._find_master_for_cap(CAP_GENERIC) == 0
