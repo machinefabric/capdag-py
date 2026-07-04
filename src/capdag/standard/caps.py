@@ -522,6 +522,74 @@ def same_urn(lang_code: str) -> CapUrn:
     )
 
 
+def _semantic_judgment_urn(marker: str, lang_code: str) -> CapUrn:
+    """Shared shape of the semantic-primitive judgment cap URNs
+    (docs/semantic-primitives.md)."""
+    return (
+        CapUrnBuilder()
+        .marker(marker)
+        .tag("language", lang_code)
+        .tag("constrained", "*")
+        .in_spec(MEDIA_STRING)
+        .out_spec("media:fmt=json;record;semantic-judgment")
+        .build()
+    )
+
+
+def classify_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `classify` closed-set labeling capability."""
+    return _semantic_judgment_urn("classify", lang_code)
+
+
+def score_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `score` rubric-scoring capability."""
+    return _semantic_judgment_urn("score", lang_code)
+
+
+def verify_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `verify` requirements-check capability."""
+    return _semantic_judgment_urn("verify", lang_code)
+
+
+def route_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `route` dispatch-judgment capability."""
+    return _semantic_judgment_urn("route", lang_code)
+
+
+def normalize_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `normalize` entity-canonicalization capability."""
+    return _semantic_judgment_urn("normalize", lang_code)
+
+
+def extract_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `extract` schema-guided extraction capability."""
+    return _semantic_judgment_urn("extract", lang_code)
+
+
+def ask_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `ask` grounded question-answering capability."""
+    return _semantic_judgment_urn("ask", lang_code)
+
+
+def explain_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `explain` opaque-data root-cause capability."""
+    return _semantic_judgment_urn("explain", lang_code)
+
+
+def summarize_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `summarize` purpose-driven compression capability
+    (plain-text output, not a judgment record)."""
+    return (
+        CapUrnBuilder()
+        .marker("summarize")
+        .tag("language", lang_code)
+        .tag("constrained", "*")
+        .in_spec(MEDIA_STRING)
+        .out_spec("media:enc=utf-8;ext=txt;plain-text")
+        .build()
+    )
+
+
 def make_decision_urn(lang_code: str) -> CapUrn:
     """Build URN for make-decision capability"""
     return (
