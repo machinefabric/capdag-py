@@ -225,6 +225,10 @@ MEDIA_PLAIN_TEXT = "media:enc=utf-8;ext=txt;plain-text"
 MEDIA_TRANSCRIPTION_OUTPUT = "media:enc=utf-8;record;transcription"
 # Media URN for decision output (Make Decision) - matches CATALOG
 MEDIA_DECISION = "media:decision;fmt=json;record"
+
+# Semantic-judgment record — the shared output envelope of the
+# semantic-primitive cap family (docs/semantic-primitives.md, law P2).
+MEDIA_SEMANTIC_JUDGMENT = "media:fmt=json;record;semantic-judgment"
 # Media URN for adapter selection output - JSON record
 MEDIA_ADAPTER_SELECTION = "media:adapter-selection;fmt=json;record"
 

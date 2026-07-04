@@ -222,6 +222,11 @@ def all_coercion_paths() -> List[Tuple[str, str]]:
         ("string", "number"),
         ("integer", "number"),
         ("boolean", "number"),
+        # To boolean (strict spellings — see the reference
+        # datacartridge coerce_to_boolean for the accepted set)
+        ("string", "boolean"),
+        ("integer", "boolean"),
+        ("number", "boolean"),
         # To object (wrap in object)
         ("string", "object"),
         ("integer", "object"),
@@ -499,6 +504,20 @@ def generate_json_urn(lang_code: str) -> CapUrn:
         .tag("constrained", "*")
         .in_spec(MEDIA_STRING)
         .out_spec(MEDIA_JSON)
+        .build()
+    )
+
+
+def same_urn(lang_code: str) -> CapUrn:
+    """Build URN for the `same` semantic-equivalence capability
+    (docs/semantic-primitives.md)."""
+    return (
+        CapUrnBuilder()
+        .marker("same")
+        .tag("language", lang_code)
+        .tag("constrained", "*")
+        .in_spec(MEDIA_STRING)
+        .out_spec("media:fmt=json;record;semantic-judgment")
         .build()
     )
 
