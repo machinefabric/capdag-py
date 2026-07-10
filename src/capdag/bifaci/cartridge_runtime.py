@@ -2915,6 +2915,30 @@ class CartridgeRuntime:
                                 pass
                             continue
 
+                        # FAIL HARD: Unbounded input stream (L16). This runtime's
+                        # inbound demux buffers each stream to completion before
+                        # dispatching the handler, so it IS a buffering collector —
+                        # and a buffering collector must refuse an unbounded stream
+                        # with a hard error rather than buffer it without bound
+                        # (mirrors the Rust reference's buffering-collector refusal;
+                        # a runtime with a live per-item handler pull would instead
+                        # consume it incrementally). Never a silent unbounded buffer.
+                        if frame.is_unbounded():
+                            del pending_incoming[frame_id_str]
+                            err_frame = Frame.err(
+                                frame.id,
+                                "PROTOCOL_ERROR",
+                                f"unbounded input stream {stream_id}: this runtime buffers "
+                                "inputs to completion and cannot consume an unbounded stream "
+                                "without bound (L16)",
+                            )
+                            err_frame.routing_id = pending_req.routing_id
+                            try:
+                                sync_writer.write(err_frame)
+                            except Exception:
+                                pass
+                            continue
+
                         # FAIL HARD: Duplicate stream_id
                         for sid, _ in pending_req.streams:
                             if sid == stream_id:
