@@ -164,6 +164,83 @@ class CyclicMachineStrandError(MachineAbstractionError):
         self.strand_index = strand_index
 
 
+class RuntimeMediaInferenceError(MachineAbstractionError):
+    """A cap could not be applied to the runtime input media flowing into it
+    while realizing a strand — the declared input/output specs are
+    incompatible with the concrete upstream media. Realization cannot invent
+    a valid data type, so it fails hard rather than guessing."""
+
+    def __init__(self, strand_index: int, cap_urn: str, runtime_input: str, reason: str):
+        super().__init__(
+            f"strand {strand_index}: cap '{cap_urn}' cannot be applied to runtime "
+            f"input '{runtime_input}': {reason}"
+        )
+        self.strand_index = strand_index
+        self.cap_urn = cap_urn
+        self.runtime_input = runtime_input
+        self.reason = reason
+
+
+class CapDoesNotDeclareInputError(MachineAbstractionError):
+    """A cap does not declare its input: no argument declares a `Stdin`
+    source whose URN is the cap's `in=`. The main input is the value piped in
+    on stdin, so the main arg always declares a stdin source carrying `in=`
+    (its declared slot URN may differ — e.g. a file-path slot whose piped
+    content is `in=`). A cap without such an arg cannot receive its input to
+    thread the strand's runtime media."""
+
+    def __init__(self, strand_index: int, cap_urn: str):
+        super().__init__(
+            f"strand {strand_index}: cap '{cap_urn}' does not declare its input "
+            "(no argument declares a stdin source whose URN is its in=)"
+        )
+        self.strand_index = strand_index
+        self.cap_urn = cap_urn
+
+
+class NoStdinBindingError(MachineAbstractionError):
+    """The resolver's source-to-arg assignment for a cap edge has no binding
+    feeding the cap's stdin argument. The primary (main-input) source is
+    missing — the wiring cannot be realized into a data-flow step."""
+
+    def __init__(self, strand_index: int, cap_urn: str, stdin_arg: str):
+        super().__init__(
+            f"strand {strand_index}: cap '{cap_urn}' has no wiring source bound to "
+            f"its stdin argument '{stdin_arg}'"
+        )
+        self.strand_index = strand_index
+        self.cap_urn = cap_urn
+        self.stdin_arg = stdin_arg
+
+
+class NonProducerSecondaryArgError(MachineAbstractionError):
+    """A non-primary (convergence) wiring source is NOT another cap's output.
+    Only a cap output may be wired into a non-main argument; a raw input
+    feeding a non-main argument is an argument VALUE (default / setting /
+    config / user input), delivered through the argument value channel,
+    never wired. Exposed hard rather than silently mis-routed."""
+
+    def __init__(self, strand_index: int, cap_urn: str, arg_urn: str):
+        super().__init__(
+            f"strand {strand_index}: cap '{cap_urn}' arg '{arg_urn}' is wired from a "
+            "source that is not a cap output; wire only cap outputs into non-main "
+            "args, deliver everything else as an argument value"
+        )
+        self.strand_index = strand_index
+        self.cap_urn = cap_urn
+        self.arg_urn = arg_urn
+
+
+class DisconnectedStrandError(MachineAbstractionError):
+    """A strand's edges do not form a data-flow graph whose every source is
+    reachable (an unreachable edge, or a source whose producer never becomes
+    available)."""
+
+    def __init__(self, strand_index: int):
+        super().__init__(f"strand {strand_index}: edges do not form a connected data-flow graph")
+        self.strand_index = strand_index
+
+
 class MachineParseError(Exception):
     """Combined error from parse_machine. Wraps either a MachineSyntaxError or
     MachineAbstractionError."""

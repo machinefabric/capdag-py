@@ -6,6 +6,8 @@ import cbor2
 import sys
 import queue
 import io
+import threading
+import time
 from capdag.bifaci.cartridge_runtime import (
     CartridgeRuntime,
     NoPeerInvoker,
@@ -40,12 +42,22 @@ from capdag.bifaci.cartridge_runtime import (
     WET_KEY_REQUEST,
     dispatch_op,
     OpFactory,
+    GatedWrite,
+    write_gated,
+    CapacityHandle,
+    CreditWindowAccountant,
+    demux_peer_response,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
 from capdag.bifaci.manifest import CapManifest
 from capdag.urn.media_urn import MediaUrn
-from capdag.bifaci.frame import DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, Frame, FrameType, MessageId
+from capdag.bifaci.frame import (
+    DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_INITIAL_CREDIT,
+    Frame, FrameType, MessageId, CreditDirection, DropReason, compute_checksum,
+)
+from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
+from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
 from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
 # Test manifest JSON with a single cap for basic tests.
@@ -2397,3 +2409,327 @@ def test_1283_adapter_selection_custom_override():
         "Custom adapter selection handler must be findable after override"
     assert runtime.find_handler(CAP_ADAPTER_SELECTION) is CustomAdapterOp, \
         "Handler after override must be the custom class"
+
+
+# =============================================================================
+# Protocol v3 parity tests — writer-thread terminal gate, counted drops,
+# credit-based output, bounded input demux (mirrors capdag Rust tests in
+# src/bifaci/cartridge_runtime.rs, adapted to the mirror's synchronous
+# SyncFrameWriter (no separate writer *thread*) and CreditWindowAccountant
+# (the mirror's demux buffers each stream to completion synchronously, so
+# "arrival" and "consumption" are the same event — see its docstring).
+# =============================================================================
+
+class _DeadWriter:
+    """A FrameWriter stand-in whose write() always fails — simulates a
+    closed output channel (broken pipe / dead relay) for counted-drop tests."""
+    def __init__(self):
+        self.calls = 0
+
+    def write(self, frame):
+        self.calls += 1
+        raise IOError("broken pipe")
+
+    def set_limits(self, limits):
+        pass
+
+
+def _decode_wire(mock_writer: "MockFrameWriter"):
+    """The mirror's MockFrameWriter captures Frame objects directly (no wire
+    encode/decode round-trip) — this alias documents the Rust reference's
+    equivalent `decode_wire` helper for cross-reading the ported tests."""
+    return mock_writer.frames
+
+
+# TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire.
+def test_7020_writer_gate_drops_post_terminal_flow_frames():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid = MessageId.new_uuid()
+
+    # In-order: chunk, END — both written.
+    payload = bytes([1, 2, 3])
+    checksum = compute_checksum(payload)
+    chunk = Frame.chunk(rid, "s1", 0, payload, 0, checksum)
+    assert sync_writer.write(chunk) == GatedWrite.WRITTEN
+
+    end = Frame.end_ok_with(rid, None, 1.0, None)
+    assert sync_writer.write(end) == GatedWrite.WRITTEN
+
+    # The detached-sender race: a straggler progress LOG enqueued after the
+    # handler returned reaches the writer after END. Dropped+counted.
+    straggler = Frame.progress(rid, 1.0, "late keepalive")
+    assert sync_writer.write(straggler) == GatedWrite.DROPPED_POST_TERMINAL
+    assert sync_writer.drops.get(DropReason.POST_TERMINAL) == 1
+
+    frames = _decode_wire(mock_writer)
+    assert len(frames) == 2, "straggler must not reach the wire"
+    assert frames[0].frame_type == FrameType.CHUNK
+    assert frames[1].frame_type == FrameType.END
+    assert frames[-1].frame_type == FrameType.END, "END is the last flow frame on the wire (L4)"
+    # Seq is contiguous and terminal-final
+    assert frames[0].seq == 0
+    assert frames[1].seq == 1
+
+
+# TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated.
+def test_7021_writer_gate_precision():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid_a = MessageId.new_uuid()
+    rid_b = MessageId.new_uuid()
+
+    # Progress before END is written (the gate never over-drops).
+    progress = Frame.progress(rid_a, 0.5, "halfway")
+    assert sync_writer.write(progress) == GatedWrite.WRITTEN
+    end_a = Frame.end_ok(rid_a, None)
+    assert sync_writer.write(end_a) == GatedWrite.WRITTEN
+
+    # Non-flow frames for the terminated flow still pass (heartbeats and
+    # credit must never be blocked by data-flow termination).
+    hb = Frame.heartbeat(rid_a)
+    assert sync_writer.write(hb) == GatedWrite.WRITTEN
+    credit = Frame.credit(rid_a, None, 4, CreditDirection.RESPONSE)
+    assert sync_writer.write(credit) == GatedWrite.WRITTEN
+
+    # A different flow is untouched by A's terminal.
+    progress_b = Frame.progress(rid_b, 0.1, "other request")
+    assert sync_writer.write(progress_b) == GatedWrite.WRITTEN
+
+    # But a flow frame for A is gated.
+    late_a = Frame.log(rid_a, "info", "late")
+    assert sync_writer.write(late_a) == GatedWrite.DROPPED_POST_TERMINAL
+
+    frames = _decode_wire(mock_writer)
+    types = [f.frame_type for f in frames]
+    assert types == [
+        FrameType.LOG, FrameType.END, FrameType.HEARTBEAT, FrameType.CREDIT, FrameType.LOG,
+    ]
+    assert sync_writer.drops.get(DropReason.POST_TERMINAL) == 1
+
+
+# TEST7027: A frame sent through a writer whose sink is gone is a counted channel_closed drop, never a silent loss.
+def test_7027_channel_closed_sends_are_counted():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+
+    # Open channel: send succeeds, nothing counted.
+    frame = Frame.progress(MessageId.new_uuid(), 0.4, "working")
+    sync_writer.write(frame)
+    assert sync_writer.drops.get(DropReason.CHANNEL_CLOSED) == 0
+
+    # Dead channel: send fails AND the drop is counted.
+    dead_writer = _DeadWriter()
+    dead_sync = SyncFrameWriter(dead_writer)
+    with pytest.raises(Exception):
+        dead_sync.write(frame)
+    assert dead_sync.drops.get(DropReason.CHANNEL_CLOSED) == 1
+
+    with pytest.raises(Exception):
+        dead_sync.write(frame)
+    assert dead_sync.drops.get(DropReason.CHANNEL_CLOSED) == 2, \
+        "every dropped frame increments exactly once (L8)"
+
+
+# TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops.
+def test_7086_drop_snapshot_matches_induced_drops():
+    drops = DropCounters()
+    rid = MessageId.new_uuid()
+
+    # Source 1: post-terminal drops at the writer gate (two stragglers).
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer, drops=drops)
+    sync_writer.write(Frame.end_ok(rid, None))
+    for _ in range(2):
+        sync_writer.write(Frame.progress(rid, 1.0, "straggler"))
+
+    # Source 2: closed-channel send (one drop).
+    dead_writer = _DeadWriter()
+    dead_sync = SyncFrameWriter(dead_writer, drops=drops)
+    try:
+        dead_sync.write(Frame.log(rid, "info", "dead channel"))
+    except Exception:
+        pass
+
+    snap = drops.snapshot()
+    assert snap.total == 3, "each induced drop counted exactly once (L8)"
+    assert snap.by_reason.get("post_terminal") == 2
+    assert snap.by_reason.get("channel_closed") == 1
+
+
+# TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel.
+def test_7050_sender_stalls_at_window_and_resumes_on_grant():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    router = CreditRouter()
+    rid = MessageId.new_uuid()
+    # Window of 4 chunks; payload needs 6 chunks at max_chunk=4 bytes.
+    output = OutputStream(
+        writer=sync_writer,
+        request_id=rid,
+        stream_id="s1",
+        media_urn="media:enc=utf-8",
+        max_chunk=4,
+        credit_router=router,
+        initial_credit=4,
+    )
+    output.start(False, None)
+
+    data = bytes(range(24))  # 6 chunks of 4 bytes
+    result = {}
+
+    def writer_thread():
+        output.write(data)
+        output.close()
+        result["done"] = True
+
+    t = threading.Thread(target=writer_thread, daemon=True)
+    t.start()
+
+    # Exactly STREAM_START + 4 chunks appear, then the sender stalls.
+    time.sleep(0.1)
+    got = list(mock_writer.frames)
+    assert got[0].frame_type == FrameType.STREAM_START
+    chunks_before = [f for f in got if f.frame_type == FrameType.CHUNK]
+    assert len(chunks_before) == 4, "sender must stall at exactly the window"
+    assert t.is_alive(), "writer must be blocked on credit"
+
+    # Grant 2 → the remaining 2 chunks + STREAM_END flow; data is intact
+    # and chunk indexes are contiguous (nothing lost or reordered).
+    router.grant(Frame.credit(rid, "s1", 2, CreditDirection.RESPONSE))
+    t.join(timeout=2.0)
+    assert not t.is_alive(), "grant must unblock the writer"
+    assert result.get("done") is True
+
+    rest = mock_writer.frames[len(got):]
+    chunks_after = [f for f in rest if f.frame_type == FrameType.CHUNK]
+    assert len(chunks_after) == 2, "grant releases exactly the granted chunks"
+    assert rest[-1].frame_type == FrameType.STREAM_END
+    indexes = [f.chunk_index for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert indexes == [0, 1, 2, 3, 4, 5], "in order, none lost"
+
+
+# TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited.
+def test_7062_log_flows_while_window_exhausted():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    router = CreditRouter()
+    rid = MessageId.new_uuid()
+    emitter = ThreadSafeEmitter(
+        sync_writer, rid, "s1", "media:enc=utf-8", None, 4,
+        credit_router=router, initial_credit=1,
+    )
+
+    # Exhaust the window (1 chunk), then block trying to send another.
+    def writer_thread():
+        try:
+            emitter.write(bytes([0] * 8))  # 2 chunks; blocks after 1
+        except Exception:
+            pass
+
+    t = threading.Thread(target=writer_thread, daemon=True)
+    t.start()
+    time.sleep(0.1)
+    assert t.is_alive(), "data sender must be stalled"
+
+    # Progress still flows — uncredited (L14).
+    emitter.progress(0.5, "still alive")
+    saw_progress = any(
+        f.frame_type == FrameType.LOG and f.log_progress() == pytest.approx(0.5)
+        for f in mock_writer.frames
+    )
+    assert saw_progress, "progress must bypass the exhausted data window"
+
+
+# TEST7052: Input consumption emits batched CREDIT grants — one grant per half-window consumed, not one per chunk.
+def test_7052_input_grants_are_batched():
+    accountant = CreditWindowAccountant(8)
+    grants = []
+    for i in range(16):
+        assert accountant.account() is False, f"chunk {i} must stay within the batched-extended window"
+        due = accountant.take_due_grant()
+        if due is not None:
+            grants.append(due)
+    assert grants == [4, 4, 4, 4], \
+        "consumption must batch deterministically at window/2 (initial_credit=8 -> batch=4)"
+
+
+# TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
+def test_7053_over_window_chunk_is_credit_violation():
+    accountant = CreditWindowAccountant(2)
+    # Window is 2; a misbehaving sender pushes 3 chunks with no grants
+    # possible (nothing consumed yet, so no batch threshold was ever hit).
+    assert accountant.account() is False, "chunk 0 is within the window"
+    assert accountant.account() is False, "chunk 1 is within the window"
+    assert accountant.account() is True, "chunk 2 exceeds the granted window (L12)"
+
+
+# TEST7063: A receiver flushes pending sub-batch grants rather than losing them — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold.
+def test_7063_pending_grants_flush_before_blocking():
+    # Receiver negotiated a 32 window -> batch threshold 16. The sender (a
+    # different link) has a window of only 8: it emits 8 chunks and stalls,
+    # BELOW the receiver's batch threshold. The Rust reference flushes this
+    # at the point a receiver is about to block on an empty input; this
+    # mirror's demux buffers each stream to completion synchronously (no
+    # blocking-read point mid-stream) and instead flushes at stream-lifecycle
+    # boundaries (STREAM_END) — see CreditWindowAccountant.flush() and its
+    # call site in CartridgeRuntime.run_cbor_mode's STREAM_END handling.
+    accountant = CreditWindowAccountant(32)
+    for _ in range(8):
+        assert accountant.account() is False
+    assert accountant.take_due_grant() is None, "8 consumed is below the batch(16) threshold"
+    assert accountant.flush() == 8, "the full pending consumption is granted on flush"
+    assert accountant.flush() is None, "flush is idempotent once fully drained"
+
+
+# -----------------------------------------------------------------------
+# END-carries-final-progress (L3/L5) — not individually numbered in the
+# Rust diff (covered there at the E2E/interop level), exercised here at the
+# unit level since `ThreadSafeEmitter.finalize()` is the mirror's direct
+# equivalent of the Rust reference's spawn_handler END construction.
+# -----------------------------------------------------------------------
+
+def test_end_carries_handler_declared_final_progress():
+    emitter, mock_writer = make_mock_emitter()
+    emitter.finish(0.42, "custom done")
+    emitter.finalize()
+    end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
+    assert len(end_frames) == 1
+    assert end_frames[0].final_progress() == pytest.approx(0.42)
+    assert end_frames[0].final_message() == "custom done"
+
+
+def test_end_defaults_to_progress_one_without_finish():
+    emitter, mock_writer = make_mock_emitter()
+    emitter.finalize()
+    end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
+    assert len(end_frames) == 1
+    assert end_frames[0].final_progress() == pytest.approx(1.0)
+    assert end_frames[0].final_message() is None
+
+
+# -----------------------------------------------------------------------
+# CapacityHandle (set_capacity/queue) — no dedicated numbered Rust unit
+# test in this diff (capacity queueing is exercised at the E2E/interop
+# level); covered here at the unit level.
+# -----------------------------------------------------------------------
+
+def test_capacity_handle_get_set():
+    handle = CapacityHandle(0)
+    assert handle.get() == 0
+    handle.set(3)
+    assert handle.get() == 3
+
+
+def test_cartridge_runtime_set_capacity_and_handle_share_state():
+    runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
+    handle = runtime.capacity_handle()
+    assert handle.get() == 0
+    runtime.set_capacity(2)
+    assert handle.get() == 2, "capacity_handle() shares live state with set_capacity()"
+
+
+def test_protocol_drops_snapshot_starts_empty():
+    runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
+    snap = runtime.protocol_drops()
+    assert snap.total == 0

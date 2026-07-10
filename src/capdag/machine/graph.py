@@ -70,7 +70,7 @@ class MachineEdge:
     by cap_arg_media_urn for canonical comparison.
     """
 
-    __slots__ = ("cap_urn", "assignment", "target", "is_loop")
+    __slots__ = ("cap_urn", "assignment", "target", "is_loop", "token_id")
 
     def __init__(
         self,
@@ -78,17 +78,28 @@ class MachineEdge:
         assignment: List[EdgeAssignmentBinding],
         target: NodeId,
         is_loop: bool = False,
+        token_id: str = "",
     ):
         self.cap_urn = cap_urn
         self.assignment = assignment
         self.target = target
         self.is_loop = is_loop
+        # Stable identity of the originating resolved-strand step (see
+        # `StrandStep.token_id`), carried onto the executable DAG unit so a
+        # running cap can report *which* step it is — the key the run's live
+        # updates route by. It is IDENTITY, not semantics: `is_equivalent`
+        # deliberately ignores it (two structurally-identical machines stay
+        # equivalent even with different per-run token_ids).
+        self.token_id = token_id
 
     def __repr__(self) -> str:
         assignments_str = ", ".join(
             f"{b.cap_arg_media_urn}<-#{b.source}" for b in self.assignment
         )
-        loop_prefix = "LOOP " if self.is_loop else ""
+        # Debug-only marker for a per-item map edge. Not notation syntax (the
+        # `LOOP` keyword is retired); `is_loop` is a derived cardinality
+        # property.
+        loop_prefix = "map " if self.is_loop else ""
         return f"{loop_prefix}{self.cap_urn} ({assignments_str}) -> #{self.target}"
 
 

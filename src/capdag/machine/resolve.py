@@ -26,6 +26,7 @@ from capdag.machine.graph import EdgeAssignmentBinding, MachineEdge, MachineStra
 from capdag.machine.error import (
     AmbiguousMachineNotationError,
     CyclicMachineStrandError,
+    DisconnectedStrandError,
     NoCapabilityStepsError,
     UnknownCapError,
     UnmatchedSourceInCapArgsError,
@@ -45,19 +46,25 @@ class PreInternedWiring:
     notation parser needs to honor the user's node-name identity contract.
     """
 
-    __slots__ = ("cap_urn", "source_node_ids", "target_node_id", "is_loop")
+    __slots__ = ("token_id", "cap_urn", "source_node_ids", "target_node_id")
 
     def __init__(
         self,
         cap_urn: CapUrn,
         source_node_ids: List[NodeId],
         target_node_id: NodeId,
-        is_loop: bool,
+        token_id: str = "",
     ):
+        # The originating resolved-strand step's stable identity, carried
+        # onto the resulting MachineEdge (see MachineEdge.token_id).
+        self.token_id = token_id
         self.cap_urn = cap_urn
+        # Source NodeIds in the order the upstream layer wrote them. Position
+        # carries no semantics — the matching below re-derives per-arg
+        # identity from URNs.
         self.source_node_ids = source_node_ids
+        # Target NodeId.
         self.target_node_id = target_node_id
-        self.is_loop = is_loop
 
 
 def resolve_strand(
@@ -67,13 +74,16 @@ def resolve_strand(
 ) -> MachineStrand:
     """Resolve a planner-produced Strand into a single MachineStrand.
 
-    Walks the strand step-by-step and pre-interns NodeIds using positional
-    flow — each cap step's input position is linked to the preceding cap
-    step's output position iff their URNs are comparable (is_comparable).
-    Each step's output always allocates a fresh NodeId.
-
-    ForEach sets is_loop=True on the next cap and passes prev_target
-    through unchanged. Collect is elided.
+    Walks the strand step-by-step. Each `Cap` step declares ALL of its
+    data-flow inputs explicitly (`step.inputs`, a list of `CapInput`
+    naming each input's producer by that producer step's stable
+    `token_id`, or the sentinel `ArgSourceRef.strand_input()` for the
+    strand's own input anchor). There is no positional predecessor
+    assumption — every input names its producer explicitly, so fan-out and
+    convergence are both expressible. `ForEach`/`Collect` steps are elided:
+    `is_loop` is not carried on the wiring; it is derived from cardinality
+    in `resolve_pre_interned`, the single source of truth shared with path
+    search.
 
     Raises MachineAbstractionError on resolution failure.
     """
@@ -81,41 +91,57 @@ def resolve_strand(
 
     nodes: List[MediaUrn] = []
     pre_interned: List[PreInternedWiring] = []
-    pending_loop = False
-    prev_target: Optional[NodeId] = None
+
+    # Producer of each node, by producing step's stable `token_id` → its
+    # output NodeId. Explicit input sources resolve against this — no
+    # positional predecessor assumption, so fan-out and convergence both
+    # wire correctly.
+    producer_node: Dict[str, NodeId] = {}
+    # The single shared strand input anchor node, allocated on first
+    # StrandInput reference and refined to the most specific consuming
+    # from_spec.
+    strand_input_node: Optional[NodeId] = None
 
     for step in strand.steps:
         if step.step_type == StrandStepType.CAP:
-            cap_urn = step.cap_urn
+            if not step.inputs:
+                raise DisconnectedStrandError(strand_index)
 
-            # Source: reuse prev_target if comparable to from_spec, else new root.
-            if prev_target is not None and nodes[prev_target].is_comparable(step.from_spec):
-                source_id = prev_target
-                # If from_spec is more specific, refine the node URN.
-                if step.from_spec.specificity() > nodes[prev_target].specificity():
-                    nodes[prev_target] = step.from_spec
-            else:
-                source_id = len(nodes)
-                nodes.append(step.from_spec)
+            source_node_ids: List[NodeId] = []
+            for cap_input in step.inputs:
+                source = cap_input.source
+                if source.is_strand_input():
+                    if strand_input_node is not None:
+                        if step.from_spec.specificity() > nodes[strand_input_node].specificity():
+                            nodes[strand_input_node] = step.from_spec
+                        source_id = strand_input_node
+                    else:
+                        source_id = len(nodes)
+                        nodes.append(step.from_spec)
+                        strand_input_node = source_id
+                else:
+                    if source.token_id not in producer_node:
+                        raise DisconnectedStrandError(strand_index)
+                    source_id = producer_node[source.token_id]
+                source_node_ids.append(source_id)
 
             # Target: always a fresh position.
             target_id = len(nodes)
             nodes.append(step.to_spec)
 
             pre_interned.append(PreInternedWiring(
-                cap_urn=cap_urn,
-                source_node_ids=[source_id],
+                cap_urn=step.cap_urn,
+                source_node_ids=source_node_ids,
                 target_node_id=target_id,
-                is_loop=pending_loop,
+                token_id=step.token_id,
             ))
-            pending_loop = False
-            prev_target = target_id
 
-        elif step.step_type == StrandStepType.FOR_EACH:
-            pending_loop = True
-            # prev_target passes through unchanged.
+            producer_node[step.token_id] = target_id
 
-        # StrandStepType.COLLECT: elided — prev_target passes through unchanged.
+        # StrandStepType.FOR_EACH / COLLECT: elided — cardinality transitions
+        # are implicit. Caps name their producers directly, and `is_loop` is
+        # derived from cardinality in resolve_pre_interned, so these steps
+        # carry no wiring here.
 
     if not pre_interned:
         raise NoCapabilityStepsError()
@@ -140,10 +166,24 @@ def resolve_pre_interned(
 
     Raises MachineAbstractionError on any failure.
     """
-    from capdag.cap.definition import StdinSource
-
     if not wirings:
         raise NoCapabilityStepsError()
+
+    # Cardinality of every node, derived from the single canonical rule
+    # (`Cap.sequence_shape`): a node holds a sequence iff the cap that
+    # PRODUCES it has a sequence output; root nodes (never a wiring target)
+    # are scalar. This is exactly the `is_sequence` state
+    # `planner.live_cap_fab` threads through a path, evaluated over the
+    # resolved graph so `is_loop` is DERIVED from cardinality, never
+    # authored. It replaces the retired `LOOP` keyword.
+    node_is_sequence: List[bool] = [False] * len(nodes)
+    for wiring in wirings:
+        cap_urn_str = str(wiring.cap_urn)
+        cap = registry.get_cached_cap(cap_urn_str)
+        if cap is None:
+            raise UnknownCapError(cap_urn_str)
+        _input_is_sequence, output_is_sequence = cap.sequence_shape()
+        node_is_sequence[wiring.target_node_id] = output_is_sequence
 
     indexed_edges: List[MachineEdge] = []
 
@@ -154,22 +194,27 @@ def resolve_pre_interned(
             raise UnknownCapError(cap_urn_str)
 
         # Build two parallel lists:
-        # - stdin_arg_urns: the inner stdin type to match against (what upstream caps produce)
-        # - stdin_arg_slot_urns: the slot identity (cap arg's outer media_urn) for bindings
+        # - stdin_arg_urns: the per-arg stream URN to match against (what upstream
+        #   caps produce)
+        # - stdin_arg_slot_urns: the slot identity (cap arg's outer media_urn) for
+        #   bindings
+        #
+        # Wiring sources are matched against EVERY arg by its stream URN (its Stdin
+        # source URN if it declares one, else its declared URN — a cap may have no
+        # stdin at all). ALL args are producer-feedable: a producer is anything that
+        # supplies a value (a prior cap's output, config, a literal, …), so every arg
+        # is a candidate. The Hungarian matcher assigns each source to the arg it
+        # conforms to; args no source matches take their value from config/defaults;
+        # genuine ambiguity is a hard failure (in match_sources_to_args). `stdin_*`
+        # names are historical — these are the per-arg stream and slot URNs.
         stdin_arg_urns: List[MediaUrn] = []
         stdin_arg_slot_urns: List[MediaUrn] = []
 
         for arg in cap.args:
-            stdin_str: Optional[str] = None
-            for source in arg.sources:
-                if isinstance(source, StdinSource):
-                    stdin_str = source.stdin
-                    break
-            if stdin_str is not None:
-                stdin_urn = MediaUrn.from_string(stdin_str)
-                slot_urn = MediaUrn.from_string(arg.media_urn)
-                stdin_arg_urns.append(stdin_urn)
-                stdin_arg_slot_urns.append(slot_urn)
+            stream_urn = MediaUrn.from_string(arg.stream_urn())
+            slot_urn = MediaUrn.from_string(arg.media_urn)
+            stdin_arg_urns.append(stream_urn)
+            stdin_arg_slot_urns.append(slot_urn)
 
         # Pull source URNs from the nodes table.
         source_urns: List[MediaUrn] = [nodes[sid] for sid in wiring.source_node_ids]
@@ -218,11 +263,27 @@ def resolve_pre_interned(
         # Re-sort bindings by slot identity (cap_arg_media_urn) for canonical form.
         bindings.sort(key=lambda b: str(b.cap_arg_media_urn))
 
+        # Derive `is_loop` from cardinality — the single ForEach rule
+        # (`Cap.needs_foreach`): the primary data input (the first stdin arg)
+        # carries a sequence but this cap consumes it as a scalar, so it maps
+        # per-item. The primary stdin source node is the binding feeding the
+        # first stdin arg's slot. A cap with no stdin arg (config-only) never
+        # loops.
+        primary_stdin_source_is_sequence = False
+        if stdin_arg_slot_urns:
+            primary_slot = stdin_arg_slot_urns[0]
+            for b in bindings:
+                if b.cap_arg_media_urn.is_equivalent(primary_slot):
+                    primary_stdin_source_is_sequence = node_is_sequence[b.source]
+                    break
+        is_loop = cap.needs_foreach(primary_stdin_source_is_sequence)
+
         indexed_edges.append(MachineEdge(
             cap_urn=wiring.cap_urn,
             assignment=bindings,
             target=wiring.target_node_id,
-            is_loop=wiring.is_loop,
+            is_loop=is_loop,
+            token_id=wiring.token_id,
         ))
 
     # Cycle detection + canonical edge order.

@@ -435,3 +435,206 @@ def test_462_attached_cartridge_identity_from_manifest():
     # An unparseable manifest yields no record (honestly absent, not a
     # fabricated id) — the producer must surface the gap, not hide it.
     assert _installed_cartridge_record_from_manifest(b"{not json") is None
+
+
+# =============================================================================
+# Protocol v3 (L6/L8/L11): CREDIT routing, terminal drain, protocol_stats()
+# =============================================================================
+#
+# These exercise CartridgeHostRuntime.route_continuation_frame /
+# record_response_terminal / protocol_stats — the pure routing-table
+# counterpart of the reference handle_relay_frame PATH C and
+# handle_cartridge_frame response-terminal bookkeeping (host_runtime.rs).
+# No single reference test number covers this logic in isolation (it ships
+# embedded in the full frame-I/O loop); these are new, descriptively named
+# tests rather than numbered parity ports.
+
+from capdag.bifaci.frame import CreditDirection, DropReason
+
+
+def _seed_incoming(runtime, xid, rid, cartridge_idx):
+    key = (xid, rid)
+    runtime.incoming_rxids[key] = cartridge_idx
+    runtime.touch_incoming_rxid(key)
+
+
+def _seed_outgoing(runtime, rid, cartridge_idx):
+    runtime.outgoing_rids[rid] = cartridge_idx
+    runtime.touch_outgoing_rid(rid)
+
+
+def test_route_continuation_frame_data_then_terminal_stays_alive_for_response():
+    """A request-body terminal (END) routed via incoming_rxids marks the key
+    body-done but does NOT release the entry — the handler's response is
+    still flowing and its output CREDIT grants must keep routing through
+    it. Only the response's own terminal (record_response_terminal) with
+    the body already done releases the entry."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=3)
+
+    result = runtime.route_continuation_frame(xid, rid, FrameType.CHUNK)
+    assert result == (3, True)
+    assert (xid, rid) not in runtime.incoming_body_done
+
+    result = runtime.route_continuation_frame(xid, rid, FrameType.END)
+    assert result == (3, True)
+    assert (xid, rid) in runtime.incoming_body_done, "body END must mark body-done"
+    assert (xid, rid) in runtime.incoming_rxids, (
+        "the entry must survive the body terminal — the response phase is still open"
+    )
+
+    # The handler's response terminal passes outbound: body already done ⇒
+    # release immediately.
+    runtime.record_response_terminal(xid, rid)
+    assert (xid, rid) not in runtime.incoming_rxids
+    assert (xid, rid) not in runtime.incoming_body_done
+
+
+def test_route_continuation_frame_response_first_race_releases_on_body_end():
+    """Response-first race: the handler's response terminates BEFORE the
+    request body END arrives. record_response_terminal must not release the
+    entry yet (the body is still open); the body END that follows must
+    release it immediately."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=1)
+
+    runtime.record_response_terminal(xid, rid)
+    assert (xid, rid) in runtime.incoming_rxids, "body still open — must not release yet"
+    assert (xid, rid) in runtime.incoming_response_done
+
+    result = runtime.route_continuation_frame(xid, rid, FrameType.END)
+    assert result == (1, True)
+    assert (xid, rid) not in runtime.incoming_rxids, (
+        "body END with response already done must release the entry immediately"
+    )
+    assert (xid, rid) not in runtime.incoming_response_done
+    assert (xid, rid) not in runtime.incoming_body_done
+
+
+def test_route_continuation_frame_self_loop_peer_response_after_body_done():
+    """After the request body is done (self-loop peer call), a data frame
+    for the same (xid, rid) that also has an outgoing_rids entry is the
+    peer's RESPONSE and must route via outgoing_rids, not incoming_rxids —
+    and its terminal cleans up outgoing_rids, not the still-open incoming
+    entry."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=0)  # handler
+    _seed_outgoing(runtime, rid, cartridge_idx=5)  # requester (self-loop)
+
+    # Body completes.
+    result = runtime.route_continuation_frame(xid, rid, FrameType.END)
+    assert result == (0, True)
+    assert (xid, rid) in runtime.incoming_body_done
+
+    # A CHUNK for the same key now prefers outgoing (peer response).
+    result = runtime.route_continuation_frame(xid, rid, FrameType.CHUNK)
+    assert result == (5, False)
+
+    # The peer response's own terminal cleans up outgoing_rids only.
+    result = runtime.route_continuation_frame(xid, rid, FrameType.END)
+    assert result == (5, False)
+    assert rid not in runtime.outgoing_rids
+    assert (xid, rid) in runtime.incoming_rxids, (
+        "the request's own incoming entry is untouched by the peer response terminal"
+    )
+
+
+def test_route_continuation_frame_credit_direction_selects_side():
+    """A CREDIT frame's direction (L11), not table-preference, selects the
+    route: `response` credits the handler (incoming side) even for a
+    self-loop key that also has an outgoing entry; `request` credits the
+    requester (outgoing side)."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=7)
+    _seed_outgoing(runtime, rid, cartridge_idx=9)
+
+    result = runtime.route_continuation_frame(
+        xid, rid, FrameType.CREDIT, credit_direction=CreditDirection.RESPONSE
+    )
+    assert result == (7, True)
+
+    result = runtime.route_continuation_frame(
+        xid, rid, FrameType.CREDIT, credit_direction=CreditDirection.REQUEST
+    )
+    assert result == (9, False)
+
+
+def test_route_continuation_frame_credit_without_direction_is_counted_drop():
+    """A CREDIT frame with no direction cannot be routed (v3 requires
+    credit_dir) — it is a counted no_route drop, never a silent loss."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=2)
+
+    before = runtime.drops.get(DropReason.NO_ROUTE)
+    result = runtime.route_continuation_frame(xid, rid, FrameType.CREDIT, credit_direction=None)
+    assert result is None
+    assert runtime.drops.get(DropReason.NO_ROUTE) == before + 1
+
+
+def test_route_continuation_frame_no_route_is_counted_drop():
+    """A continuation frame with no routing entry in either table (already
+    cleaned up) is a counted no_route drop."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+
+    before = runtime.drops.get(DropReason.NO_ROUTE)
+    result = runtime.route_continuation_frame(xid, rid, FrameType.CHUNK)
+    assert result is None
+    assert runtime.drops.get(DropReason.NO_ROUTE) == before + 1
+
+
+def test_death_cleanup_helper_clears_v3_terminal_markers():
+    """remove_incoming_rxid — the death/cancellation cleanup helper — clears
+    incoming_body_done / incoming_response_done alongside incoming_rxids, so
+    a dying cartridge's markers never outlive the entry."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    key = (xid, rid)
+    _seed_incoming(runtime, xid, rid, cartridge_idx=4)
+    runtime.incoming_body_done.add(key)
+    runtime.incoming_response_done.add(key)
+
+    runtime.remove_incoming_rxid(key)
+    assert key not in runtime.incoming_rxids
+    assert key not in runtime.incoming_rxids_touched
+    assert key not in runtime.incoming_body_done
+    assert key not in runtime.incoming_response_done
+
+
+def test_protocol_stats_reflects_tables_drops_and_gc_totals():
+    """protocol_stats() reports the drop-counter snapshot, the live
+    routing-table sizes, and the GC totals — the L8 observability contract."""
+    runtime = CartridgeHostRuntime()
+    xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
+    _seed_incoming(runtime, xid, rid, cartridge_idx=0)
+    _seed_outgoing(runtime, MessageId.new_uuid(), cartridge_idx=1)
+    runtime.drops.record(DropReason.NO_ROUTE)
+    runtime.routing_gc_runs_total = 2
+    runtime.routing_gc_evicted_total = 10
+
+    stats = runtime.protocol_stats()
+    assert stats.drops.total == 1
+    assert stats.drops.by_reason.get(DropReason.NO_ROUTE.value) == 1
+    assert stats.incoming_rxids == 1
+    assert stats.outgoing_rids == 1
+    assert stats.incoming_to_peer_rids == 0
+    assert stats.outgoing_max_seq == 0
+    assert stats.routing_gc_runs_total == 2
+    assert stats.routing_gc_evicted_total == 10
+
+
+def test_set_static_inventory_records_stores_records():
+    """set_static_inventory_records replaces the stored list wholesale (the
+    caller supplies the full desired set on each call, like the CartridgeHost
+    counterpart)."""
+    runtime = CartridgeHostRuntime()
+    assert runtime.static_inventory_records == []
+    runtime.set_static_inventory_records(["a", "b"])
+    assert runtime.static_inventory_records == ["a", "b"]
+    runtime.set_static_inventory_records([])
+    assert runtime.static_inventory_records == []

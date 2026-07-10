@@ -28,6 +28,9 @@ from capdag.bifaci.frame import (
     Limits,
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
+    DEFAULT_MAX_REORDER_BUFFER,
+    DEFAULT_INITIAL_CREDIT,
+    PROTOCOL_VERSION,
     compute_checksum,
 )
 
@@ -373,6 +376,137 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert isinstance(result, HandshakeResult)
     assert result.manifest == manifest
     assert result.limits.max_reorder_buffer == 32
+
+
+_V3_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}'
+
+
+def _run_v3_handshake(cartridge_limits: Limits):
+    """Run a real host<->cartridge handshake over paired BytesIO buffers.
+    The cartridge side proposes `cartridge_limits` in its HELLO.
+    Returns (host HandshakeResult, cartridge-negotiated Limits).
+    """
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
+
+    host_writer = FrameWriter.new(host_to_cartridge)
+    host_reader = FrameReader.new(cartridge_to_host)
+    # This mirrors the HELLO handshake() itself will (re-)send when called below.
+    host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT))
+
+    # Cartridge side: read host HELLO, verify version, respond with a HELLO
+    # proposing `cartridge_limits`, and negotiate the element-wise minimum —
+    # the same steps handshake_accept performs, but with configurable
+    # proposals instead of the process-wide defaults.
+    host_to_cartridge.seek(0)
+    cartridge_reader = FrameReader.new(host_to_cartridge)
+    cartridge_writer = FrameWriter.new(cartridge_to_host)
+    their_frame = cartridge_reader.read()
+    assert their_frame is not None
+    their_version = their_frame.hello_version()
+    if their_version is None:
+        their_version = their_frame.version
+    assert their_version == PROTOCOL_VERSION
+    cartridge_writer.write(
+        Frame.hello_with_manifest(
+            cartridge_limits.max_frame,
+            cartridge_limits.max_chunk,
+            _V3_TEST_MANIFEST,
+            cartridge_limits.max_reorder_buffer,
+            cartridge_limits.initial_credit,
+        )
+    )
+    cart_negotiated = Limits(
+        max_frame=min(cartridge_limits.max_frame, their_frame.hello_max_frame() or DEFAULT_MAX_FRAME),
+        max_chunk=min(cartridge_limits.max_chunk, their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK),
+        max_reorder_buffer=min(
+            cartridge_limits.max_reorder_buffer,
+            their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER,
+        ),
+        initial_credit=min(
+            cartridge_limits.initial_credit,
+            their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT,
+        ),
+    )
+
+    cartridge_to_host.seek(0)
+    host_result = handshake(host_reader, host_writer)
+    return host_result, cart_negotiated
+
+
+# TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit
+def test_7000_v3_handshake_negotiates_all_four_limits():
+    cartridge_limits = Limits(
+        max_frame=2_000_000,
+        max_chunk=128_000,
+        max_reorder_buffer=32,
+        initial_credit=16,
+    )
+    host_result, cart_negotiated = _run_v3_handshake(cartridge_limits)
+
+    assert host_result.limits.max_frame == 2_000_000, "min(3.5MB, 2MB)"
+    assert host_result.limits.max_chunk == 128_000, "min(256KB, 128KB)"
+    assert host_result.limits.max_reorder_buffer == 32, "min(64, 32)"
+    assert host_result.limits.initial_credit == 16, "min(32, 16)"
+    assert host_result.manifest, "manifest must be extracted"
+
+    assert cart_negotiated.initial_credit == 16
+    assert cart_negotiated.max_reorder_buffer == 32
+
+
+# TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error
+def test_7001_handshake_rejects_version_2():
+    host_to_cartridge = io.BytesIO()
+    cartridge_to_host = io.BytesIO()
+
+    host_writer = FrameWriter.new(host_to_cartridge)
+    host_reader = FrameReader.new(cartridge_to_host)
+
+    # Fake v2 cartridge: replies to the host HELLO with a version=2 HELLO.
+    host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT))
+    host_to_cartridge.seek(0)
+    cartridge_reader = FrameReader.new(host_to_cartridge)
+    cartridge_writer = FrameWriter.new(cartridge_to_host)
+    _host_hello = cartridge_reader.read()
+    assert _host_hello is not None
+
+    hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V3_TEST_MANIFEST)
+    hello.version = 2
+    hello.meta["version"] = 2
+    cartridge_writer.write(hello)
+
+    cartridge_to_host.seek(0)
+    with pytest.raises(HandshakeError) as exc_info:
+        handshake(host_reader, host_writer)
+
+    msg = str(exc_info.value)
+    assert "version" in msg, f"error must name the version mismatch: {msg}"
+    assert "2" in msg and "3" in msg, f"error must state both versions: {msg}"
+
+
+# TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals
+def test_7002_initial_credit_negotiated_minimum():
+    # Cartridge proposes a smaller window than the host default (32) -> 8 wins.
+    smaller = Limits(
+        max_frame=DEFAULT_MAX_FRAME,
+        max_chunk=DEFAULT_MAX_CHUNK,
+        max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
+        initial_credit=8,
+    )
+    host_result, cart_negotiated = _run_v3_handshake(smaller)
+    assert host_result.limits.initial_credit == 8
+    assert cart_negotiated.initial_credit == 8
+
+    # Cartridge proposes a larger window (128) -> the host default 32 wins.
+    larger = Limits(
+        max_frame=DEFAULT_MAX_FRAME,
+        max_chunk=DEFAULT_MAX_CHUNK,
+        max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
+        initial_credit=128,
+    )
+    host_result, cart_negotiated = _run_v3_handshake(larger)
+    assert host_result.limits.initial_credit == 32
+    assert cart_negotiated.initial_credit == 32
 
 
 # TEST481: verify_identity succeeds with standard identity echo handler

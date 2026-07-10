@@ -5,6 +5,8 @@ The bifaci protocol uses CBOR throughout. These utilities handle:
 **CBOR Sequence (RFC 8742)** — the primary format for list data in the DAG:
 - Splitting an RFC 8742 CBOR sequence (concatenated self-delimiting CBOR values) into items
 - Assembling individually-serialized CBOR items into a CBOR sequence (concatenation, no wrapper)
+- Wrapping RAW (non-CBOR) item bytes into a CBOR sequence of CBOR byte-string
+  values (distinct from assemble, which validates rather than wraps)
 
 **CBOR Array** — wrapping/unwrapping items in a CBOR array:
 - Splitting a CBOR array into individually-serialized items
@@ -279,4 +281,33 @@ def assemble_cbor_sequence(items: List[bytes]) -> bytes:
                 raise CborDeserializeError(f"Item {i}: {e}") from e
             raise CborDeserializeError(f"Item {i}: {e}") from e
         result.extend(item)
+    return bytes(result)
+
+
+def wrap_raw_items_as_cbor_sequence(items: List[bytes]) -> bytes:
+    """Wrap raw (unwrapped) item bytes into an RFC 8742 CBOR sequence.
+
+    Each raw item -- the bytes yielded by decode_terminal_output /
+    unwrap_cbor_value (PNG frames, JSON records, ...) -- is re-encoded as a
+    single self-delimiting CBOR byte-string value, and the values are
+    concatenated. This is the storage form a *sequence* node's node_data must
+    take so that a downstream cap's input (send_one_stream, which splits the
+    sequence and forwards each item's CBOR bytes *without* re-wrapping) and
+    split_cbor_sequence both see well-formed self-delimiting values.
+
+    Contrast assemble_cbor_sequence, which requires each item to ALREADY be a
+    complete CBOR value (it validates rather than wraps) -- the form used when
+    the caller has itself CBOR-encoded each item (e.g. machfab's file-item
+    interpreter).
+
+    Raises:
+        CborSerializeError: If an item cannot be CBOR-serialized (practically
+            never for a byte string).
+    """
+    result = bytearray()
+    for item in items:
+        try:
+            result.extend(cbor2.dumps(item))
+        except Exception as e:
+            raise CborSerializeError(str(e)) from e
     return bytes(result)

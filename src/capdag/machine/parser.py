@@ -9,11 +9,10 @@ Grammar (PEG / EBNF):
     stmt         = "[" inner "]" | inner
     inner        = wiring | header
     header       = alias cap_urn
-    wiring       = source arrow loop_cap arrow alias
+    wiring       = source arrow alias arrow alias
     source       = group | alias
     group        = "(" alias ("," alias)+ ")"
     arrow        = "-"+ ">"
-    loop_cap     = "LOOP" alias | alias
     alias        = (ALPHA | "_") (ALNUM | "_" | "-")*
     cap_urn      = "cap:" cap_urn_body*
     cap_urn_body = quoted_value | !("]" | NEWLINE) ANY
@@ -31,7 +30,8 @@ Parsing phases:
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Tuple
+import uuid
+from typing import Dict, List, Tuple
 
 try:
     from pest import Parser as PestParser
@@ -110,8 +110,8 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
 
     # Phase 2: Walk AST and collect headers + wirings.
     headers: List[Tuple[str, CapUrn, int]] = []  # (alias, cap_urn, position)
-    # (sources: List[str], cap_alias: str, target: str, is_loop: bool, position: int)
-    raw_wirings: List[Tuple[List[str], str, str, bool, int]] = []
+    # (sources: List[str], cap_alias: str, target: str, position: int)
+    raw_wirings: List[Tuple[List[str], str, str, int]] = []
 
     program_pair = _first_child(parse_tree)
     stmt_idx = 0
@@ -138,10 +138,11 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
             children = list(content)
             source_pair = children[0]
             sources = _parse_source(source_pair)
-            loop_cap_pair = children[2]
-            is_loop, cap_alias = _parse_loop_cap(loop_cap_pair)
+            # Cap-position name: the alias in `source -> alias -> target`. The
+            # `LOOP` keyword is retired — this is always a plain alias now.
+            cap_alias = children[2].text
             target = children[4].text
-            raw_wirings.append((sources, cap_alias, target, is_loop, stmt_idx))
+            raw_wirings.append((sources, cap_alias, target, stmt_idx))
 
         stmt_idx += 1
 
@@ -158,18 +159,19 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
 
     # Phase 3b: cap-alias resolution against the fabric registry.
     #
-    # A wiring's cap-position name not defined by a local header is taken to
-    # be a fabric cap alias and resolved through the registry — an identifier
-    # with no local definition is resolved as an alias before it is declared
-    # undefined. The resolved cap URN is injected into alias_map as if a
-    # header had defined it. Media URNs never appear in a wiring (they are
-    # implicit), so only cap aliases are resolved here; an alias that points
-    # at a media URN in cap position is a hard error. The lookup is the
-    # synchronous in-memory cache (resolve_alias_cached); a name that
-    # resolves to nothing is left for Phase 4's UndefinedAliasError.
+    # A wiring's cap-position name (the alias in cap position) not defined by
+    # a local header is taken to be a fabric cap alias and resolved through
+    # the registry — an identifier with no local definition is resolved as
+    # an alias before it is declared undefined. The resolved cap URN is
+    # injected into alias_map as if a header had defined it. Media URNs
+    # never appear in a wiring (they are implicit), so only cap aliases are
+    # resolved here; an alias that points at a media URN in cap position is
+    # a hard error. The lookup is the synchronous in-memory cache
+    # (resolve_alias_cached); a name that resolves to nothing is left for
+    # Phase 4's UndefinedAliasError.
     unresolved_cap_names: List[str] = []
     _seen_unresolved = set()
-    for _sources, cap_alias, _target, _is_loop, _position in raw_wirings:
+    for _sources, cap_alias, _target, _position in raw_wirings:
         if cap_alias not in alias_map and cap_alias not in _seen_unresolved:
             _seen_unresolved.add(cap_alias)
             unresolved_cap_names.append(cap_alias)
@@ -187,10 +189,10 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
     # Phase 4: Resolve raw wirings — derive node media URNs and build flat wiring records.
     # node_media: node_name -> MediaUrn (assigned by first use)
     node_media: Dict[str, MediaUrn] = {}
-    # wiring_records: flat list of (sources, cap_urn, target, is_loop)
-    wiring_records: List[Tuple[List[str], CapUrn, str, bool]] = []
+    # wiring_records: flat list of (sources, cap_urn, target)
+    wiring_records: List[Tuple[List[str], CapUrn, str]] = []
 
-    for sources, cap_alias, target, is_loop, position in raw_wirings:
+    for sources, cap_alias, target, position in raw_wirings:
         if cap_alias not in alias_map:
             raise UndefinedAliasError(cap_alias)
         cap_urn, _ = alias_map[cap_alias]
@@ -225,7 +227,7 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
         # Assign target node media URN.
         _assign_or_check_node(target, cap_out_media, node_media, position)
 
-        wiring_records.append((sources, cap_urn, target, is_loop))
+        wiring_records.append((sources, cap_urn, target))
 
     if not wiring_records:
         raise EmptyMachineError()
@@ -255,7 +257,7 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
 
     # Map node_name -> index of the first wiring that mentions it.
     node_first_wiring: Dict[str, int] = {}
-    for w_idx, (sources, _cap_urn, target, _is_loop) in enumerate(wiring_records):
+    for w_idx, (sources, _cap_urn, target) in enumerate(wiring_records):
         for node_name in list(sources) + [target]:
             if node_name in node_first_wiring:
                 union(w_idx, node_first_wiring[node_name])
@@ -287,14 +289,17 @@ def _parse_machine_inner(input_str: str, registry) -> Machine:
 
         pre_interned: List[PreInternedWiring] = []
         for w_idx in group:
-            sources_names, cap_urn, target_name, is_loop = wiring_records[w_idx]
+            sources_names, cap_urn, target_name = wiring_records[w_idx]
             source_ids = [intern_node(s) for s in sources_names]
             target_id = intern_node(target_name)
             pre_interned.append(PreInternedWiring(
                 cap_urn=cap_urn,
                 source_node_ids=source_ids,
                 target_node_id=target_id,
-                is_loop=is_loop,
+                # The notation (static-machine) path has no resolved-strand
+                # step to inherit from, so each parsed wiring's edge gets its
+                # own freshly minted stable identity.
+                token_id=str(uuid.uuid4()),
             ))
 
         strand = resolve_pre_interned(
@@ -321,18 +326,6 @@ def _parse_source(pair) -> List[str]:
         return [inner.text]
     else:
         raise ParseError(f"unexpected source rule: {inner.rule}")
-
-
-def _parse_loop_cap(pair) -> Tuple[bool, str]:
-    """Extract is_loop flag and cap alias from a loop_cap pair."""
-    is_loop = False
-    cap_alias = ""
-    for inner in pair:
-        if inner.rule.name == "loop_keyword":
-            is_loop = True
-        elif inner.rule.name == "alias":
-            cap_alias = inner.text
-    return is_loop, cap_alias
 
 
 def _assign_or_check_node(

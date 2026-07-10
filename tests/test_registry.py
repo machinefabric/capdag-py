@@ -21,6 +21,7 @@ from capdag.cap.registry import (
     CacheError,
 )
 from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT, MEDIA_STRING
+from capdag.fabric.registry import StoredMediaDef, _media_url_and_cache_path
 
 
 def _test_urn(tags: str) -> str:
@@ -313,6 +314,50 @@ def test_147_registry_for_test_with_config():
     registry = FabricRegistry.new_for_test_with_config(config)
 
     assert registry.config.registry_base_url == "https://test-registry.local"
+
+
+# TEST0144: a media def published under a manifest (v>=1) resolves to the
+# VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat
+# path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a
+# registry that silently runs in v0 mode fetches it and 404s every lookup
+# against a versioned registry — the exact regression where a
+# fabric-registry mirror defaulted its manifest version to 0. This pins
+# both the URL rule and the manifest-driven defver resolution.
+def test_0144_media_def_resolves_to_versioned_object_path_under_manifest():
+    import hashlib as _hashlib
+
+    # 1. Object-path rule: defver >= 1 -> versioned; defver 0 -> flat.
+    config = RegistryConfig().with_registry_url("https://fabric.example.test")
+    cache = Path("/tmp/capdag-test-cache-0144")
+    urn = "media:enc=utf-8;ext=md"
+    digest = _hashlib.sha256(urn.encode("utf-8")).hexdigest()
+
+    versioned, _ = _media_url_and_cache_path(cache, config, urn, 1)
+    assert versioned == f"https://fabric.example.test/media/{digest}/1.json", (
+        "a def at manifest defver 1 must resolve to the versioned object path"
+    )
+    flat, _ = _media_url_and_cache_path(cache, config, urn, 0)
+    assert flat == f"https://fabric.example.test/media/{digest}", (
+        "defver 0 is the legacy flat path - the wrong target for a versioned registry"
+    )
+
+    # 2. Manifest-driven defver: a registry pinned at v>=1 resolves a
+    # published media def to its pinned defver (versioned), never 0.
+    registry = FabricRegistry.new_for_test()  # pinned at manifest v1
+    assert registry.manifest_version >= 1, (
+        "the production registry must be pinned at manifest v>=1, never the legacy v0 flat-path mode"
+    )
+    registry.add_spec(
+        StoredMediaDef(
+            urn=urn,
+            media_type="text/markdown",
+            title="Markdown",
+            extensions=["md"],
+        )
+    )
+    assert registry.media_defver_for(urn) == registry.manifest_version, (
+        "a published media def under a v>=1 manifest must resolve to the pinned defver, not 0"
+    )
 
 
 # TEST6333: Test adding caps to the registry cache and retrieving them

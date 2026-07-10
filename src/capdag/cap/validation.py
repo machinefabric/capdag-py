@@ -172,6 +172,8 @@ def validate_cap_args(cap) -> None:
         raise InvalidCapSchemaError(
             cap_urn,
             "RULE11: Cap has non-void in= spec but no args have stdin sources"
+            " — the main input is the value piped in on stdin, so at least one"
+            " arg must accept stdin"
         )
 
     # RULE5: No two args may have same position

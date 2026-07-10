@@ -37,6 +37,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
     DEFAULT_MAX_REORDER_BUFFER,
+    DEFAULT_INITIAL_CREDIT,
     PROTOCOL_VERSION,
     compute_checksum,
     verify_chunk_checksum,
@@ -167,6 +168,12 @@ def encode_frame(frame: Frame) -> bytes:
     if frame.force_kill is not None:
         frame_map[Keys.FORCE_KILL] = frame.force_kill
 
+    if frame.credit is not None:
+        frame_map[Keys.CREDIT] = frame.credit
+
+    if frame.unbounded is not None:
+        frame_map[Keys.UNBOUNDED] = frame.unbounded
+
     try:
         return cbor2.dumps(frame_map)
     except Exception as e:
@@ -258,15 +265,25 @@ def decode_frame(data: bytes) -> Frame:
     force_kill_raw = lookup.get(Keys.FORCE_KILL)
     force_kill = bool(force_kill_raw) if force_kill_raw is not None else None
 
+    credit = lookup.get(Keys.CREDIT)
+    if credit is not None and not isinstance(credit, int):
+        credit = None
+
+    unbounded_raw = lookup.get(Keys.UNBOUNDED)
+    unbounded = bool(unbounded_raw) if unbounded_raw is not None else None
+
     # Validate required fields based on frame type
     if frame_type == FrameType.CHUNK:
         if chunk_index is None:
             raise InvalidFrameError("CHUNK frame missing required field: chunk_index")
         if checksum is None:
             raise InvalidFrameError("CHUNK frame missing required field: checksum")
-    if frame_type == FrameType.STREAM_END:
-        if chunk_count is None:
-            raise InvalidFrameError("STREAM_END frame missing required field: chunk_count")
+    # STREAM_END: chunk_count is optional on the wire — unbounded streams make
+    # no length promise. Bounded-stream receivers that want to verify
+    # completeness check chunk_count when present.
+    if frame_type == FrameType.CREDIT:
+        if credit is None:
+            raise InvalidFrameError("CREDIT frame missing required field: credit")
 
     return Frame(
         frame_type=frame_type,
@@ -288,6 +305,8 @@ def decode_frame(data: bytes) -> Frame:
         checksum=checksum,
         is_sequence=is_sequence,
         force_kill=force_kill,
+        credit=credit,
+        unbounded=unbounded,
     )
 
 
@@ -584,7 +603,7 @@ def handshake(
         HandshakeError: If handshake fails
     """
     # Send our HELLO
-    our_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER)
+    our_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT)
     writer.write(our_hello)
 
     # Read their HELLO (should include manifest)
@@ -595,6 +614,15 @@ def handshake(
     if their_frame.frame_type != FrameType.HELLO:
         raise HandshakeError(f"expected HELLO, got {their_frame.frame_type}")
 
+    # Protocol version must match exactly (L1). No cross-version operation.
+    their_version = their_frame.hello_version()
+    if their_version is None:
+        their_version = their_frame.version
+    if their_version != PROTOCOL_VERSION:
+        raise HandshakeError(
+            f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
+        )
+
     # Extract manifest - REQUIRED for cartridges
     manifest = their_frame.hello_manifest()
     if manifest is None:
@@ -604,11 +632,13 @@ def handshake(
     their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
     their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
     their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
+    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
+        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Update both reader and writer with negotiated limits
@@ -647,19 +677,32 @@ def handshake_accept(
     if their_frame.frame_type != FrameType.HELLO:
         raise HandshakeError(f"expected HELLO, got {their_frame.frame_type}")
 
+    # Protocol version must match exactly (L1). No cross-version operation.
+    their_version = their_frame.hello_version()
+    if their_version is None:
+        their_version = their_frame.version
+    if their_version != PROTOCOL_VERSION:
+        raise HandshakeError(
+            f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
+        )
+
     # Negotiate minimum of both
     their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
     their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
     their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
+    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
+        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Send our HELLO with manifest
-    our_hello = Frame.hello_with_manifest(limits.max_frame, limits.max_chunk, manifest, limits.max_reorder_buffer)
+    our_hello = Frame.hello_with_manifest(
+        limits.max_frame, limits.max_chunk, manifest, limits.max_reorder_buffer, limits.initial_credit
+    )
     writer.write(our_hello)
 
     # Update both reader and writer with negotiated limits
@@ -857,7 +900,7 @@ async def handshake_async(
         HandshakeError: If handshake fails
     """
     # Send our HELLO
-    our_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER)
+    our_hello = Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT)
     await writer.write(our_hello)
 
     # Read their HELLO (should include manifest)
@@ -868,6 +911,15 @@ async def handshake_async(
     if their_frame.frame_type != FrameType.HELLO:
         raise HandshakeError(f"expected HELLO, got {their_frame.frame_type}")
 
+    # Protocol version must match exactly (L1). No cross-version operation.
+    their_version = their_frame.hello_version()
+    if their_version is None:
+        their_version = their_frame.version
+    if their_version != PROTOCOL_VERSION:
+        raise HandshakeError(
+            f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
+        )
+
     # Extract manifest - REQUIRED for cartridges
     manifest = their_frame.hello_manifest()
     if manifest is None:
@@ -877,11 +929,13 @@ async def handshake_async(
     their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
     their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
     their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
+    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
+        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Update both reader and writer with negotiated limits

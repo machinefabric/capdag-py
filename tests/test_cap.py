@@ -7,7 +7,7 @@ import pytest
 import json
 from capdag import CapUrn
 from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSource, PositionSource, CliFlagSource
-from capdag.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_OBJECT
+from capdag.urn.media_urn import MEDIA_STRING, MEDIA_INTEGER, MEDIA_VOID, MEDIA_OBJECT, MediaUrn
 
 
 def _test_urn(tags: str) -> str:
@@ -489,6 +489,83 @@ def test_1129_cap_documentation_parses_from_capfab_json():
     cap = Cap.from_dict(data)
     assert cap.get_documentation() == "## Heading\n\nbody text"
     assert cap.cap_description == "short"
+
+
+# TEST8102: (py-specific) CapArg.stream_urn() falls back to the declared
+# slot media URN when the arg declares no Stdin source at all — a
+# producer-fed arg may be delivered by its declared URN without ever
+# appearing on stdin.
+def test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source():
+    arg = CapArg(
+        media_urn="media:enc=utf-8;system-prompt",
+        required=True,
+        sources=[CliFlagSource("--system-prompt")],
+    )
+    assert arg.stream_urn() == "media:enc=utf-8;system-prompt"
+
+
+# TEST8103: (py-specific) CapArg.stream_urn() returns the Stdin source's
+# URN, not the declared slot media URN, when the two differ — e.g. a
+# file-path slot whose piped content is actually a pdf-stream.
+def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
+    arg = CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("media:ext=pdf;pdf-stream")],
+    )
+    assert arg.stream_urn() == "media:ext=pdf;pdf-stream"
+    assert arg.stream_urn() != arg.media_urn
+
+
+# TEST8104: (py-specific) CapArg.is_main_input() is True when the arg's
+# Stdin source URN is order-theoretically equivalent to the cap's in=
+# spec — even when the two strings list their tags in a different order.
+# Compared by tagged-URN equivalence, never as strings.
+def test_8104_cap_arg_is_main_input_true_when_stdin_urn_equivalent_to_in_spec():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    arg = CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("media:pdf-stream;ext=pdf")],  # same tags, different order
+    )
+    assert arg.is_main_input(in_spec)
+    # Confirm the raw strings genuinely differ (proves the comparison is
+    # order-theoretic equivalence, not a string/canonical-form comparison).
+    assert arg.stream_urn() != in_spec.to_string()
+
+
+# TEST8105: (py-specific) CapArg.is_main_input() is False when the arg has
+# no Stdin source, and False when it has a Stdin source whose URN does not
+# match in_spec.
+def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+
+    no_stdin_arg = CapArg(
+        media_urn="media:max-tokens;numeric",
+        required=False,
+        sources=[CliFlagSource("--max-tokens")],
+    )
+    assert not no_stdin_arg.is_main_input(in_spec)
+
+    mismatched_stdin_arg = CapArg(
+        media_urn="media:enc=utf-8;system-prompt",
+        required=False,
+        sources=[StdinSource("media:enc=utf-8;system-prompt")],
+    )
+    assert not mismatched_stdin_arg.is_main_input(in_spec)
+
+
+# TEST8106: (py-specific) A malformed Stdin source URN must not raise out
+# of is_main_input — mirrors the Rust reference's `unwrap_or(false)`
+# fail-soft on MediaUrn parse failure.
+def test_8106_cap_arg_is_main_input_false_on_unparseable_stdin_urn():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    arg = CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("not a valid tagged urn")],
+    )
+    assert arg.is_main_input(in_spec) is False
 
 
 # TEST1130: documentation set/clear lifecycle parallels cap_description.

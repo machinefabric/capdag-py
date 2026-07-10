@@ -1267,3 +1267,148 @@ def test_1879_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
     assert "latejoiner" not in result["after_remove"], (
         f"an empty SyncRoster must retire the cartridge; got {result['after_remove']}"
     )
+
+
+# TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory
+# advertisement carrying a handshake_failed attachment error and no cap
+# groups — failure is named, never silently absent; a roster-retired
+# cartridge disappears entirely.
+def test_7089_hello_failed_stays_in_inventory_with_error(tmp_path):
+    from capdag.bifaci.relay_switch import (
+        CartridgeAttachmentError,
+        CartridgeAttachmentErrorKind,
+        InstalledCartridgeRecord,
+    )
+
+    (tmp_path / "cartridge.json").write_text(
+        '{"name":"stalecart","version":"1.0.0","channel":"release","registry_url":null,'
+        '"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}',
+        encoding="utf-8",
+    )
+    entry = tmp_path / "bin"
+    entry.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    host = CartridgeHost()
+    host.register_cartridge_dir(
+        str(entry),
+        str(tmp_path),
+        "stalecart",
+        CartridgeChannel.RELEASE,
+        None,
+        "1.0.0",
+        [],
+    )
+
+    # Healthy (never spawned): advertised without an attachment error.
+    with host._lock:
+        records = host._build_installed_cartridge_identities()
+    assert len(records) == 1
+    assert records[0].get("attachment_error") is None
+
+    # HELLO permanently fails (e.g. a pre-v3 binary rejected by the version
+    # check): the record STAYS, carrying the failure — the UI must always be
+    # able to name why a cartridge is not serving.
+    with host._lock:
+        host._cartridges[0].hello_failed = True
+        records = host._build_installed_cartridge_identities()
+    assert len(records) == 1, (
+        "a hello-failed cartridge must remain in the inventory (never silent)"
+    )
+    record = records[0]
+    assert record["id"] == "stalecart"
+    assert record.get("cap_groups", []) == [], "failed ⇒ never routable"
+    error = record.get("attachment_error")
+    assert error is not None, "failure must be named on the record"
+    assert error["kind"] == CartridgeAttachmentErrorKind.HANDSHAKE_FAILED.value, (
+        "the failure kind identifies the handshake as the cause"
+    )
+
+    # Static inventory records (discovery outcomes the host doesn't manage)
+    # ride every advertisement too.
+    host.set_static_inventory_records([
+        InstalledCartridgeRecord(
+            registry_url=None,
+            channel=CartridgeChannel.RELEASE.value,
+            id="rejectedcart",
+            version="2.0.0",
+            sha256="",
+            cap_groups=[],
+            attachment_error=CartridgeAttachmentError(
+                kind=CartridgeAttachmentErrorKind.INCOMPATIBLE,
+                message="version not listed in registry",
+                detected_at_unix_seconds=1,
+            ),
+            runtime_stats=None,
+            lifecycle=CartridgeLifecycle.DISCOVERED,
+        )
+    ])
+    with host._lock:
+        records = host._build_installed_cartridge_identities()
+    assert len(records) == 2, "static inventory merges into every advertisement"
+    assert any(r["id"] == "rejectedcart" for r in records)
+
+    # Roster retirement is NOT a failure: a removed cartridge disappears
+    # from the inventory entirely (there is nothing to report).
+    with host._lock:
+        host._cartridges[0].removed = True
+        records = host._build_installed_cartridge_identities()
+    assert len(records) == 1, "retired installs vanish from the inventory"
+    assert records[0]["id"] == "rejectedcart"
+
+
+# TEST7090: The cartridge's cumulative protocol drop counter (`drops_total`
+# heartbeat meta, L8) is ingested by the host and surfaces on the
+# cartridge's inventory runtime stats as `protocol_drops_total` — absent
+# until the first reading, then tracking the running total as-is.
+def test_7090_heartbeat_drops_total_reaches_inventory_stats():
+    host = CartridgeHost()
+    bin_path = register_temp_cartridge(host, "dropcart", [{
+        "name": "default",
+        "caps": [
+            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
+        ],
+        "adapter_urns": [],
+    }])
+    assert bin_path  # keeps the temp file referenced for the test's lifetime
+
+    # No heartbeat round-trip yet: the reading must be ABSENT, never a
+    # fabricated zero (a zero claims "measured: no drops").
+    with host._lock:
+        records = host._build_installed_cartridge_identities()
+    stats = records[0].get("runtime_stats")
+    assert stats is not None, "inventory records always carry runtime stats"
+    assert stats.get("protocol_drops_total") is None, (
+        "no reading before the first heartbeat round-trip"
+    )
+
+    class _NullWriter:
+        def write(self, frame):
+            pass
+
+    # Heartbeat response to our pending probe, carrying the cartridge's
+    # running drop total exactly as cartridge_runtime emits it.
+    hb_id = MessageId.new_uuid()
+    with host._lock:
+        host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
+    response = Frame.heartbeat(hb_id)
+    response.meta = {"drops_total": 42}
+    host._handle_cartridge_frame(0, response, _NullWriter())
+
+    with host._lock:
+        records = host._build_installed_cartridge_identities()
+    stats = records[0]["runtime_stats"]
+    assert stats["protocol_drops_total"] == 42, (
+        "the heartbeat's drops_total must reach the inventory stats"
+    )
+
+    # A later heartbeat carries a larger running total — stored as-is.
+    hb_id = MessageId.new_uuid()
+    with host._lock:
+        host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
+    response = Frame.heartbeat(hb_id)
+    response.meta = {"drops_total": 45}
+    host._handle_cartridge_frame(0, response, _NullWriter())
+
+    with host._lock:
+        records = host._build_installed_cartridge_identities()
+    assert records[0]["runtime_stats"]["protocol_drops_total"] == 45

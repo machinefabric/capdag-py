@@ -154,20 +154,26 @@ async def test_1259_parse_fan_in():
     assert len(graph.edges) == 4
 
 
-# TEST1260: LOOP wiring parses as a single edge while preserving the loop marker semantics.
+# TEST1260: The `LOOP` keyword is retired from the grammar. A keyword-free
+# wiring parses to a single edge; the old `LOOP` form no longer parses.
+# ForEach is never authored — it is derived from cardinality in the
+# resolver/realizer.
 @pytest.mark.asyncio
-async def test_1260_parse_loop_wiring():
+async def test_1260_loop_keyword_retired():
     registry = _build_registry([
         ('cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"',
          ["media:disbound-page;enc=utf-8"], "media:enc=utf-8;ext=txt"),
     ])
-    notation = (
-        '[p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"]'
-        "[pages -> LOOP p2t -> texts]"
-    )
-    graph = await parse_machine_to_cap_dag(notation, registry)
+    header = '[p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"]'
+
+    # Keyword-free wiring parses to one edge.
+    graph = await parse_machine_to_cap_dag(f"{header}[pages -> p2t -> texts]", registry)
     assert len(graph.edges) == 1
     assert len(graph.nodes) == 2
+
+    # The retired `LOOP` keyword must not parse as a valid wiring.
+    with pytest.raises(Exception):
+        await parse_machine_to_cap_dag(f"{header}[pages -> LOOP p2t -> texts]", registry)
 
 
 # TEST1263: Cyclic wirings are rejected as non-DAG orchestrations.

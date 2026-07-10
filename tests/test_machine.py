@@ -39,7 +39,13 @@ from capdag.machine.error import (
     MachineSyntaxError,
 )
 from capdag.machine.parser import parse_machine
-from capdag.planner.live_cap_fab import Strand, StrandStep, StrandStepType
+from capdag.planner.live_cap_fab import (
+    ArgSourceRef,
+    CapInput,
+    Strand,
+    StrandStep,
+    StrandStepType,
+)
 
 
 # =============================================================================
@@ -80,15 +86,26 @@ def _registry_with(caps: list) -> FabricRegistry:
 
 
 def _strand_with_cap_steps(steps_data: list) -> Strand:
-    """Build a Strand from a list of (cap_urn_str, from_urn_str, to_urn_str) tuples."""
+    """Build a Strand from a list of (cap_urn_str, from_urn_str, to_urn_str) tuples.
+
+    Wires the steps into a linear chain: each cap step's single main input is
+    the previous cap step's output (identified by its stable token_id), and
+    the first step's main input is the strand's own input anchor. Mirrors
+    Rust's test_fixtures::chain_cap_steps under the explicit-inputs model.
+    """
     steps = []
+    prev_token = None
     for cap_urn_str, from_str, to_str in steps_data:
-        steps.append(StrandStep(
+        source = ArgSourceRef.step(prev_token) if prev_token is not None else ArgSourceRef.strand_input()
+        step = StrandStep(
             step_type=StrandStepType.CAP,
             from_spec=_media(from_str),
             to_spec=_media(to_str),
             cap_urn=_cap_urn(cap_urn_str),
-        ))
+            inputs=[CapInput(arg_urn=_media(from_str), source=source)],
+        )
+        steps.append(step)
+        prev_token = step.token_id
     first = steps[0] if steps else None
     last = steps[-1] if steps else None
     return Strand(
@@ -117,7 +134,6 @@ def test_1187_unknown_cap_error_when_not_in_registry():
         cap_urn=cap_urn,
         source_node_ids=[0],
         target_node_id=1,
-        is_loop=False,
     )]
     with pytest.raises(UnknownCapError) as exc_info:
         resolve_pre_interned(nodes, wirings, reg, 0)
@@ -321,8 +337,8 @@ def test_1308_cyclic_strand_fails_hard():
     nodes = [_media("media:ext=pdf"), _media("media:enc=utf-8;ext=txt")]
     # node 0 -> cap_a -> node 1  and  node 1 -> cap_b -> node 0 (cycle)
     wirings = [
-        PreInternedWiring(_cap_urn(urn_a), [0], 1, False),
-        PreInternedWiring(_cap_urn(urn_b), [1], 0, False),
+        PreInternedWiring(_cap_urn(urn_a), [0], 1),
+        PreInternedWiring(_cap_urn(urn_b), [1], 0),
     ]
 
     with pytest.raises(CyclicMachineStrandError) as exc_info:
@@ -454,7 +470,6 @@ def test_6713_binding_slot_identity_is_outer_media_urn():
         cap_urn=_cap_urn(cap_urn_str),
         source_node_ids=[0],
         target_node_id=1,
-        is_loop=False,
     )]
 
     ms = resolve_pre_interned(nodes, wirings, reg, 0)
@@ -494,38 +509,48 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 
 
 # =============================================================================
-# TEST6710: A ForEach step immediately preceding a CAP step marks that cap edge as is_loop=True.
+# TEST6710: A cap step fed by a sequence-producing predecessor maps per item
+# (is_loop=True), derived purely from cardinality — the retired `LOOP`
+# keyword and bare ForEach steps carry no wiring effect any more.
 # =============================================================================
 
 def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
-    cap_urn_str = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
-    cap = _simple_cap(cap_urn_str, "media:enc=utf-8", "media:vec;record")
-    reg = _registry_with([cap])
+    split_urn = "cap:in=\"media:list;enc=utf-8\";split;out=\"media:enc=utf-8\""
+    embed_urn = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
+    splitter = _simple_cap(split_urn, "media:list;enc=utf-8", "media:enc=utf-8")
+    splitter.output.is_sequence = True
+    embed = _simple_cap(embed_urn, "media:enc=utf-8", "media:vec;record")
+    reg = _registry_with([splitter, embed])
 
-    foreach_step = StrandStep(
-        step_type=StrandStepType.FOR_EACH,
+    split_step = StrandStep(
+        step_type=StrandStepType.CAP,
         from_spec=_media("media:list;enc=utf-8"),
         to_spec=_media("media:enc=utf-8"),
-        media_def=_media("media:enc=utf-8"),
+        cap_urn=_cap_urn(split_urn),
+        inputs=[CapInput(arg_urn=_media("media:list;enc=utf-8"), source=ArgSourceRef.strand_input())],
     )
-    cap_step = StrandStep(
+    embed_step = StrandStep(
         step_type=StrandStepType.CAP,
         from_spec=_media("media:enc=utf-8"),
         to_spec=_media("media:vec;record"),
-        cap_urn=_cap_urn(cap_urn_str),
+        cap_urn=_cap_urn(embed_urn),
+        inputs=[CapInput(arg_urn=_media("media:enc=utf-8"), source=ArgSourceRef.step(split_step.token_id))],
     )
     strand = Strand(
-        steps=[foreach_step, cap_step],
+        steps=[split_step, embed_step],
         source_media_urn=_media("media:list;enc=utf-8"),
         target_media_urn=_media("media:vec;record"),
         total_steps=2,
-        cap_step_count=1,
-        description="foreach embed",
+        cap_step_count=2,
+        description="split then embed",
     )
 
     ms = resolve_strand(strand, reg, 0)
-    assert len(ms.edges()) == 1
-    assert ms.edges()[0].is_loop is True
+    assert len(ms.edges()) == 2
+    split_edge = next(e for e in ms.edges() if "split" in str(e.cap_urn))
+    embed_edge = next(e for e in ms.edges() if "embed" in str(e.cap_urn))
+    assert not split_edge.is_loop, "a scalar source feeding the sequence-producing cap must not map"
+    assert embed_edge.is_loop is True, "a sequence feeding a scalar-input cap must map per item"
 
 
 # =============================================================================
@@ -661,7 +686,6 @@ def test_6692_assignment_bindings_sorted_by_slot_urn():
         cap_urn=_cap_urn(cap_urn_str),
         source_node_ids=[0, 1],  # pdf first, enc=utf-8 second
         target_node_id=2,
-        is_loop=False,
     )]
 
     ms = resolve_pre_interned(nodes, wirings, reg, 0)
@@ -760,20 +784,43 @@ def test_1168_parse_node_alias_collision_with_header_alias_fails_hard():
     assert exc_info.value.is_syntax_error
 
 
-# TEST1169: Loop markers in notation set the resolved edge loop flag on the following cap step.
-def test_1169_parse_loop_marker_sets_is_loop_on_resolved_edge():
-    urn = "cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\""
-    cap = _simple_cap(urn, "media:enc=utf-8", "media:enc=utf-8")
-    reg = _registry_with([cap])
+# TEST1169: A sequence-output cap feeding a scalar-input cap makes the resolved
+# edge a per-item map (is_loop), derived from cardinality — the single rule
+# Cap.needs_foreach, which replaces the retired `LOOP` keyword. The
+# scalar->sequence producer edge itself does not loop.
+def test_1169_sequence_into_scalar_cap_derives_is_loop():
+    # Producer: scalar text -> SEQUENCE of items.
+    splitter = _build_cap(
+        "cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"",
+        "split",
+        ["media:enc=utf-8"],
+        ["media:enc=utf-8"],
+        "media:enc=utf-8;item",
+    )
+    splitter.output.is_sequence = True
+    # Consumer: scalar item -> scalar text.
+    texter = _build_cap(
+        "cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"",
+        "t",
+        ["media:enc=utf-8;item"],
+        ["media:enc=utf-8;item"],
+        "media:enc=utf-8",
+    )
+    reg = _registry_with([splitter, texter])
     notation = (
-        f"[t {urn}]"
-        "[a -> LOOP t -> b]"
+        "[split cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"]"
+        "[t cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"]"
+        "[a -> split -> items]"
+        "[items -> t -> b]"
     )
     machine = parse_machine(notation, reg)
     assert machine.strand_count() == 1
     strand = machine.strands()[0]
-    assert len(strand.edges()) == 1
-    assert strand.edges()[0].is_loop, "LOOP marker must propagate to MachineEdge.is_loop"
+    assert len(strand.edges()) == 2
+    split_edge = next(e for e in strand.edges() if "split" in str(e.cap_urn))
+    t_edge = next(e for e in strand.edges() if "split" not in str(e.cap_urn))
+    assert not split_edge.is_loop, "a scalar source feeding the sequence-producing cap must not map"
+    assert t_edge.is_loop, "a sequence feeding a scalar-input cap must map per item (is_loop)"
 
 
 # TEST1170: Parsing and then serializing machine notation round-trips to the canonical form.
@@ -1050,11 +1097,15 @@ def test_1185_resolve_strand_chained_caps_share_intermediate_node():
     assert outputs[0].is_equivalent(_media("media:vec;record"))
 
 
-# TEST1186: Resolving a strand with ForEach marks the following cap edge as a loop.
+# TEST1186: A ForEach step immediately following disbind is elided; is_loop is
+# derived from cardinality: disbind produces a SEQUENCE of pages, and
+# make_decision consumes a scalar page, so make_decision's edge maps per item.
+# The trailing Collect step is also elided.
 def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
     urn_disbind = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
     urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
     disbind = _simple_cap(urn_disbind, "media:ext=pdf", "media:enc=utf-8;page")
+    disbind.output.is_sequence = True
     make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
     reg = _registry_with([disbind, make_decision])
 
@@ -1063,6 +1114,7 @@ def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
         from_spec=_media("media:ext=pdf"),
         to_spec=_media("media:enc=utf-8;page"),
         cap_urn=_cap_urn(urn_disbind),
+        inputs=[CapInput(arg_urn=_media("media:ext=pdf"), source=ArgSourceRef.strand_input())],
     )
     foreach_step = StrandStep(
         step_type=StrandStepType.FOR_EACH,
@@ -1075,6 +1127,7 @@ def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
         from_spec=_media("media:enc=utf-8"),
         to_spec=_media("media:decision;fmt=json;record"),
         cap_urn=_cap_urn(urn_decision),
+        inputs=[CapInput(arg_urn=_media("media:enc=utf-8"), source=ArgSourceRef.step(disbind_step.token_id))],
     )
     collect_step = StrandStep(
         step_type=StrandStepType.COLLECT,
@@ -1193,3 +1246,133 @@ def test_1196_aliased_serialization_uses_alias_and_round_trips():
     canonical = m1.to_machine_notation()
     assert "cap:extract" in canonical and "cap:embed" in canonical
     assert "-> ex ->" not in canonical
+
+
+# =============================================================================
+# Mirror-specific coverage: realize.py — realizing a resolved MachineStrand
+# into an executable planner Strand.
+# =============================================================================
+
+# TEST8107: (py-specific) realize_strand converts a single-edge MachineStrand
+# into a one-cap-step Strand, inferring the runtime output media through the
+# cap's effect and preserving the resolved edge's token_id.
+def test_8107_realize_strand_single_edge_produces_one_cap_step():
+    from capdag.machine.realize import realize_strand
+
+    cap_urn_str = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
+    cap = _simple_cap(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    reg = _registry_with([cap])
+
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;ext=txt")])
+    ms = resolve_strand(strand, reg, 0)
+
+    source_urn = _media("media:ext=pdf")
+    realized = realize_strand(ms, reg, source_urn, 0)
+
+    assert realized.cap_step_count == 1
+    assert realized.total_steps == 1
+    assert realized.source_media_urn.is_equivalent(source_urn)
+    assert realized.target_media_urn.is_equivalent(_media("media:enc=utf-8;ext=txt"))
+    step = realized.steps[0]
+    assert step.is_cap()
+    assert step.cap_urn.is_equivalent(_cap_urn(cap_urn_str))
+    assert step.token_id == ms.edges()[0].token_id, \
+        "realize must preserve the resolved edge's stable token_id onto the step"
+
+
+# TEST8108: (py-specific) realize_strand inserts a ForEach step before the cap
+# edge the resolver marked is_loop, reading the resolver's cardinality
+# decision rather than recomputing it.
+def test_8108_realize_strand_inserts_foreach_for_loop_edge():
+    from capdag.machine.realize import realize_strand
+
+    urn_disbind = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
+    urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
+    disbind = _simple_cap(urn_disbind, "media:ext=pdf", "media:enc=utf-8;page")
+    disbind.output.is_sequence = True
+    make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
+    reg = _registry_with([disbind, make_decision])
+
+    strand = _strand_with_cap_steps([
+        (urn_disbind, "media:ext=pdf", "media:enc=utf-8;page"),
+        (urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record"),
+    ])
+    ms = resolve_strand(strand, reg, 0)
+    assert ms.edges()[1].is_loop, "sanity: make_decision's resolved edge must be a loop"
+
+    realized = realize_strand(ms, reg, _media("media:ext=pdf"), 0)
+
+    assert realized.cap_step_count == 2
+    assert realized.total_steps == 3, "disbind, ForEach, make_decision"
+    kinds = [s.step_type for s in realized.steps]
+    assert kinds == [StrandStepType.CAP, StrandStepType.FOR_EACH, StrandStepType.CAP]
+
+
+# TEST8109: (py-specific) realize_strand fails hard when a non-primary
+# (convergence) argument is fed by a raw input anchor rather than another
+# cap's output — a raw value feeding a non-main arg must be delivered as an
+# argument value, never wired.
+def test_8109_realize_strand_non_producer_secondary_arg_fails_hard():
+    from capdag.machine.realize import realize_strand
+    from capdag.machine.error import NonProducerSecondaryArgError
+
+    cap_urn_str = "cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\""
+    urn = CapUrn.from_string(cap_urn_str)
+    cap = Cap.with_description(urn, "Merge", "merge", "merge two inputs")
+    cap.add_arg(CapArg(
+        media_urn="media:enc=utf-8",
+        required=True,
+        sources=[StdinSource("media:enc=utf-8")],
+    ))
+    cap.add_arg(CapArg(
+        media_urn="media:ext=pdf",
+        required=True,
+        sources=[StdinSource("media:ext=pdf")],
+    ))
+    cap.set_output(CapOutput("media:enc=utf-8;ext=txt", "merged output"))
+    reg = _registry_with([cap])
+
+    nodes = [_media("media:ext=pdf"), _media("media:enc=utf-8"), _media("media:enc=utf-8;ext=txt")]
+    wirings = [PreInternedWiring(
+        cap_urn=_cap_urn(cap_urn_str),
+        source_node_ids=[0, 1],
+        target_node_id=2,
+        token_id="merge-1",
+    )]
+    ms = resolve_pre_interned(nodes, wirings, reg, 0)
+    assert len(ms.input_anchor_ids()) == 2, \
+        "sanity: both merge sources are un-produced roots, not cap outputs"
+
+    with pytest.raises(NonProducerSecondaryArgError):
+        realize_strand(ms, reg, _media("media:ext=pdf"), 0)
+
+
+# TEST8110: (py-specific) realize_strand fails hard when an edge's source
+# never becomes available (a structurally disconnected strand) rather than
+# silently skipping it.
+def test_8110_realize_strand_disconnected_strand_fails_hard():
+    from capdag.machine.realize import realize_strand
+    from capdag.machine.error import DisconnectedStrandError
+
+    cap_urn_str = "cap:extract;in=\"media:ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
+    cap = _simple_cap(cap_urn_str, "media:ext=pdf", "media:enc=utf-8;ext=txt")
+    reg = _registry_with([cap])
+
+    edge = MachineEdge(
+        cap_urn=_cap_urn(cap_urn_str),
+        assignment=[EdgeAssignmentBinding(cap_arg_media_urn=_media("media:ext=pdf"), source=0)],
+        target=1,
+        is_loop=False,
+        token_id="orphan-edge",
+    )
+    # No input anchors declared — node 0's media never becomes available, so
+    # the single edge is never emittable.
+    ms = MachineStrand(
+        nodes=[_media("media:ext=pdf"), _media("media:enc=utf-8;ext=txt")],
+        edges=[edge],
+        input_anchor_ids=[],
+        output_anchor_ids=[1],
+    )
+
+    with pytest.raises(DisconnectedStrandError):
+        realize_strand(ms, reg, _media("media:ext=pdf"), 0)

@@ -8,6 +8,8 @@ from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.cap.registry import FabricRegistry
 from capdag.machine.error import MachineAbstractionError, UnknownCapError
 from capdag.planner.live_cap_fab import (
+    ArgSourceRef,
+    CapInput,
     LiveCapFab,
     LiveMachinePlanEdgeType,
     Strand,
@@ -707,6 +709,7 @@ def test_1119_strand_knit_with_registry_returns_single_strand_machine():
                 specificity_val=0,
                 input_is_sequence=False,
                 output_is_sequence=False,
+                inputs=[CapInput(arg_urn=_media("media:ext=pdf"), source=ArgSourceRef.strand_input())],
             )
         ],
         source_media_urn=_media("media:ext=pdf"),
@@ -746,6 +749,7 @@ def test_1120_strand_knit_unknown_cap_fails_hard():
                 specificity_val=0,
                 input_is_sequence=False,
                 output_is_sequence=False,
+                inputs=[CapInput(arg_urn=_media("media:ext=pdf"), source=ArgSourceRef.strand_input())],
             )
         ],
         source_media_urn=_media("media:ext=pdf"),

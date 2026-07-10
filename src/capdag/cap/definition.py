@@ -5,7 +5,7 @@ the cap URN, arguments, output, and metadata.
 """
 
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from capdag.urn.cap_urn import CapUrn
 
@@ -147,6 +147,43 @@ class CapArg:
     def clear_metadata(self):
         """Clear the metadata"""
         self.metadata = None
+
+    def stream_urn(self) -> str:
+        """The media URN the runtime demuxes this arg's input stream by: its
+        ``Stdin`` source URN if it declares one, otherwise its declared slot
+        media URN. A cap need not declare any ``Stdin`` source at all — a
+        producer-fed arg may be delivered by its declared URN — so this never
+        assumes a stdin source exists.
+        """
+        for source in self.sources:
+            if isinstance(source, StdinSource):
+                return source.stdin
+        return self.media_urn
+
+    def is_main_input(self, in_spec: "MediaUrn") -> bool:
+        """Whether this arg is the cap's MAIN input relative to ``in_spec``
+        (the cap URN's ``in=`` value): it declares a ``Stdin`` source whose
+        URN is ``in=``. The main input is always the value piped in on
+        stdin (like a Unix command's stdin), so the main arg always declares
+        a ``Stdin`` source carrying ``in=``. Its DECLARED slot URN may differ
+        from that stdin URN (e.g. a ``file-path`` slot whose piped content is
+        a ``pdf-stream``) — the stdin URN, not the slot URN, is ``in=``. The
+        main input may ALSO be delivered by position/cli-flag, but stdin is
+        the defining route. Compared by tagged-URN equivalence, never as
+        strings.
+        """
+        from capdag.urn.media_urn import MediaUrn
+
+        for source in self.sources:
+            if not isinstance(source, StdinSource):
+                continue
+            try:
+                stdin_urn = MediaUrn.from_string(source.stdin)
+                if stdin_urn.is_equivalent(in_spec):
+                    return True
+            except Exception:
+                continue
+        return False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
@@ -427,6 +464,40 @@ class Cap:
                 if isinstance(source, StdinSource):
                     return source.stdin_media_urn()
         return None
+
+    def sequence_shape(self) -> Tuple[bool, bool]:
+        """Cardinality shape of this cap's primary data path:
+        ``(input_is_sequence, output_is_sequence)``.
+
+        ``input_is_sequence`` is the ``is_sequence`` flag of the first arg
+        that carries a ``Stdin`` source — the primary data input the wire
+        delivers. ``output_is_sequence`` is the output's ``is_sequence`` flag.
+
+        This is THE single definition of cap cardinality. Path search
+        (``planner.live_cap_fab``), editor realization, and notation
+        resolution (``machine.resolve``) all read it here so they can never
+        diverge — the distinction that decides whether a ForEach is
+        synthesized.
+        """
+        input_is_sequence = False
+        for arg in self.args:
+            if any(isinstance(source, StdinSource) for source in arg.sources):
+                input_is_sequence = arg.is_sequence
+                break
+        output_is_sequence = self.output.is_sequence if self.output is not None else False
+        return input_is_sequence, output_is_sequence
+
+    def needs_foreach(self, source_is_sequence: bool) -> bool:
+        """Whether a data position of cardinality ``source_is_sequence`` feeding
+        this cap's primary input requires a ForEach (per-item map) to be
+        inserted before it.
+
+        The one rule, shared by every planner/resolver path: a sequence
+        feeding a scalar-input cap must be mapped. The media URN does not
+        change — ForEach is a shape transition, not a type transition.
+        """
+        input_is_sequence, _output_is_sequence = self.sequence_shape()
+        return source_is_sequence and not input_is_sequence
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""

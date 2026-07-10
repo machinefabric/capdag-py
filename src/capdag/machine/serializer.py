@@ -26,7 +26,7 @@ Cap rendering (canonical vs aliased):
     rendering), a cap that has a registered display alias (shortest name, ties
     alphabetical) is referenced DIRECTLY in the wiring's cap position by that
     alias name with NO header — the grammar only permits a ``:``-free alias
-    token in the wiring loop_cap position, never in a header (which requires a
+    token in the wiring's cap position, never in a header (which requires a
     ``cap:`` URN). Un-aliased caps keep the ``edge_N`` token + header.
 """
 
@@ -126,12 +126,15 @@ def _format_wiring(
     sorted_bindings = sorted(edge.assignment, key=lambda b: b.source)
     sources = [node_names[(s_idx, b.source)] for b in sorted_bindings]
     target_name = node_names[(s_idx, edge.target)]
-    loop_prefix = "LOOP " if edge.is_loop else ""
+    # The per-item map (edge.is_loop) is NOT emitted into notation text: it
+    # is a derived cardinality property, not authored syntax (the `LOOP`
+    # keyword is retired). Re-parsing this notation re-derives the same
+    # is_loop from the cap shapes, so round-trip stays semantically stable.
 
     if len(sources) == 1:
-        return f"{open_delim}{sources[0]} -> {loop_prefix}{token} -> {target_name}{close_delim}"
+        return f"{open_delim}{sources[0]} -> {token} -> {target_name}{close_delim}"
     group = ", ".join(sources)
-    return f"{open_delim}({group}) -> {loop_prefix}{token} -> {target_name}{close_delim}"
+    return f"{open_delim}({group}) -> {token} -> {target_name}{close_delim}"
 
 
 def _emit(graph: Machine, registry, bracketed: bool, joiner: str) -> str:

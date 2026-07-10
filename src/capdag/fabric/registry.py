@@ -470,6 +470,27 @@ class RegistryConfig:
         return self
 
 
+def _media_url_and_cache_path(
+    cache_dir: Path, config: RegistryConfig, normalized_urn: str, defver: int
+) -> Tuple[str, Path]:
+    """Build the registry URL and on-disk cache path for a per-media object
+    at the given defver. ``defver == 0`` addresses the frozen v0 flat path
+    (``<base>/media/<sha>``); ``defver >= 1`` addresses the versioned
+    subpath (``<base>/media/<sha>/<defver>.json``). Mirrors Rust's
+    ``media_url_and_cache_path``; used by both the fetch path and the
+    on-disk cache-path resolver so the two never drift apart."""
+    digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
+    if defver == 0:
+        return (
+            f"{config.registry_base_url}/media/{digest}",
+            cache_dir / "media" / f"{digest}.json",
+        )
+    return (
+        f"{config.registry_base_url}/media/{digest}/{defver}.json",
+        cache_dir / "media" / digest / f"{defver}.json",
+    )
+
+
 # =============================================================================
 # Unified registry
 # =============================================================================
@@ -776,10 +797,10 @@ class FabricRegistry:
 
     def _media_cache_file_path(self, urn: str, defver: int) -> Path:
         normalized_urn = normalize_media_urn(urn)
-        digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        if defver == 0:
-            return self.media_cache_dir / f"{digest}.json"
-        return self.media_cache_dir / digest / f"{defver}.json"
+        _, cache_file = _media_url_and_cache_path(
+            self.cache_dir, self.config, normalized_urn, defver
+        )
+        return cache_file
 
     def _alias_cache_file_path(self, normalized_name: str, defver: int) -> Path:
         digest = hashlib.sha256(normalized_name.encode("utf-8")).hexdigest()
@@ -868,11 +889,9 @@ class FabricRegistry:
         except Exception as e:
             raise FabricRegistryError(f"Invalid media URN '{normalized_urn}': {e}")
 
-        digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        if defver == 0:
-            url = f"{self.config.registry_base_url}/media/{digest}"
-        else:
-            url = f"{self.config.registry_base_url}/media/{digest}/{defver}.json"
+        url, _ = _media_url_and_cache_path(
+            self.cache_dir, self.config, normalized_urn, defver
+        )
 
         try:
             response = await self.client.get(url)

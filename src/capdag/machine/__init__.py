@@ -19,7 +19,11 @@ Statements are enclosed in [...]. Two kinds:
 - Wirings: [src -> alias -> dst] — connect nodes through capabilities
 
 Fan-in groups: [(a, b) -> alias -> dst] — multiple sources feed one cap.
-Loop edges: [src -> LOOP alias -> dst] — ForEach iteration semantics.
+
+Per-item mapping (ForEach) is never authored in notation: it is DERIVED
+from cardinality — a sequence-producing cap feeding a scalar-input cap
+makes the resolved edge a per-item map (MachineEdge.is_loop). The retired
+`LOOP` keyword has no grammar surface any more.
 """
 
 from capdag.machine.error import (
@@ -31,6 +35,11 @@ from capdag.machine.error import (
     UnmatchedSourceInCapArgsError,
     AmbiguousMachineNotationError,
     CyclicMachineStrandError,
+    RuntimeMediaInferenceError,
+    CapDoesNotDeclareInputError,
+    NoStdinBindingError,
+    NonProducerSecondaryArgError,
+    DisconnectedStrandError,
 )
 from capdag.machine.graph import (
     NodeId,
@@ -40,6 +49,7 @@ from capdag.machine.graph import (
     Machine,
 )
 from capdag.machine.parser import parse_machine
+from capdag.machine.realize import realize_strand
 
 # Import serializer to attach to_machine_notation methods to Machine.
 import capdag.machine.serializer as _serializer  # noqa: F401
@@ -54,6 +64,11 @@ __all__ = [
     "UnmatchedSourceInCapArgsError",
     "AmbiguousMachineNotationError",
     "CyclicMachineStrandError",
+    "RuntimeMediaInferenceError",
+    "CapDoesNotDeclareInputError",
+    "NoStdinBindingError",
+    "NonProducerSecondaryArgError",
+    "DisconnectedStrandError",
     # Graph types
     "NodeId",
     "EdgeAssignmentBinding",
@@ -62,4 +77,6 @@ __all__ = [
     "Machine",
     # Parser
     "parse_machine",
+    # Realize
+    "realize_strand",
 ]

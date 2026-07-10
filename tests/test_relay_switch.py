@@ -1,4 +1,4 @@
-"""Tests for RelaySwitch — TEST426-TEST435"""
+"""Tests for RelaySwitch — TEST426-TEST435, TEST7025/7035-7038/7085/7091/7093"""
 
 import itertools
 import json
@@ -9,14 +9,17 @@ from io import BytesIO
 
 import pytest
 
-from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum, DropReason
 from capdag.bifaci.io import FrameReader, FrameWriter
 from capdag.bifaci.relay_switch import (
     RelaySwitch,
     SocketPair,
     NoHandlerError,
     ProtocolError,
+    _parse_relay_notify_payload,
 )
+from capdag.bifaci.request_state import RequestState, RoutingEntry
+from capdag.bifaci.stats import DropCounters
 
 CAP_IDENTITY = "cap:effect=none"
 CAP_GENERIC = "cap:echo"
@@ -171,10 +174,14 @@ def test_426_single_master_req_response():
         done.set()
         complete_identity_verification(reader, writer)
 
-        # Read one REQ and send response
+        # Read one REQ and send response. A real host echoes the incoming
+        # REQ's routing_id (XID) on every response frame — the switch's
+        # unified request table routes replies by that XID, matching real
+        # cartridge_runtime.py behavior.
         frame = reader.read()
         if frame and frame.frame_type == FrameType.REQ:
             response = Frame.end(frame.id, bytes([42]))
+            response.routing_id = frame.routing_id
             writer.write(response)
 
     threading.Thread(target=slave_thread, daemon=True).start()
@@ -230,6 +237,7 @@ def test_427_multi_master_cap_routing():
                 break
             if frame.frame_type == FrameType.REQ:
                 response = Frame.end(frame.id, bytes([1]))
+                response.routing_id = frame.routing_id
                 writer.write(response)
 
     # Spawn slave 2 (double cap)
@@ -248,6 +256,7 @@ def test_427_multi_master_cap_routing():
                 break
             if frame.frame_type == FrameType.REQ:
                 response = Frame.end(frame.id, bytes([2]))
+                response.routing_id = frame.routing_id
                 writer.write(response)
 
     threading.Thread(target=slave1_thread, daemon=True).start()
@@ -533,6 +542,7 @@ def test_430_tie_breaking_same_cap_multiple_masters():
                 break
             if frame.frame_type == FrameType.REQ:
                 response = Frame.end(frame.id, bytes([1]))
+                response.routing_id = frame.routing_id
                 writer.write(response)
 
     # Spawn slave 2
@@ -551,6 +561,7 @@ def test_430_tie_breaking_same_cap_multiple_masters():
                 break
             if frame.frame_type == FrameType.REQ:
                 response = Frame.end(frame.id, bytes([2]))
+                response.routing_id = frame.routing_id
                 writer.write(response)
 
     threading.Thread(target=slave1_thread, daemon=True).start()
@@ -612,6 +623,7 @@ def test_431_continuation_frame_routing():
 
         # Send response
         response = Frame.end(req.id, bytes([42]))
+        response.routing_id = req.routing_id
         writer.write(response)
 
     threading.Thread(target=slave_thread, daemon=True).start()
@@ -788,6 +800,7 @@ def test_435_urn_matching_exact_and_accepts():
                 break
             if frame.frame_type == FrameType.REQ:
                 response = Frame.end(frame.id, bytes([42]))
+                response.routing_id = frame.routing_id
                 writer.write(response)
 
     threading.Thread(target=slave_thread, daemon=True).start()
@@ -1577,3 +1590,394 @@ def test_0142_add_master_probe_failure_registers_unhealthy_not_raises():
     )
     # The healthy master is unaffected.
     assert switch._find_master_for_cap(CAP_GENERIC) == 0
+
+
+# ============================================================
+# Unified RequestTable / protocol_stats() cluster (protocol v3, L7/L8).
+# Parity with the reference RelaySwitch tests of the same numbers: the
+# unified request table replaces the smeared routing/peer/parent maps with
+# one register()/terminate() per request, drop-counted no_route/channel_closed
+# frames, cancel cascade via linked children, and a master-death sweep — all
+# observable through protocol_stats().
+
+
+def _state(dest: int, origin, channel=None, is_peer: bool = False) -> RequestState:
+    return RequestState(
+        routing=RoutingEntry(source_master_idx=origin, destination_master_idx=dest),
+        origin=origin,
+        external_channel=channel,
+        is_peer=is_peer,
+    )
+
+
+# TEST7025: A flow frame for a request with no routing state is a counted
+# no_route drop — not a protocol error and not a silent loss — observable in
+# the protocol stats snapshot. (The reference builds a switch with ZERO
+# masters; this mirror's constructor requires at least one — see TEST432 —
+# so this uses a single connected, healthy master instead. The drop-counting
+# behavior under test is unaffected by that setup difference.)
+def test_7025_unroutable_flow_frame_is_counted_drop():
+    switch = _build_switch_with_n_masters(1)
+
+    # Response continuation (has XID) for a key that was never registered
+    # (or already terminated): must be dropped + counted, never an error.
+    orphan = Frame.progress(MessageId.new_uuid(), 0.5, "orphan")
+    orphan.routing_id = MessageId(999)
+    result = switch._handle_master_frame(0, orphan)
+    assert result is None, "nothing to deliver"
+
+    # Request continuation (no XID) for an unknown RID: same law.
+    chunk = Frame.chunk(MessageId.new_uuid(), "s", 0, b"", 0, compute_checksum(b""))
+    result = switch._handle_master_frame(0, chunk)
+    assert result is None
+
+    stats = switch.protocol_stats()
+    assert stats.drops.by_reason.get("no_route") == 2, (
+        f"both drops counted, exactly once each (L8): {stats.drops}"
+    )
+    assert stats.requests.active == []
+
+
+# TEST7035: After END, the switch holds zero state for the request — entry,
+# rid index, and response channel all released atomically, with the terminal
+# delivered and a terminated summary recorded.
+def test_7035_end_terminates_and_releases_all_state():
+    switch = _build_switch_with_n_masters(1)
+
+    xid = MessageId(11)
+    rid = MessageId.new_uuid()
+    key = (xid, rid)
+    delivered = []
+    switch._requests.register(key, _state(0, None, delivered.append))
+    assert len(switch.protocol_stats().requests.active) == 1
+
+    # Terminal END arrives from the master side.
+    end = Frame.end_ok_with(rid, None, 1.0, None)
+    end.routing_id = xid
+    switch._handle_master_frame(0, end)
+
+    # The terminal was DELIVERED to the waiting channel...
+    assert len(delivered) == 1, "END must reach the response channel"
+    assert delivered[0].frame_type == FrameType.END
+    assert delivered[0].final_progress() == 1.0
+
+    # ...and zero state remains (L7), with the lifecycle recorded.
+    stats = switch.protocol_stats()
+    assert stats.requests.active == [], "no live entry after END"
+    assert stats.requests.terminated_by_kind.get("end") == 1
+    summary = stats.requests.recent_terminated[-1]
+    assert summary.rid == rid.to_string()
+    assert summary.frames_in == 1, "ingress recording captured the terminal frame"
+
+    # A follow-up frame for the released key is a counted no_route drop.
+    late = Frame.progress(rid, 1.0, "late")
+    late.routing_id = xid
+    switch._handle_master_frame(0, late)
+    assert switch.protocol_stats().drops.by_reason.get("no_route") == 1
+
+
+# TEST7036: After ERR, the same total-cleanup invariant holds as after END,
+# with kind err.
+def test_7036_err_terminates_and_releases_all_state():
+    switch = _build_switch_with_n_masters(1)
+
+    xid = MessageId(21)
+    rid = MessageId.new_uuid()
+    delivered = []
+    switch._requests.register((xid, rid), _state(0, None, delivered.append))
+
+    err = Frame.err(rid, "HANDLER_ERROR", "boom")
+    err.routing_id = xid
+    switch._handle_master_frame(0, err)
+
+    assert len(delivered) == 1, "ERR must reach the channel"
+    assert delivered[0].frame_type == FrameType.ERR
+    assert delivered[0].error_code() == "HANDLER_ERROR"
+
+    stats = switch.protocol_stats()
+    assert stats.requests.active == []
+    assert stats.requests.terminated_by_kind.get("err") == 1
+
+
+# TEST7037: Cancelling a request terminates it AND its recursively-linked
+# peer children — Cancel frames reach the destination, waiting channels get
+# ERR CANCELLED, and zero state remains for parent or child.
+def test_7037_cancel_cascades_to_children_and_cleans_all_state():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    done = threading.Event()
+    cancels = []
+    collected = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+        # Collect the Cancel frames the cascade sends us.
+        while len(cancels) < 2:
+            frame = reader.read()
+            if frame is None:
+                break
+            if frame.frame_type == FrameType.CANCEL:
+                cancels.append(frame.id)
+        collected.set()
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([SocketPair(
+        id="cancel-cascade-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )])
+
+    # Parent (engine-origin, has a waiting channel) + child peer call.
+    parent_key = (MessageId(1), MessageId.new_uuid())
+    child_key = (MessageId(2), MessageId.new_uuid())
+    delivered = []
+    switch._requests.register(parent_key, _state(0, None, delivered.append))
+    switch._requests.register(child_key, _state(0, 0, None, is_peer=True))
+    switch._requests.link_child(parent_key, child_key)
+
+    switch.cancel_request(parent_key[1], False)
+
+    # Parent's waiter observes ERR CANCELLED.
+    assert len(delivered) == 1, "parent channel gets ERR"
+    assert delivered[0].error_code() == "CANCELLED"
+
+    # Both parent and child are fully released (L7), recorded cancelled.
+    stats = switch.protocol_stats()
+    assert stats.requests.active == [], (
+        f"no state for parent or child remains: {stats.requests.active}"
+    )
+    assert stats.requests.terminated_by_kind.get("cancelled") == 2
+
+    # The destination master received Cancel for BOTH rids.
+    assert collected.wait(timeout=5), "slave must observe both Cancel frames"
+    assert len(cancels) == 2, "parent + cascaded child Cancel frames"
+    assert parent_key[1] in cancels
+    assert child_key[1] in cancels
+
+
+# TEST7038: Master death terminates every request routed to it with kind
+# master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and
+# leaving zero state.
+def test_7038_master_death_terminates_pending_requests():
+    switch = _build_switch_with_n_masters(1)
+
+    key = (MessageId(5), MessageId.new_uuid())
+    delivered = []
+    switch._requests.register(key, _state(0, None, delivered.append))
+
+    switch._handle_master_death(0)
+
+    assert len(delivered) == 1, "synthetic ERR must be delivered"
+    assert delivered[0].error_code() == "MASTER_DIED"
+
+    stats = switch.protocol_stats()
+    assert stats.requests.active == [], "zero state remains (L7)"
+    assert stats.requests.terminated_by_kind.get("master_died") == 1
+    summary = stats.requests.recent_terminated[-1]
+    assert summary.rid == key[1].to_string()
+
+
+# TEST7093: A response frame for a LIVE request whose external consumer is
+# gone (dropped/timed-out caller callback) is a counted channel_closed drop
+# AND cancels the request upstream — the destination receives Cancel, the
+# entry terminates as cancelled, and the cartridge stops producing for a dead
+# channel instead of running to completion against it.
+def test_7093_dead_consumer_cancels_upstream():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    done = threading.Event()
+    cancel_seen = threading.Event()
+    cap = 'cap:in="media:void";test;out="media:void"'
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(cap), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+
+        # Serve one REQ: read it, then stream a response frame. The
+        # engine-side consumer will already be gone — the switch must
+        # answer with Cancel on this connection.
+        req = None
+        while req is None:
+            frame = reader.read()
+            if frame is None:
+                return
+            if frame.frame_type == FrameType.REQ:
+                req = frame
+        log = Frame.log(req.id, "info", "first result row")
+        log.routing_id = req.routing_id
+        writer.write(log)
+
+        # The switch must now cancel this request (dead consumer).
+        while True:
+            frame = reader.read()
+            if frame is None:
+                return
+            if frame.frame_type == FrameType.CANCEL:
+                assert frame.id == req.id, "cancel targets the abandoned request"
+                cancel_seen.set()
+                return
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([SocketPair(
+        id="dead-consumer-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )])
+
+    def raising_channel(frame):
+        # The caller abandoned this request (dropped/timed-out future) —
+        # calling its callback raises, exactly like a closed mpsc sender.
+        raise RuntimeError("receiver gone")
+
+    with switch._lock:
+        dest_idx = switch._find_master_for_cap(cap)
+        assert dest_idx == 0
+        xid = switch._next_xid_locked()
+        rid = MessageId.new_uuid()
+        switch._requests.register(
+            (xid, rid),
+            _state(dest_idx, None, raising_channel),
+        )
+        req = Frame.req(rid, cap, b"", "application/cbor")
+        req.routing_id = xid
+        switch._masters[dest_idx].socket_writer.write(req)
+
+    switch.start_background_pump()
+
+    # The slave streams a frame into the dead channel; the switch must count
+    # the drop and cancel upstream (the slave task asserts Cancel).
+    assert cancel_seen.wait(timeout=5), "slave must observe Cancel before timeout"
+
+    # Wait for the cascade (dispatched on a background thread) to finish
+    # terminating the request before asserting the final snapshot.
+    deadline = time.monotonic() + 5
+    stats = switch.protocol_stats()
+    while stats.requests.active and time.monotonic() < deadline:
+        time.sleep(0.02)
+        stats = switch.protocol_stats()
+
+    assert stats.drops.by_reason.get("channel_closed") == 1, (
+        "the abandoned frame is a counted channel_closed drop"
+    )
+    assert stats.requests.terminated_by_kind.get("cancelled") == 1, (
+        "the abandoned request terminates as cancelled — it never lingers"
+    )
+    assert stats.requests.active == [], "no state remains for the abandoned request (L7)"
+
+
+# TEST7085: The RelayNotify capabilities payload carries the host's protocol
+# stats snapshot, surviving the wire round-trip. (Adapted: this mirror has no
+# typed RelayNotifyCapabilitiesPayload — it builds/parses the manifest dict
+# directly via `_parse_relay_notify_payload`.)
+def test_7085_relay_notify_carries_host_protocol_stats():
+    counters = DropCounters()
+    counters.record(DropReason.NO_ROUTE)
+    counters.record(DropReason.NO_ROUTE)
+
+    manifest = {
+        "installed_cartridges": [],
+        "host_protocol_stats": {
+            "drops": counters.snapshot().to_dict(),
+            "outgoing_rids": 3,
+            "incoming_rxids": 5,
+            "incoming_to_peer_rids": 1,
+            "outgoing_max_seq": 4,
+            "routing_gc_runs_total": 2,
+            "routing_gc_evicted_total": 7,
+        },
+    }
+    _, _, host_stats = _parse_relay_notify_payload(json.dumps(manifest).encode("utf-8"))
+    assert host_stats is not None, "host stats must survive the round trip"
+    assert host_stats.drops.total == 2
+    assert host_stats.drops.by_reason.get("no_route") == 2
+    assert host_stats.incoming_rxids == 5
+    assert host_stats.routing_gc_evicted_total == 7
+
+    # A payload WITHOUT stats (initial capability advertisement) still
+    # parses — the field is a per-republish refresh, not a requirement.
+    bare = {"installed_cartridges": []}
+    _, _, bare_stats = _parse_relay_notify_payload(json.dumps(bare).encode("utf-8"))
+    assert bare_stats is None
+
+
+# TEST7091: Host protocol stats carried by a master's RelayNotify are
+# RETAINED by the switch (not parsed-and-discarded) and surface in
+# `protocol_stats().hosts` keyed by master id; a master that has not yet
+# advertised stats is absent from the map — never a zeroed placeholder.
+def test_7091_switch_retains_host_protocol_stats_from_relay_notify():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    done = threading.Event()
+    # Gates the second (stats-carrying) RelayNotify until AFTER the
+    # "absent before any advertisement" assertion below has run — real OS
+    # threads (unlike the reference's cooperative-scheduling test) would
+    # otherwise race the reader thread against that assertion.
+    send_stats = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(CAP_GENERIC), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+
+        send_stats.wait(timeout=5)
+
+        # Republish the SAME inventory (no cap change → no re-verify), now
+        # carrying host protocol stats — the periodic refresh path.
+        manifest = make_manifest(CAP_GENERIC)
+        manifest["host_protocol_stats"] = {
+            "drops": {"total": 3, "by_reason": {"post_terminal": 2, "no_route": 1}},
+            "outgoing_rids": 4,
+            "incoming_rxids": 6,
+            "incoming_to_peer_rids": 0,
+            "outgoing_max_seq": 2,
+            "routing_gc_runs_total": 1,
+            "routing_gc_evicted_total": 9,
+        }
+        send_notify(writer, manifest, Limits.default())
+        # Keep the connection open until the assertion side finishes.
+        while reader.read() is not None:
+            pass
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([SocketPair(
+        id="host-stats-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )])
+
+    # The initial advertisement carried no host stats: absent, not zeroed.
+    assert switch.protocol_stats().hosts == {}, "no host stats before a RelayNotify carries them"
+
+    switch.start_background_pump()
+    send_stats.set()
+
+    deadline = time.monotonic() + 5
+    host_stats = None
+    while time.monotonic() < deadline:
+        stats = switch.protocol_stats()
+        if "host-stats-master-0" in stats.hosts:
+            host_stats = stats.hosts["host-stats-master-0"]
+            break
+        time.sleep(0.02)
+    assert host_stats is not None, (
+        "host stats must surface in protocol_stats().hosts after RelayNotify"
+    )
+    assert host_stats.drops.total == 3
+    assert host_stats.drops.by_reason.get("post_terminal") == 2
+    assert host_stats.incoming_rxids == 6
+    assert host_stats.routing_gc_evicted_total == 9

@@ -13,10 +13,12 @@ from capdag.bifaci.frame import (
     FlowKey,
     SeqAssigner,
     ReorderBuffer,
+    CreditDirection,
     PROTOCOL_VERSION,
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
     DEFAULT_MAX_REORDER_BUFFER,
+    DEFAULT_INITIAL_CREDIT,
     compute_checksum,
     verify_chunk_checksum,
 )
@@ -40,6 +42,7 @@ def test_171_frame_type_roundtrip():
         FrameType.RELAY_NOTIFY,
         FrameType.RELAY_STATE,
         FrameType.CANCEL,
+        FrameType.CREDIT,
     ]:
         v = int(t)
         recovered = FrameType.from_u8(v)
@@ -53,7 +56,8 @@ def test_172_invalid_frame_type():
     assert FrameType.from_u8(10) == FrameType.RELAY_NOTIFY
     assert FrameType.from_u8(11) == FrameType.RELAY_STATE
     assert FrameType.from_u8(12) == FrameType.CANCEL
-    assert FrameType.from_u8(13) is None, "value 13 is one past Cancel"
+    assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
+    assert FrameType.from_u8(14) is None, "value 14 is one past Credit"
     assert FrameType.from_u8(100) is None
     assert FrameType.from_u8(255) is None
 
@@ -348,12 +352,13 @@ def test_198_limits_default():
     assert limits.max_chunk == DEFAULT_MAX_CHUNK
     assert limits.max_frame == 3_670_016, "default max_frame = 3.5 MB"
     assert limits.max_chunk == 262_144, "default max_chunk = 256 KB"
+    assert limits.initial_credit == 32, "default initial_credit = 32 chunks"
 
 
-# TEST199: Test PROTOCOL_VERSION is 2
+# TEST199: Test PROTOCOL_VERSION is 3
 def test_199_protocol_version_constant():
     """Test PROTOCOL_VERSION constant"""
-    assert PROTOCOL_VERSION == 2
+    assert PROTOCOL_VERSION == 3
 
 
 # TEST200: Test integer key constants match the protocol specification
@@ -530,8 +535,9 @@ def test_402_relay_state_factory_and_payload():
 
 # TEST403: Verify from_u8 returns None for values past the last valid frame type
 def test_403_frame_type_one_past_cancel():
-    """Test that value 13 is invalid (one past Cancel)"""
-    assert FrameType.from_u8(13) is None, "value 13 is one past Cancel"
+    """Test that value 14 is invalid (one past Credit, v3 — Cancel/13 boundary moved when Credit was added)"""
+    assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
+    assert FrameType.from_u8(14) is None, "value 14 is one past Credit"
 
 
 # TEST667: verify_chunk_checksum detects corrupted payload
@@ -1543,19 +1549,169 @@ def test_904_stream_end_with_chunk_count():
     assert frame.chunk_count == 42, "chunk_count should be set"
 
 
-# TEST6672: Offline flag blocks fetch_from_registry without making HTTP request
-def test_6672_cbor_rejects_stream_end_without_chunk_count():
+# TEST6672: CBOR decode ACCEPTS STREAM_END without chunk_count — unbounded streams make no length promise (v3, L16)
+def test_6672_cbor_accepts_stream_end_without_chunk_count():
     req_id = MessageId.random()
 
-    # Create STREAM_END without chunk_count
-    frame = Frame.new(FrameType.STREAM_END, req_id)
-    frame.stream_id = "s1"
-    # chunk_count deliberately missing (None)
+    frame = Frame.stream_end_unbounded(req_id, "s1")
+    assert frame.chunk_count is None
 
     encoded = encode_frame(frame)
+    decoded = decode_frame(encoded)
+    assert decoded.frame_type == FrameType.STREAM_END
+    assert decoded.id == req_id
+    assert decoded.stream_id == "s1"
+    assert decoded.chunk_count is None, "absent chunk_count must decode as None, not a default"
 
-    with pytest.raises(InvalidFrameError, match="chunk_count"):
+
+# TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count
+def test_7010_credit_frame_roundtrip():
+    rid = MessageId.random()
+    frame = Frame.credit(rid, "s1", 17, CreditDirection.RESPONSE)
+    assert frame.credit_count() == 17
+
+    decoded = decode_frame(encode_frame(frame))
+    assert decoded.frame_type == FrameType.CREDIT
+    assert decoded.id == rid
+    assert decoded.stream_id == "s1"
+    assert decoded.credit_count() == 17
+    assert decoded.credit_direction() == CreditDirection.RESPONSE, \
+        "the routing direction must survive the wire (L11)"
+
+    # Stream-less grant (request's sole stream) round-trips too
+    frame = Frame.credit(rid, None, 3, CreditDirection.REQUEST)
+    decoded = decode_frame(encode_frame(frame))
+    assert decoded.stream_id is None
+    assert decoded.credit_count() == 3
+    assert decoded.credit_direction() == CreditDirection.REQUEST
+
+    # A Credit frame with no direction reports None — hosts drop it as
+    # unroutable (counted), since (xid, rid) alone cannot place it.
+    dirless = Frame.new(FrameType.CREDIT, MessageId.new_uuid())
+    dirless.credit = 1
+    assert dirless.credit_direction() is None
+
+    # credit_count is None on non-Credit frames even if the field is set
+    chunkish = Frame.new(FrameType.LOG, rid)
+    chunkish.credit = 9
+    assert chunkish.credit_count() is None
+
+
+# TEST7011: CREDIT is a non-flow frame — no seq assigned, passes the reorder buffer untouched regardless of flow state
+def test_7011_credit_is_non_flow():
+    rid = MessageId.random()
+
+    # SeqAssigner leaves Credit at seq 0 while flow frames advance
+    assigner = SeqAssigner()
+    chunk = Frame.chunk(rid, "s1", 0, b"\x01", 0, 1)
+    assigner.assign(chunk)
+    assert chunk.seq == 0
+    credit = Frame.credit(rid, "s1", 4, CreditDirection.RESPONSE)
+    assigner.assign(credit)
+    assert credit.seq == 0, "Credit must not consume a flow seq"
+    chunk2 = Frame.chunk(rid, "s1", 0, b"\x02", 1, 1)
+    assigner.assign(chunk2)
+    assert chunk2.seq == 1, "flow seq must be contiguous across a Credit"
+
+    # ReorderBuffer returns Credit immediately even while the flow is gapped
+    buffer = ReorderBuffer(8)
+    gapped = Frame.chunk(rid, "s1", 5, b"\x03", 5, 1)
+    gapped.seq = 5
+    assert buffer.accept(gapped) == [], "out-of-order flow frame must be buffered"
+    credit = Frame.credit(rid, "s1", 4, CreditDirection.RESPONSE)
+    delivered = buffer.accept(credit)
+    assert len(delivered) == 1, "Credit must bypass the reorder buffer and deliver immediately"
+    assert delivered[0].frame_type == FrameType.CREDIT
+
+
+# TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded
+def test_7012_stream_start_unbounded_roundtrip():
+    rid = MessageId.random()
+    bounded = Frame.stream_start(rid, "s1", "media:enc=utf-8", False)
+    assert not bounded.is_unbounded()
+    decoded = decode_frame(encode_frame(bounded))
+    assert not decoded.is_unbounded(), "absent flag must read as bounded"
+    assert decoded.unbounded is None, "bounded frames omit the key"
+
+    unbounded = Frame.stream_start_unbounded(rid, "s2", "media:enc=utf-8", True)
+    assert unbounded.is_unbounded()
+    decoded = decode_frame(encode_frame(unbounded))
+    assert decoded.is_unbounded()
+    assert decoded.stream_id == "s2"
+    assert decoded.is_sequence is True
+
+
+# TEST7013: CBOR decode REJECTS a CREDIT frame missing its credit count
+def test_7013_cbor_rejects_credit_without_count():
+    frame = Frame.new(FrameType.CREDIT, MessageId.random())
+    frame.stream_id = "s1"
+    # credit deliberately missing
+
+    encoded = encode_frame(frame)
+    with pytest.raises(InvalidFrameError, match="credit"):
         decode_frame(encoded)
+
+
+# TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up
+def test_7026_reorder_flushes_pre_terminal_before_cleanup():
+    rid = MessageId.random()
+    buffer = ReorderBuffer(8)
+
+    def mk(seq, ftype):
+        f = Frame.new(ftype, rid)
+        f.seq = seq
+        return f
+
+    # seq 0 delivers immediately.
+    delivered = buffer.accept(mk(0, FrameType.CHUNK))
+    assert len(delivered) == 1
+
+    # seq 2 (chunk) and seq 3 (END) arrive out of order — both buffered,
+    # nothing delivered, no premature cleanup possible.
+    assert buffer.accept(mk(2, FrameType.CHUNK)) == []
+    assert buffer.accept(mk(3, FrameType.END)) == []
+
+    # The gap fills: seq 1 arrives -> 1, 2, 3(END) all deliver in order.
+    # The terminal is DELIVERED strictly after every pre-terminal frame.
+    delivered = buffer.accept(mk(1, FrameType.CHUNK))
+    seqs = [f.seq for f in delivered]
+    assert seqs == [1, 2, 3]
+    assert delivered[-1].frame_type == FrameType.END
+
+    # Cleanup after delivered terminal (as the relay does, post-drain):
+    # the flow state resets and a fresh flow under the same key starts
+    # cleanly at seq 0.
+    buffer.cleanup_flow(FlowKey.from_frame(delivered[2]))
+    fresh = buffer.accept(mk(0, FrameType.CHUNK))
+    assert len(fresh) == 1, "cleaned flow accepts a fresh seq 0"
+
+
+# TEST7014: END terminal meta (progress, message) round-trips; successful END without progress reads as 1.0; failed END without progress reads as None
+def test_7014_end_terminal_meta_roundtrip():
+    rid = MessageId.random()
+
+    # Explicit terminal progress + message round-trip
+    end = Frame.end_ok_with(rid, None, 0.87, "partial corpus")
+    decoded = decode_frame(encode_frame(end))
+    assert decoded.final_progress() == 0.87
+    assert decoded.final_message() == "partial corpus"
+    assert decoded.exit_code() == 0, "end_ok_with implies success"
+
+    # Successful END with no explicit progress reads as 1.0
+    end = Frame.end_ok(rid, None)
+    decoded = decode_frame(encode_frame(end))
+    assert decoded.final_progress() == 1.0
+    assert decoded.final_message() is None
+
+    # Non-successful END (no exit_code) with no explicit progress: None —
+    # failure must not synthesize a completion value.
+    end = Frame.end(rid, None)
+    decoded = decode_frame(encode_frame(end))
+    assert decoded.final_progress() is None
+
+    # Non-END frames never report a final progress
+    log = Frame.progress(rid, 0.5, "halfway")
+    assert log.final_progress() is None
 
 
 # TEST1162: Heartbeat frames preserve self-reported memory values stored in metadata.

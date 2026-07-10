@@ -48,16 +48,23 @@ import asyncio
 import threading
 import queue
 import glob
+from enum import Enum
 from pathlib import Path
 from typing import Callable, Protocol, Optional, Dict, List, Any, Tuple
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import cbor2
 
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 
-from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey
+from capdag.bifaci.frame import (
+    Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK,
+    DEFAULT_INITIAL_CREDIT, CreditDirection, DropReason,
+    compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey,
+)
 from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
+from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
+from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
 from capdag.urn.cap_urn import CapUrn
@@ -135,33 +142,201 @@ class ManifestError(RuntimeError):
     pass
 
 
+# =============================================================================
+# WRITER-THREAD TERMINAL GATE (L4) — drop post-terminal flow frames, counted
+# =============================================================================
+
+class GatedWrite(str, Enum):
+    """Outcome of pushing one frame through the terminal gate + writer.
+
+    (matches Rust cartridge_runtime::GatedWrite — WriterDead has no Python
+    counterpart: a failed write raises instead, since callers in this mirror
+    already handle write failures via exceptions rather than a sentinel.)
+    """
+    WRITTEN = "written"
+    DROPPED_POST_TERMINAL = "dropped_post_terminal"
+
+
+def write_gated(
+    frame: Frame,
+    writer: "FrameWriter",
+    seq_assigner: SeqAssigner,
+    terminated: TerminatedFlows,
+    drops: DropCounters,
+) -> GatedWrite:
+    """Write one frame through the terminal gate (L4).
+
+    Once a flow's END/ERR has been written, any later flow frame for the same
+    FlowKey is post-terminal: it is dropped and counted, never written. This
+    is the single point where wire order is decided, so gating here
+    deterministically closes every detached-sender race (ProgressSender,
+    keepalive tickers) — mirrors Rust's `write_gated` free function exactly,
+    adapted to the mirror's synchronous single-writer-lock design (there is
+    no separate writer *thread* here — `SyncFrameWriter.write()` IS the
+    writer-thread equivalent, called from whichever handler thread is
+    emitting).
+
+    Raises whatever `writer.write()` raises on I/O failure — the caller's
+    existing exception handling covers that path.
+    """
+    key = FlowKey.from_frame(frame)
+    if frame.is_flow_frame() and terminated.contains(key):
+        total = drops.record(DropReason.POST_TERMINAL)
+        print(
+            f"[CartridgeRuntime] writer: dropped post-terminal flow frame — "
+            f"END/ERR already written for this flow (L4) "
+            f"type={frame.frame_type} rid={frame.id.to_string()} "
+            f"post_terminal_total={total}",
+            file=sys.stderr,
+        )
+        return GatedWrite.DROPPED_POST_TERMINAL
+
+    seq_assigner.assign(frame)
+    writer.write(frame)
+    if frame.frame_type in (FrameType.END, FrameType.ERR):
+        seq_assigner.remove(key)
+        terminated.insert(key)
+    return GatedWrite.WRITTEN
+
+
 class SyncFrameWriter:
-    """Thread-safe frame writer with centralized SeqAssigner.
+    """Thread-safe frame writer with centralized SeqAssigner and the L4
+    writer-terminal gate.
 
     All frames pass through the SeqAssigner before writing, ensuring
-    monotonically increasing seq per flow (RID + optional XID).
-    This matches the Rust cartridge_runtime writer thread with SeqAssigner
-    and Go's syncFrameWriter.
+    monotonically increasing seq per flow (RID + optional XID). This matches
+    the Rust cartridge_runtime writer thread with SeqAssigner and Go's
+    syncFrameWriter — extended for protocol v3 with the terminal gate
+    (post-terminal flow frames are dropped and counted, never written) and
+    counted drops on write failure (L8): a send on a dead writer is a counted
+    `channel_closed` drop, never a silent loss, even for callers that ignore
+    the outcome.
     """
 
-    def __init__(self, writer: FrameWriter):
+    def __init__(self, writer: FrameWriter, drops: Optional[DropCounters] = None):
         self._writer = writer
         self._lock = threading.Lock()
         self._seq_assigner = SeqAssigner()
+        self._terminated = TerminatedFlows(1024)
+        self.drops = drops if drops is not None else DropCounters()
 
-    def write(self, frame: Frame) -> None:
-        """Write a frame with centralized seq assignment (thread-safe)."""
+    def write(self, frame: Frame) -> GatedWrite:
+        """Write a frame with centralized seq assignment (thread-safe),
+        gated against post-terminal flow frames (L4).
+
+        A write failure (e.g. broken pipe) is a counted `channel_closed`
+        drop (L8) before the exception propagates — callers that swallow the
+        exception (fire-and-forget best-effort sends) still get it counted.
+        """
         with self._lock:
-            self._seq_assigner.assign(frame)
-            self._writer.write(frame)
-            # Clean up flow tracking after terminal frames
-            if frame.frame_type in (FrameType.END, FrameType.ERR):
-                key = FlowKey.from_frame(frame)
-                self._seq_assigner.remove(key)
+            try:
+                return write_gated(frame, self._writer, self._seq_assigner, self._terminated, self.drops)
+            except Exception:
+                total = self.drops.record(DropReason.CHANNEL_CLOSED)
+                print(
+                    f"[CartridgeRuntime] frame dropped: output channel closed "
+                    f"(channel_closed_total={total}) type={frame.frame_type} "
+                    f"rid={frame.id.to_string()}",
+                    file=sys.stderr,
+                )
+                raise
 
     def set_limits(self, limits: Limits) -> None:
         with self._lock:
             self._writer.set_limits(limits)
+
+
+# =============================================================================
+# CONCURRENCY CAPACITY — dynamic handler-slot limit
+# =============================================================================
+
+class CapacityHandle:
+    """Shared handle for dynamic concurrency capacity adjustment (thread-safe).
+
+    Cartridges receive this via `CartridgeRuntime.capacity_handle()` and can
+    call `set(n)` at any time to adjust how many concurrent requests the
+    runtime will dispatch to handlers. 0 means unlimited.
+    (matches Rust CapacityHandle)
+    """
+
+    def __init__(self, initial: int):
+        self._lock = threading.Lock()
+        self._value = initial
+
+    def set(self, n: int) -> None:
+        with self._lock:
+            self._value = n
+
+    def get(self) -> int:
+        with self._lock:
+            return self._value
+
+
+# =============================================================================
+# CREDIT WINDOW ACCOUNTANT — bounded input demux + batched grants (L10/L12)
+# =============================================================================
+
+class CreditWindowAccountant:
+    """Batched CREDIT-grant accounting for one credited consumption point.
+
+    Tracks consumed-since-last-grant and reports a due grant once `batch`
+    (``max(initial_credit // 2, 1)``) chunks have been consumed — mirrors
+    the Rust reference's `InputGrantEmitter` batching threshold.
+
+    When `check_violations` is True, `account()` also enforces the granted
+    window against arriving chunks (L12) — used for the handler's own input
+    demux, which must defend against a misbehaving sender. Peer-response
+    consumption does not enforce violations, mirroring the Rust reference's
+    `demux_single_stream` (which credits the peer's output but does not
+    window-check it).
+
+    The mirror's demux buffers each incoming stream to completion
+    synchronously as frames arrive (no live per-item handler pull), so
+    "arrival" and "consumption" are the same event here — `account()` plays
+    both roles the Rust reference splits across the demux's window check and
+    the handler's later `InputStream::recv()` consumption.
+    """
+
+    def __init__(self, initial_credit: int, check_violations: bool = True):
+        self._window = initial_credit
+        self._batch = max(initial_credit // 2, 1)
+        self._consumed_since_grant = 0
+        self._check_violations = check_violations
+
+    def account(self) -> bool:
+        """Record one consumed chunk.
+
+        Returns True iff this chunk is a credit violation (only meaningful
+        when `check_violations=True` — always False otherwise). A violating
+        chunk does NOT count toward the batched grant.
+        """
+        if self._check_violations:
+            before = self._window
+            self._window = before - 1
+            if before <= 0:
+                return True
+        self._consumed_since_grant += 1
+        return False
+
+    def take_due_grant(self) -> Optional[int]:
+        """Return and clear a due batched grant amount, extending the
+        window by that amount. None if the batch threshold hasn't been hit."""
+        if self._consumed_since_grant >= self._batch:
+            n = self._consumed_since_grant
+            self._consumed_since_grant = 0
+            self._window += n
+            return n
+        return None
+
+    def flush(self) -> Optional[int]:
+        """Unconditionally take whatever is pending (stream-end cleanup),
+        extending the window. None if nothing is pending."""
+        if self._consumed_since_grant == 0:
+            return None
+        n = self._consumed_since_grant
+        self._consumed_since_grant = 0
+        self._window += n
+        return n
 
 
 class StreamEmitter(Protocol):
@@ -374,6 +549,13 @@ class PendingIncomingRequest:
     streams: List  # List of (stream_id, PendingStream) tuples — ordered
     ended: bool  # True after END frame — any stream activity after is FATAL
     routing_id: Optional["MessageId"] = None  # XID from incoming REQ (preserved for response routing)
+    # Per-stream credit accounting (L10/L12): stream_id -> CreditWindowAccountant.
+    # Each incoming argument stream is bounded to its granted window; the
+    # demux (this request's CHUNK handling in run_cbor_mode) checks arriving
+    # chunks against it and emits batched grants as chunks are buffered
+    # (this mirror's demux buffers-to-completion synchronously, so "arrival"
+    # and "consumption" are the same event — see CreditWindowAccountant).
+    credit_windows: Dict[str, "CreditWindowAccountant"] = field(default_factory=dict)
 
 
 class PeerInvokerImpl:
@@ -383,11 +565,23 @@ class PeerInvokerImpl:
     on the host while processing a request.
     """
 
-    def __init__(self, writer: SyncFrameWriter, pending_requests: Dict[str, PendingPeerRequest], max_chunk: Optional[int] = None):
+    def __init__(
+        self,
+        writer: SyncFrameWriter,
+        pending_requests: Dict[str, PendingPeerRequest],
+        max_chunk: Optional[int] = None,
+        credit_router: Optional[CreditRouter] = None,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
+    ):
         self.writer = writer
         self.pending_requests = pending_requests
         self.pending_lock = threading.Lock()
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
+        # Router that delivers inbound CREDIT grants to this cartridge's
+        # outgoing peer-argument streams (L14 — peer args are credited too).
+        # None = uncredited context (in-process host, tests).
+        self.credit_router = credit_router
+        self.initial_credit = initial_credit
 
     def invoke(self, cap_urn: str, arguments: List[CapArgumentValue]) -> queue.Queue:
         """Invoke a cap on the host with arguments.
@@ -396,6 +590,11 @@ class PeerInvokerImpl:
         for each argument as an independent stream.
         Returns a queue that receives bare Frame objects from the host.
         Seq is assigned centrally by SyncFrameWriter's SeqAssigner.
+
+        Each argument stream acquires one credit per CHUNK before sending it
+        when a credit_router was supplied (L9/L14) — a slow peer naturally
+        throttles this cartridge's arg emission. Blocking acquisition:
+        `invoke()` already runs on a plain thread by design.
         """
         import uuid as _uuid
 
@@ -417,6 +616,13 @@ class PeerInvokerImpl:
             for arg in arguments:
                 stream_id = str(_uuid.uuid4())
 
+                # Credit gate for this arg stream — registers with the shared
+                # router so inbound CREDIT frames from the host replenish it.
+                gate = None
+                if self.credit_router is not None:
+                    gate = CreditGate(self.initial_credit)
+                    self.credit_router.register(request_id, stream_id, gate)
+
                 # STREAM_START (seq assigned by SyncFrameWriter)
                 self.writer.write(Frame.stream_start(request_id, stream_id, arg.media_urn))
 
@@ -432,6 +638,11 @@ class PeerInvokerImpl:
                     # CBOR-encode chunk as bytes - independently decodable
                     cbor_payload = cbor2.dumps(chunk_bytes)
 
+                    if gate is not None:
+                        try:
+                            gate.acquire(1)
+                        except CreditClosed as e:
+                            raise PeerRequestError(str(e))
                     self.writer.write(Frame.chunk(request_id, stream_id, 0, cbor_payload, chunk_index, compute_checksum(cbor_payload)))
                     offset += chunk_size
                     chunk_index += 1
@@ -515,6 +726,16 @@ class CliStreamEmitter:
         print(f"[PROGRESS {progress*100:.0f}%] {message}", file=sys.stderr)
 
 
+@dataclass
+class FinalStatus:
+    """A handler's terminal status override, carried in the END frame's
+    terminal metadata (L3/L5). Declared via `ThreadSafeEmitter.finish()`.
+    (matches Rust OutputStream::FinalStatus)
+    """
+    progress: float
+    message: Optional[str] = None
+
+
 class ThreadSafeEmitter:
     """Thread-safe implementation of StreamEmitter using Protocol v2 stream multiplexing.
 
@@ -525,9 +746,29 @@ class ThreadSafeEmitter:
     Seq is assigned centrally by the SyncFrameWriter's SeqAssigner — this emitter
     does NOT track seq itself. This matches the Rust cartridge_runtime writer thread
     with SeqAssigner and Go's threadSafeEmitter with syncFrameWriter.
+
+    Flow control (protocol v3, L9): when constructed with a `credit_router`,
+    every CHUNK acquires one credit before it is sent — a slow consumer
+    naturally throttles this emitter. `write`/`emit_list_item` block the
+    calling thread on an exhausted window; `blocking_write`/
+    `blocking_emit_list_item` are aliases (this emitter is already
+    thread-based, so there is no separate async/blocking distinction to
+    make — matches `capdag.bifaci.credit`'s own alias idiom). LOG/progress
+    frames are never credited (L14) — they must flow even while the data
+    window is exhausted.
     """
 
-    def __init__(self, writer: SyncFrameWriter, request_id: MessageId, stream_id: str, media_urn: str, routing_id: Optional[MessageId] = None, max_chunk: Optional[int] = None):
+    def __init__(
+        self,
+        writer: SyncFrameWriter,
+        request_id: MessageId,
+        stream_id: str,
+        media_urn: str,
+        routing_id: Optional[MessageId] = None,
+        max_chunk: Optional[int] = None,
+        credit_router: Optional[CreditRouter] = None,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
+    ):
         self.writer = writer
         self.request_id = request_id
         self.stream_id = stream_id
@@ -538,15 +779,62 @@ class ThreadSafeEmitter:
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
         self.stream_started = False
         self.stream_lock = threading.Lock()
+        # Per-stream flow-control window (L9). None = uncredited context
+        # (CLI mode, tests, in-process host) — writes never wait.
+        self._credit_gate = CreditGate(initial_credit) if credit_router is not None else None
+        self._credit_router = credit_router
+        # Handler-declared terminal status (progress + message), read by the
+        # runtime after the handler returns to stamp the END frame (L3/L5).
+        self._final_status_lock = threading.Lock()
+        self._final_status: Optional[FinalStatus] = None
 
     def _ensure_stream_started(self) -> None:
-        """Send STREAM_START if not yet sent. Seq and routing_id assigned here."""
+        """Send STREAM_START if not yet sent. Seq and routing_id assigned here.
+
+        Registers this stream's credit gate so inbound CREDIT frames find it.
+        """
         with self.stream_lock:
             if not self.stream_started:
                 self.stream_started = True
+                if self._credit_gate is not None and self._credit_router is not None:
+                    self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
                 start_frame = Frame.stream_start(self.request_id, self.stream_id, self.media_urn)
                 start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
                 self.writer.write(start_frame)
+
+    def _acquire_credit(self) -> None:
+        """Acquire one chunk of credit, blocking if the window is exhausted.
+        Uncredited emitters return immediately. A closed gate (request
+        terminated/cancelled) fails the write — the producer must stop (L13).
+        """
+        if self._credit_gate is not None:
+            try:
+                self._credit_gate.acquire(1)
+            except CreditClosed as e:
+                raise HandlerError(str(e))
+
+    def finish(self, progress: float, message: str = "") -> None:
+        """Declare the request's terminal status (final progress + message),
+        delivered in the END frame's terminal metadata when the handler
+        completes successfully (L3/L5). Optional — without a call, a
+        successful END carries progress 1.0. The last call before the
+        handler returns wins. Do NOT emit a trailing 100% progress LOG
+        frame; the END terminal metadata IS the final progress event and
+        cannot race END.
+        """
+        with self._final_status_lock:
+            self._final_status = FinalStatus(
+                progress=float(progress),
+                message=message if message else None,
+            )
+
+    def take_final_status(self) -> Optional[FinalStatus]:
+        """Read (and clear) the handler-declared terminal status. Called by
+        the runtime after the handler returns to stamp the END frame."""
+        with self._final_status_lock:
+            status = self._final_status
+            self._final_status = None
+            return status
 
     def emit_cbor(self, value: Any) -> None:
         """Emit a CBOR value as output.
@@ -561,6 +849,7 @@ class ThreadSafeEmitter:
 
         Each CHUNK payload can be decoded independently: cbor2.loads(chunk.payload)
         Seq is assigned by SyncFrameWriter — pass 0 as placeholder.
+        Awaits (blocks) per chunk when the flow-control window is exhausted (L9).
         Raises: RuntimeError on write failure."""
         self._ensure_stream_started()
 
@@ -582,6 +871,7 @@ class ThreadSafeEmitter:
                 # Seq=0 placeholder — SyncFrameWriter assigns the real seq
                 frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
                 frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+                self._acquire_credit()
                 self.writer.write(frame)
 
                 offset += chunk_size
@@ -612,6 +902,7 @@ class ThreadSafeEmitter:
                 # Seq=0 placeholder — SyncFrameWriter assigns the real seq
                 frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
                 frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+                self._acquire_credit()
                 self.writer.write(frame)
 
                 offset += len(chunk_str.encode('utf-8'))
@@ -627,6 +918,7 @@ class ThreadSafeEmitter:
 
                 frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
                 frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+                self._acquire_credit()
                 self.writer.write(frame)
 
         elif isinstance(value, dict):
@@ -641,6 +933,7 @@ class ThreadSafeEmitter:
 
                 frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
                 frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+                self._acquire_credit()
                 self.writer.write(frame)
 
         else:
@@ -653,6 +946,7 @@ class ThreadSafeEmitter:
 
             frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
             frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
+            self._acquire_credit()
             self.writer.write(frame)
 
     def finalize(self) -> None:
@@ -660,11 +954,17 @@ class ThreadSafeEmitter:
         Must be called exactly once after the handler returns.
         If handler never emitted, sends STREAM_START first for protocol consistency.
         Seq assigned by SyncFrameWriter for all frames.
+
+        The END frame carries the terminal metadata (L3/L5): the handler's
+        declared final status (via `finish()`), or the 1.0 default. Final
+        progress rides IN the terminal frame — it cannot race it.
         """
         # Ensure STREAM_START was sent (even if handler emitted nothing)
         with self.stream_lock:
             if not self.stream_started:
                 self.stream_started = True
+                if self._credit_gate is not None and self._credit_router is not None:
+                    self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
                 start_frame = Frame.stream_start(self.request_id, self.stream_id, self.media_urn)
                 start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
                 self.writer.write(start_frame)
@@ -674,8 +974,11 @@ class ThreadSafeEmitter:
         stream_end.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(stream_end)
 
-        # END (seq assigned by SyncFrameWriter)
-        end_frame = Frame.end(self.request_id, None)
+        # END (seq assigned by SyncFrameWriter) — carries the final progress.
+        declared = self.take_final_status()
+        progress = declared.progress if declared is not None else 1.0
+        message = declared.message if declared is not None else None
+        end_frame = Frame.end_ok_with(self.request_id, None, progress, message)
         end_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(end_frame)
 
@@ -684,6 +987,10 @@ class ThreadSafeEmitter:
 
         Unlike emit_cbor which CBOR-encodes the value, this sends raw bytes
         directly as frame payloads. Each chunk is independently processable.
+
+        Awaits (blocks) per chunk when the flow-control window is exhausted
+        (L9); the receiver's consumption replenishes it. `blocking_write` is
+        an alias — see class docstring.
         """
         self._ensure_stream_started()
         offset = 0
@@ -697,9 +1004,14 @@ class ThreadSafeEmitter:
 
             frame = Frame.chunk(self.request_id, self.stream_id, 0, chunk_payload, idx, compute_checksum(chunk_payload))
             frame.routing_id = self.routing_id
+            self._acquire_credit()
             self.writer.write(frame)
 
             offset += chunk_size
+
+    def blocking_write(self, data: bytes) -> None:
+        """Alias for `write` — see class docstring on the blocking/async split."""
+        self.write(data)
 
     def emit_list_item(self, value: Any) -> None:
         """Emit a single CBOR value as one item in an RFC 8742 CBOR sequence.
@@ -712,6 +1024,9 @@ class ThreadSafeEmitter:
 
         Unlike emit_cbor (which re-wraps each piece as a separate CBOR value),
         this sends raw CBOR bytes as frame payloads directly.
+
+        Awaits (blocks) per chunk when the flow-control window is exhausted
+        (L9). `blocking_emit_list_item` is an alias — see class docstring.
         """
         self._ensure_stream_started()
         cbor_bytes = cbor2.dumps(value)
@@ -727,20 +1042,28 @@ class ThreadSafeEmitter:
 
             frame = Frame.chunk(self.request_id, self.stream_id, 0, chunk_payload, idx, compute_checksum(chunk_payload))
             frame.routing_id = self.routing_id
+            self._acquire_credit()
             self.writer.write(frame)
 
             offset += chunk_size
 
+    def blocking_emit_list_item(self, value: Any) -> None:
+        """Alias for `emit_list_item` — see class docstring on the blocking/async split."""
+        self.emit_list_item(value)
+
     def emit_log(self, level: str, message: str) -> None:
         """Emit a log message at the given level.
         Sends a LOG frame (side-channel, does not affect response stream).
-        Seq assigned by SyncFrameWriter."""
+        Seq assigned by SyncFrameWriter. Never credited (L14) — control
+        frames must flow even while the data window is exhausted."""
         frame = Frame.log(self.request_id, level, message)
         frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(frame)
 
     def progress(self, progress: float, message: str) -> None:
-        """Emit a progress update (0.0-1.0) with a human-readable status message."""
+        """Emit a progress update (0.0-1.0) with a human-readable status message.
+        Never credited (L14) — control frames must flow even while the data
+        window is exhausted."""
         frame = Frame.progress(self.request_id, progress, message)
         frame.routing_id = self.routing_id
         self.writer.write(frame)
@@ -885,7 +1208,15 @@ class InputPackage:
 
 
 class OutputStream:
-    """Synchronous output stream that emits STREAM_START/CHUNK/STREAM_END frames."""
+    """Synchronous output stream that emits STREAM_START/CHUNK/STREAM_END frames.
+
+    Flow control (protocol v3, L9): when constructed with a `credit_router`,
+    every CHUNK acquires one credit before it is sent — the receiver's
+    consumption replenishes it. `write`/`emit_list_item` block the calling
+    thread on an exhausted window; `blocking_write`/`blocking_emit_list_item`
+    are aliases (this class is already thread-based/blocking throughout —
+    matches `capdag.bifaci.credit`'s own alias idiom).
+    """
 
     def __init__(
         self,
@@ -895,6 +1226,8 @@ class OutputStream:
         media_urn: str,
         routing_id: Optional[MessageId] = None,
         max_chunk: Optional[int] = None,
+        credit_router: Optional[CreditRouter] = None,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
     ):
         self.writer = writer
         self.request_id = request_id
@@ -906,10 +1239,17 @@ class OutputStream:
         self.started = False
         self.closed = False
         self._lock = threading.Lock()
+        # Per-stream flow-control window (L9). None = uncredited context —
+        # writes never wait.
+        self._credit_gate = CreditGate(initial_credit) if credit_router is not None else None
+        self._credit_router = credit_router
 
     def _start_unlocked(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
         if self.started:
             return
+        # Register this stream's credit gate so inbound CREDIT frames find it.
+        if self._credit_gate is not None and self._credit_router is not None:
+            self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
         frame = Frame.stream_start(
             self.request_id,
             self.stream_id,
@@ -927,7 +1267,19 @@ class OutputStream:
         with self._lock:
             self._start_unlocked(is_sequence=is_sequence, meta=meta)
 
+    def _acquire_credit(self) -> None:
+        """Acquire one chunk of credit, blocking if the window is exhausted.
+        Uncredited streams return immediately. A closed gate (request
+        terminated/cancelled) fails the write — the producer must stop (L13).
+        """
+        if self._credit_gate is not None:
+            try:
+                self._credit_gate.acquire(1)
+            except CreditClosed as e:
+                raise RuntimeError(str(e))
+
     def _write_chunk_payload(self, payload: bytes) -> None:
+        self._acquire_credit()
         frame = Frame.chunk(
             self.request_id,
             self.stream_id,
@@ -940,8 +1292,29 @@ class OutputStream:
         self.writer.write(frame)
         self.chunk_index += 1
 
+    def write(self, data: bytes) -> None:
+        """Write raw bytes. Splits into max_chunk pieces, each wrapped as
+        CBOR bytes. Requires `start(False)` (write mode) to have been called
+        first. Awaits (blocks) per chunk when the flow-control window is
+        exhausted (L9)."""
+        with self._lock:
+            if self.closed:
+                raise RuntimeError("OutputStream already closed")
+            if not self.started:
+                self._start_unlocked()
+            offset = 0
+            while offset < len(data):
+                chunk_size = min(self.max_chunk, len(data) - offset)
+                self._write_chunk_payload(cbor2.dumps(data[offset:offset + chunk_size]))
+                offset += chunk_size
+
+    def blocking_write(self, data: bytes) -> None:
+        """Alias for `write` — see class docstring on the blocking/async split."""
+        self.write(data)
+
     def emit_cbor(self, value: Any) -> None:
-        """Emit a CBOR value split into max_chunk-sized CHUNK payloads."""
+        """Emit a CBOR value split into max_chunk-sized CHUNK payloads.
+        Awaits (blocks) per chunk when the flow-control window is exhausted (L9)."""
         with self._lock:
             if self.closed:
                 raise RuntimeError("OutputStream already closed")
@@ -999,14 +1372,21 @@ class PeerCall:
         response: Optional[PeerResponse] = None,
         routing_id: Optional[MessageId] = None,
         max_chunk: Optional[int] = None,
+        credit_router: Optional[CreditRouter] = None,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
     ):
         self.writer = writer
         self.request_id = request_id
         self.response = response
         self.routing_id = routing_id
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
+        self.credit_router = credit_router
+        self.initial_credit = initial_credit
 
     def arg(self, media_urn: str) -> OutputStream:
+        """Create a new arg OutputStream for this peer call. Each arg is an
+        independent stream (own stream_id, no routing_id), flow-controlled
+        by the callee's consumption (L14)."""
         import uuid as _uuid
 
         return OutputStream(
@@ -1016,6 +1396,8 @@ class PeerCall:
             media_urn=media_urn,
             routing_id=self.routing_id,
             max_chunk=self.max_chunk,
+            credit_router=self.credit_router,
+            initial_credit=self.initial_credit,
         )
 
     def finish(self) -> Optional[PeerResponse]:
@@ -1260,7 +1642,12 @@ def collect_streams(frames: queue.Queue) -> List[Tuple[str, bytes]]:
     return result
 
 
-def demux_peer_response(raw_frames: queue.Queue) -> PeerResponse:
+def demux_peer_response(
+    raw_frames: queue.Queue,
+    writer: Optional[SyncFrameWriter] = None,
+    request_id: Optional[MessageId] = None,
+    initial_credit: int = DEFAULT_INITIAL_CREDIT,
+) -> PeerResponse:
     """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems.
 
     Spawns a background thread that reads frames from the raw queue and
@@ -1269,8 +1656,31 @@ def demux_peer_response(raw_frames: queue.Queue) -> PeerResponse:
     the engine's activity timer alive during long peer calls).
 
     This mirrors Rust's demux_single_stream() function.
+
+    When `writer` and `request_id` are both supplied, data consumption emits
+    batched RESPONSE-direction CREDIT grants (L10/L14) — a slow consumer
+    naturally throttles the responding peer's output. Mirrors the Rust
+    reference's response-side crediting: consumption is granted, but (unlike
+    the handler-input demux) the response side is not window-checked for
+    violations.
     """
     item_queue: queue.Queue = queue.Queue(maxsize=256)
+    accountant = (
+        CreditWindowAccountant(initial_credit, check_violations=False)
+        if writer is not None and request_id is not None
+        else None
+    )
+
+    def _grant_if_due() -> None:
+        if accountant is None:
+            return
+        n = accountant.take_due_grant()
+        if n:
+            grant_frame = Frame.credit(request_id, None, n, CreditDirection.RESPONSE)
+            try:
+                writer.write(grant_frame)
+            except Exception:
+                pass
 
     def _demux_worker():
         for frame in iter(raw_frames.get, None):
@@ -1295,6 +1705,9 @@ def demux_peer_response(raw_frames: queue.Queue) -> PeerResponse:
                     try:
                         value = cbor2.loads(frame.payload)
                         item_queue.put(PeerResponseItem.data_ok(value))
+                        if accountant is not None:
+                            accountant.account()
+                            _grant_if_due()
                     except Exception as e:
                         item_queue.put(PeerResponseItem.data_err(
                             PeerResponseError(f"CBOR decode error: {e}")
@@ -1764,6 +2177,14 @@ class CartridgeRuntime:
         self.manifest_data = manifest_data
         self.limits = Limits.default()
 
+        # Concurrency capacity: 0 = unlimited, N = max N concurrent handlers.
+        # Shared via CapacityHandle so handlers can adjust dynamically.
+        self._capacity = CapacityHandle(0)
+
+        # Process-wide dropped-frame accounting (L8). Shared with the writer's
+        # terminal gate, every write-failure drop, and the stats surface.
+        self._drop_counters = DropCounters()
+
         # Try to parse the manifest for CLI mode support
         try:
             manifest_dict = json.loads(manifest_data)
@@ -1822,6 +2243,34 @@ class CartridgeRuntime:
 
         if self.find_handler(CAP_ADAPTER_SELECTION) is None:
             self.register_op_type(CAP_ADAPTER_SELECTION, AdapterSelectionOp)
+
+    def set_capacity(self, n: int) -> None:
+        """Set the maximum number of concurrent handler invocations.
+
+        When set to N > 0, the runtime queues incoming requests beyond N
+        active handlers. Queued requests receive a LOG frame with
+        `level="queued"` so the pipeline's activity timeout pauses for that
+        body.
+
+        * `0` — unlimited (default)
+        * `1` — serial execution (e.g. a cartridge with a single loaded model)
+        * `N` — up to N concurrent handlers
+        """
+        self._capacity.set(n)
+
+    def capacity_handle(self) -> CapacityHandle:
+        """Get a shared handle to the concurrency capacity.
+
+        Handlers can use this to adjust capacity dynamically at runtime —
+        for example, increasing capacity after freeing VRAM or decreasing it
+        under memory pressure.
+        """
+        return self._capacity
+
+    def protocol_drops(self) -> DropSnapshot:
+        """Protocol observability snapshot (L8): this runtime's dropped-frame
+        counters (post-terminal gate, write failures)."""
+        return self._drop_counters.snapshot()
 
     def register_op(self, cap_urn: str, factory: OpFactory) -> None:
         """Register an Op factory for a cap URN.
@@ -2013,7 +2462,9 @@ class CartridgeRuntime:
         # All frames written through this get monotonically increasing seq per flow.
         # Matches Rust cartridge_runtime writer thread + SeqAssigner.
         raw_writer = FrameWriter(sys.stdout.buffer)
-        sync_writer = SyncFrameWriter(raw_writer)
+        # Shared, process-wide drop accounting (L8): the writer's terminal
+        # gate and every write-failure share this runtime's counters.
+        sync_writer = SyncFrameWriter(raw_writer, drops=self._drop_counters)
 
         # Perform handshake - send our manifest in the HELLO response
         # Handshake uses raw_writer directly (HELLO is non-flow, seq doesn't matter)
@@ -2036,6 +2487,77 @@ class CartridgeRuntime:
 
         # Track active handler threads for cleanup
         active_handlers: List[threading.Thread] = []
+
+        # Routes inbound CREDIT frames to the gates of streams local senders
+        # are writing (protocol v3 flow control, both directions). Gates
+        # register when an emitter/OutputStream starts a credited stream;
+        # close_request releases waiters on handler completion.
+        credit_router = CreditRouter()
+
+        # Concurrency capacity queueing (set_capacity/capacity_handle): when
+        # the runtime is at capacity, dispatch-ready requests are queued
+        # instead of spawned, with a "queued" LOG frame telling the pipeline
+        # to pause its activity timeout for that body. A slot frees the
+        # instant a handler finishes (not on the next stdin frame) — the
+        # finishing handler itself drains the queue.
+        capacity_lock = threading.Lock()
+        running_handler_count = 0
+        # Each entry: (request_id, routing_id, zero-arg target callable).
+        request_queue: List[Tuple[MessageId, Optional[MessageId], Callable[[], None]]] = []
+
+        def _spawn_thread(target_fn: Callable[[], None]) -> None:
+            nonlocal running_handler_count
+            running_handler_count += 1
+            thread = threading.Thread(target=target_fn, daemon=True)
+            thread.start()
+            active_handlers.append(thread)
+
+        def _drain_queue_locked() -> None:
+            """Spawn handlers for queued requests while capacity allows.
+            Caller must hold capacity_lock."""
+            nonlocal running_handler_count
+            cap = self._capacity.get()
+            while request_queue and (cap == 0 or running_handler_count < cap):
+                qrid, qxid, qfn = request_queue.pop(0)
+                dequeued_log = Frame.log(qrid, "dequeued", "Request dequeued, handler starting")
+                dequeued_log.routing_id = qxid
+                try:
+                    sync_writer.write(dequeued_log)
+                except Exception:
+                    pass
+                _spawn_thread(qfn)
+                cap = self._capacity.get()
+
+        def _on_handler_done(request_id: MessageId) -> None:
+            """Called by a handler thread right after it finishes (success or
+            error) — releases its credit waiters (L13) and immediately drains
+            one queued request into the freed slot."""
+            nonlocal running_handler_count
+            credit_router.close_request(request_id, "END")
+            with capacity_lock:
+                running_handler_count -= 1
+                _drain_queue_locked()
+
+        def _spawn_or_queue(request_id: MessageId, routing_id: Optional[MessageId], target_fn: Callable[[], None]) -> None:
+            """Dispatch a fully-buffered request: spawn immediately under
+            capacity, else queue it with a "queued" LOG frame."""
+            nonlocal running_handler_count
+            with capacity_lock:
+                cap = self._capacity.get()
+                if cap > 0 and running_handler_count >= cap:
+                    queue_pos = len(request_queue) + 1
+                    log_frame = Frame.log(
+                        request_id, "queued",
+                        f"Request queued (position {queue_pos}, {running_handler_count} active)",
+                    )
+                    log_frame.routing_id = routing_id
+                    try:
+                        sync_writer.write(log_frame)
+                    except Exception:
+                        pass
+                    request_queue.append((request_id, routing_id, target_fn))
+                else:
+                    _spawn_thread(target_fn)
 
         # Process requests - main loop stays responsive
         while True:
@@ -2101,11 +2623,23 @@ class CartridgeRuntime:
             elif frame.frame_type == FrameType.HEARTBEAT:
                 # Respond to heartbeat immediately - never blocked by handlers
                 response = Frame.heartbeat(frame.id)
+                # Protocol observability (L8): this cartridge's dropped-frame
+                # total rides every heartbeat so the host can surface it
+                # without a dedicated stats round-trip.
+                response.meta = {"drops_total": self._drop_counters.total()}
                 try:
                     sync_writer.write(response)
                 except Exception as e:
                     print(f"[CartridgeRuntime] Failed to write heartbeat response: {e}", file=sys.stderr)
                     break
+
+            elif frame.frame_type == FrameType.CREDIT:
+                # Flow-control grant for one of this request's output streams
+                # (ours or a peer-call arg stream). Grants only ever unblock a
+                # credit-waiting sender; a grant for a request with no
+                # registered gate (request finished, or its output is not
+                # credit-blocked) is a correct no-op.
+                credit_router.grant(frame)
 
             elif frame.frame_type == FrameType.HELLO:
                 # Unexpected HELLO after handshake - protocol error
@@ -2180,9 +2714,41 @@ class CartridgeRuntime:
                                 pass
                             continue
 
+                        # Credit-violation check (L12): a chunk beyond the
+                        # granted window is a fatal protocol error for this
+                        # request. This mirror's demux buffers each stream to
+                        # completion synchronously, so "arrival" IS
+                        # "consumption" here — see CreditWindowAccountant.
+                        window = pending_req.credit_windows.get(stream_id)
+                        if window is not None and window.account():
+                            del pending_incoming[frame_id_str]
+                            err_frame = Frame.err(
+                                frame.id, "CREDIT_VIOLATION",
+                                f"chunk received beyond the granted window on stream {stream_id} (L12)",
+                            )
+                            err_frame.routing_id = pending_req.routing_id
+                            try:
+                                sync_writer.write(err_frame)
+                            except Exception:
+                                pass
+                            continue
+
                         # Valid chunk for active stream
                         if frame.payload:
                             found_stream.chunks.append(frame.payload)
+
+                        # Batched CREDIT grant (L10): one grant per
+                        # window/2 chunks consumed, replenishing the sender's
+                        # window so it can keep streaming this arg.
+                        if window is not None:
+                            due = window.take_due_grant()
+                            if due:
+                                grant_frame = Frame.credit(frame.id, stream_id, due, CreditDirection.REQUEST)
+                                grant_frame.routing_id = pending_req.routing_id
+                                try:
+                                    sync_writer.write(grant_frame)
+                                except Exception:
+                                    pass
                         continue  # Wait for more chunks or STREAM_END
 
                 # Not an incoming request chunk - must be a peer response chunk
@@ -2236,55 +2802,69 @@ class CartridgeRuntime:
                         import uuid as _uuid
                         response_stream_id = f"resp-{_uuid.uuid4().hex[:8]}"
                         # SyncFrameWriter assigns seq centrally for all frames
-                        # routing_id (XID) is propagated from incoming REQ to all response frames
-                        emitter = ThreadSafeEmitter(sync_writer, request_id, response_stream_id, "media:", routing_id, max_chunk)
-                        peer_invoker = PeerInvokerImpl(sync_writer, pending_peer_requests, max_chunk)
+                        # routing_id (XID) is propagated from incoming REQ to all response frames.
+                        # Output is credited (L9): the receiver's consumption
+                        # grants this stream's window.
+                        emitter = ThreadSafeEmitter(
+                            sync_writer, request_id, response_stream_id, "media:", routing_id, max_chunk,
+                            credit_router=credit_router, initial_credit=self.limits.initial_credit,
+                        )
+                        peer_invoker = PeerInvokerImpl(
+                            sync_writer, pending_peer_requests, max_chunk,
+                            credit_router=credit_router, initial_credit=self.limits.initial_credit,
+                        )
 
-                        # Create queue and populate with request frames
-                        frames = queue.Queue()
                         try:
-                            # Convert streams to Frame sequence: STREAM_START → CHUNK → STREAM_END → END
-                            for stream_id, stream in streams_snapshot:
-                                # STREAM_START
-                                frames.put(Frame.stream_start(request_id, stream_id, stream.media_urn))
-
-                                # CHUNKs
-                                for seq, chunk_data in enumerate(stream.chunks):
-                                    frames.put(Frame.chunk(request_id, stream_id, seq, chunk_data, seq, compute_checksum(chunk_data)))
-
-                                # STREAM_END
-                                frames.put(Frame.stream_end(request_id, stream_id, len(stream.chunks)))
-
-                            # END
-                            frames.put(Frame.end(request_id, None))
-                            frames.put(None)  # Signal end of stream
-                        except Exception as e:
-                            err_frame = Frame.err(request_id, "PAYLOAD_ERROR", str(e))
-                            err_frame.routing_id = routing_id  # Propagate XID
+                            # Create queue and populate with request frames
+                            frames = queue.Queue()
                             try:
-                                sync_writer.write(err_frame)
-                            except Exception as write_err:
-                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
-                            return
+                                # Convert streams to Frame sequence: STREAM_START → CHUNK → STREAM_END → END
+                                for stream_id, stream in streams_snapshot:
+                                    # STREAM_START
+                                    frames.put(Frame.stream_start(request_id, stream_id, stream.media_urn))
 
-                        # Execute Op handler
-                        try:
-                            dispatch_op(factory(), frames, emitter, peer_invoker)
+                                    # CHUNKs
+                                    for seq, chunk_data in enumerate(stream.chunks):
+                                        frames.put(Frame.chunk(request_id, stream_id, seq, chunk_data, seq, compute_checksum(chunk_data)))
 
-                            # Finalize: STREAM_END + END (seq assigned by SyncFrameWriter)
-                            emitter.finalize()
+                                    # STREAM_END
+                                    frames.put(Frame.stream_end(request_id, stream_id, len(stream.chunks)))
 
-                        except Exception as e:
-                            err_frame = Frame.err(request_id, "HANDLER_ERROR", str(e))
-                            err_frame.routing_id = routing_id  # Propagate XID
+                                # END
+                                frames.put(Frame.end(request_id, None))
+                                frames.put(None)  # Signal end of stream
+                            except Exception as e:
+                                err_frame = Frame.err(request_id, "PAYLOAD_ERROR", str(e))
+                                err_frame.routing_id = routing_id  # Propagate XID
+                                try:
+                                    sync_writer.write(err_frame)
+                                except Exception as write_err:
+                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                                return
+
+                            # Execute Op handler
                             try:
-                                sync_writer.write(err_frame)
-                            except Exception as write_err:
-                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                                dispatch_op(factory(), frames, emitter, peer_invoker)
 
-                    thread = threading.Thread(target=handle_streamed_request, daemon=True)
-                    thread.start()
-                    active_handlers.append(thread)
+                                # Finalize: STREAM_END + END (seq assigned by
+                                # SyncFrameWriter). END carries the handler's
+                                # declared final progress (L3/L5).
+                                emitter.finalize()
+
+                            except Exception as e:
+                                err_frame = Frame.err(request_id, "HANDLER_ERROR", str(e))
+                                err_frame.routing_id = routing_id  # Propagate XID
+                                try:
+                                    sync_writer.write(err_frame)
+                                except Exception as write_err:
+                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                        finally:
+                            # Release this request's credit waiters (L13) and
+                            # immediately drain one queued request into the
+                            # freed capacity slot.
+                            _on_handler_done(request_id)
+
+                    _spawn_or_queue(_request_id, _routing_id, handle_streamed_request)
                     continue
 
                 # Not an incoming request end - must be a peer response end
@@ -2352,6 +2932,10 @@ class CartridgeRuntime:
                                 chunks=[],
                                 complete=False
                             )))
+                            # Per-stream credit window (L10/L12): starts at
+                            # the negotiated initial_credit; batched grants
+                            # extend it as chunks are consumed.
+                            pending_req.credit_windows[stream_id] = CreditWindowAccountant(self.limits.initial_credit)
                         continue
 
                 # Not an incoming request - must be a peer response stream start
@@ -2394,6 +2978,20 @@ class CartridgeRuntime:
                                 sync_writer.write(err_frame)
                             except Exception:
                                 pass
+                        else:
+                            # Flush any pending sub-batch grant (L10 hygiene) —
+                            # the stream is done, no more chunks will arrive
+                            # to trigger the batch threshold naturally.
+                            window = pending_req.credit_windows.get(stream_id)
+                            if window is not None:
+                                due = window.flush()
+                                if due:
+                                    grant_frame = Frame.credit(frame.id, stream_id, due, CreditDirection.REQUEST)
+                                    grant_frame.routing_id = pending_req.routing_id
+                                    try:
+                                        sync_writer.write(grant_frame)
+                                    except Exception:
+                                        pass
                         continue
 
                 # Not an incoming request - must be a peer response stream end

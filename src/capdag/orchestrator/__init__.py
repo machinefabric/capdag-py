@@ -38,6 +38,7 @@ from capdag.orchestrator.cbor_util import (
     assemble_cbor_array,
     split_cbor_sequence,
     assemble_cbor_sequence,
+    wrap_raw_items_as_cbor_sequence,
 )
 
 from capdag.orchestrator.executor import (
@@ -77,6 +78,7 @@ __all__ = [
     "assemble_cbor_array",
     "split_cbor_sequence",
     "assemble_cbor_sequence",
+    "wrap_raw_items_as_cbor_sequence",
     # Progress mapping
     "CapProgressFn",
     "map_progress",

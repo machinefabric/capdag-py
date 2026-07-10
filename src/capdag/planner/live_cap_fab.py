@@ -16,6 +16,7 @@ Design Principles:
 from __future__ import annotations
 
 import threading
+import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -84,6 +85,70 @@ class LiveMachinePlanEdge:
         return None
 
 
+class ArgSourceRef:
+    """The producer of one of a cap step's inputs.
+
+    A `Strand` is a DAG of steps: an input is fed either by the strand's own
+    input (an input anchor) or by another cap step's output. There are no
+    positional assumptions — every input names its producer explicitly, so
+    fan-out (one producer feeding several caps' main inputs) and convergence
+    (one cap fed by several producers) are both expressible.
+    """
+
+    STRAND_INPUT = "strand_input"
+    STEP = "step"
+
+    __slots__ = ("kind", "token_id")
+
+    def __init__(self, kind: str, token_id: Optional[str] = None):
+        self.kind = kind
+        self.token_id = token_id
+
+    @staticmethod
+    def strand_input() -> "ArgSourceRef":
+        """Fed by the strand's input anchor — the strand's own input flows into this arg."""
+        return ArgSourceRef(ArgSourceRef.STRAND_INPUT)
+
+    @staticmethod
+    def step(token_id: str) -> "ArgSourceRef":
+        """Fed by another cap step's output, identified by that step's stable `token_id`."""
+        return ArgSourceRef(ArgSourceRef.STEP, token_id)
+
+    def is_strand_input(self) -> bool:
+        return self.kind == ArgSourceRef.STRAND_INPUT
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, ArgSourceRef)
+            and self.kind == other.kind
+            and self.token_id == other.token_id
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.kind, self.token_id))
+
+    def __repr__(self) -> str:
+        if self.kind == ArgSourceRef.STEP:
+            return f"ArgSourceRef.Step({self.token_id!r})"
+        return "ArgSourceRef.StrandInput"
+
+
+@dataclass
+class CapInput:
+    """One input to a cap step: the cap argument it feeds (by the argument's
+    slot media URN) and the producer of that input.
+
+    A cap step lists ALL of its data-flow inputs — the primary (stdin/main)
+    input and every convergence input — with no positional ordering
+    assumptions. The PRIMARY input is the one whose `arg_urn` is the cap's
+    stdin argument URN; it threads the step's `from_spec` runtime media. Arg
+    URNs into one cap are all distinct, so `arg_urn` alone identifies the slot.
+    """
+
+    arg_urn: MediaUrn
+    source: ArgSourceRef
+
+
 class StrandStepType(Enum):
     """Type of step in a capability chain path."""
     CAP = "cap"
@@ -95,10 +160,11 @@ class StrandStep:
     """Information about a single step in a capability chain path."""
 
     __slots__ = (
-        "step_type", "from_spec", "to_spec",
+        "token_id", "step_type", "from_spec", "to_spec",
         "cap_urn", "step_title", "specificity_val",
         "media_def",
         "input_is_sequence", "output_is_sequence",
+        "inputs",
     )
 
     def __init__(
@@ -112,7 +178,16 @@ class StrandStep:
         media_def: Optional[MediaUrn] = None,
         input_is_sequence: bool = False,
         output_is_sequence: bool = False,
+        inputs: Optional[List["CapInput"]] = None,
+        token_id: Optional[str] = None,
     ):
+        # Stable per-step identity, minted once when the step is created (the
+        # very source of a resolved strand) unless the caller preserves an
+        # existing one (e.g. deserialization). It is the single key that ties
+        # this element of the realized graph to every live update the run
+        # emits for it, so a repeated cap URN in one strand is never
+        # ambiguous.
+        self.token_id = token_id if token_id is not None else str(uuid.uuid4())
         self.step_type = step_type
         self.from_spec = from_spec
         self.to_spec = to_spec
@@ -122,6 +197,10 @@ class StrandStep:
         self.media_def = media_def
         self.input_is_sequence = input_is_sequence
         self.output_is_sequence = output_is_sequence
+        # ALL of this cap step's data-flow inputs — the primary (stdin) input
+        # plus any convergence inputs — each naming its producer explicitly.
+        # Only meaningful for CAP steps; None for ForEach/Collect.
+        self.inputs = inputs
 
     def title(self) -> str:
         if self.step_type == StrandStepType.CAP:
@@ -585,11 +664,18 @@ class LiveCapFab:
         if path and current.is_equivalent(target):
             steps = []
             cap_count = 0
+            # A fabricated cap's single input is its MAIN (stdin) input, fed by the
+            # previous cap step in the path being built, or by the strand input when
+            # this is the first cap. Path finding routes solely on main input→output
+            # (one main input, one output); non-main args are never routed by the
+            # planner, so a fabricated step has exactly one input by construction.
+            prev_cap_token: Optional[str] = None
             for edge in path:
-                step = self._edge_to_step(edge)
+                step = self._edge_to_step(edge, prev_cap_token)
                 steps.append(step)
                 if step.is_cap():
                     cap_count += 1
+                    prev_cap_token = step.token_id
 
             if depth_limit == 0:
                 if cap_count > 0:
@@ -638,9 +724,25 @@ class LiveCapFab:
         finally:
             visited.discard(vk)
 
-    def _edge_to_step(self, edge: LiveMachinePlanEdge) -> StrandStep:
-        """Convert a LiveMachinePlanEdge to a StrandStep."""
+    def _edge_to_step(
+        self,
+        edge: LiveMachinePlanEdge,
+        prev_cap_token: Optional[str] = None,
+    ) -> StrandStep:
+        """Convert a LiveMachinePlanEdge to a StrandStep.
+
+        `prev_cap_token` is the `token_id` of the most recently emitted CAP
+        step in the path being built (skipping over ForEach/Collect), or
+        `None` if this is the first cap. It becomes this step's single main
+        input's producer.
+        """
         if edge.edge_type == LiveMachinePlanEdgeType.CAP:
+            in_spec_urn = MediaUrn.from_string(edge.cap_urn.in_spec())
+            source = (
+                ArgSourceRef.step(prev_cap_token)
+                if prev_cap_token is not None
+                else ArgSourceRef.strand_input()
+            )
             return StrandStep(
                 step_type=StrandStepType.CAP,
                 from_spec=edge.from_spec,
@@ -650,6 +752,7 @@ class LiveCapFab:
                 specificity_val=edge.specificity_val,
                 input_is_sequence=edge.input_is_sequence,
                 output_is_sequence=edge.output_is_sequence,
+                inputs=[CapInput(arg_urn=in_spec_urn, source=source)],
             )
         elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:
             return StrandStep(

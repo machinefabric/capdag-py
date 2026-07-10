@@ -31,14 +31,25 @@ import json
 import threading
 import queue
 import time
-from typing import Any, Optional, List, Tuple, Dict
+from typing import Any, Callable, Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
 from capdag.bifaci.frame import (
-    Frame, FrameType, Limits, MessageId, compute_checksum,
+    Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
 from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity, identity_nonce
+from capdag.bifaci.request_state import (
+    FrameDirection,
+    RequestState,
+    RequestStateError,
+    RequestTable,
+    RequestTableSnapshot,
+    RoutingEntry,
+    TerminalKind,
+    TerminatedSummary,
+)
+from capdag.bifaci.stats import DropCounters, DropSnapshot, HostProtocolStats
 from capdag.standard.caps import CAP_IDENTITY
 from capdag.urn.cap_urn import CapUrn
 
@@ -189,6 +200,12 @@ class CartridgeRuntimeStats:
     memory_rss_mb: int = 0
     last_heartbeat_unix_seconds: Optional[int] = None
     restart_count: int = 0
+    #: Cumulative protocol drop count self-reported by the cartridge as
+    #: ``drops_total`` in heartbeat response meta (writer-gate post-terminal
+    #: drops, closed-channel sends, …). ``None`` until the first heartbeat
+    #: round-trip carries the counter — never a fabricated zero. Mirrors the
+    #: reference ``CartridgeRuntimeStats.protocol_drops_total`` (L8).
+    protocol_drops_total: Optional[int] = None
 
 
 @dataclass
@@ -277,14 +294,6 @@ class InstalledCartridgeRecord:
 
 
 @dataclass
-class RoutingEntry:
-    """Routing entry for request tracking"""
-    source_master_idx: int  # Index of source master (ENGINE_SOURCE for engine-initiated)
-    destination_master_idx: int  # Index of destination master
-    request_id: MessageId  # original MessageId for cancel frames
-
-
-@dataclass
 class MasterFrame:
     """Frame received from a master"""
     master_idx: int
@@ -292,8 +301,42 @@ class MasterFrame:
     error: Optional[Exception]
 
 
-# Sentinel value for engine-initiated requests
-ENGINE_SOURCE = 2**63 - 1
+@dataclass
+class RelaySwitchProtocolStats:
+    """The switch's protocol observability snapshot (L8): live request state,
+    recent terminations, and per-reason drop counters. Field names are the
+    mirror contract. Mirrors the reference ``RelaySwitchProtocolStats``.
+
+    ``hosts`` is per-master host protocol stats (drops, routing-table sizes,
+    GC totals), keyed by master id, as reported in each host's latest
+    RelayNotify. A master that has not yet advertised host stats is absent
+    — never a zeroed placeholder.
+    """
+    requests: RequestTableSnapshot
+    drops: DropSnapshot
+    hosts: Dict[str, "HostProtocolStats"] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "requests": self.requests.to_dict(),
+            "drops": self.drops.to_dict(),
+            "hosts": {k: v.to_dict() for k, v in self.hosts.items()},
+        }
+
+
+def _extract_parent_rid(meta: Optional[Dict[str, Any]]) -> Optional[MessageId]:
+    """Extract the ``parent_rid`` cancel-cascade marker from a REQ's meta, if
+    present. The value is CBOR-decoded already: 16-byte ``bytes``/``bytearray``
+    for a UUID rid, or ``int`` for a Uint rid. Any other shape (or absence) is
+    "no parent" — never an error, since most REQs are not peer calls."""
+    if not meta:
+        return None
+    raw = meta.get("parent_rid")
+    if isinstance(raw, (bytes, bytearray)) and len(raw) == 16:
+        return MessageId(bytes(raw))
+    if isinstance(raw, int):
+        return MessageId(raw)
+    return None
 
 
 # =============================================================================
@@ -342,9 +385,16 @@ class RelaySwitch:
 
         self._masters: List[_MasterConnection] = []
         self._cap_table: List[Tuple[str, int]] = []  # (cap_urn, master_idx)
-        self._request_routing: Dict[str, RoutingEntry] = {}
-        self._peer_requests: set = set()  # Request IDs for peer-initiated requests
-        self._peer_call_parents: Dict[str, List[str]] = {}  # parent key → list of child peer-call keys
+        # Unified per-request state (L7): routing, origin, peer markers,
+        # cancel-cascade children, external response channel, per-stream flow
+        # stats, and the rid→xid index — one entry, one registration, one
+        # termination. Replaces the smeared routing/peer/parent maps. Guarded
+        # by `self._lock` (the table itself is unsynchronized, mirroring the
+        # reference `RwLock<RequestTable>`).
+        self._requests: RequestTable = RequestTable()
+        # Dropped-frame accounting (L8): unroutable/post-terminal frames are
+        # counted drops, never silent losses and never protocol errors.
+        self._drops: DropCounters = DropCounters()
         self._aggregate_capabilities: bytes = b""
         self._aggregate_installed_cartridges: List[InstalledCartridgeRecord] = []
         self._negotiated_limits: Limits = Limits.default()
@@ -406,7 +456,7 @@ class RelaySwitch:
             if manifest is None or limits is None:
                 raise ProtocolError("RelayNotify missing manifest or limits")
 
-            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+            caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
 
@@ -445,7 +495,8 @@ class RelaySwitch:
                 caps=caps,
                 installed_cartridges=installed_cartridges,
                 healthy=True,
-                reader_handle=reader_thread
+                reader_handle=reader_thread,
+                host_protocol_stats=host_protocol_stats,
             )
             self._masters.append(master_conn)
             reader_thread.start()
@@ -517,7 +568,7 @@ class RelaySwitch:
             limits = frame.relay_notify_limits()
             if manifest is None or limits is None:
                 raise ProtocolError("RelayNotify missing manifest or limits")
-            caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+            caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
 
@@ -568,6 +619,7 @@ class RelaySwitch:
                         healthy=healthy_at_register,
                         reader_handle=reader_thread,
                         last_error=identity_failure,
+                        host_protocol_stats=host_protocol_stats,
                     ))
                 else:
                     slot = self._masters[master_idx]
@@ -589,6 +641,7 @@ class RelaySwitch:
                     slot.healthy = healthy_at_register
                     slot.reader_handle = reader_thread
                     slot.last_error = identity_failure
+                    slot.host_protocol_stats = host_protocol_stats
 
                 self._rebuild_cap_table()
                 self._rebuild_installed_cartridges()
@@ -653,7 +706,7 @@ class RelaySwitch:
                     manifest = frame.relay_notify_manifest()
                     limits = frame.relay_notify_limits()
                     if manifest is not None and limits is not None:
-                        caps, installed_cartridges = _parse_relay_notify_payload(manifest)
+                        caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
                         probe_required = False
                         with self._lock:
                             if 0 <= master_idx < len(self._masters):
@@ -672,6 +725,7 @@ class RelaySwitch:
                                 master.limits = limits
                                 master.caps = caps
                                 master.installed_cartridges = installed_cartridges
+                                master.host_protocol_stats = host_protocol_stats
                                 if probe_required:
                                     master.healthy = False
                                     master.last_error = (
@@ -736,41 +790,89 @@ class RelaySwitch:
         with self._lock:
             return list(self._aggregate_installed_cartridges)
 
+    def set_terminate_observer(
+        self, observer: Optional[Callable[[TerminatedSummary], None]]
+    ) -> None:
+        """Install a termination observer on the request table (L8): called
+        with every termination's summary, under the table guard — must be
+        cheap. Lets a caller accumulate complete per-run history without
+        missing terminations between ``protocol_stats()`` polls (the ring
+        evicts at 64). Installing replaces any previously-installed observer.
+        Mirrors the reference ``RelaySwitch::set_terminate_observer``.
+        """
+        with self._lock:
+            self._requests.set_terminate_observer(observer)
+
+    def protocol_stats(self) -> RelaySwitchProtocolStats:
+        """Protocol observability snapshot (L8): every live request's phase,
+        age, per-stream flow counters, and children; the recently-terminated
+        ring; and the per-reason drop totals. Poll this to understand the
+        state of communications and the flow of requests through the switch.
+
+        ``hosts`` is per-master host protocol stats, keyed by master id, as
+        reported in each host's latest RelayNotify. A master that has not
+        yet advertised host stats is absent — never a zeroed placeholder.
+        """
+        with self._lock:
+            hosts: Dict[str, HostProtocolStats] = {}
+            for master in self._masters:
+                if master.host_protocol_stats is not None:
+                    hosts[master.id] = master.host_protocol_stats
+            return RelaySwitchProtocolStats(
+                requests=self._requests.snapshot(),
+                drops=self._drops.snapshot(),
+                hosts=hosts,
+            )
+
     def cancel_request(self, rid: MessageId, force_kill: bool) -> None:
         """Cancel a specific in-flight request by request ID.
 
-        Sends Cancel frame to the destination master, cascades to child peer calls,
-        and cleans up all routing maps.
+        1. Looks up RID → XID → routing destination.
+        2. Terminates the request (Cancelled) FIRST — one atomic removal
+           yields the destination, the children for the cascade, and the
+           external channel for the final ERR (L7). A concurrent terminal
+           for the same key loses the race and is simply a no-op here.
+        3. Sends a Cancel frame to the destination master.
+        4. Recursively cancels the child peer calls recorded on the entry.
+        5. Sends ERR "CANCELLED" to the external response channel if present.
         """
         with self._lock:
-            self._cancel_request_locked(rid.to_string(), force_kill)
+            self._cancel_request_locked(rid, force_kill)
 
-    def _cancel_request_locked(self, rid_key: str, force_kill: bool) -> None:
+    def _cancel_request_locked(self, rid: MessageId, force_kill: bool) -> None:
         """Cancel a request. Must be called with self._lock held."""
-        entry = self._request_routing.get(rid_key)
-        if entry is None:
+        xid = self._requests.xid_for_rid(rid)
+        if xid is None:
             return
 
-        dest_idx = entry.destination_master_idx
-        rid = entry.request_id
+        key = (xid, rid)
+        state = self._requests.terminate(key, TerminalKind.CANCELLED)
+        if state is None:
+            return
 
-        # Build and send cancel frame to destination
+        # Send Cancel frame to destination
         cancel_frame = Frame.cancel(rid, force_kill)
+        cancel_frame.routing_id = xid
         try:
-            self._masters[dest_idx].socket_writer.write(cancel_frame)
+            self._masters[state.routing.destination_master_idx].socket_writer.write(cancel_frame)
         except Exception:
             pass
 
-        # Collect child peer calls for recursive cancel
-        children = self._peer_call_parents.pop(rid_key, [])
-
         # Recursively cancel children
-        for child_key in children:
-            self._cancel_request_locked(child_key, force_kill)
+        for _child_xid, child_rid in state.children:
+            self._cancel_request_locked(child_rid, force_kill)
 
-        # Cleanup routing maps
-        self._request_routing.pop(rid_key, None)
-        self._peer_requests.discard(rid_key)
+        # Send ERR "CANCELLED" to the external response channel if present.
+        # The send result is discarded, not drop-counted: only the primary
+        # response-forwarding path in `_handle_master_frame` counts
+        # channel_closed drops (mirrors the reference's `let _ = tx.send(...)`).
+        if state.external_channel is not None:
+            err_frame = Frame.err(rid, "CANCELLED", "Request cancelled")
+            err_frame.routing_id = xid
+            try:
+                state.external_channel(err_frame)
+            except Exception:
+                pass
 
     def cancel_all_requests(self, force_kill: bool) -> List[MessageId]:
         """Cancel all external-origin (engine-initiated) in-flight requests.
@@ -778,17 +880,13 @@ class RelaySwitch:
         Returns the list of cancelled request IDs.
         """
         with self._lock:
-            # Snapshot all engine-origin entries before mutating
-            engine_entries = [
-                (key, entry)
-                for key, entry in self._request_routing.items()
-                if entry.source_master_idx == ENGINE_SOURCE
-            ]
+            # Snapshot all external-origin (origin is None) rids before mutating
+            rids = [rid for _xid, rid in self._requests.keys_where(lambda s: s.origin is None)]
 
-            for key, entry in engine_entries:
-                self._cancel_request_locked(key, force_kill)
+            for rid in rids:
+                self._cancel_request_locked(rid, force_kill)
 
-            return [entry.request_id for _, entry in engine_entries]
+            return rids
 
     def send_to_master(self, frame: Frame, preferred_cap: Optional[str] = None) -> None:
         """Send a frame to the appropriate master (engine → cartridge direction)
@@ -813,30 +911,49 @@ class RelaySwitch:
                 if dest_idx is None:
                     raise NoHandlerError(frame.cap)
 
-                # Register routing (source = engine)
-                self._request_routing[frame.id.to_string()] = RoutingEntry(
-                    source_master_idx=ENGINE_SOURCE,
-                    destination_master_idx=dest_idx,
-                    request_id=frame.id,
-                )
+                # Assign a fresh XID and register the request (origin=None:
+                # external caller via send_to_master; no response channel —
+                # responses return via read_from_masters). Duplicate
+                # registration is a protocol violation and fails hard (L7).
+                xid = self._next_xid_locked()
+                frame.routing_id = xid
+                key = (xid, frame.id)
+                state = RequestState(
+                    routing=RoutingEntry(source_master_idx=None, destination_master_idx=dest_idx),
+                    origin=None,
+                    external_channel=None,
+                    is_peer=False,
+                ).with_cap_urn(frame.cap)
+                try:
+                    self._requests.register(key, state)
+                except RequestStateError as e:
+                    raise ProtocolError(str(e)) from e
 
                 self._masters[dest_idx].socket_writer.write(frame)
 
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK,
-                                     FrameType.STREAM_END, FrameType.END, FrameType.ERR):
-                # Continuation frames route by request ID
-                entry = self._request_routing.get(frame.id.to_string())
+                                     FrameType.STREAM_END, FrameType.END, FrameType.ERR,
+                                     FrameType.CANCEL, FrameType.CREDIT):
+                # Continuation/control frames from the engine: look up XID
+                # from RID if missing, then the destination — one table read.
+                # Unknown RID is a hard error back to the caller: the engine
+                # is a direct API client and must observe that the request no
+                # longer exists (already terminated) so it stops sending.
+                if frame.routing_id is not None:
+                    xid = frame.routing_id
+                else:
+                    xid = self._requests.xid_for_rid(frame.id)
+                    if xid is None:
+                        raise UnknownRequestError(frame.id.to_string())
+                    frame.routing_id = xid
+
+                key = (xid, frame.id)
+                entry = self._requests.get(key)
                 if entry is None:
                     raise UnknownRequestError(frame.id.to_string())
 
-                dest_idx = entry.destination_master_idx
+                dest_idx = entry.routing.destination_master_idx
                 self._masters[dest_idx].socket_writer.write(frame)
-
-                # Cleanup on terminal frames for peer responses
-                is_terminal = frame.frame_type in (FrameType.END, FrameType.ERR)
-                if is_terminal and frame.id.to_string() in self._peer_requests:
-                    del self._request_routing[frame.id.to_string()]
-                    self._peer_requests.discard(frame.id.to_string())
 
             else:
                 # Other frame types pass through to first master (or error)
@@ -914,11 +1031,15 @@ class RelaySwitch:
             # pump has no engine consumer.
             self._handle_master_frame(master_frame.master_idx, master_frame.frame)
 
-    def _next_xid(self) -> int:
+    def _next_xid_locked(self) -> MessageId:
+        """Allocate a fresh routing id (xid). Caller MUST hold ``_lock``."""
+        self._xid_counter += 1
+        return MessageId(self._xid_counter)
+
+    def _next_xid(self) -> MessageId:
         """Allocate a fresh routing id (xid). Caller must NOT hold ``_lock``."""
         with self._lock:
-            self._xid_counter += 1
-            return self._xid_counter
+            return self._next_xid_locked()
 
     def _probe_driver_loop(self) -> None:
         """Serially probe each master that transitioned empty→non-empty caps.
@@ -964,13 +1085,12 @@ class RelaySwitch:
         resp_q: "queue.Queue[Frame]" = queue.Queue()
 
         # Register the response channel and snapshot the writer under the lock.
-        xid_val = self._next_xid()
+        xid = self._next_xid()
         with self._lock:
             if not (0 <= master_idx < len(self._masters)):
                 return "identity probe: master index out of range"
             self._external_response_channels[rid_key] = resp_q
             writer = self._masters[master_idx].socket_writer
-        xid = MessageId(xid_val)
 
         try:
             req = Frame.req(rid, CAP_IDENTITY, b"", "application/cbor")
@@ -1117,13 +1237,31 @@ class RelaySwitch:
                 if dest_idx is None:
                     raise NoHandlerError(frame.cap)
 
-                # Register routing (source = cartridge's master)
-                self._request_routing[frame.id.to_string()] = RoutingEntry(
-                    source_master_idx=source_idx,
-                    destination_master_idx=dest_idx,
-                    request_id=frame.id,
-                )
-                self._peer_requests.add(frame.id.to_string())
+                # Assign the XID and register the peer request under the
+                # unified table (L7): origin = the source master (so the
+                # eventual response routes back here), is_peer marks the
+                # special cleanup semantics.
+                xid = self._next_xid_locked()
+                frame.routing_id = xid
+                rid = frame.id
+                key = (xid, rid)
+                state = RequestState(
+                    routing=RoutingEntry(source_master_idx=source_idx, destination_master_idx=dest_idx),
+                    origin=source_idx,
+                    external_channel=None,
+                    is_peer=True,
+                ).with_cap_urn(frame.cap)
+                try:
+                    self._requests.register(key, state)
+                except RequestStateError as e:
+                    raise ProtocolError(str(e)) from e
+
+                # Track parent→child for the cancel cascade.
+                parent_rid = _extract_parent_rid(frame.meta)
+                if parent_rid is not None:
+                    parent_xid = self._requests.xid_for_rid(parent_rid)
+                    if parent_xid is not None:
+                        self._requests.link_child((parent_xid, parent_rid), key)
 
                 self._masters[dest_idx].socket_writer.write(frame)
 
@@ -1132,7 +1270,7 @@ class RelaySwitch:
 
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK,
                                      FrameType.STREAM_END, FrameType.END,
-                                     FrameType.ERR, FrameType.LOG):
+                                     FrameType.ERR, FrameType.LOG, FrameType.CREDIT):
                 rid_key = frame.id.to_string()
 
                 # Deferred-identity-probe echo: route to the registered
@@ -1144,29 +1282,111 @@ class RelaySwitch:
                     ext_q.put(frame)
                     return None
 
-                entry = self._request_routing.get(frame.id.to_string())
-                if entry is not None and entry.source_master_idx != ENGINE_SOURCE:
-                    # Response to peer request
-                    dest_idx = entry.source_master_idx
+                if frame.routing_id is not None:
+                    # ========================================
+                    # HAS XID = RESPONSE (route back to origin)
+                    # ========================================
+                    xid = frame.routing_id
+                    rid = frame.id
+                    key = (xid, rid)
                     is_terminal = frame.frame_type in (FrameType.END, FrameType.ERR)
 
-                    self._masters[dest_idx].socket_writer.write(frame)
+                    # Record flow stats, resolve the return path, and — on
+                    # terminal — remove the whole entry atomically (L7). A
+                    # frame for a released key is a counted no_route drop,
+                    # never a protocol error and never silent (L8).
+                    self._requests.record_frame(key, FrameDirection.INBOUND, frame)
+                    if is_terminal:
+                        kind = TerminalKind.END if frame.frame_type == FrameType.END else TerminalKind.ERR
+                        state = self._requests.terminate(key, kind)
+                        if state is None:
+                            self._drops.record(DropReason.NO_ROUTE)
+                            return None
+                    else:
+                        state = self._requests.get(key)
+                        if state is None:
+                            self._drops.record(DropReason.NO_ROUTE)
+                            return None
 
-                    if is_terminal and frame.id.to_string() not in self._peer_requests:
-                        # Non-panicking removal: the entry may already be gone
-                        # (the reference's ``remove`` tolerates this), e.g. a
-                        # late/duplicate terminal frame or a flow with no
-                        # registered routing entry.
-                        self._request_routing.pop(frame.id.to_string(), None)
-
+                    if state.origin is None:
+                        # External caller (via send_to_master, or a manually
+                        # registered response channel — e.g. the identity probe).
+                        channel = state.external_channel
+                        if channel is not None:
+                            try:
+                                channel(frame)
+                            except Exception:
+                                self._drops.record(DropReason.CHANNEL_CLOSED)
+                                # A dead consumer on a LIVE request means the
+                                # caller abandoned it. Nobody can ever read this
+                                # response — cancel upstream so the cartridge
+                                # stops producing for a dead channel, instead of
+                                # letting the request run to completion and
+                                # counting a drop for every remaining frame.
+                                # Terminal frames need no cancel: the entry is
+                                # already terminated. Dispatched off-lock
+                                # (`_handle_master_frame` holds `self._lock` for
+                                # its whole body and `cancel_request` re-acquires
+                                # it — `threading.Lock` is not reentrant).
+                                if not is_terminal:
+                                    threading.Thread(
+                                        target=self.cancel_request,
+                                        args=(rid, False),
+                                        daemon=True,
+                                    ).start()
+                            return None
+                        else:
+                            # No response channel (sent via send_to_master, not
+                            # a registered external caller). Strip XID and
+                            # return to caller — final leg.
+                            frame.routing_id = None
+                            return frame
+                    else:
+                        # Route back to source master — KEEP XID.
+                        self._masters[state.origin].socket_writer.write(frame)
+                        return None
+                else:
+                    # ========================================
+                    # NO XID = REQUEST CONTINUATION
+                    # ========================================
+                    # Frame has no XID, so it's a request continuation
+                    # (peer-call argument streams / grants) flowing to the
+                    # destination. An unknown RID means the request already
+                    # terminated: counted drop (L6), not an error.
+                    rid = frame.id
+                    xid = self._requests.xid_for_rid(rid)
+                    if xid is None:
+                        self._drops.record(DropReason.NO_ROUTE)
+                        return None
+                    key = (xid, rid)
+                    self._requests.record_frame(key, FrameDirection.INBOUND, frame)
+                    state = self._requests.get(key)
+                    if state is None:
+                        self._drops.record(DropReason.NO_ROUTE)
+                        return None
+                    frame.routing_id = xid
+                    self._masters[state.routing.destination_master_idx].socket_writer.write(frame)
                     return None
 
-                # Response to engine request
-                is_terminal = frame.frame_type in (FrameType.END, FrameType.ERR)
-                if is_terminal and frame.id.to_string() not in self._peer_requests:
-                    self._request_routing.pop(frame.id.to_string(), None)
-
-                return frame
+            elif frame.frame_type == FrameType.CANCEL:
+                # Cancel from cartridge — route to destination like a
+                # continuation frame. Cartridge is cancelling its own peer
+                # call. Unknown RID means the request already completed: a
+                # well-defined no-op (silently ignored, never an error).
+                rid = frame.id
+                if frame.routing_id is not None:
+                    xid = frame.routing_id
+                else:
+                    xid = self._requests.xid_for_rid(rid)
+                    if xid is None:
+                        return None
+                    frame.routing_id = xid
+                key = (xid, rid)
+                state = self._requests.get(key)
+                if state is None:
+                    return None
+                self._masters[state.routing.destination_master_idx].socket_writer.write(frame)
+                return None
 
             else:
                 # Unknown frame type - return to engine
@@ -1180,16 +1400,39 @@ class RelaySwitch:
 
             self._masters[master_idx].healthy = False
 
-            # Cleanup routing for all requests destined to this master
-            to_remove = []
-            for req_id, entry in self._request_routing.items():
-                if entry.destination_master_idx == master_idx:
-                    to_remove.append(req_id)
+            # Find all pending requests routed to this master.
+            dead_keys = self._requests.keys_where(
+                lambda s: s.routing.destination_master_idx == master_idx
+            )
 
-            for req_id in to_remove:
-                del self._request_routing[req_id]
-                self._peer_requests.discard(req_id)
-                self._peer_call_parents.pop(req_id, None)
+            # Terminate each pending request (MasterDied) and deliver a
+            # synthetic ERR to whoever was waiting on it. terminate()
+            # atomically removes ALL state for the key (L7) and hands back
+            # the origin + channel needed for delivery.
+            for key in dead_keys:
+                state = self._requests.terminate(key, TerminalKind.MASTER_DIED)
+                if state is None:
+                    continue  # raced another terminal — already fully cleaned
+
+                xid, rid = key
+                err_frame = Frame.err(rid, "MASTER_DIED", f"Relay master {master_idx} connection closed")
+                err_frame.routing_id = xid
+
+                if state.origin is None:
+                    # Send result discarded, not drop-counted — matches
+                    # `cancel_request` and the reference's `let _ = tx.send(...)`.
+                    if state.external_channel is not None:
+                        try:
+                            state.external_channel(err_frame)
+                        except Exception:
+                            pass
+                else:
+                    src_idx = state.origin
+                    if 0 <= src_idx < len(self._masters) and self._masters[src_idx].healthy:
+                        try:
+                            self._masters[src_idx].socket_writer.write(err_frame)
+                        except Exception:
+                            pass
 
             # Rebuild cap table without dead master.
             # `_rebuild_installed_cartridges` must run before
@@ -1411,6 +1654,13 @@ class _MasterConnection:
     #: Populated when a connect-time / runtime identity probe fails so the
     #: inventory surface can show why a master is held back from routing.
     last_error: Optional[str] = None
+    #: Latest per-host protocol stats (drops, routing-table sizes, GC totals)
+    #: reported by this master's RelayNotify. ``None`` until the first
+    #: advertisement that carries them — the field is a per-republish
+    #: refresh, not a requirement on every RelayNotify. Retained (not
+    #: parsed-and-discarded) so ``protocol_stats().hosts`` can name the host
+    #: behind a drop. Mirrors the reference ``MasterConnection.host_protocol_stats``.
+    host_protocol_stats: Optional[HostProtocolStats] = None
 
 
 # =============================================================================
@@ -1452,6 +1702,7 @@ def _installed_cartridge_record_to_wire(ic: InstalledCartridgeRecord) -> dict:
             "memory_rss_mb": rs.memory_rss_mb,
             "last_heartbeat_unix_seconds": rs.last_heartbeat_unix_seconds,
             "restart_count": rs.restart_count,
+            "protocol_drops_total": rs.protocol_drops_total,
         }
     lifecycle = ic.effective_lifecycle()
     if lifecycle != CartridgeLifecycle.DISCOVERED:
@@ -1459,12 +1710,16 @@ def _installed_cartridge_record_to_wire(ic: InstalledCartridgeRecord) -> dict:
     return out
 
 
-def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[InstalledCartridgeRecord]]:
+def _parse_relay_notify_payload(
+    manifest: bytes,
+) -> Tuple[List[str], List[InstalledCartridgeRecord], Optional[HostProtocolStats]]:
     """Parse installed cartridges (with cap_groups) from a RelayNotify manifest JSON.
 
     The payload carries ``installed_cartridges``, each with a ``cap_groups``
     array. The flat cap-urn list returned alongside is computed from those
-    groups — it is no longer transmitted on the wire.
+    groups — it is no longer transmitted on the wire. The payload may also
+    carry a ``host_protocol_stats`` object (L8): the host's protocol
+    observability snapshot, refreshed with each stats republish.
     """
     try:
         parsed = json.loads(manifest.decode("utf-8"))
@@ -1565,6 +1820,7 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
                 memory_rss_mb=int(rs_raw.get("memory_rss_mb", 0)),
                 last_heartbeat_unix_seconds=rs_raw.get("last_heartbeat_unix_seconds"),
                 restart_count=int(rs_raw.get("restart_count", 0)),
+                protocol_drops_total=rs_raw.get("protocol_drops_total"),
             )
 
         # Optional lifecycle — defaults to DISCOVERED (the safe sentinel) when
@@ -1598,4 +1854,12 @@ def _parse_relay_notify_payload(manifest: bytes) -> Tuple[List[str], List[Instal
             seen_caps.add(urn)
             caps.append(urn)
 
-    return caps, installed_cartridges
+    # Host-level protocol observability (L8): drops, routing-table sizes, GC
+    # totals. Absent on initial capability advertisements — a per-republish
+    # refresh, not a requirement — so its absence is not an error.
+    host_protocol_stats: Optional[HostProtocolStats] = None
+    hps_raw = parsed.get("host_protocol_stats")
+    if isinstance(hps_raw, dict):
+        host_protocol_stats = HostProtocolStats.from_dict(hps_raw)
+
+    return caps, installed_cartridges, host_protocol_stats
