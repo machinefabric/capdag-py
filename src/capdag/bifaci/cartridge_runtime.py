@@ -441,6 +441,13 @@ class StreamEmitter(Protocol):
     No double-encoding: one CBOR layer from handler to consumer.
     """
 
+    def start(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Send STREAM_START with the given mode, carrying whole-stream
+        metadata (provenance, titles, …). Must be called (if at all) before
+        the first emission — mirrors the reference's
+        ``OutputStream::start(is_sequence, meta)``."""
+        ...
+
     def emit_cbor(self, value: Any) -> None:
         """Emit a CBOR value as output.
         The value is CBOR-encoded once and sent as raw CBOR bytes in CHUNK frames.
@@ -945,6 +952,15 @@ class ThreadSafeEmitter:
                     start_frame.meta = dict(meta)
                 start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
                 self.writer.write(start_frame)
+
+    def start(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Send STREAM_START with the given mode, carrying whole-stream
+        metadata (provenance, titles, …) — mirrors the reference's
+        ``OutputStream::start(is_sequence, meta)``. Handlers propagate their
+        input's stream meta here so provenance survives the hop. Must be
+        called (if at all) before the first emission; emissions without an
+        explicit start still auto-start the stream, but with no meta."""
+        self._ensure_stream_started(is_sequence=is_sequence, meta=meta, unbounded=False)
 
     def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
         """Send STREAM_START for an UNBOUNDED response — one that makes no
