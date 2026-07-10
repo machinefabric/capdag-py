@@ -1151,6 +1151,18 @@ class RelaySwitch:
                     code = frame.error_code() or "UNKNOWN"
                     msg = frame.error_message() or "no message"
                     return f"identity probe failed: [{code}] {msg}"
+                if frame.frame_type in (
+                    FrameType.LOG,
+                    FrameType.CREDIT,
+                    FrameType.HEARTBEAT,
+                ):
+                    # Control/side-channel frames are legal ANYWHERE during
+                    # the probe (spec 12.4: LOG interleaves without affecting
+                    # data flow; CREDIT/HEARTBEAT are the control plane the
+                    # writer gate itself exempts, L4). A v3 cartridge
+                    # crediting its probe input as it consumes (L10) must
+                    # not fail identity verification.
+                    continue
                 return f"identity probe: unexpected frame type {frame.frame_type}"
         finally:
             with self._lock:
