@@ -279,7 +279,7 @@ def _extract_streams_from_request_frames(frames):
             else:
                 raise AssertionError(f"Unexpected CBOR value type: {type(value).__name__}")
 
-    return [(media_urn, bytes(data)) for media_urn, data in streams]
+    return [(media_urn, bytes(data), None) for media_urn, data in streams]
 
 
 # TEST675: build_request_frames with full media URN preserves it in STREAM_START frame

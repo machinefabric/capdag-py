@@ -223,20 +223,34 @@ def decode_frame(data: bytes) -> Frame:
     if frame_type is None:
         raise InvalidFrameError(f"invalid frame_type: {frame_type_u8}")
 
-    # Extract ID
-    id_value = lookup.get(Keys.ID)
-    if id_value is None:
-        id_obj = MessageId.default()
-    elif isinstance(id_value, bytes):
-        if len(id_value) == 16:
-            id_obj = MessageId(id_value)
-        else:
-            # Treat as uint fallback
-            id_obj = MessageId(0)
-    elif isinstance(id_value, int):
+    # Extract ID — strict decode. A malformed or absent id must be a hard
+    # DecodeError, never a fabricated MessageId(0)/MessageId.default(): a
+    # fabricated id would silently misroute the frame instead of surfacing
+    # the corruption.
+    if Keys.ID not in lookup:
+        raise InvalidFrameError("missing id")
+    id_value = lookup[Keys.ID]
+    if isinstance(id_value, bytes):
+        if len(id_value) != 16:
+            raise InvalidFrameError(
+                f"malformed id: UUID bytes must be exactly 16 bytes, got {len(id_value)}"
+            )
+        id_obj = MessageId(id_value)
+    elif isinstance(id_value, int) and not isinstance(id_value, bool):
+        # bool is an int subclass in Python but CBOR true/false is a distinct
+        # major type from an integer — reject it like every other wrong type.
+        # The uint variant is unsigned on the wire (matches Go's `case uint64`);
+        # a negative CBOR integer is not a valid id and must be a hard decode
+        # error, never a wrapped/fabricated value.
+        if id_value < 0:
+            raise InvalidFrameError(
+                f"malformed id: uint must be non-negative, got {id_value}"
+            )
         id_obj = MessageId(id_value)
     else:
-        id_obj = MessageId(0)
+        raise InvalidFrameError(
+            f"malformed id: expected bytes[16] or int, got {type(id_value).__name__}"
+        )
 
     # Extract seq
     seq = lookup.get(Keys.SEQ, 0)
@@ -252,8 +266,33 @@ def decode_frame(data: bytes) -> Frame:
     stream_id = lookup.get(Keys.STREAM_ID)
     media_urn = lookup.get(Keys.MEDIA_URN)
 
-    routing_id_cbor = lookup.get(Keys.ROUTING_ID)
-    routing_id = MessageId.from_cbor(routing_id_cbor) if routing_id_cbor is not None else None
+    # routing_id (optional relay hint) — strict decode. Presence is optional,
+    # but a *present* routing_id must be a well-formed MessageId. Silently
+    # dropping a malformed one (treating it as absent) would strip the relay
+    # hint and misroute the frame; fabricating a MessageId(0) would misroute it
+    # the same way. Fail hard instead — never discard, never fabricate.
+    if Keys.ROUTING_ID in lookup:
+        routing_id_cbor = lookup[Keys.ROUTING_ID]
+        if isinstance(routing_id_cbor, bytes):
+            if len(routing_id_cbor) != 16:
+                raise InvalidFrameError(
+                    f"malformed routing_id: UUID bytes must be exactly 16 bytes, "
+                    f"got {len(routing_id_cbor)}"
+                )
+            routing_id = MessageId(routing_id_cbor)
+        elif isinstance(routing_id_cbor, int) and not isinstance(routing_id_cbor, bool):
+            if routing_id_cbor < 0:
+                raise InvalidFrameError(
+                    f"malformed routing_id: uint must be non-negative, got {routing_id_cbor}"
+                )
+            routing_id = MessageId(routing_id_cbor)
+        else:
+            raise InvalidFrameError(
+                f"malformed routing_id: expected bytes[16] or int, "
+                f"got {type(routing_id_cbor).__name__}"
+            )
+    else:
+        routing_id = None
 
     chunk_index = lookup.get(Keys.INDEX)
     chunk_count = lookup.get(Keys.CHUNK_COUNT)

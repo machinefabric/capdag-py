@@ -20,12 +20,14 @@ from capdag.bifaci.io import (
     FrameTooLargeError,
     UnexpectedEofError,
     HandshakeError,
+    InvalidFrameError,
 )
 from capdag.bifaci.frame import (
     Frame,
     FrameType,
     MessageId,
     Limits,
+    Keys,
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
     DEFAULT_MAX_REORDER_BUFFER,
@@ -1150,3 +1152,126 @@ def test_847_progress_double_roundtrip():
         assert lp is not None, f"progress={progress}: log_progress() returned None"
         assert abs(lp - progress) < 0.001, \
             f"progress={progress}: expected {progress}, got {lp}"
+
+
+# =========================================================================
+# Strict id decode (parity: Rust io.rs TEST228 "missing id" + the strict
+# malformed-id decode already enforced by capdag-go's DecodeFrame). A
+# malformed or absent MessageId must be a hard DecodeError — never a
+# fabricated MessageId(0)/MessageId.default() fallback, which would let the
+# frame decode "successfully" and then get silently misrouted downstream.
+# =========================================================================
+
+import cbor2
+
+
+# TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id
+def test_7094_decode_frame_rejects_missing_id():
+    frame_map = {
+        Keys.VERSION: PROTOCOL_VERSION,
+        Keys.FRAME_TYPE: int(FrameType.HELLO),
+        # id (key 2) deliberately omitted
+    }
+    data = cbor2.dumps(frame_map)
+
+    with pytest.raises(InvalidFrameError, match="id"):
+        decode_frame(data)
+
+
+# TEST7003: decode_frame rejects a MessageId byte string that is not exactly 16 bytes, for every wrong length — it must never fall back to a fabricated MessageId(0), which would misroute the frame
+def test_7003_decode_frame_rejects_malformed_id_wrong_length():
+    for bad_len in (0, 1, 15, 17, 32):
+        frame_map = {
+            Keys.VERSION: PROTOCOL_VERSION,
+            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.ID: b"\x00" * bad_len,
+        }
+        data = cbor2.dumps(frame_map)
+
+        with pytest.raises(InvalidFrameError, match="id") as exc_info:
+            decode_frame(data)
+        assert str(bad_len) in str(exc_info.value) or "16" in str(exc_info.value)
+
+
+# TEST7004: decode_frame rejects an id whose CBOR type is neither bytes nor an unsigned integer (text, float, bool, array, map) — a wrong-typed id is a hard decode error, not a fabricated zero id
+def test_7004_decode_frame_rejects_malformed_id_wrong_type():
+    for bad_id in ("not-an-id", 3.14, True, False, [1, 2, 3], {"nested": "map"}):
+        frame_map = {
+            Keys.VERSION: PROTOCOL_VERSION,
+            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.ID: bad_id,
+        }
+        data = cbor2.dumps(frame_map)
+
+        with pytest.raises(InvalidFrameError, match="id"):
+            decode_frame(data)
+
+
+# TEST7005: a present routing_id (key 13) must be a well-formed MessageId — a malformed one is a hard InvalidFrameError, never silently dropped (which would strip the relay hint and misroute) nor fabricated as MessageId(0). Valid routing_ids still round-trip; an absent routing_id decodes as None.
+def test_7005_decode_frame_strict_routing_id():
+    # Absent routing_id → None (optional field, no fabrication)
+    plain = decode_frame(encode_frame(Frame.hello(1024, 512)))
+    assert plain.routing_id is None
+
+    # Valid 16-byte UUID routing_id round-trips
+    f = Frame.hello(1024, 512)
+    f.routing_id = MessageId.new_uuid()
+    decoded = decode_frame(encode_frame(f))
+    assert decoded.routing_id == f.routing_id
+
+    # Valid non-negative uint routing_id round-trips
+    f = Frame.hello(1024, 512)
+    f.routing_id = MessageId(9)
+    decoded = decode_frame(encode_frame(f))
+    assert decoded.routing_id == MessageId(9)
+
+    # Wrong-length bytes → hard error, not dropped/fabricated
+    for bad_len in (0, 15, 17, 32):
+        frame_map = {
+            Keys.VERSION: PROTOCOL_VERSION,
+            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.ID: MessageId.new_uuid().uuid_bytes,
+            Keys.ROUTING_ID: b"\x00" * bad_len,
+        }
+        with pytest.raises(InvalidFrameError, match="routing_id"):
+            decode_frame(cbor2.dumps(frame_map))
+
+    # Wrong CBOR type (text, float, bool, list, map) and negative int → hard error
+    for bad in ("nope", 2.5, True, [1], {"k": "v"}, -1):
+        frame_map = {
+            Keys.VERSION: PROTOCOL_VERSION,
+            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.ID: MessageId.new_uuid().uuid_bytes,
+            Keys.ROUTING_ID: bad,
+        }
+        with pytest.raises(InvalidFrameError, match="routing_id"):
+            decode_frame(cbor2.dumps(frame_map))
+
+
+# TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family
+def test_7098_decode_frame_rejects_negative_int_id():
+    for bad_id in (-1, -7, -12345):
+        frame_map = {
+            Keys.VERSION: PROTOCOL_VERSION,
+            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.ID: bad_id,
+        }
+        data = cbor2.dumps(frame_map)
+
+        with pytest.raises(InvalidFrameError, match="id"):
+            decode_frame(data)
+
+
+# TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames
+def test_7097_decode_frame_accepts_valid_id_variants():
+    uuid_frame = Frame.hello(1024, 512)
+    uuid_frame.id = MessageId.new_uuid()
+    decoded = decode_frame(encode_frame(uuid_frame))
+    assert decoded.id == uuid_frame.id
+    assert decoded.id.is_uuid()
+
+    uint_frame = Frame.hello(1024, 512)
+    uint_frame.id = MessageId(7)
+    decoded = decode_frame(encode_frame(uint_frame))
+    assert decoded.id == MessageId(7)
+    assert decoded.id.is_uint()

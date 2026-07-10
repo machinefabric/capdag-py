@@ -17,7 +17,7 @@ class ValueAdapterRegistry:
     def refine_media_urn(self, base_media_urn: str, value: str) -> str:
         matching_prefixes = [
             prefix for prefix in self._adapters
-            if base_media_urn == prefix or base_media_urn.startswith(f"{prefix};")
+            if base_media_urn.startswith(prefix)
         ]
         if not matching_prefixes:
             return base_media_urn

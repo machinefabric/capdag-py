@@ -16,12 +16,10 @@ from capdag.bifaci.cartridge_runtime import (
     DeserializeError,
     CapUrnError,
     extract_effective_payload,
-    collect_args_by_media_urn,
-    collect_peer_response,
-    collect_streams,
     find_stream,
     require_stream,
     demux_peer_response,
+    demux_multi_stream,
     PeerResponseItem,
     PeerResponse,
     ProgressSender,
@@ -29,6 +27,11 @@ from capdag.bifaci.cartridge_runtime import (
     SyncFrameWriter,
     InputStream,
     InputPackage,
+    InputGrantEmitter,
+    InputCreditContext,
+    StreamError,
+    SeqReassembly,
+    try_decode_sequence_item,
     OutputStream,
     PeerCall,
     RuntimeError as CartridgeRuntimeError,
@@ -37,7 +40,7 @@ from capdag.bifaci.cartridge_runtime import (
     UnknownSubcommandError,
     ManifestError,
     PeerResponseError,
-    PendingStream,
+    HandlerError,
     Request,
     WET_KEY_REQUEST,
     dispatch_op,
@@ -45,7 +48,6 @@ from capdag.bifaci.cartridge_runtime import (
     GatedWrite,
     write_gated,
     CapacityHandle,
-    CreditWindowAccountant,
     demux_peer_response,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
@@ -76,7 +78,10 @@ VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release",
 # =============================================================================
 
 def make_test_frames(media_urn: str, data: bytes) -> queue.Queue:
-    """Create a queue.Queue of frames for testing a single-stream input."""
+    """Create a queue.Queue of raw wire frames for testing a single-stream
+    input — this is the WIRE representation (what `demux_multi_stream`
+    consumes), not the handler-facing contract (which is the live
+    `InputPackage` from `Request.take_input()`)."""
     from capdag.bifaci.frame import compute_checksum
     request_id = MessageId(0)
     frames = queue.Queue()
@@ -85,15 +90,30 @@ def make_test_frames(media_urn: str, data: bytes) -> queue.Queue:
     frames.put(Frame.chunk(request_id, "arg-0", 0, encoded, 0, compute_checksum(encoded)))
     frames.put(Frame.stream_end(request_id, "arg-0", 1))
     frames.put(Frame.end(request_id, None))
-    frames.put(None)
     return frames
 
 
+def collect_input_bytes(input_pkg: InputPackage) -> bytes:
+    """Test helper: flatten every stream's items into concatenated bytes, in
+    arrival order — mirrors what handlers do with `req.take_input()` when
+    they don't care about stream boundaries."""
+    result = bytearray()
+    while True:
+        stream = input_pkg.recv()
+        if stream is None:
+            return bytes(result)
+        if isinstance(stream, Exception):
+            raise stream
+        result.extend(stream.collect_bytes())
+
+
 def invoke_op(factory: OpFactory, frames: queue.Queue, emitter) -> None:
-    """Helper: invoke a factory-produced Op with test input/output."""
+    """Helper: invoke a factory-produced Op with test input (raw wire frames,
+    demuxed live exactly like the real runtime) and output."""
     op = factory()
     peer = NoPeerInvoker()
-    dispatch_op(op, frames, emitter, peer)
+    input_package = demux_multi_stream(frames)
+    dispatch_op(op, input_package, emitter, peer)
 
 
 def create_test_cap(urn_str: str, title: str, command: str, args: list):
@@ -159,7 +179,7 @@ def test_248_register_and_find_handler():
     class EmitBytesOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"result")
         def metadata(self): return OpMetadata.builder("EmitBytesOp").build()
 
@@ -175,14 +195,7 @@ def test_249_raw_handler():
     class EchoOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames = req.take_frames()
-            chunks = []
-            for frame in iter(frames.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload:
-                    chunks.append(cbor2.loads(frame.payload))
-                elif frame.frame_type == FrameType.END:
-                    break
-            data = b''.join(chunks)
+            data = collect_input_bytes(req.take_input())
             received.append(data)
             req.emitter().emit_cbor(data)
         def metadata(self): return OpMetadata.builder("EchoOp").build()
@@ -206,14 +219,7 @@ def test_250_typed_handler_deserialization():
     class JsonKeyOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames = req.take_frames()
-            chunks = []
-            for frame in iter(frames.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload:
-                    chunks.append(cbor2.loads(frame.payload))
-                elif frame.frame_type == FrameType.END:
-                    break
-            all_bytes = b''.join(chunks)
+            all_bytes = collect_input_bytes(req.take_input())
             data = json.loads(all_bytes)
             value = data.get("key", "missing").encode('utf-8')
             received.append(value)
@@ -237,14 +243,7 @@ def test_251_typed_handler_rejects_invalid_json():
     class JsonParseOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames = req.take_frames()
-            chunks = []
-            for frame in iter(frames.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload:
-                    chunks.append(cbor2.loads(frame.payload))
-                elif frame.frame_type == FrameType.END:
-                    break
-            all_bytes = b''.join(chunks)
+            all_bytes = collect_input_bytes(req.take_input())
             data = json.loads(all_bytes)  # raises on bad JSON
             _ = data
         def metadata(self): return OpMetadata.builder("JsonParseOp").build()
@@ -273,14 +272,14 @@ def test_293_cartridge_runtime_handler_registration():
     class JsonEchoOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"echo")
         def metadata(self): return OpMetadata.builder("JsonEchoOp").build()
 
     class TransformOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"transformed")
         def metadata(self): return OpMetadata.builder("TransformOp").build()
 
@@ -302,7 +301,7 @@ def test_253_handler_is_send_sync():
     class EmitAndRecordOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"done")
             received.append(b"done")
         def metadata(self): return OpMetadata.builder("EmitAndRecordOp").build()
@@ -460,7 +459,7 @@ def test_270_multiple_handlers():
             self.tag = tag
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(self.tag)
         def metadata(self): return OpMetadata.builder("EchoTagOp").build()
 
@@ -487,14 +486,14 @@ def test_271_handler_replacement():
     class FirstOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"first")
         def metadata(self): return OpMetadata.builder("FirstOp").build()
 
     class SecondOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            _ = req.take_frames()
+            _ = req.take_input()
             req.emitter().emit_cbor(b"second")
             result2.append(b"second")
         def metadata(self): return OpMetadata.builder("SecondOp").build()
@@ -596,14 +595,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
     class CollectBytesOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames_q = req.take_frames()
-            chunks = []
-            for frame in iter(frames_q.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload:
-                    chunks.append(cbor2.loads(frame.payload))
-                elif frame.frame_type == FrameType.END:
-                    break
-            received_payload.append(b''.join(chunks))
+            received_payload.append(collect_input_bytes(req.take_input()))
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op('cap:in="media:ext=pdf";process;out=media:void', CollectBytesOp)
@@ -1073,14 +1065,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     class CollectBytesOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames_q = req.take_frames()
-            chunks = []
-            for frame in iter(frames_q.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload:
-                    chunks.append(cbor2.loads(frame.payload))
-                elif frame.frame_type == FrameType.END:
-                    break
-            received_payload.append(b''.join(chunks))
+            received_payload.append(collect_input_bytes(req.take_input()))
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op(
@@ -1559,14 +1544,9 @@ def test_363_cbor_mode_chunked_content():
     class StreamingOp(Op):
         async def perform(self, dry, wet):
             req = wet.get_required(WET_KEY_REQUEST)
-            frames_q = req.take_frames()
-            total = bytearray()
-            for frame in iter(frames_q.get, None):
-                if frame.frame_type == FrameType.CHUNK and frame.payload is not None:
-                    total.extend(frame.payload)
-                elif frame.frame_type == FrameType.END:
-                    break
-            cbor_val = cbor2.loads(bytes(total))
+            input_pkg = req.take_input()
+            stream = input_pkg.recv()
+            cbor_val = stream.recv_data() if stream is not None else None
             if isinstance(cbor_val, list) and len(cbor_val) > 0:
                 arg_map = cbor_val[0]
                 if isinstance(arg_map, dict) and "value" in arg_map:
@@ -1856,12 +1836,17 @@ def make_mock_emitter(media_urn="media:test"):
     return emitter, mock_writer
 
 
-def make_input_stream(media_urn: str, items):
+def make_input_stream(media_urn: str, items, stream_meta=None, unbounded=False):
+    """Build an InputStream directly over a pre-populated queue (bypassing
+    the wire demux) for unit-testing InputStream/InputPackage in isolation.
+    Each item is either an Exception (propagated as an error) or a raw
+    value, auto-wrapped as `(value, None)` to match the live `(value, meta)`
+    recv() contract."""
     q = queue.Queue()
     for item in items:
-        q.put(item)
+        q.put(item if isinstance(item, Exception) else (item, None))
     q.put(None)
-    return InputStream(media_urn, q)
+    return InputStream(media_urn, stream_meta, q, unbounded=unbounded)
 
 
 def make_input_package(streams):
@@ -2239,7 +2224,7 @@ def test_841_peer_response_collect_value_discards_logs():
 # TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds
 def test_678_find_stream_equivalent_urn():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello world"),
+        ("media:enc=utf-8;ext=txt", b"hello world", None),
     ]
     result = find_stream(streams, "media:enc=utf-8;ext=txt")
     assert result == b"hello world"
@@ -2248,7 +2233,7 @@ def test_678_find_stream_equivalent_urn():
 # TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record".
 def test_679_find_stream_base_vs_full_fails():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello"),
+        ("media:enc=utf-8;ext=txt", b"hello", None),
     ]
     result = find_stream(streams, "media:enc=utf-8")
     assert result is None, "Base URN must not match more specific URN (is_equivalent is strict)"
@@ -2257,7 +2242,7 @@ def test_679_find_stream_base_vs_full_fails():
 # TEST680: require_stream with missing URN returns hard StreamError
 def test_680_require_stream_missing_fails():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello"),
+        ("media:enc=utf-8;ext=txt", b"hello", None),
     ]
     with pytest.raises(CartridgeRuntimeError) as exc_info:
         require_stream(streams, "media:binary")
@@ -2267,9 +2252,9 @@ def test_680_require_stream_missing_fails():
 # TEST681: find_stream with multiple streams returns the correct one
 def test_681_find_stream_multiple():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"text data"),
-        ("media:ext=png;image", b"image data"),
-        ("media:fmt=json", b"json data"),
+        ("media:enc=utf-8;ext=txt", b"text data", None),
+        ("media:ext=png;image", b"image data", None),
+        ("media:fmt=json", b"json data", None),
     ]
     assert find_stream(streams, "media:ext=png;image") == b"image data"
     assert find_stream(streams, "media:enc=utf-8;ext=txt") == b"text data"
@@ -2279,7 +2264,7 @@ def test_681_find_stream_multiple():
 # TEST682: require_stream_str returns UTF-8 string for text data
 def test_682_require_stream_returns_data():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello text"),
+        ("media:enc=utf-8;ext=txt", b"hello text", None),
     ]
     result = require_stream(streams, "media:enc=utf-8;ext=txt")
     assert result == b"hello text"
@@ -2288,7 +2273,7 @@ def test_682_require_stream_returns_data():
 # TEST683: find_stream returns None for invalid media URN string (not a parse error — just None)
 def test_683_find_stream_invalid_urn_returns_none():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"data"),
+        ("media:enc=utf-8;ext=txt", b"data", None),
     ]
     found = find_stream(streams, "")
     assert found is None, "Invalid URN must return None, not panic"
@@ -2413,11 +2398,11 @@ def test_1283_adapter_selection_custom_override():
 
 # =============================================================================
 # Protocol v3 parity tests — writer-thread terminal gate, counted drops,
-# credit-based output, bounded input demux (mirrors capdag Rust tests in
-# src/bifaci/cartridge_runtime.rs, adapted to the mirror's synchronous
-# SyncFrameWriter (no separate writer *thread*) and CreditWindowAccountant
-# (the mirror's demux buffers each stream to completion synchronously, so
-# "arrival" and "consumption" are the same event — see its docstring).
+# credit-based output, LIVE credited input demux (mirrors capdag Rust tests
+# in src/bifaci/cartridge_runtime.rs, adapted to the mirror's synchronous
+# SyncFrameWriter — no separate writer *thread*). Input streams are consumed
+# incrementally as frames arrive (protocol v3, L16) via `demux_multi_stream`
+# + `InputStream.recv()` — never buffered to completion.
 # =============================================================================
 
 class _DeadWriter:
@@ -2641,45 +2626,126 @@ def test_7062_log_flows_while_window_exhausted():
     assert saw_progress, "progress must bypass the exhausted data window"
 
 
-# TEST7052: Input consumption emits batched CREDIT grants — one grant per half-window consumed, not one per chunk.
+def _mk_scalar_chunk(rid, stream_id, i):
+    payload = cbor2.dumps(bytes([i & 0xFF]))
+    checksum = compute_checksum(payload)
+    return Frame.chunk(rid, stream_id, i, payload, i, checksum)
+
+
+# TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk.
 def test_7052_input_grants_are_batched():
-    accountant = CreditWindowAccountant(8)
-    grants = []
-    for i in range(16):
-        assert accountant.account() is False, f"chunk {i} must stay within the batched-extended window"
-        due = accountant.take_due_grant()
-        if due is not None:
-            grants.append(due)
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    # Stream 16 chunks through a credited demux with window 8.
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
+    for i in range(8):
+        raw.put(_mk_scalar_chunk(rid, "s1", i))
+
+    package = demux_multi_stream(
+        raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=8),
+    )
+    stream = package.recv()
+    # Let the demux thread forward ALL pre-queued chunks into the handler's
+    # channel before consuming — recv() then never hits an empty channel, so
+    # no flush-before-block fires and batching is deterministic.
+    time.sleep(0.1)
+    consumed = 0
+    for _ in range(8):
+        item = stream.recv()
+        assert not isinstance(item, Exception)
+        consumed += 1
+
+    # ...then the rest only after consumption granted more window.
+    for i in range(8, 16):
+        raw.put(_mk_scalar_chunk(rid, "s1", i))
+    raw.put(Frame.stream_end(rid, "s1", 16))
+    raw.put(Frame.end(rid, None))
+    time.sleep(0.1)
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception)
+        consumed += 1
+    assert consumed == 16
+
+    grants = [f.credit_count() for f in mock_writer.frames if f.frame_type == FrameType.CREDIT]
     assert grants == [4, 4, 4, 4], \
-        "consumption must batch deterministically at window/2 (initial_credit=8 -> batch=4)"
+        "drained consumption must batch deterministically at window/2 (initial_credit=8 -> batch=4)"
+
+
+# TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold.
+def test_7063_pending_grants_flush_before_blocking():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    # Receiver negotiated a 32 window -> batch threshold 16. The sender (a
+    # different link) has a window of only 8: it emits 8 chunks and stalls,
+    # BELOW the receiver's batch threshold. Channel stays open — the sender
+    # is stalled, not finished.
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
+    for i in range(8):
+        raw.put(_mk_scalar_chunk(rid, "s1", i))
+
+    package = demux_multi_stream(
+        raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=32),
+    )
+    stream = package.recv()
+
+    # Consume all 8 available items, then attempt the 9th — which blocks on
+    # the empty queue and MUST flush the pending 8-chunk grant first.
+    def consumer():
+        for _ in range(8):
+            item = stream.recv()
+            assert not isinstance(item, Exception)
+        stream.recv()  # blocks (sender stalled) — but only AFTER flushing grants.
+
+    t = threading.Thread(target=consumer, daemon=True)
+    t.start()
+
+    # The flushed grant must arrive even though 8 < batch(16).
+    deadline = time.time() + 2.0
+    grant = None
+    while time.time() < deadline:
+        credits = [f for f in mock_writer.frames if f.frame_type == FrameType.CREDIT]
+        if credits:
+            grant = credits[0]
+            break
+        time.sleep(0.01)
+    assert grant is not None, "pending grants must flush before blocking (L10 corollary)"
+    assert grant.credit_count() == 8, "the full pending consumption is granted on flush"
 
 
 # TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
 def test_7053_over_window_chunk_is_credit_violation():
-    accountant = CreditWindowAccountant(2)
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
     # Window is 2; a misbehaving sender pushes 3 chunks with no grants
-    # possible (nothing consumed yet, so no batch threshold was ever hit).
-    assert accountant.account() is False, "chunk 0 is within the window"
-    assert accountant.account() is False, "chunk 1 is within the window"
-    assert accountant.account() is True, "chunk 2 exceeds the granted window (L12)"
+    # possible (nothing consumed yet).
+    for i in range(3):
+        raw.put(_mk_scalar_chunk(rid, "s1", i))
+    raw.put(Frame.end(rid, None))
 
-
-# TEST7063: A receiver flushes pending sub-batch grants rather than losing them — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold.
-def test_7063_pending_grants_flush_before_blocking():
-    # Receiver negotiated a 32 window -> batch threshold 16. The sender (a
-    # different link) has a window of only 8: it emits 8 chunks and stalls,
-    # BELOW the receiver's batch threshold. The Rust reference flushes this
-    # at the point a receiver is about to block on an empty input; this
-    # mirror's demux buffers each stream to completion synchronously (no
-    # blocking-read point mid-stream) and instead flushes at stream-lifecycle
-    # boundaries (STREAM_END) — see CreditWindowAccountant.flush() and its
-    # call site in CartridgeRuntime.run_cbor_mode's STREAM_END handling.
-    accountant = CreditWindowAccountant(32)
-    for _ in range(8):
-        assert accountant.account() is False
-    assert accountant.take_due_grant() is None, "8 consumed is below the batch(16) threshold"
-    assert accountant.flush() == 8, "the full pending consumption is granted on flush"
-    assert accountant.flush() is None, "flush is idempotent once fully drained"
+    package = demux_multi_stream(
+        raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=2),
+    )
+    stream = package.recv()
+    item0 = stream.recv()
+    assert not isinstance(item0, Exception), "chunk 0 is within the window"
+    item1 = stream.recv()
+    assert not isinstance(item1, Exception), "chunk 1 is within the window"
+    item2 = stream.recv()
+    assert isinstance(item2, Exception), "chunk 2 exceeds the granted window (L12)"
+    assert "CREDIT_VIOLATION" in str(item2)
 
 
 # -----------------------------------------------------------------------
@@ -2733,3 +2799,193 @@ def test_protocol_drops_snapshot_starts_empty():
     runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
     snap = runtime.protocol_drops()
     assert snap.total == 0
+
+
+# =============================================================================
+# LIVE INPUT MODEL parity tests (protocol v3, L16) — mirror capdag Rust's
+# src/bifaci/cartridge_runtime.rs test7070/test7073/test1300/test1301/test1302.
+# `demux_multi_stream` delivers InputStream items incrementally as raw wire
+# frames arrive — never buffered to completion — and item-granular sequence
+# reassembly (SeqReassembly) turns multi-fragment RFC-8742 items back into
+# exactly one delivered item per emit_list_item() call.
+# =============================================================================
+
+def _seq_mk_chunk(rid, stream_id, i):
+    payload = cbor2.dumps(bytes([i & 0xFF]))
+    checksum = compute_checksum(payload)
+    return Frame.chunk(rid, stream_id, i, payload, i, checksum)
+
+
+# TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded.
+def test_7070_unbounded_input_consumed_live():
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    # Announce an UNBOUNDED stream and send only the first item.
+    raw.put(Frame.stream_start_unbounded(rid, "live", "media:enc=utf-8", True))
+    raw.put(_seq_mk_chunk(rid, "live", 0))
+
+    package = demux_multi_stream(raw)
+    stream = package.recv()
+    assert not isinstance(stream, Exception)
+    assert stream.is_unbounded(), "STREAM_START flag must surface"
+
+    # The handler receives item 0 while the producer has not produced item 1
+    # — no buffering-to-completion (L16).
+    item0 = stream.recv()
+    assert not isinstance(item0, Exception)
+    v0, _m0 = item0
+    assert v0 == bytes([0])
+
+    # Producer continues; consumer keeps up item by item.
+    raw.put(_seq_mk_chunk(rid, "live", 1))
+    item1 = stream.recv()
+    v1, _m1 = item1
+    assert v1 == bytes([1])
+
+    # The unbounded stream still ENDS cleanly — no chunk_count promise.
+    raw.put(Frame.stream_end_unbounded(rid, "live"))
+    raw.put(Frame.end(rid, None))
+    assert stream.recv() is None, "stream closes after STREAM_END"
+
+
+# TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound.
+def test_7073_collect_refuses_unbounded_streams():
+    def make_unbounded():
+        q = queue.Queue()
+        q.put((b"\x01", None))
+        # Producer stays open — an unbounded collect would hang forever;
+        # the guard must reject BEFORE consuming.
+        stream = InputStream(
+            media_urn="media:enc=utf-8", stream_meta=None, q=q, unbounded=True, grants=None,
+        )
+        return stream
+
+    with pytest.raises(StreamError) as exc_info:
+        make_unbounded().collect_bytes()
+    assert "unbounded" in str(exc_info.value)
+
+    with pytest.raises(StreamError) as exc_info:
+        make_unbounded().collect_items()
+    assert "unbounded" in str(exc_info.value)
+
+    with pytest.raises(StreamError) as exc_info:
+        make_unbounded().collect_value()
+    assert "unbounded" in str(exc_info.value)
+
+
+# TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata.
+def test_1300_sequence_item_fragments_reassemble_into_one_item():
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    # One large item, encoded once, then fragmented — exactly what
+    # emit_list_item does for an item bigger than max_chunk. Per-frame
+    # decoding of any fragment fails to decode as a complete CBOR value,
+    # which is how cap→cap forwarding of rendered page images broke.
+    item_bytes = bytes(i % 251 for i in range(600_000))
+    encoded = cbor2.dumps(item_bytes)
+    assert len(encoded) > DEFAULT_MAX_CHUNK, "item must span multiple fragments"
+
+    raw.put(Frame.stream_start(rid, "s1", "media:ext=png;image", True))
+
+    item_meta = {"title": "page 1"}
+    fragment_size = DEFAULT_MAX_CHUNK
+    n_frames = 0
+    for offset in range(0, len(encoded), fragment_size):
+        fragment = encoded[offset:offset + fragment_size]
+        checksum = compute_checksum(fragment)
+        frame = Frame.chunk(rid, "s1", n_frames, fragment, n_frames, checksum)
+        # emit_list_item puts per-item meta on the FIRST fragment only.
+        if n_frames == 0:
+            frame.meta = dict(item_meta)
+        raw.put(frame)
+        n_frames += 1
+
+    # A second, single-fragment item follows — reassembly must realign on
+    # the item boundary, not swallow it into the first.
+    second = cbor2.dumps(bytes([7, 7, 7]))
+    checksum = compute_checksum(second)
+    raw.put(Frame.chunk(rid, "s1", n_frames, second, n_frames, checksum))
+    n_frames += 1
+    raw.put(Frame.stream_end(rid, "s1", n_frames))
+    raw.put(Frame.end(rid, None))
+
+    package = demux_multi_stream(raw)
+    stream = package.recv()
+
+    v0, m0 = stream.recv()
+    assert v0 == item_bytes, "fragments must reassemble into the original item"
+    assert m0 == item_meta, "first fragment's meta rides the item"
+
+    v1, m1 = stream.recv()
+    assert v1 == bytes([7, 7, 7])
+    assert m1 is None
+
+    assert stream.recv() is None, "exactly two items"
+
+
+# TEST1301: A sequence stream that ENDs mid-item (trailing fragment bytes that never complete a CBOR item) surfaces a hard decode error instead of silently dropping the partial item.
+def test_1301_sequence_stream_truncated_mid_item_fails_hard():
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    encoded = cbor2.dumps(bytes([42] * 4096))
+    # Send only a strict prefix of the item, then STREAM_END.
+    payload = encoded[:len(encoded) // 2]
+    checksum = compute_checksum(payload)
+
+    raw.put(Frame.stream_start(rid, "s1", "media:ext=png;image", True))
+    raw.put(Frame.chunk(rid, "s1", 0, payload, 0, checksum))
+    raw.put(Frame.stream_end(rid, "s1", 1))
+    raw.put(Frame.end(rid, None))
+
+    package = demux_multi_stream(raw)
+    stream = package.recv()
+    err = stream.recv()
+    assert err is not None, "truncation must surface, not close silently"
+    assert isinstance(err, Exception), "a partial item is an error"
+    assert "mid-item" in str(err), f"expected truncation error, got: {err}"
+
+
+# TEST1302: Continuation fragments of a multi-frame sequence item are credited back by the demux on arrival — the handler grants one frame per consumed item, so without fragment grants an item spanning more frames than the credit window could never finish arriving.
+def test_1302_sequence_fragment_frames_are_credited_on_arrival():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+
+    # One item spanning 4 fragments against a credit window of 2: only
+    # demux-side fragment grants keep the producer's window open.
+    item_bytes = bytes([9] * (4 * 1024))
+    encoded = cbor2.dumps(item_bytes)
+    fragment_size = -(-len(encoded) // 4)  # ceil division
+
+    raw.put(Frame.stream_start(rid, "s1", "media:ext=png;image", True))
+    n_fragments = 0
+    for offset in range(0, len(encoded), fragment_size):
+        fragment = encoded[offset:offset + fragment_size]
+        checksum = compute_checksum(fragment)
+        raw.put(Frame.chunk(rid, "s1", n_fragments, fragment, n_fragments, checksum))
+        n_fragments += 1
+    assert n_fragments == 4
+    raw.put(Frame.stream_end(rid, "s1", n_fragments))
+    raw.put(Frame.end(rid, None))
+
+    package = demux_multi_stream(
+        raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=2),
+    )
+    stream = package.recv()
+    v0, _m0 = stream.recv()
+    assert v0 == item_bytes
+    assert stream.recv() is None
+
+    # Continuation fragments (all but the item's first frame) must have been
+    # credited by the demux as they arrived: 3 immediate one-frame grants.
+    # The item's own frame is granted by handler consumption.
+    demux_granted = sum(
+        f.credit_count() or 0 for f in mock_writer.frames if f.frame_type == FrameType.CREDIT
+    )
+    assert demux_granted >= n_fragments - 1, (
+        f"expected at least {n_fragments - 1} fragment credits, saw {demux_granted}"
+    )

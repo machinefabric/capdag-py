@@ -273,70 +273,164 @@ class CapacityHandle:
 
 
 # =============================================================================
-# CREDIT WINDOW ACCOUNTANT — bounded input demux + batched grants (L10/L12)
+# LIVE INPUT MODEL — incremental per-item demux, never buffer-then-dispatch
+# (protocol v3, L16). Replaces the old CreditWindowAccountant/buffered-
+# PendingIncomingRequest regime: input streams are consumed item-by-item as
+# frames arrive, exactly mirroring the Rust reference's InputStream::recv()/
+# demux_multi_stream. Buffering collectors (collect_*) refuse unbounded
+# streams (L16) instead of buffering without bound.
 # =============================================================================
 
-class CreditWindowAccountant:
-    """Batched CREDIT-grant accounting for one credited consumption point.
+class StreamError(RuntimeError):
+    """Error raised/returned by the live input-stream primitives
+    (InputStream, InputPackage, PeerResponse, the demux threads). Mirrors
+    the Rust reference's `StreamError` enum — the mirror uses a single
+    exception type with a descriptive message rather than separate variants,
+    consistent with this codebase's exception-per-concern idiom."""
+    pass
 
-    Tracks consumed-since-last-grant and reports a due grant once `batch`
-    (``max(initial_credit // 2, 1)``) chunks have been consumed — mirrors
-    the Rust reference's `InputGrantEmitter` batching threshold.
 
-    When `check_violations` is True, `account()` also enforces the granted
-    window against arriving chunks (L12) — used for the handler's own input
-    demux, which must defend against a misbehaving sender. Peer-response
-    consumption does not enforce violations, mirroring the Rust reference's
-    `demux_single_stream` (which credits the peer's output but does not
-    window-check it).
+class _WindowCounter:
+    """Thread-safe per-stream credit window used for receive-side violation
+    accounting (L12). The demux decrements it per arriving chunk; the
+    handler's consumption grants (via `InputGrantEmitter`) extend it."""
 
-    The mirror's demux buffers each incoming stream to completion
-    synchronously as frames arrive (no live per-item handler pull), so
-    "arrival" and "consumption" are the same event here — `account()` plays
-    both roles the Rust reference splits across the demux's window check and
-    the handler's later `InputStream::recv()` consumption.
+    def __init__(self, initial: int):
+        self._lock = threading.Lock()
+        self._value = initial
+
+    def add(self, n: int) -> None:
+        with self._lock:
+            self._value += n
+
+    def fetch_sub_one(self) -> int:
+        """Decrement by one; return the value BEFORE the decrement."""
+        with self._lock:
+            before = self._value
+            self._value -= 1
+            return before
+
+
+class InputGrantEmitter:
+    """Emits CREDIT grants for one input stream as the handler consumes it
+    (L10). Grants are batched: one CREDIT per `batch` consumed chunks.
+
+    Deadlock-freedom rule (L10): a receiver MUST flush pending grants before
+    blocking on an empty input — `InputStream.recv()` calls `flush()` right
+    before it would otherwise block on `queue.Queue.get()`. Batching is a
+    latency optimization negotiated per link; the sender's window may come
+    from a DIFFERENT link's negotiation, so a sender can legally stall below
+    this receiver's batch threshold. Flushing at the block point guarantees
+    progress under any window/batch mismatch.
     """
 
-    def __init__(self, initial_credit: int, check_violations: bool = True):
-        self._window = initial_credit
-        self._batch = max(initial_credit // 2, 1)
+    def __init__(
+        self,
+        writer: "SyncFrameWriter",
+        rid: MessageId,
+        xid: Optional[MessageId],
+        stream_id: Optional[str],
+        direction: CreditDirection,
+        batch: int,
+        window: _WindowCounter,
+    ):
+        self._writer = writer
+        self._rid = rid
+        self._xid = xid
+        self._stream_id = stream_id
+        self._direction = direction
+        self._batch = max(batch, 1)
         self._consumed_since_grant = 0
-        self._check_violations = check_violations
+        self._window = window
+        self._lock = threading.Lock()
 
-    def account(self) -> bool:
-        """Record one consumed chunk.
+    def consumed(self) -> None:
+        """Record one consumed chunk; emit a batched CREDIT grant when due."""
+        with self._lock:
+            self._consumed_since_grant += 1
+            due = self._consumed_since_grant >= self._batch
+        if due:
+            self.flush()
 
-        Returns True iff this chunk is a credit violation (only meaningful
-        when `check_violations=True` — always False otherwise). A violating
-        chunk does NOT count toward the batched grant.
-        """
-        if self._check_violations:
-            before = self._window
-            self._window = before - 1
-            if before <= 0:
-                return True
-        self._consumed_since_grant += 1
-        return False
-
-    def take_due_grant(self) -> Optional[int]:
-        """Return and clear a due batched grant amount, extending the
-        window by that amount. None if the batch threshold hasn't been hit."""
-        if self._consumed_since_grant >= self._batch:
+    def flush(self) -> None:
+        """Emit any pending (sub-batch) grant immediately."""
+        with self._lock:
+            if self._consumed_since_grant == 0:
+                return
             n = self._consumed_since_grant
             self._consumed_since_grant = 0
-            self._window += n
-            return n
-        return None
+        self._window.add(n)
+        frame = Frame.credit(self._rid, self._stream_id, n, self._direction)
+        frame.routing_id = self._xid
+        try:
+            self._writer.write(frame)
+        except Exception:
+            # A failed grant send means the runtime is shutting down; the
+            # sender-side gate will be closed by the terminal path.
+            pass
 
-    def flush(self) -> Optional[int]:
-        """Unconditionally take whatever is pending (stream-end cleanup),
-        extending the window. None if nothing is pending."""
-        if self._consumed_since_grant == 0:
-            return None
-        n = self._consumed_since_grant
-        self._consumed_since_grant = 0
-        self._window += n
-        return n
+    def fragment_sibling(self) -> "InputGrantEmitter":
+        """Build a second emitter over the SAME window/sender for the
+        demux's fragment crediting on sequence streams, with `batch = 1` so
+        every grant flushes immediately. Immediate flushing is load-bearing:
+        the demux only runs when frames arrive, so a batched (held) grant
+        while the producer is stalled on exactly that credit would deadlock
+        the stream mid-item (L10 has no other flush point inside the demux).
+        """
+        return InputGrantEmitter(
+            writer=self._writer,
+            rid=self._rid,
+            xid=self._xid,
+            stream_id=self._stream_id,
+            direction=self._direction,
+            batch=1,
+            window=self._window,
+        )
+
+
+@dataclass
+class InputCreditContext:
+    """Everything the demux needs to credit a request's input streams: grant
+    plumbing for the handler side and per-stream violation windows."""
+    writer: "SyncFrameWriter"
+    rid: MessageId
+    xid: Optional[MessageId]
+    initial_credit: int
+
+
+@dataclass
+class SeqReassembly:
+    """Reassembly state for one sequence-mode input stream (`is_sequence =
+    True` on STREAM_START). Sequence producers (`emit_list_item`) CBOR-encode
+    each item once and split the encoded bytes across CHUNK frames at
+    max_chunk boundaries — a frame payload is a raw RFC 8742 fragment, NOT a
+    self-contained CBOR value. The demux must therefore buffer fragments and
+    decode at item granularity; decoding per frame fails with a truncated-CBOR
+    error on any item larger than max_chunk (the bug class that broke
+    cap→cap forwarding of rendered page images)."""
+    buf: bytearray = field(default_factory=bytearray)
+    item_meta: Optional[dict] = None
+    fragment_grants: Optional[InputGrantEmitter] = None
+
+
+def try_decode_sequence_item(buf: bytes):
+    """Try to decode one self-delimiting CBOR item from the front of `buf`.
+
+    Returns a 3-tuple ``(status, value_or_error, consumed)``:
+    - ``("ok", value, consumed)`` — one complete item; `consumed` bytes used.
+    - ``("prefix", None, None)`` — `buf` holds only a prefix of an item; wait
+      for more frames. (CBOR definite-length encoding is prefix-free, so a
+      truncated item can never mis-decode as a complete one.)
+    - ``("error", exception, None)`` — the bytes are not valid CBOR at all.
+    """
+    stream = io.BytesIO(buf)
+    try:
+        value = cbor2.load(stream)
+        return ("ok", value, stream.tell())
+    except cbor2.CBORDecodeEOF:
+        return ("prefix", None, None)
+    except Exception as e:
+        return ("error", e, None)
 
 
 class StreamEmitter(Protocol):
@@ -417,14 +511,14 @@ class PeerResponseItem:
         self._log = log
 
     @staticmethod
-    def data_ok(value) -> "PeerResponseItem":
-        """Create a Data item with a decoded CBOR value."""
-        return PeerResponseItem(data=("ok", value))
+    def data_ok(value, meta: Optional[dict] = None) -> "PeerResponseItem":
+        """Create a Data item with a decoded CBOR value and optional per-item metadata."""
+        return PeerResponseItem(data=("ok", value, meta))
 
     @staticmethod
-    def data_err(error: Exception) -> "PeerResponseItem":
+    def data_err(error: Exception, meta: Optional[dict] = None) -> "PeerResponseItem":
         """Create a Data item with an error."""
-        return PeerResponseItem(data=("err", error))
+        return PeerResponseItem(data=("err", error, meta))
 
     @staticmethod
     def log_frame(frame: Frame) -> "PeerResponseItem":
@@ -444,7 +538,7 @@ class PeerResponseItem:
         """Get the decoded data value. Raises if this is an error or LOG item."""
         if self._data is None:
             raise ValueError("Not a Data item")
-        kind, val = self._data
+        kind, val, _meta = self._data
         if kind == "err":
             raise val
         return val
@@ -454,8 +548,16 @@ class PeerResponseItem:
         """Get the error if this is a Data(Err) item, None otherwise."""
         if self._data is None:
             return None
-        kind, val = self._data
+        kind, val, _meta = self._data
         return val if kind == "err" else None
+
+    @property
+    def data_meta(self) -> Optional[dict]:
+        """Get the per-item metadata of a Data item, None if absent or not a Data item."""
+        if self._data is None:
+            return None
+        _kind, _val, meta = self._data
+        return meta
 
     @property
     def log(self) -> Optional[Frame]:
@@ -472,15 +574,28 @@ class PeerResponse:
     silently discard them and return only data.
     """
 
-    def __init__(self, q: queue.Queue):
+    def __init__(self, q: queue.Queue, grants: Optional[InputGrantEmitter] = None):
         self._queue = q
+        # Consumption grants for the responding peer's output window
+        # (L10/L14). None = uncredited context (synthetic test responses).
+        self._grants = grants
 
     def recv(self) -> Optional[PeerResponseItem]:
         """Receive the next item (data or LOG) from the peer response.
-        Returns None when the stream ends."""
-        item = self._queue.get()
-        if item is None:
-            return None
+        Returns None when the stream ends.
+
+        Data consumption replenishes the responding peer's output window —
+        a slow consumer naturally throttles the producer (L10). About to
+        block: flushes any pending grant first (L10 deadlock-freedom rule).
+        """
+        try:
+            item = self._queue.get_nowait()
+        except queue.Empty:
+            if self._grants is not None:
+                self._grants.flush()
+            item = self._queue.get()
+        if item is not None and item.is_data and item.data_error is None and self._grants is not None:
+            self._grants.consumed()
         return item
 
     def collect_bytes(self) -> bytes:
@@ -532,30 +647,19 @@ class PendingPeerRequest:
 
 
 @dataclass
-class PendingStream:
-    """A single stream within a multiplexed request."""
-    media_urn: str
-    chunks: List[bytes]
-    complete: bool
-
-
-@dataclass
-class PendingIncomingRequest:
-    """Internal struct to track incoming multiplexed request streams.
-    Protocol v2: Requests arrive as REQ (empty) → STREAM_START → CHUNK(s) → STREAM_END → END.
+class ActiveRequest:
+    """Tracks one in-flight incoming request for LIVE frame routing (protocol
+    v3, L16). Unlike the old buffer-then-dispatch regime (PendingIncomingRequest),
+    this holds no accumulated stream state — every STREAM_START/CHUNK/
+    STREAM_END/END frame for this request is routed onto `raw_queue` the
+    instant it arrives, and the handler thread's `demux_multi_stream` drains
+    it live. Registered the instant REQ is seen (mirrors the Rust reference's
+    `active_requests` map — frames route here even before the handler thread
+    is actually spawned, e.g. while capacity-queued).
     """
     cap_urn: str
-    content_type: Optional[str]
-    streams: List  # List of (stream_id, PendingStream) tuples — ordered
-    ended: bool  # True after END frame — any stream activity after is FATAL
-    routing_id: Optional["MessageId"] = None  # XID from incoming REQ (preserved for response routing)
-    # Per-stream credit accounting (L10/L12): stream_id -> CreditWindowAccountant.
-    # Each incoming argument stream is bounded to its granted window; the
-    # demux (this request's CHUNK handling in run_cbor_mode) checks arriving
-    # chunks against it and emits batched grants as chunks are buffered
-    # (this mirror's demux buffers-to-completion synchronously, so "arrival"
-    # and "consumption" are the same event — see CreditWindowAccountant).
-    credit_windows: Dict[str, "CreditWindowAccountant"] = field(default_factory=dict)
+    routing_id: Optional["MessageId"]
+    raw_queue: queue.Queue = field(default_factory=queue.Queue)
 
 
 class PeerInvokerImpl:
@@ -779,6 +883,18 @@ class ThreadSafeEmitter:
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
         self.stream_started = False
         self.stream_lock = threading.Lock()
+        # Whether the started stream is sequence-mode (emit_list_item — CBOR
+        # fragments reassembled at item granularity on the receiving end) or
+        # write-mode (write/emit_cbor — each CHUNK is a self-contained CBOR
+        # value). None until the stream is started. Mixing modes on one
+        # stream is a protocol error — the receiver's demux decodes the two
+        # shapes completely differently (scalar-per-frame vs RFC-8742
+        # fragment reassembly), so declaring the wrong one on STREAM_START
+        # silently corrupts every downstream cap→cap forward of a
+        # multi-fragment item.
+        self._is_sequence_mode: Optional[bool] = None
+        # Whether this stream was started unbounded (no length promise, L16).
+        self.unbounded = False
         # Per-stream flow-control window (L9). None = uncredited context
         # (CLI mode, tests, in-process host) — writes never wait.
         self._credit_gate = CreditGate(initial_credit) if credit_router is not None else None
@@ -788,19 +904,53 @@ class ThreadSafeEmitter:
         self._final_status_lock = threading.Lock()
         self._final_status: Optional[FinalStatus] = None
 
-    def _ensure_stream_started(self) -> None:
-        """Send STREAM_START if not yet sent. Seq and routing_id assigned here.
+    def _check_mode(self, is_sequence: bool) -> None:
+        """Fail hard on mixing write-mode (write/emit_cbor) and sequence-mode
+        (emit_list_item) emissions on the same stream — the receiver's demux
+        decodes the two shapes incompatibly, so a mismatch here silently
+        corrupts the stream instead of failing at the point of misuse."""
+        if self._is_sequence_mode is not None and self._is_sequence_mode != is_sequence:
+            raise HandlerError(
+                f"stream already started in {'sequence' if self._is_sequence_mode else 'write'} "
+                f"mode; cannot emit in {'sequence' if is_sequence else 'write'} mode"
+            )
+
+    def _ensure_stream_started(
+        self, is_sequence: bool = False, meta: Optional[dict] = None, unbounded: bool = False,
+    ) -> None:
+        """Send STREAM_START if not yet sent, declaring the wire mode this
+        stream actually uses (`is_sequence`) — REQUIRED for the receiver's
+        demux to reassemble multi-fragment sequence items correctly (L16/
+        RFC 8742). Seq and routing_id assigned here.
 
         Registers this stream's credit gate so inbound CREDIT frames find it.
         """
         with self.stream_lock:
+            self._check_mode(is_sequence)
             if not self.stream_started:
                 self.stream_started = True
+                self._is_sequence_mode = is_sequence
+                self.unbounded = unbounded
                 if self._credit_gate is not None and self._credit_router is not None:
                     self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
-                start_frame = Frame.stream_start(self.request_id, self.stream_id, self.media_urn)
+                if unbounded:
+                    start_frame = Frame.stream_start_unbounded(
+                        self.request_id, self.stream_id, self.media_urn, is_sequence,
+                    )
+                else:
+                    start_frame = Frame.stream_start(
+                        self.request_id, self.stream_id, self.media_urn, is_sequence,
+                    )
+                if meta is not None:
+                    start_frame.meta = dict(meta)
                 start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
                 self.writer.write(start_frame)
+
+    def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Send STREAM_START for an UNBOUNDED response — one that makes no
+        length promise (L16). `finalize()` then sends STREAM_END without a
+        chunk_count. Must be called (if at all) before the first emission."""
+        self._ensure_stream_started(is_sequence=is_sequence, meta=meta, unbounded=True)
 
     def _acquire_credit(self) -> None:
         """Acquire one chunk of credit, blocking if the window is exhausted.
@@ -960,17 +1110,14 @@ class ThreadSafeEmitter:
         progress rides IN the terminal frame — it cannot race it.
         """
         # Ensure STREAM_START was sent (even if handler emitted nothing)
-        with self.stream_lock:
-            if not self.stream_started:
-                self.stream_started = True
-                if self._credit_gate is not None and self._credit_router is not None:
-                    self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
-                start_frame = Frame.stream_start(self.request_id, self.stream_id, self.media_urn)
-                start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
-                self.writer.write(start_frame)
+        self._ensure_stream_started()
 
-        # STREAM_END (seq assigned by SyncFrameWriter)
-        stream_end = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
+        # STREAM_END (seq assigned by SyncFrameWriter). Unbounded streams
+        # (started via start_unbounded) carry no chunk_count promise (L16).
+        if self.unbounded:
+            stream_end = Frame.stream_end_unbounded(self.request_id, self.stream_id)
+        else:
+            stream_end = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
         stream_end.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(stream_end)
 
@@ -1027,8 +1174,13 @@ class ThreadSafeEmitter:
 
         Awaits (blocks) per chunk when the flow-control window is exhausted
         (L9). `blocking_emit_list_item` is an alias — see class docstring.
+
+        Declares the stream sequence-mode on STREAM_START (`is_sequence=True`)
+        — REQUIRED so the receiver's demux reassembles multi-fragment items
+        at item granularity (RFC 8742) instead of trying to decode each raw
+        fragment as an independent CBOR value.
         """
-        self._ensure_stream_started()
+        self._ensure_stream_started(is_sequence=True)
         cbor_bytes = cbor2.dumps(value)
 
         offset = 0
@@ -1114,23 +1266,23 @@ class ProgressSender:
 
 class Request:
     """Bundles capdag I/O for WetContext. Op handlers extract this from WetContext
-    to access streaming input frames, output emitter, and peer invocation.
+    to access streaming input, output emitter, and peer invocation.
     """
 
-    def __init__(self, frames: queue.Queue, emitter: "StreamEmitter", peer: "PeerInvoker"):
-        self._frames = frames
+    def __init__(self, input_package: "InputPackage", emitter: "StreamEmitter", peer: "PeerInvoker"):
+        self._input = input_package
         self._emitter = emitter
         self._peer = peer
         self._consumed = False
         self._lock = threading.Lock()
 
-    def take_frames(self) -> queue.Queue:
-        """Take the input frames queue. Can only be called once — second call raises error."""
+    def take_input(self) -> "InputPackage":
+        """Take the input package. Can only be called once — second call raises error."""
         with self._lock:
             if self._consumed:
                 raise HandlerError("Input already consumed")
             self._consumed = True
-            return self._frames
+            return self._input
 
     def emitter(self) -> "StreamEmitter":
         """Access the output stream emitter."""
@@ -1142,57 +1294,168 @@ class Request:
 
 
 class InputStream:
-    """Synchronous input stream of decoded items for a single media URN."""
+    """A single input stream — yields decoded CBOR values with optional
+    per-item metadata from CHUNK frames, delivered INCREMENTALLY as they
+    arrive off the wire (protocol v3, L16) — never buffered to completion.
+    Handler never sees Frame, STREAM_START, STREAM_END, checksum, seq, or index.
 
-    def __init__(self, media_urn: str, q: queue.Queue):
+    Metadata semantics depend on mode:
+    - Non-sequence: `stream_meta()` returns the STREAM_START metadata (whole-stream).
+    - Sequence: `recv()` delivers per-item metadata from CHUNK frames.
+
+    `recv()` returns one of: ``None`` (stream ended), an ``Exception``
+    instance (a decode/protocol error — inspect or raise it), or a
+    ``(value, meta)`` tuple. This mirrors the Rust reference's
+    ``Option<Result<(Value, Option<StreamMeta>), StreamError>>`` without a
+    dedicated Result wrapper type — callers that don't care about the error
+    path can just check `isinstance(item, Exception)`.
+    """
+
+    def __init__(
+        self,
+        media_urn: str,
+        stream_meta: Optional[dict],
+        q: queue.Queue,
+        unbounded: bool = False,
+        grants: Optional[InputGrantEmitter] = None,
+    ):
         self._media_urn = media_urn
+        self._stream_meta = stream_meta
         self._queue = q
-
-    def recv_data(self):
-        """Receive the next item, or None when the stream ends."""
-        item = self._queue.get()
-        if item is None:
-            return None
-        return item
-
-    def collect_bytes(self) -> bytes:
-        """Collect all byte/text chunks into a single byte string."""
-        result = bytearray()
-        while True:
-            item = self.recv_data()
-            if item is None:
-                return bytes(result)
-            if isinstance(item, Exception):
-                raise item
-            if isinstance(item, bytes):
-                result.extend(item)
-                continue
-            if isinstance(item, str):
-                result.extend(item.encode("utf-8"))
-                continue
-            raise RuntimeError(
-                f"InputStream.collect_bytes only supports bytes/str chunks, got {type(item).__name__}"
-            )
+        self._unbounded = unbounded
+        self._grants = grants
 
     def media_urn(self) -> str:
         return self._media_urn
 
+    def stream_meta(self) -> Optional[dict]:
+        """Stream-level metadata from STREAM_START (non-sequence mode)."""
+        return self._stream_meta
+
+    def is_unbounded(self) -> bool:
+        """Whether the sender declared this stream unbounded — no length
+        promise; consume incrementally with `recv()`, never with the
+        `collect_*` buffering helpers (L16)."""
+        return self._unbounded
+
+    def recv(self):
+        """Receive the next (value, meta) item, an Exception on a stream
+        error, or None when the stream ends.
+
+        Consumption replenishes the sender's flow-control window (L10) — a
+        slow handler naturally throttles the producer. About to block:
+        flushes any pending batched grant first (L10 deadlock-freedom rule)
+        — the producer may be stalled waiting for exactly this credit.
+        """
+        try:
+            item = self._queue.get_nowait()
+        except queue.Empty:
+            if self._grants is not None:
+                self._grants.flush()
+            item = self._queue.get()
+        if item is not None and not isinstance(item, Exception) and self._grants is not None:
+            self._grants.consumed()
+        return item
+
+    def recv_data(self):
+        """Like `recv()` but discards per-item metadata: value, Exception, or None."""
+        item = self.recv()
+        if item is None or isinstance(item, Exception):
+            return item
+        value, _meta = item
+        return value
+
+    def _check_bounded(self, method: str) -> None:
+        """Refuse buffering on unbounded streams (L16) — buffering an
+        unbounded stream is unbounded memory; the failure must be explicit,
+        not an OOM."""
+        if self._unbounded:
+            raise StreamError(
+                f"{method} refused: stream is unbounded (no length promise) — "
+                "consume incrementally with recv() (L16)"
+            )
+
+    def collect_items(self) -> List[Tuple[bytes, Optional[dict]]]:
+        """Collect each chunk as a separate item with its metadata.
+        For sequence streams (is_sequence=True), each delivered value is one
+        item. Returns a list of (raw_bytes, optional_per_item_meta).
+
+        Fails hard on streams declared unbounded (L16)."""
+        self._check_bounded("collect_items")
+        items: List[Tuple[bytes, Optional[dict]]] = []
+        while True:
+            item = self.recv()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            value, meta = item
+            if isinstance(value, bytes):
+                b = value
+            elif isinstance(value, str):
+                b = value.encode("utf-8")
+            else:
+                b = cbor2.dumps(value)
+            items.append((b, meta))
+        return items
+
+    def collect_bytes(self) -> bytes:
+        """Collect all chunks into a single byte vector. Extracts inner
+        bytes from bytes/str values and concatenates; other types are
+        CBOR-encoded. Per-item metadata is discarded.
+
+        Fails hard on streams declared unbounded (L16) — there is no finite
+        buffer for a stream with no length promise."""
+        self._check_bounded("collect_bytes")
+        result = bytearray()
+        while True:
+            item = self.recv()
+            if item is None:
+                return bytes(result)
+            if isinstance(item, Exception):
+                raise item
+            value, _meta = item
+            if isinstance(value, bytes):
+                result.extend(value)
+            elif isinstance(value, str):
+                result.extend(value.encode("utf-8"))
+            else:
+                result.extend(cbor2.dumps(value))
+
+    def collect_value(self):
+        """Collect a single CBOR value (expects exactly one chunk).
+        Per-item metadata is discarded.
+
+        Fails hard on streams declared unbounded (L16)."""
+        self._check_bounded("collect_value")
+        item = self.recv()
+        if item is None:
+            raise StreamError("Stream closed")
+        if isinstance(item, Exception):
+            raise item
+        value, _meta = item
+        return value
+
 
 class InputPackage:
-    """Synchronous package of InputStreams."""
+    """The bundle of all input arg streams for one request. Yields
+    InputStream objects as STREAM_START frames arrive from the wire — LIVE,
+    not buffered to completion. Returns None after END (all args delivered).
+    """
 
     def __init__(self, q: queue.Queue):
         self._queue = q
 
     def recv(self):
-        """Receive the next InputStream, or None when the package ends."""
-        item = self._queue.get()
-        if item is None:
-            return None
-        return item
+        """Get the next input stream, an Exception on a demux-level protocol
+        error, or None at request end."""
+        return self._queue.get()
 
     def collect_all_bytes(self) -> bytes:
-        """Collect bytes from every stream in order."""
+        """Collect all streams' bytes into a single byte vector.
+
+        WARNING: Only call this if you know all streams are finite (and
+        bounded — this fails hard on any unbounded stream, L16)."""
         result = bytearray()
         while True:
             stream = self.recv()
@@ -1200,11 +1463,219 @@ class InputPackage:
                 return bytes(result)
             if isinstance(stream, Exception):
                 raise stream
-            if not isinstance(stream, InputStream):
-                raise RuntimeError(
-                    f"InputPackage expected InputStream items, got {type(stream).__name__}"
-                )
             result.extend(stream.collect_bytes())
+
+    def collect_streams(self) -> List[Tuple[str, bytes, Optional[dict]]]:
+        """Collect each stream individually into a list of
+        (media_urn, bytes, stream_meta) triples. Each stream's bytes are
+        accumulated separately — NOT concatenated. Use `find_stream()`
+        helpers to retrieve args by URN pattern matching.
+
+        WARNING: Only call this if you know all streams are finite."""
+        result: List[Tuple[str, bytes, Optional[dict]]] = []
+        while True:
+            stream = self.recv()
+            if stream is None:
+                return result
+            if isinstance(stream, Exception):
+                raise stream
+            urn = stream.media_urn()
+            meta = stream.stream_meta()
+            data = stream.collect_bytes()
+            result.append((urn, data, meta))
+
+
+def demux_multi_stream(
+    raw_rx: queue.Queue,
+    credit: Optional[InputCreditContext] = None,
+) -> InputPackage:
+    """Demux for multi-stream mode (handler input). Spawns a background
+    thread that reads the raw per-request Frame queue and splits it into
+    per-stream InputStream channels, delivered LIVE as frames arrive — never
+    buffered to completion (protocol v3, L16).
+
+    `raw_rx` is fed by the main loop's live per-request routing: frames for
+    this request are `put()` onto it as they arrive off the wire, even while
+    this thread is still draining earlier ones. The loop below blocks on
+    `raw_rx.get()` exactly like the Rust reference's `for frame in raw_rx`
+    over a crossbeam receiver — it terminates on an explicit END/ERR frame,
+    matching the wire protocol rather than relying on the queue being closed.
+
+    Mirrors the Rust reference's `demux_multi_stream` (this mirror has no
+    FilePathContext-driven CBOR-mode file materialization, so that branch of
+    the reference is not ported — CLI-mode file-path resolution is handled
+    entirely before frames reach this demux, see `build_payload_from_cli`).
+    """
+    streams_queue: queue.Queue = queue.Queue()
+
+    def _worker() -> None:
+        # stream_id -> per-stream item queue delivered to the handler.
+        stream_channels: Dict[str, queue.Queue] = {}
+        # stream_id -> remaining credit window (L10/L12). Starts at the
+        # negotiated initial_credit; handler consumption (grants) extends
+        # it; a chunk arriving with the window at zero is a fatal
+        # CREDIT_VIOLATION. The demux itself never blocks on this — it only
+        # accounts, so control frames keep flowing regardless of data
+        # pressure.
+        stream_windows: Dict[str, _WindowCounter] = {}
+        # stream_id -> item reassembly state for sequence-mode streams (see
+        # `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
+        # at item granularity).
+        seq_reassembly: Dict[str, SeqReassembly] = {}
+
+        def _close_all_open_streams() -> None:
+            for tx in stream_channels.values():
+                tx.put(None)
+            stream_channels.clear()
+
+        while True:
+            frame: Frame = raw_rx.get()
+
+            if frame.frame_type == FrameType.STREAM_START:
+                stream_id = frame.stream_id
+                if stream_id is None:
+                    streams_queue.put(StreamError("STREAM_START missing stream_id"))
+                    break
+                media_urn = frame.media_urn or ""
+
+                chunk_q: queue.Queue = queue.Queue()
+                stream_channels[stream_id] = chunk_q
+                grants: Optional[InputGrantEmitter] = None
+                if credit is not None:
+                    window = _WindowCounter(credit.initial_credit)
+                    stream_windows[stream_id] = window
+                    grants = InputGrantEmitter(
+                        writer=credit.writer,
+                        rid=credit.rid,
+                        xid=credit.xid,
+                        stream_id=stream_id,
+                        direction=CreditDirection.REQUEST,
+                        batch=max(credit.initial_credit // 2, 1),
+                        window=window,
+                    )
+                if frame.is_sequence:
+                    seq_reassembly[stream_id] = SeqReassembly(
+                        fragment_grants=grants.fragment_sibling() if grants is not None else None,
+                    )
+                input_stream = InputStream(
+                    media_urn=media_urn,
+                    stream_meta=frame.meta,
+                    q=chunk_q,
+                    unbounded=frame.is_unbounded(),
+                    grants=grants,
+                )
+                streams_queue.put(input_stream)
+
+            elif frame.frame_type == FrameType.CHUNK:
+                stream_id = frame.stream_id or ""
+
+                # Credit-violation check (L12): a chunk beyond the granted
+                # window is a fatal protocol error for this request.
+                window = stream_windows.get(stream_id)
+                if window is not None:
+                    before = window.fetch_sub_one()
+                    if before <= 0:
+                        tx = stream_channels.get(stream_id)
+                        if tx is not None:
+                            tx.put(StreamError(
+                                f"CREDIT_VIOLATION: chunk received beyond the granted window "
+                                f"on stream {stream_id} (L12)"
+                            ))
+                        continue
+
+                tx = stream_channels.get(stream_id)
+                if tx is not None and frame.payload:
+                    payload = frame.payload
+                    expected_checksum = frame.checksum
+                    if expected_checksum is None:
+                        tx.put(StreamError("CHUNK frame missing required checksum field"))
+                        continue
+                    actual = compute_checksum(payload)
+                    if actual != expected_checksum:
+                        tx.put(StreamError(
+                            f"Checksum mismatch: expected={expected_checksum}, actual={actual}"
+                        ))
+                        continue
+                    chunk_meta = frame.meta
+                    seq = seq_reassembly.get(stream_id)
+                    if seq is not None:
+                        # Sequence stream: the payload is a raw RFC 8742
+                        # fragment. Buffer it and deliver at ITEM granularity.
+                        if len(seq.buf) == 0:
+                            # First fragment of a new item carries the
+                            # per-item metadata (emit_list_item contract).
+                            seq.item_meta = chunk_meta
+                        elif seq.fragment_grants is not None:
+                            # Continuation fragment: credit it back
+                            # immediately — the handler grants one frame per
+                            # consumed ITEM, so without this an item
+                            # spanning more frames than the credit window
+                            # could never finish arriving.
+                            seq.fragment_grants.consumed()
+                        seq.buf.extend(payload)
+                        while True:
+                            status, a, b = try_decode_sequence_item(bytes(seq.buf))
+                            if status == "ok":
+                                value, consumed = a, b
+                                del seq.buf[:consumed]
+                                meta = seq.item_meta
+                                seq.item_meta = None
+                                tx.put((value, meta))
+                                if len(seq.buf) == 0:
+                                    break
+                            elif status == "prefix":
+                                break  # need more frames
+                            else:
+                                tx.put(StreamError(f"CBOR decode error: {a}"))
+                                seq.buf.clear()
+                                break
+                    else:
+                        # Scalar stream: every frame payload is a
+                        # self-contained CBOR value (`write` wraps each
+                        # piece as its own Value).
+                        try:
+                            value = cbor2.loads(payload)
+                            tx.put((value, chunk_meta))
+                        except Exception as e:
+                            tx.put(StreamError(f"CBOR decode error: {e}"))
+
+            elif frame.frame_type == FrameType.STREAM_END:
+                stream_id = frame.stream_id or ""
+                # Sequence stream ending mid-item is a truncation — surface
+                # it, never silently drop the partial item.
+                seq = seq_reassembly.pop(stream_id, None)
+                tx = stream_channels.get(stream_id)
+                if seq is not None and len(seq.buf) > 0 and tx is not None:
+                    tx.put(StreamError(
+                        f"sequence stream ended mid-item: {len(seq.buf)} trailing bytes "
+                        "do not form a complete CBOR item"
+                    ))
+                tx = stream_channels.pop(stream_id, None)
+                if tx is not None:
+                    tx.put(None)
+                stream_windows.pop(stream_id, None)
+
+            elif frame.frame_type == FrameType.END:
+                break
+
+            elif frame.frame_type == FrameType.ERR:
+                code = frame.error_code() or "UNKNOWN"
+                message = frame.error_message() or "Unknown error"
+                err = StreamError(f"Remote error: [{code}] {message}")
+                for tx in stream_channels.values():
+                    tx.put(err)
+                _close_all_open_streams()
+                streams_queue.put(StreamError(f"Remote error: [{code}] {message}"))
+                break
+
+            else:
+                pass  # Ignore LOG, HEARTBEAT, CREDIT, etc. — not demux concerns.
+
+        _close_all_open_streams()
+        streams_queue.put(None)
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return InputPackage(streams_queue)
 
 
 class OutputStream:
@@ -1238,34 +1709,56 @@ class OutputStream:
         self.chunk_index = 0
         self.started = False
         self.closed = False
+        # Whether this stream was started unbounded (no length promise, L16).
+        self.unbounded = False
         self._lock = threading.Lock()
         # Per-stream flow-control window (L9). None = uncredited context —
         # writes never wait.
         self._credit_gate = CreditGate(initial_credit) if credit_router is not None else None
         self._credit_router = credit_router
 
-    def _start_unlocked(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+    def _start_unlocked(
+        self, is_sequence: bool = False, meta: Optional[dict] = None, unbounded: bool = False,
+    ) -> None:
         if self.started:
             return
         # Register this stream's credit gate so inbound CREDIT frames find it.
         if self._credit_gate is not None and self._credit_router is not None:
             self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
-        frame = Frame.stream_start(
-            self.request_id,
-            self.stream_id,
-            self.media_urn,
-            is_sequence if is_sequence else None,
-        )
+        if unbounded:
+            frame = Frame.stream_start_unbounded(
+                self.request_id,
+                self.stream_id,
+                self.media_urn,
+                is_sequence if is_sequence else None,
+            )
+        else:
+            frame = Frame.stream_start(
+                self.request_id,
+                self.stream_id,
+                self.media_urn,
+                is_sequence if is_sequence else None,
+            )
         if meta is not None:
             frame.meta = dict(meta)
         frame.routing_id = self.routing_id
         self.writer.write(frame)
         self.started = True
+        self.unbounded = unbounded
 
     def start(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
         """Emit STREAM_START exactly once."""
         with self._lock:
             self._start_unlocked(is_sequence=is_sequence, meta=meta)
+
+    def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Send STREAM_START for an UNBOUNDED stream — one that makes no
+        length promise (L16). The receiver must consume it incrementally;
+        buffering collectors refuse it. `close()` on an unbounded stream
+        sends STREAM_END without a chunk_count. Otherwise identical to
+        `start()`."""
+        with self._lock:
+            self._start_unlocked(is_sequence=is_sequence, meta=meta, unbounded=True)
 
     def _acquire_credit(self) -> None:
         """Acquire one chunk of credit, blocking if the window is exhausted.
@@ -1350,13 +1843,17 @@ class OutputStream:
             self._write_chunk_payload(cbor2.dumps(value))
 
     def close(self) -> None:
-        """Emit STREAM_END exactly once."""
+        """Emit STREAM_END exactly once. Unbounded streams (started via
+        `start_unbounded`) send STREAM_END with no chunk_count promise (L16)."""
         with self._lock:
             if self.closed:
                 raise RuntimeError("OutputStream already closed")
             if not self.started:
                 self._start_unlocked()
-            frame = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
+            if self.unbounded:
+                frame = Frame.stream_end_unbounded(self.request_id, self.stream_id)
+            else:
+                frame = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
             frame.routing_id = self.routing_id
             self.writer.write(frame)
             self.closed = True
@@ -1415,19 +1912,33 @@ OpFactory = Callable[[], Op]
 
 
 class IdentityOp(Op):
-    """Standard identity handler — pure passthrough. Forwards all input chunks to output."""
+    """Standard identity handler — pure passthrough. Forwards all input to output, live."""
 
     async def perform(self, dry: DryContext, wet: WetContext) -> None:
         req: Request = wet.get_required(WET_KEY_REQUEST)
-        frames = req.take_frames()
-        for frame in iter(frames.get, None):
-            if frame.frame_type == FrameType.CHUNK:
-                # Verify checksum (protocol v2 integrity check)
-                verify_chunk_checksum(frame)
-                if frame.payload is not None:
-                    req.emitter().write(frame.payload)
-            elif frame.frame_type == FrameType.END:
+        input_pkg = req.take_input()
+        started = False
+        while True:
+            stream = input_pkg.recv()
+            if stream is None:
                 break
+            if isinstance(stream, Exception):
+                raise HandlerError(f"Identity input error: {stream}")
+            if not started:
+                # Propagate the first input stream's meta (provenance context).
+                req.emitter().start(False, stream.stream_meta())
+                started = True
+            while True:
+                item = stream.recv()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise HandlerError(f"Identity chunk error: {item}")
+                value, _meta = item
+                req.emitter().emit_cbor(value)
+        if not started:
+            # No input streams arrived — still start and close the output.
+            req.emitter().start(False, None)
 
     def metadata(self) -> OpMetadata:
         return OpMetadata.builder("IdentityOp") \
@@ -1440,10 +1951,19 @@ class DiscardOp(Op):
 
     async def perform(self, dry: DryContext, wet: WetContext) -> None:
         req: Request = wet.get_required(WET_KEY_REQUEST)
-        frames = req.take_frames()
-        for frame in iter(frames.get, None):
-            if frame is None or frame.frame_type == FrameType.END:
+        input_pkg = req.take_input()
+        while True:
+            stream = input_pkg.recv()
+            if stream is None:
                 break
+            if isinstance(stream, Exception):
+                raise HandlerError(f"Discard input error: {stream}")
+            while True:
+                item = stream.recv()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise HandlerError(f"Discard chunk error: {item}")
 
     def metadata(self) -> OpMetadata:
         return OpMetadata.builder("DiscardOp") \
@@ -1460,10 +1980,19 @@ class AdapterSelectionOp(Op):
 
     async def perform(self, dry: DryContext, wet: WetContext) -> None:
         req: Request = wet.get_required(WET_KEY_REQUEST)
-        frames = req.take_frames()
-        for frame in iter(frames.get, None):
-            if frame is None or frame.frame_type == FrameType.END:
+        input_pkg = req.take_input()
+        while True:
+            stream = input_pkg.recv()
+            if stream is None:
                 break
+            if isinstance(stream, Exception):
+                raise HandlerError(f"AdapterSelection input error: {stream}")
+            while True:
+                item = stream.recv()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise HandlerError(f"AdapterSelection chunk error: {item}")
 
     def metadata(self) -> OpMetadata:
         return OpMetadata.builder("AdapterSelectionOp") \
@@ -1473,15 +2002,19 @@ class AdapterSelectionOp(Op):
 
 def dispatch_op(
     op: Op,
-    frames: queue.Queue,
+    input_package: "InputPackage",
     emitter: "StreamEmitter",
     peer: "PeerInvoker",
 ) -> None:
     """Dispatch an Op with a Request via WetContext. Bridges sync handler threads to async Op.perform.
 
+    `input_package` is the live, incrementally-delivered stream bundle
+    produced by `demux_multi_stream()` — NOT a pre-buffered frame queue
+    (protocol v3, L16).
+
     Raises HandlerError on Op failure.
     """
-    req = Request(frames, emitter, peer)
+    req = Request(input_package, emitter, peer)
     dry = DryContext()
     wet = WetContext()
     wet.insert_ref(WET_KEY_REQUEST, req)
@@ -1491,204 +2024,68 @@ def dispatch_op(
         raise HandlerError(str(e))
 
 
-def collect_args_by_media_urn(frames: queue.Queue, media_urn: str) -> bytes:
-    """Collect and concatenate payload chunks for a specific media URN from frame stream.
-
-    Processes frames in order: STREAM_START → CHUNK(s) → STREAM_END → END
-    Returns the concatenated payload for the first stream matching the media URN.
-
-    Args:
-        frames: Queue of Frame objects (will be consumed)
-        media_urn: Media URN to match (e.g., "media:")
-
-    Returns:
-        Concatenated payload bytes for matching stream
-
-    Raises:
-        RuntimeError: If no matching stream found or protocol error
-    """
-    try:
-        target_urn = MediaUrn.from_string(media_urn)
-    except Exception as e:
-        raise RuntimeError(f"Invalid media URN '{media_urn}': {e}")
-
-    # Track streams: stream_id → (media_urn, chunks)
-    streams = {}
-    result = None
-
-    for frame in iter(frames.get, None):
-        if frame.frame_type == FrameType.STREAM_START:
-            if frame.stream_id and frame.media_urn:
-                streams[frame.stream_id] = (frame.media_urn, [])
-
-        elif frame.frame_type == FrameType.CHUNK:
-            # Verify checksum (protocol v2 integrity check)
-            verify_chunk_checksum(frame)
-            if frame.stream_id and frame.stream_id in streams:
-                if frame.payload:
-                    streams[frame.stream_id][1].append(frame.payload)
-
-        elif frame.frame_type == FrameType.STREAM_END:
-            if frame.stream_id and frame.stream_id in streams:
-                stream_media_urn, chunks = streams[frame.stream_id]
-                # Check if this stream matches target using is_equivalent
-                # Both URNs are concrete — exact tag-set match required
-                try:
-                    stream_urn = MediaUrn.from_string(stream_media_urn)
-                    if target_urn.is_equivalent(stream_urn):
-                        result = b''.join(chunks)
-                        # Found match - consume rest of frames and return
-                        for _ in iter(frames.get, None):
-                            pass
-                        return result
-                except Exception:
-                    continue
-
-        elif frame.frame_type == FrameType.END:
-            break
-
-        elif frame.frame_type == FrameType.ERR:
-            code = frame.error_code() or "UNKNOWN"
-            message = frame.error_message() or "Unknown error"
-            raise RuntimeError(f"[{code}] {message}")
-
-    if result is not None:
-        return result
-
-    # No matching stream found
-    raise RuntimeError(f"No stream found matching media URN '{media_urn}'")
-
-
-def collect_peer_response(frames: queue.Queue) -> bytes:
-    """Collect and concatenate all CHUNK payloads from a peer response frame stream.
-
-    Processes frames in order: STREAM_START → CHUNK(s) → STREAM_END → END
-    Returns concatenated payload from all chunks.
-
-    Args:
-        frames: Queue of Frame objects from PeerInvoker.invoke()
-
-    Returns:
-        Concatenated payload bytes
-
-    Raises:
-        RuntimeError: If ERR frame received or protocol error
-    """
-    chunks = []
-
-    for frame in iter(frames.get, None):
-        if frame.frame_type == FrameType.CHUNK:
-            # Verify checksum (protocol v2 integrity check)
-            verify_chunk_checksum(frame)
-            if frame.payload:
-                chunks.append(frame.payload)
-
-        elif frame.frame_type == FrameType.END:
-            break
-
-        elif frame.frame_type == FrameType.ERR:
-            code = frame.error_code() or "UNKNOWN"
-            message = frame.error_message() or "Unknown error"
-            raise RuntimeError(f"Peer error: [{code}] {message}")
-
-    return b''.join(chunks)
-
-
-def collect_streams(frames: queue.Queue) -> List[Tuple[str, bytes]]:
-    """Collect each stream individually into a list of (media_urn, bytes) pairs.
-
-    Each stream's bytes are accumulated separately — NOT concatenated.
-    Use find_stream() helpers to retrieve args by URN pattern matching.
-
-    Args:
-        frames: Queue of Frame objects (will be consumed)
-
-    Returns:
-        List of (media_urn, bytes) tuples, one per stream
-
-    Raises:
-        RuntimeError: If protocol error occurs
-    """
-    # Track streams: stream_id → (media_urn, chunks)
-    streams = {}
-    result = []
-
-    for frame in iter(frames.get, None):
-        if frame.frame_type == FrameType.STREAM_START:
-            if frame.stream_id and frame.media_urn:
-                streams[frame.stream_id] = (frame.media_urn, [])
-
-        elif frame.frame_type == FrameType.CHUNK:
-            # Verify checksum (protocol v2 integrity check)
-            verify_chunk_checksum(frame)
-            if frame.stream_id and frame.stream_id in streams:
-                if frame.payload:
-                    streams[frame.stream_id][1].append(frame.payload)
-
-        elif frame.frame_type == FrameType.STREAM_END:
-            if frame.stream_id and frame.stream_id in streams:
-                media_urn, chunks = streams[frame.stream_id]
-                result.append((media_urn, b''.join(chunks)))
-                del streams[frame.stream_id]
-
-        elif frame.frame_type == FrameType.END:
-            break
-
-        elif frame.frame_type == FrameType.ERR:
-            code = frame.error_code() or "UNKNOWN"
-            message = frame.error_message() or "Unknown error"
-            raise RuntimeError(f"Error: [{code}] {message}")
-
-    return result
-
-
 def demux_peer_response(
     raw_frames: queue.Queue,
     writer: Optional[SyncFrameWriter] = None,
     request_id: Optional[MessageId] = None,
     initial_credit: int = DEFAULT_INITIAL_CREDIT,
 ) -> PeerResponse:
-    """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems.
+    """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems,
+    LIVE — items are delivered as frames arrive, never buffered to completion
+    (protocol v3, L16). Spawns a background thread that reads frames from the
+    raw queue and converts them into PeerResponseItems (Data or Log). Returns
+    immediately so LOG frames can be consumed before data arrives (critical
+    for keeping the engine's activity timer alive during long peer calls).
 
-    Spawns a background thread that reads frames from the raw queue and
-    converts them into PeerResponseItems (Data or Log). Returns immediately
-    so LOG frames can be consumed before data arrives (critical for keeping
-    the engine's activity timer alive during long peer calls).
-
-    This mirrors Rust's demux_single_stream() function.
+    This mirrors the Rust reference's `demux_single_stream()`, including
+    item-granular sequence reassembly (SeqReassembly): a sequence-mode
+    response (`is_sequence=True` on STREAM_START) CBOR-encodes each item once
+    and splits it across CHUNK frames as raw RFC 8742 fragments — decoding
+    each frame independently corrupts any item bigger than one chunk (the bug
+    class that broke cap→cap forwarding of rendered page images). A sequence
+    that ends mid-item is a hard decode error, never a silently dropped
+    partial item.
 
     When `writer` and `request_id` are both supplied, data consumption emits
     batched RESPONSE-direction CREDIT grants (L10/L14) — a slow consumer
-    naturally throttles the responding peer's output. Mirrors the Rust
-    reference's response-side crediting: consumption is granted, but (unlike
-    the handler-input demux) the response side is not window-checked for
-    violations.
+    naturally throttles the responding peer's output; continuation fragments
+    of a sequence item are credited back immediately on arrival (fragment
+    grants), matching the handler-input demux's fragment crediting. Mirrors
+    the Rust reference's response-side crediting: consumption is granted, but
+    (unlike the handler-input demux) the response side is not window-checked
+    for violations.
     """
     item_queue: queue.Queue = queue.Queue(maxsize=256)
-    accountant = (
-        CreditWindowAccountant(initial_credit, check_violations=False)
-        if writer is not None and request_id is not None
-        else None
-    )
-
-    def _grant_if_due() -> None:
-        if accountant is None:
-            return
-        n = accountant.take_due_grant()
-        if n:
-            grant_frame = Frame.credit(request_id, None, n, CreditDirection.RESPONSE)
-            try:
-                writer.write(grant_frame)
-            except Exception:
-                pass
+    grants: Optional[InputGrantEmitter] = None
+    if writer is not None and request_id is not None:
+        grants = InputGrantEmitter(
+            writer=writer,
+            rid=request_id,
+            xid=None,
+            stream_id=None,
+            direction=CreditDirection.RESPONSE,
+            batch=max(initial_credit // 2, 1),
+            window=_WindowCounter(0),
+        )
+    # Fragment crediting for sequence-mode responses (same scheme as
+    # `demux_multi_stream`): the caller grants one frame per consumed ITEM,
+    # so continuation fragments are credited back on arrival here.
+    fragment_grants = grants.fragment_sibling() if grants is not None else None
 
     def _demux_worker():
+        # Sequence reassembly for the single response stream (None until a
+        # STREAM_START with is_sequence=True arrives). Sequence frame
+        # payloads are RFC 8742 fragments — decode at item granularity.
+        seq: Optional[SeqReassembly] = None
+        nonlocal fragment_grants
         for frame in iter(raw_frames.get, None):
             if frame.frame_type == FrameType.STREAM_START:
-                # Structural frame — no item to deliver
-                pass
+                if frame.is_sequence:
+                    seq = SeqReassembly(fragment_grants=fragment_grants)
+                    fragment_grants = None
             elif frame.frame_type == FrameType.CHUNK:
                 if frame.payload:
+                    payload = frame.payload
                     # Verify checksum
                     expected_checksum = frame.checksum
                     if expected_checksum is None:
@@ -1696,25 +2093,53 @@ def demux_peer_response(
                             PeerResponseError("CHUNK frame missing required checksum field")
                         ))
                         continue
-                    actual = compute_checksum(frame.payload)
+                    actual = compute_checksum(payload)
                     if actual != expected_checksum:
                         item_queue.put(PeerResponseItem.data_err(
                             PeerResponseError(f"Checksum mismatch: expected={expected_checksum}, actual={actual}")
                         ))
                         continue
-                    try:
-                        value = cbor2.loads(frame.payload)
-                        item_queue.put(PeerResponseItem.data_ok(value))
-                        if accountant is not None:
-                            accountant.account()
-                            _grant_if_due()
-                    except Exception as e:
-                        item_queue.put(PeerResponseItem.data_err(
-                            PeerResponseError(f"CBOR decode error: {e}")
-                        ))
+                    chunk_meta = frame.meta
+                    if seq is not None:
+                        if len(seq.buf) == 0:
+                            seq.item_meta = chunk_meta
+                        elif seq.fragment_grants is not None:
+                            seq.fragment_grants.consumed()
+                        seq.buf.extend(payload)
+                        while True:
+                            status, a, b = try_decode_sequence_item(bytes(seq.buf))
+                            if status == "ok":
+                                value, consumed = a, b
+                                del seq.buf[:consumed]
+                                meta = seq.item_meta
+                                seq.item_meta = None
+                                item_queue.put(PeerResponseItem.data_ok(value, meta))
+                                if len(seq.buf) == 0:
+                                    break
+                            elif status == "prefix":
+                                break
+                            else:
+                                item_queue.put(PeerResponseItem.data_err(
+                                    PeerResponseError(f"CBOR decode error: {a}")
+                                ))
+                                seq.buf.clear()
+                                break
+                    else:
+                        try:
+                            value = cbor2.loads(payload)
+                            item_queue.put(PeerResponseItem.data_ok(value, chunk_meta))
+                        except Exception as e:
+                            item_queue.put(PeerResponseItem.data_err(
+                                PeerResponseError(f"CBOR decode error: {e}")
+                            ))
             elif frame.frame_type == FrameType.LOG:
                 item_queue.put(PeerResponseItem.log_frame(frame))
             elif frame.frame_type in (FrameType.STREAM_END, FrameType.END):
+                if seq is not None and len(seq.buf) > 0:
+                    item_queue.put(PeerResponseItem.data_err(PeerResponseError(
+                        f"sequence stream ended mid-item: {len(seq.buf)} trailing bytes "
+                        "do not form a complete CBOR item"
+                    )))
                 break
             elif frame.frame_type == FrameType.ERR:
                 code = frame.error_code() or "UNKNOWN"
@@ -1729,10 +2154,12 @@ def demux_peer_response(
     thread = threading.Thread(target=_demux_worker, daemon=True)
     thread.start()
 
-    return PeerResponse(item_queue)
+    return PeerResponse(item_queue, grants=grants)
 
 
-def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[bytes]:
+def find_stream(
+    streams: List[Tuple[str, bytes, Optional[dict]]], media_urn: str
+) -> Optional[bytes]:
     """Find a stream's bytes by exact URN equivalence.
 
     Uses MediaUrn.is_equivalent() — matches only if both URNs have the
@@ -1741,7 +2168,8 @@ def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[by
     exact match — never a subsumption/pattern match.
 
     Args:
-        streams: List of (media_urn, bytes) tuples from collect_streams()
+        streams: List of (media_urn, bytes, stream_meta) triples from
+            `InputPackage.collect_streams()` / `collect_streams()`
         media_urn: Full media URN from cap arg definition (e.g., "media:enc=utf-8;model-spec")
 
     Returns:
@@ -1752,7 +2180,7 @@ def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[by
     except Exception:
         return None
 
-    for urn_str, data in streams:
+    for urn_str, data, _meta in streams:
         try:
             urn = MediaUrn.from_string(urn_str)
             if target.is_equivalent(urn):
@@ -1763,7 +2191,29 @@ def find_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[by
     return None
 
 
-def find_stream_str(streams: List[Tuple[str, bytes]], media_urn: str) -> Optional[str]:
+def find_stream_meta(
+    streams: List[Tuple[str, bytes, Optional[dict]]], media_urn: str
+) -> Optional[dict]:
+    """Find the stream-level metadata (from STREAM_START) for a stream by media URN."""
+    try:
+        target = MediaUrn.from_string(media_urn)
+    except Exception:
+        return None
+
+    for urn_str, _data, meta in streams:
+        try:
+            urn = MediaUrn.from_string(urn_str)
+            if target.is_equivalent(urn):
+                return meta
+        except Exception:
+            continue
+
+    return None
+
+
+def find_stream_str(
+    streams: List[Tuple[str, bytes, Optional[dict]]], media_urn: str
+) -> Optional[str]:
     """Like find_stream but returns a UTF-8 string."""
     data = find_stream(streams, media_urn)
     if data is None:
@@ -1774,7 +2224,9 @@ def find_stream_str(streams: List[Tuple[str, bytes]], media_urn: str) -> Optiona
         return None
 
 
-def require_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> bytes:
+def require_stream(
+    streams: List[Tuple[str, bytes, Optional[dict]]], media_urn: str
+) -> bytes:
     """Like find_stream but fails hard if not found.
 
     Raises:
@@ -1786,7 +2238,9 @@ def require_stream(streams: List[Tuple[str, bytes]], media_urn: str) -> bytes:
     return data
 
 
-def require_stream_str(streams: List[Tuple[str, bytes]], media_urn: str) -> str:
+def require_stream_str(
+    streams: List[Tuple[str, bytes, Optional[dict]]], media_urn: str
+) -> str:
     """Like require_stream but returns a UTF-8 string.
 
     Raises:
@@ -2419,7 +2873,7 @@ class CartridgeRuntime:
 
         Mirrors capdag/src/bifaci/cartridge_runtime.rs::dispatch_cli_payload.
         """
-        request_id = MessageId(0)
+        request_id = MessageId.new_uuid()
         frames: queue.Queue = queue.Queue()
 
         try:
@@ -2442,13 +2896,13 @@ class CartridgeRuntime:
             frames.put(Frame.stream_end(request_id, stream_id, 1))
 
         frames.put(Frame.end(request_id, None))
-        frames.put(None)  # Signal end of stream
 
         emitter = CliStreamEmitter()
         peer = NoPeerInvoker()
 
         try:
-            dispatch_op(factory(), frames, emitter, peer)
+            input_package = demux_multi_stream(frames)  # Uncredited: CLI mode has no wire peer.
+            dispatch_op(factory(), input_package, emitter, peer)
         except Exception as e:
             error_json = {"error": str(e), "code": "HANDLER_ERROR"}
             print(json.dumps(error_json), file=sys.stderr)
@@ -2481,9 +2935,16 @@ class CartridgeRuntime:
         pending_peer_requests: Dict[str, PendingPeerRequest] = {}
         pending_lock = threading.Lock()
 
-        # Track incoming requests that are being chunked
-        pending_incoming: Dict[str, PendingIncomingRequest] = {}
-        pending_incoming_lock = threading.Lock()
+        # Track active incoming requests for LIVE frame routing (protocol v3,
+        # L16): registered the instant REQ is seen, so subsequent
+        # STREAM_START/CHUNK/STREAM_END/END frames route onto the request's
+        # raw_queue as they arrive — even before the handler thread is
+        # actually spawned (e.g. while capacity-queued). The handler thread's
+        # `demux_multi_stream` drains this queue live; there is no
+        # buffer-then-dispatch step. Mirrors the Rust reference's
+        # `active_requests` map.
+        active_requests: Dict[str, ActiveRequest] = {}
+        active_requests_lock = threading.Lock()
 
         # Track active handler threads for cleanup
         active_handlers: List[threading.Thread] = []
@@ -2539,8 +3000,11 @@ class CartridgeRuntime:
                 _drain_queue_locked()
 
         def _spawn_or_queue(request_id: MessageId, routing_id: Optional[MessageId], target_fn: Callable[[], None]) -> None:
-            """Dispatch a fully-buffered request: spawn immediately under
-            capacity, else queue it with a "queued" LOG frame."""
+            """Dispatch a live-routed request: spawn its handler immediately
+            under capacity, else queue it with a "queued" LOG frame. Input
+            frames route onto the request's raw_queue as they arrive
+            regardless (protocol v3, L16) — nothing is buffered to completion
+            before dispatch."""
             nonlocal running_handler_count
             with capacity_lock:
                 cap = self._capacity.get()
@@ -2608,16 +3072,92 @@ class CartridgeRuntime:
                         pass
                     continue
 
-                # Start tracking this request — streams will be added via STREAM_START
-                # Capture routing_id (XID) from the REQ frame — must be propagated to all response frames
-                with pending_incoming_lock:
-                    pending_incoming[frame.id.to_string()] = PendingIncomingRequest(
-                        cap_urn=cap_urn,
-                        content_type=frame.content_type,
-                        streams=[],
-                        ended=False,
-                        routing_id=frame.routing_id,  # XID for response routing
+                factory = self.find_handler(cap_urn)
+                if factory is None:
+                    err_frame = Frame.err(frame.id, "NO_HANDLER", f"No handler registered for cap: {cap_urn}")
+                    err_frame.routing_id = routing_id_for_errors
+                    try:
+                        sync_writer.write(err_frame)
+                    except Exception:
+                        pass
+                    continue
+
+                # Register the LIVE per-request frame queue NOW — before the
+                # handler thread is spawned — so subsequent STREAM_START/
+                # CHUNK/STREAM_END/END frames route onto it immediately
+                # (even while capacity-queued). The handler's
+                # `demux_multi_stream` drains this queue incrementally as
+                # frames arrive (protocol v3, L16) — never buffered to
+                # completion first.
+                request_id = frame.id
+                routing_id = frame.routing_id
+                with active_requests_lock:
+                    active_requests[request_id.to_string()] = ActiveRequest(
+                        cap_urn=cap_urn, routing_id=routing_id,
                     )
+                raw_queue = active_requests[request_id.to_string()].raw_queue
+
+                _max_chunk = self.limits.max_chunk
+                _initial_credit = self.limits.initial_credit
+
+                def handle_request(
+                    request_id=request_id,
+                    raw_queue=raw_queue,
+                    factory=factory,
+                    max_chunk=_max_chunk,
+                    routing_id=routing_id,
+                    initial_credit=_initial_credit,
+                ):
+                    import uuid as _uuid
+                    response_stream_id = f"resp-{_uuid.uuid4().hex[:8]}"
+                    # SyncFrameWriter assigns seq centrally for all frames.
+                    # routing_id (XID) is propagated from incoming REQ to all response frames.
+                    # Output is credited (L9): the receiver's consumption
+                    # grants this stream's window.
+                    emitter = ThreadSafeEmitter(
+                        sync_writer, request_id, response_stream_id, "media:", routing_id, max_chunk,
+                        credit_router=credit_router, initial_credit=initial_credit,
+                    )
+                    peer_invoker = PeerInvokerImpl(
+                        sync_writer, pending_peer_requests, max_chunk,
+                        credit_router=credit_router, initial_credit=initial_credit,
+                    )
+
+                    try:
+                        # Input streams are credited (L14): the handler's
+                        # consumption grants the engine's sender window;
+                        # over-window chunks are CREDIT_VIOLATION. Delivered
+                        # LIVE as frames arrive on raw_queue — never
+                        # buffered to completion first.
+                        input_package = demux_multi_stream(
+                            raw_queue,
+                            InputCreditContext(
+                                writer=sync_writer, rid=request_id, xid=routing_id,
+                                initial_credit=initial_credit,
+                            ),
+                        )
+                        try:
+                            dispatch_op(factory(), input_package, emitter, peer_invoker)
+
+                            # Finalize: STREAM_END + END (seq assigned by
+                            # SyncFrameWriter). END carries the handler's
+                            # declared final progress (L3/L5).
+                            emitter.finalize()
+
+                        except Exception as e:
+                            err_frame = Frame.err(request_id, "HANDLER_ERROR", str(e))
+                            err_frame.routing_id = routing_id  # Propagate XID
+                            try:
+                                sync_writer.write(err_frame)
+                            except Exception as write_err:
+                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                    finally:
+                        # Release this request's credit waiters (L13) and
+                        # immediately drain one queued request into the
+                        # freed capacity slot.
+                        _on_handler_done(request_id)
+
+                _spawn_or_queue(request_id, routing_id, handle_request)
                 continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
 
             elif frame.frame_type == FrameType.HEARTBEAT:
@@ -2649,227 +3189,44 @@ class CartridgeRuntime:
                 except Exception:
                     pass
 
-            elif frame.frame_type == FrameType.CHUNK:
-                # Protocol v2: CHUNK must have stream_id
-                if frame.stream_id is None:
-                    err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "CHUNK frame missing stream_id")
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                # Verify checksum (protocol v2 integrity check)
-                try:
-                    verify_chunk_checksum(frame)
-                except ValueError as e:
-                    err_frame = Frame.err(frame.id, "CORRUPTED_DATA", str(e))
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                stream_id = frame.stream_id
-
-                # Check if this is a chunk for an incoming request
-                with pending_incoming_lock:
-                    frame_id_str = frame.id.to_string()
-                    if frame_id_str in pending_incoming:
-                        pending_req = pending_incoming[frame_id_str]
-
-                        # FAIL HARD: Request already ended
-                        if pending_req.ended:
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "CHUNK after request END")
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # FAIL HARD: Unknown stream
-                        found_stream = None
-                        for sid, stream in pending_req.streams:
-                            if sid == stream_id:
-                                found_stream = stream
-                                break
-
-                        if found_stream is None:
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", f"CHUNK for unknown stream_id: {stream_id}")
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # FAIL HARD: Stream already ended
-                        if found_stream.complete:
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", f"CHUNK for ended stream: {stream_id}")
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # Credit-violation check (L12): a chunk beyond the
-                        # granted window is a fatal protocol error for this
-                        # request. This mirror's demux buffers each stream to
-                        # completion synchronously, so "arrival" IS
-                        # "consumption" here — see CreditWindowAccountant.
-                        window = pending_req.credit_windows.get(stream_id)
-                        if window is not None and window.account():
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(
-                                frame.id, "CREDIT_VIOLATION",
-                                f"chunk received beyond the granted window on stream {stream_id} (L12)",
-                            )
-                            err_frame.routing_id = pending_req.routing_id
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # Valid chunk for active stream
-                        if frame.payload:
-                            found_stream.chunks.append(frame.payload)
-
-                        # Batched CREDIT grant (L10): one grant per
-                        # window/2 chunks consumed, replenishing the sender's
-                        # window so it can keep streaming this arg.
-                        if window is not None:
-                            due = window.take_due_grant()
-                            if due:
-                                grant_frame = Frame.credit(frame.id, stream_id, due, CreditDirection.REQUEST)
-                                grant_frame.routing_id = pending_req.routing_id
-                                try:
-                                    sync_writer.write(grant_frame)
-                                except Exception:
-                                    pass
-                        continue  # Wait for more chunks or STREAM_END
-
-                # Not an incoming request chunk - must be a peer response chunk
-                # Forward bare Frame to handler's queue
+            elif frame.frame_type in (
+                FrameType.STREAM_START, FrameType.CHUNK, FrameType.STREAM_END, FrameType.LOG,
+            ):
+                # Route to the active (live) request's raw queue, or to a
+                # pending peer-response queue. No frame-level validation
+                # here — that is the receiving demux's job
+                # (`demux_multi_stream` / peer-response consumption), exactly
+                # like the Rust reference's routing-only main loop.
                 frame_id_str = frame.id.to_string()
+                with active_requests_lock:
+                    ar = active_requests.get(frame_id_str)
+                if ar is not None:
+                    ar.raw_queue.put(frame)
+                    continue
                 with pending_lock:
                     if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.queue.put(frame)
+                        pending_peer_requests[frame_id_str].queue.put(frame)
+                    else:
+                        print(
+                            f"[CartridgeRuntime] {frame.frame_type} rid={frame_id_str} not found "
+                            "in active_requests or pending_peer_requests",
+                            file=sys.stderr,
+                        )
 
             elif frame.frame_type == FrameType.END:
-                # Protocol v2: END marks the end of all streams for this request
-                pending_req = None
-                with pending_incoming_lock:
-                    frame_id_str = frame.id.to_string()
-                    if frame_id_str in pending_incoming:
-                        pending_req = pending_incoming.pop(frame_id_str)
-                        if pending_req:
-                            pending_req.ended = True
-
-                if pending_req:
-                    # Find handler factory
-                    factory = self.find_handler(pending_req.cap_urn)
-                    if not factory:
-                        err_frame = Frame.err(frame.id, "NO_HANDLER", f"No handler registered for cap: {pending_req.cap_urn}")
-                        err_frame.routing_id = pending_req.routing_id  # Propagate XID
-                        try:
-                            sync_writer.write(err_frame)
-                        except Exception:
-                            pass
-                        continue
-
-                    # Bind values for handler thread (default args capture by value,
-                    # not by reference — avoids closure-in-a-loop bug where the
-                    # loop reassigns these variables before the thread starts).
-                    _request_id = frame.id
-                    _streams_snapshot = list(pending_req.streams)
-                    _cap_urn = pending_req.cap_urn
-                    _factory = factory
-                    _max_chunk = self.limits.max_chunk
-                    _routing_id = pending_req.routing_id  # XID from incoming REQ
-
-                    def handle_streamed_request(
-                        request_id=_request_id,
-                        streams_snapshot=_streams_snapshot,
-                        cap_urn_clone=_cap_urn,
-                        factory=_factory,
-                        max_chunk=_max_chunk,
-                        routing_id=_routing_id,
-                    ):
-                        import uuid as _uuid
-                        response_stream_id = f"resp-{_uuid.uuid4().hex[:8]}"
-                        # SyncFrameWriter assigns seq centrally for all frames
-                        # routing_id (XID) is propagated from incoming REQ to all response frames.
-                        # Output is credited (L9): the receiver's consumption
-                        # grants this stream's window.
-                        emitter = ThreadSafeEmitter(
-                            sync_writer, request_id, response_stream_id, "media:", routing_id, max_chunk,
-                            credit_router=credit_router, initial_credit=self.limits.initial_credit,
-                        )
-                        peer_invoker = PeerInvokerImpl(
-                            sync_writer, pending_peer_requests, max_chunk,
-                            credit_router=credit_router, initial_credit=self.limits.initial_credit,
-                        )
-
-                        try:
-                            # Create queue and populate with request frames
-                            frames = queue.Queue()
-                            try:
-                                # Convert streams to Frame sequence: STREAM_START → CHUNK → STREAM_END → END
-                                for stream_id, stream in streams_snapshot:
-                                    # STREAM_START
-                                    frames.put(Frame.stream_start(request_id, stream_id, stream.media_urn))
-
-                                    # CHUNKs
-                                    for seq, chunk_data in enumerate(stream.chunks):
-                                        frames.put(Frame.chunk(request_id, stream_id, seq, chunk_data, seq, compute_checksum(chunk_data)))
-
-                                    # STREAM_END
-                                    frames.put(Frame.stream_end(request_id, stream_id, len(stream.chunks)))
-
-                                # END
-                                frames.put(Frame.end(request_id, None))
-                                frames.put(None)  # Signal end of stream
-                            except Exception as e:
-                                err_frame = Frame.err(request_id, "PAYLOAD_ERROR", str(e))
-                                err_frame.routing_id = routing_id  # Propagate XID
-                                try:
-                                    sync_writer.write(err_frame)
-                                except Exception as write_err:
-                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
-                                return
-
-                            # Execute Op handler
-                            try:
-                                dispatch_op(factory(), frames, emitter, peer_invoker)
-
-                                # Finalize: STREAM_END + END (seq assigned by
-                                # SyncFrameWriter). END carries the handler's
-                                # declared final progress (L3/L5).
-                                emitter.finalize()
-
-                            except Exception as e:
-                                err_frame = Frame.err(request_id, "HANDLER_ERROR", str(e))
-                                err_frame.routing_id = routing_id  # Propagate XID
-                                try:
-                                    sync_writer.write(err_frame)
-                                except Exception as write_err:
-                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
-                        finally:
-                            # Release this request's credit waiters (L13) and
-                            # immediately drain one queued request into the
-                            # freed capacity slot.
-                            _on_handler_done(request_id)
-
-                    _spawn_or_queue(_request_id, _routing_id, handle_streamed_request)
+                # Route END like any other flow frame, then stop routing
+                # further frames for this request — the demux thread sees
+                # END and stops draining (matches the Rust reference: the
+                # active_requests entry is dropped right after routing END).
+                frame_id_str = frame.id.to_string()
+                with active_requests_lock:
+                    ar = active_requests.pop(frame_id_str, None)
+                if ar is not None:
+                    ar.raw_queue.put(frame)
                     continue
 
                 # Not an incoming request end - must be a peer response end
                 # Forward bare Frame to handler's queue and close channel
-                frame_id_str = frame.id.to_string()
                 with pending_lock:
                     if frame_id_str in pending_peer_requests:
                         pending_req = pending_peer_requests[frame_id_str]
@@ -2877,158 +3234,16 @@ class CartridgeRuntime:
                         pending_req.queue.put(frame)
                         pending_req.queue.put(None)  # Signal end of stream
                         del pending_peer_requests[frame_id_str]
-
-            elif frame.frame_type == FrameType.STREAM_START:
-                # Protocol v2: A new stream is starting for a request
-                if frame.stream_id is None:
-                    err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "STREAM_START missing stream_id")
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                if frame.media_urn is None:
-                    err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "STREAM_START missing media_urn")
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                stream_id = frame.stream_id
-                media_urn = frame.media_urn
-
-                # Check if this is for an incoming request (cartridge receiving from host)
-                with pending_incoming_lock:
-                    frame_id_str = frame.id.to_string()
-                    if frame_id_str in pending_incoming:
-                        pending_req = pending_incoming[frame_id_str]
-
-                        # FAIL HARD: Request already ended
-                        if pending_req.ended:
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "STREAM_START after request END")
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # FAIL HARD: Unbounded input stream (L16). This runtime's
-                        # inbound demux buffers each stream to completion before
-                        # dispatching the handler, so it IS a buffering collector —
-                        # and a buffering collector must refuse an unbounded stream
-                        # with a hard error rather than buffer it without bound
-                        # (mirrors the Rust reference's buffering-collector refusal;
-                        # a runtime with a live per-item handler pull would instead
-                        # consume it incrementally). Never a silent unbounded buffer.
-                        if frame.is_unbounded():
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(
-                                frame.id,
-                                "PROTOCOL_ERROR",
-                                f"unbounded input stream {stream_id}: this runtime buffers "
-                                "inputs to completion and cannot consume an unbounded stream "
-                                "without bound (L16)",
-                            )
-                            err_frame.routing_id = pending_req.routing_id
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                            continue
-
-                        # FAIL HARD: Duplicate stream_id
-                        for sid, _ in pending_req.streams:
-                            if sid == stream_id:
-                                del pending_incoming[frame_id_str]
-                                err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", f"Duplicate stream_id: {stream_id}")
-                                try:
-                                    sync_writer.write(err_frame)
-                                except Exception:
-                                    pass
-                                break
-                        else:
-                            # No duplicate — add new stream
-                            pending_req.streams.append((stream_id, PendingStream(
-                                media_urn=media_urn,
-                                chunks=[],
-                                complete=False
-                            )))
-                            # Per-stream credit window (L10/L12): starts at
-                            # the negotiated initial_credit; batched grants
-                            # extend it as chunks are consumed.
-                            pending_req.credit_windows[stream_id] = CreditWindowAccountant(self.limits.initial_credit)
-                        continue
-
-                # Not an incoming request - must be a peer response stream start
-                # Forward bare Frame to handler's queue
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.queue.put(frame)
-
-            elif frame.frame_type == FrameType.STREAM_END:
-                # Protocol v2: A stream has ended for a request
-                if frame.stream_id is None:
-                    err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "STREAM_END missing stream_id")
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                stream_id = frame.stream_id
-
-                # Check if this is for an incoming request (cartridge receiving from host)
-                with pending_incoming_lock:
-                    frame_id_str = frame.id.to_string()
-                    if frame_id_str in pending_incoming:
-                        pending_req = pending_incoming[frame_id_str]
-
-                        # Find and mark stream as complete
-                        found = False
-                        for sid, stream in pending_req.streams:
-                            if sid == stream_id:
-                                stream.complete = True
-                                found = True
-                                break
-
-                        if not found:
-                            del pending_incoming[frame_id_str]
-                            err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", f"STREAM_END for unknown stream_id: {stream_id}")
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception:
-                                pass
-                        else:
-                            # Flush any pending sub-batch grant (L10 hygiene) —
-                            # the stream is done, no more chunks will arrive
-                            # to trigger the batch threshold naturally.
-                            window = pending_req.credit_windows.get(stream_id)
-                            if window is not None:
-                                due = window.flush()
-                                if due:
-                                    grant_frame = Frame.credit(frame.id, stream_id, due, CreditDirection.REQUEST)
-                                    grant_frame.routing_id = pending_req.routing_id
-                                    try:
-                                        sync_writer.write(grant_frame)
-                                    except Exception:
-                                        pass
-                        continue
-
-                # Not an incoming request - must be a peer response stream end
-                # Forward bare Frame to handler's queue
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.queue.put(frame)
 
             elif frame.frame_type == FrameType.ERR:
                 # Error frame from host - could be response to peer request
                 # Forward bare Frame to handler's queue and close channel
                 frame_id_str = frame.id.to_string()
+                with active_requests_lock:
+                    ar = active_requests.pop(frame_id_str, None)
+                if ar is not None:
+                    ar.raw_queue.put(frame)
+                    continue
                 with pending_lock:
                     if frame_id_str in pending_peer_requests:
                         pending_req = pending_peer_requests[frame_id_str]
@@ -3036,17 +3251,6 @@ class CartridgeRuntime:
                         pending_req.queue.put(frame)
                         pending_req.queue.put(None)  # Signal end of stream
                         del pending_peer_requests[frame_id_str]
-
-            elif frame.frame_type == FrameType.LOG:
-                # Route LOG frames to peer response channels.
-                # During peer calls, the peer sends LOG frames (progress, status)
-                # that the handler needs to receive in real-time for activity
-                # timeout prevention and progress forwarding.
-                frame_id_str = frame.id.to_string()
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.queue.put(frame)
 
             elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
                 # Relay-level frames must never reach a cartridge runtime.
