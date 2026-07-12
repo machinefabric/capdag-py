@@ -585,6 +585,7 @@ class CartridgeRegistry:
     schema_version: str
     registry_version: int
     last_updated: str
+    fabric_registry_url: str
     channels: CartridgeRegistryChannels
 
     @classmethod
@@ -593,6 +594,7 @@ class CartridgeRegistry:
             schema_version=raw["schemaVersion"],
             registry_version=raw["registryVersion"],
             last_updated=raw["lastUpdated"],
+            fabric_registry_url=raw["fabricRegistryUrl"],
             channels=CartridgeRegistryChannels.from_dict(raw["channels"]),
         )
 
@@ -628,6 +630,13 @@ class CartridgeRepoServer:
             raise CartridgeRepoError(
                 f"Unsupported cartridge registry version: {registry.registry_version}. "
                 f"This build speaks v{CARTRIDGE_REGISTRY_VERSION}."
+            )
+        # A cartridge registry must declare the fabric its caps resolve against.
+        # The consuming client cross-checks this equals its own fabric (so all
+        # registries share one fabric); here we require it is at least present.
+        if not registry.fabric_registry_url:
+            raise CartridgeRepoError(
+                "Cartridge registry manifest is missing fabricRegistryUrl (the fabric its caps resolve against)"
             )
         self.registry = registry
 

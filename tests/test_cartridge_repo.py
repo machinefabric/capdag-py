@@ -137,6 +137,7 @@ def _make_registry(
         schema_version="5.0",
         registry_version=CARTRIDGE_REGISTRY_VERSION,
         last_updated="2026-02-07",
+        fabric_registry_url="https://fabric.test",
         channels=CartridgeRegistryChannels(
             release=CartridgeChannelEntries(cartridges=dict(release_entries or {})),
             nightly=CartridgeChannelEntries(cartridges=dict(nightly_entries or {})),
@@ -199,6 +200,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 schema_version="4.0",
                 registry_version=CARTRIDGE_REGISTRY_VERSION,
                 last_updated="x",
+                fabric_registry_url="https://fabric.test",
                 channels=CartridgeRegistryChannels(
                     release=CartridgeChannelEntries(),
                     nightly=CartridgeChannelEntries(),
@@ -214,6 +216,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 schema_version="5.0",
                 registry_version=CARTRIDGE_REGISTRY_VERSION + 1,
                 last_updated="x",
+                fabric_registry_url="https://fabric.test",
                 channels=CartridgeRegistryChannels(
                     release=CartridgeChannelEntries(),
                     nightly=CartridgeChannelEntries(),
