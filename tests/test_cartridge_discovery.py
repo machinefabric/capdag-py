@@ -20,7 +20,7 @@ from capdag.bifaci.cartridge_discovery import (
     DiscoveryIdentity,
     discover_cartridges,
 )
-from capdag.bifaci.cartridge_repo import CartridgeChannel
+from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION, CartridgeChannel
 from capdag.bifaci.cartridge_slug import slug_for
 from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
 
@@ -30,15 +30,17 @@ def _nightly_dev_identity() -> DiscoveryIdentity:
         channel=CartridgeChannel.NIGHTLY,
         registry_url=None,
         fabric_manifest_version=1,
+        cartridge_registry_version=CARTRIDGE_REGISTRY_VERSION,
     )
 
 
 def _install_fixture(root, slug, channel_folder, name, version, cartridge_json, entry):
-    """Lay down {root}/{slug}/{channel_folder}/{name}/{version}/. When
-    ``cartridge_json`` is not None, also write it plus an executable
-    ``entry`` stub so ``read_from_dir`` accepts the directory and
+    """Lay down {root}/{slug}/v{CARTRIDGE_REGISTRY_VERSION}/{channel_folder}/{name}/{version}/
+    — the version level pins to the host build's registry version, exactly where
+    discovery scans. When ``cartridge_json`` is not None, also write it plus an
+    executable ``entry`` stub so ``read_from_dir`` accepts the directory and
     discovery reaches its own identity checks."""
-    d = root / slug / channel_folder / name / version
+    d = root / slug / f"v{CARTRIDGE_REGISTRY_VERSION}" / channel_folder / name / version
     d.mkdir(parents=True, exist_ok=True)
     if cartridge_json is not None:
         (d / "cartridge.json").write_text(cartridge_json, encoding="utf-8")
@@ -127,6 +129,7 @@ def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
         channel=CartridgeChannel.NIGHTLY,
         registry_url="https://other.example.com/manifest",
         fabric_manifest_version=1,
+        cartridge_registry_version=CARTRIDGE_REGISTRY_VERSION,
     )
     _install_fixture(
         tmp_path, "dev", "nightly", "devcart", "1.0.0",

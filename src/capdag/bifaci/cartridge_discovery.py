@@ -63,6 +63,10 @@ class DiscoveryIdentity:
     #: registry scheme is allowed).
     registry_url: Optional[str]
     fabric_manifest_version: int
+    #: Cartridge registry regime version this host speaks — an on-disk PATH
+    #: level: cartridges live under ``{slug}/v{cartridge_registry_version}/
+    #: {channel}/…``, pinned like the channel so a v1 host never scans a v2 tree.
+    cartridge_registry_version: int
 
     def slug(self) -> str:
         """On-disk top-level slug for THIS host's own baked registry
@@ -213,11 +217,11 @@ def discover_cartridges(
                 )
             continue
         expected_slug = slug_dir.name
-        scan_root = slug_dir / identity.channel.value
+        # {slug}/v{cartridge_registry_version}/{channel}/… — the registry regime
+        # version is a path level pinned to the host's version (like channel).
+        scan_root = slug_dir / f"v{identity.cartridge_registry_version}" / identity.channel.value
         if not scan_root.is_dir():
-            # This slug has no subtree for the host's channel — nothing to
-            # do. (A slug folder may legitimately hold only the other
-            # channel.)
+            # This slug has no subtree for the host's (version, channel) — skip.
             continue
         _scan_channel_root(scan_root, expected_slug, identity, discovered)
 
