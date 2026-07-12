@@ -573,10 +573,17 @@ class CartridgeRegistryChannels:
         )
 
 
+# Cartridge registry regime version this implementation speaks. v0 was the
+# pre-versioning legacy at the bare /manifest path; this speaks only v>=1 at the
+# versioned /v<version>/manifest path and rejects any other registryVersion.
+CARTRIDGE_REGISTRY_VERSION = 1
+
+
 @dataclass
 class CartridgeRegistry:
     """The v5.0 cartridge registry (channel-partitioned schema)."""
     schema_version: str
+    registry_version: int
     last_updated: str
     channels: CartridgeRegistryChannels
 
@@ -584,6 +591,7 @@ class CartridgeRegistry:
     def from_dict(cls, raw: dict) -> "CartridgeRegistry":
         return cls(
             schema_version=raw["schemaVersion"],
+            registry_version=raw["registryVersion"],
             last_updated=raw["lastUpdated"],
             channels=CartridgeRegistryChannels.from_dict(raw["channels"]),
         )
@@ -615,6 +623,11 @@ class CartridgeRepoServer:
         if registry.schema_version != "5.0":
             raise CartridgeRepoError(
                 f"Unsupported registry schema version: {registry.schema_version}. Required: 5.0"
+            )
+        if registry.registry_version != CARTRIDGE_REGISTRY_VERSION:
+            raise CartridgeRepoError(
+                f"Unsupported cartridge registry version: {registry.registry_version}. "
+                f"This build speaks v{CARTRIDGE_REGISTRY_VERSION}."
             )
         self.registry = registry
 

@@ -3,6 +3,7 @@
 import pytest
 
 from capdag.bifaci.cartridge_repo import (
+    CARTRIDGE_REGISTRY_VERSION,
     CartridgeBuild,
     CartridgeChannel,
     CartridgeCompatibilityResolution,
@@ -134,6 +135,7 @@ def _make_registry(
     omitted to leave that channel empty."""
     return CartridgeRegistry(
         schema_version="5.0",
+        registry_version=CARTRIDGE_REGISTRY_VERSION,
         last_updated="2026-02-07",
         channels=CartridgeRegistryChannels(
             release=CartridgeChannelEntries(cartridges=dict(release_entries or {})),
@@ -195,6 +197,7 @@ def test_323_cartridge_repo_server_validate_registry():
         CartridgeRepoServer(
             CartridgeRegistry(
                 schema_version="4.0",
+                registry_version=CARTRIDGE_REGISTRY_VERSION,
                 last_updated="x",
                 channels=CartridgeRegistryChannels(
                     release=CartridgeChannelEntries(),
@@ -203,6 +206,21 @@ def test_323_cartridge_repo_server_validate_registry():
             )
         )
     assert "5.0" in str(exc_info.value)
+
+    # A manifest from a different regime version is rejected too.
+    with pytest.raises(CartridgeRepoError) as exc_info:
+        CartridgeRepoServer(
+            CartridgeRegistry(
+                schema_version="5.0",
+                registry_version=CARTRIDGE_REGISTRY_VERSION + 1,
+                last_updated="x",
+                channels=CartridgeRegistryChannels(
+                    release=CartridgeChannelEntries(),
+                    nightly=CartridgeChannelEntries(),
+                ),
+            )
+        )
+    assert "cartridge registry version" in str(exc_info.value)
 
 
 # TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim.
