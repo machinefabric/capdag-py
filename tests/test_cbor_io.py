@@ -380,7 +380,7 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert result.limits.max_reorder_buffer == 32
 
 
-_V3_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}'
+_V3_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
 
 
 def _run_v3_handshake(cartridge_limits: Limits):

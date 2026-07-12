@@ -52,8 +52,8 @@ def _make_version_data(pkg_name: str = "test-1.0.0.pkg") -> CartridgeVersionData
     )
 
 
-def _make_cap(urn: str, title: str = "Test Cap", command: str = "test") -> RegistryCap:
-    return RegistryCap(urn=urn, title=title, command=command)
+def _make_cap(urn: str, title: str = "Test Cap", aliases: list = None) -> RegistryCap:
+    return RegistryCap(urn=urn, title=title, aliases=aliases or ["test"])
 
 
 def _make_cap_group(name: str, caps=None, adapter_urns=None) -> RegistryCapGroup:
@@ -150,7 +150,7 @@ def _make_registry(
 # TEST320: Construct CartridgeInfo and verify round-trip of fields.
 def test_320_construct_cartridge_info_and_verify_fields():
     cartridge = _make_cartridge_info(
-        cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
+        cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])]
     )
     assert cartridge.id == "testcartridge"
     assert cartridge.name == "Test Cartridge"
@@ -213,7 +213,7 @@ def test_324_cartridge_repo_server_transform_to_array():
                 cap_groups=[
                     _make_cap_group(
                         "g1",
-                        caps=[_make_cap("cap:effect=none", "Identity", "identity")],
+                        caps=[_make_cap("cap:effect=none", "Identity", ["identity"])],
                         adapter_urns=["media:test"],
                     )
                 ],
@@ -248,7 +248,7 @@ def test_301_transform_walks_both_channels_release_first():
 def test_325_cartridge_repo_server_get_cartridges():
     server = CartridgeRepoServer(_make_registry(release_entries={
         "testcartridge": _make_registry_entry(
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])]
         )
     }))
     response = server.get_cartridges()
@@ -261,7 +261,7 @@ def test_325_cartridge_repo_server_get_cartridges():
 def test_326_cartridge_repo_server_get_cartridge_by_id():
     server = CartridgeRepoServer(_make_registry(release_entries={
         "testcartridge": _make_registry_entry(
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])]
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])]
         )
     }))
     assert server.get_cartridge_by_id(CartridgeChannel.RELEASE, "testcartridge") is not None
@@ -302,7 +302,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                         _make_cap(
                             'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
                             title="Disbind PDF",
-                            command="disbind",
+                            aliases=["disbind"],
                         )
                     ],
                 )
@@ -320,7 +320,7 @@ def test_328_cartridge_repo_server_get_by_category():
         "doccartridge": _make_registry_entry(
             name="Doc Cartridge",
             description="Process documents",
-            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
+            cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])],
             categories=["document"],
         )
     }))
@@ -344,7 +344,7 @@ def test_329_cartridge_repo_server_get_by_cap():
             cap_groups=[
                 _make_cap_group(
                     "pdf",
-                    caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")],
+                    caps=[_make_cap(declared_urn, title="Disbind PDF", aliases=["disbind"])],
                 )
             ],
         )
@@ -367,7 +367,7 @@ def test_330_cartridge_repo_client_update_cache():
         cartridges=[
             _make_cartridge_info(
                 channel=CartridgeChannel.RELEASE,
-                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])],
             )
         ]
     )
@@ -389,7 +389,7 @@ def test_331_cartridge_repo_client_get_suggestions():
         name="PDF Cartridge",
         description="Process PDFs",
         page_url="https://example.com/pdf",
-        cap_groups=[_make_cap_group("pdf", caps=[_make_cap(declared_urn, title="Disbind PDF", command="disbind")])],
+        cap_groups=[_make_cap_group("pdf", caps=[_make_cap(declared_urn, title="Disbind PDF", aliases=["disbind"])])],
         channel=CartridgeChannel.NIGHTLY,
     )
     repo.update_cache("https://example.com/cartridges", CartridgeRegistryResponse(cartridges=[info]))
@@ -413,7 +413,7 @@ def test_332_cartridge_repo_client_get_cartridge():
             cartridges=[
                 _make_cartridge_info(
                     channel=CartridgeChannel.RELEASE,
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", "identity")])],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap("cap:effect=none", "Identity", ["identity"])])],
                 )
             ]
         ),
@@ -435,13 +435,13 @@ def test_333_cartridge_repo_client_get_all_caps():
                 _make_cartridge_info(
                     id="cartridge1",
                     name="Cartridge 1",
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap1, "Cap 1", "x")])],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap1, "Cap 1", ["x"])])],
                     channel=CartridgeChannel.RELEASE,
                 ),
                 _make_cartridge_info(
                     id="cartridge2",
                     name="Cartridge 2",
-                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap2, "Cap 2", "x")])],
+                    cap_groups=[_make_cap_group("g", caps=[_make_cap(cap2, "Cap 2", ["x"])])],
                     channel=CartridgeChannel.NIGHTLY,
                 ),
             ]
@@ -470,7 +470,7 @@ def test_335_cartridge_repo_server_client_integration():
             cap_groups=[
                 _make_cap_group(
                     "test-group",
-                    caps=[_make_cap(cap_urn, title="Test Cap", command="test")],
+                    caps=[_make_cap(cap_urn, title="Test Cap", aliases=["test"])],
                     adapter_urns=["media:test"],
                 )
             ],
@@ -499,7 +499,7 @@ def test_319_update_cache_rejects_malformed_cap_urn():
                 id="broken",
                 name="Broken",
                 channel=CartridgeChannel.RELEASE,
-                cap_groups=[_make_cap_group("g", caps=[_make_cap("not a valid urn at all", "Bad", "x")])],
+                cap_groups=[_make_cap_group("g", caps=[_make_cap("not a valid urn at all", "Bad", ["x"])])],
             )
         ]
     )
@@ -530,12 +530,12 @@ def test_632_deserialize_minimal_registry_cap():
         {
             "urn": "cap:effect=none",
             "title": "Identity",
-            "command": "identity",
+            "aliases": ["identity"],
         }
     )
     assert cap.urn == "cap:effect=none"
     assert cap.title == "Identity"
-    assert cap.command == "identity"
+    assert cap.primary_alias() == "identity"
     assert cap.cap_description is None
     assert cap.args is None
     assert cap.output is None
@@ -547,7 +547,7 @@ def test_633_deserialize_rich_registry_cap():
         {
             "urn": 'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
             "title": "Disbind PDF",
-            "command": "disbind",
+            "aliases": ["disbind"],
             "cap_description": "Extract each PDF page as plain page text.",
             "args": [
                 {
@@ -568,7 +568,7 @@ def test_633_deserialize_rich_registry_cap():
             },
         }
     )
-    assert cap.command == "disbind"
+    assert cap.primary_alias() == "disbind"
     assert cap.cap_description == "Extract each PDF page as plain page text."
     assert cap.args is not None
     assert len(cap.args) == 1
@@ -586,7 +586,7 @@ def test_634_deserialize_cap_group():
         {
             "name": "pdf-formats",
             "caps": [
-                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
+                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
             ],
             "adapter_urns": ["media:ext=pdf"],
         }
@@ -614,11 +614,11 @@ def test_635_deserialize_cartridge_info_wire_shape():
                 {
                     "name": "pdf-formats",
                     "caps": [
-                        {"urn": "cap:effect=none", "title": "Identity", "command": "identity"},
+                        {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]},
                         {
                             "urn": 'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
                             "title": "Disbind PDF Into Page Text",
-                            "command": "disbind",
+                            "aliases": ["disbind"],
                         },
                     ],
                     "adapter_urns": ["media:ext=pdf"],
@@ -676,7 +676,7 @@ def test_637_deserialize_full_registry_response():
                         {
                             "name": "pdf-formats",
                             "caps": [
-                                {"urn": "cap:effect=none", "title": "Identity", "command": "identity"}
+                                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
                             ],
                             "adapter_urns": ["media:ext=pdf"],
                         }
@@ -703,7 +703,7 @@ def test_637_deserialize_full_registry_response():
                                 {
                                     "urn": 'cap:in="media:ext=jpeg;image";convert-image;out="media:ext=png;image"',
                                     "title": "Convert JPEG to PNG",
-                                    "command": "convert-image",
+                                    "aliases": ["convert-image"],
                                 }
                             ],
                             "adapter_urns": [

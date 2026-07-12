@@ -2854,13 +2854,13 @@ class CartridgeRuntime:
 
         # Handle subcommand --help
         if len(args) == 3 and args[2] in ['--help', '-h']:
-            cap = self.find_cap_by_command(self.manifest, subcommand)
+            cap = self.find_cap_by_alias(self.manifest, subcommand)
             if cap:
                 self.print_cap_help(cap)
                 return
 
         # Find cap by command name
-        cap = self.find_cap_by_command(self.manifest, subcommand)
+        cap = self.find_cap_by_alias(self.manifest, subcommand)
         if cap is None:
             raise UnknownSubcommandError(
                 f"Unknown subcommand '{subcommand}'. Run with --help to see available commands."
@@ -3279,10 +3279,11 @@ class CartridgeRuntime:
         for thread in active_handlers:
             thread.join(timeout=5.0)  # 5 second timeout per thread
 
-    def find_cap_by_command(self, manifest: CapManifest, command_name: str) -> Optional[Cap]:
-        """Find a cap by its command name (the CLI subcommand)."""
+    def find_cap_by_alias(self, manifest: CapManifest, alias: str) -> Optional[Cap]:
+        """Find a cap by one of its aliases (the CLI subcommand). Aliases are
+        globally unique, so at most one cap matches."""
         for cap in manifest.all_caps():
-            if cap.command == command_name:
+            if cap.has_alias(alias):
                 return cap
         return None
 
@@ -3549,7 +3550,7 @@ class CartridgeRuntime:
 
         for cap in manifest.all_caps():
             desc = cap.cap_description or cap.title
-            print(f"    {cap.command:<12} {desc}", file=sys.stderr)
+            print(f"    {cap.primary_alias():<12} {desc}", file=sys.stderr)
 
         print(file=sys.stderr)
         print(f"Run '{manifest.name.lower()} <COMMAND> --help' for more information on a command.", file=sys.stderr)
@@ -3561,7 +3562,7 @@ class CartridgeRuntime:
             print(cap.cap_description, file=sys.stderr)
         print(file=sys.stderr)
         print("USAGE:", file=sys.stderr)
-        print(f"    cartridge {cap.command} [OPTIONS]", file=sys.stderr)
+        print(f"    cartridge {cap.primary_alias()} [OPTIONS]", file=sys.stderr)
         print(file=sys.stderr)
 
         args = cap.get_args()

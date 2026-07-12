@@ -1133,9 +1133,15 @@ class FabricRegistry:
     async def validate_cap(self, cap: Cap) -> None:
         """Validate a local cap against its canonical definition."""
         canonical_cap = await self.get_cap(cap.urn_string())
-        if cap.command != canonical_cap.command:
+        canonical_alias_set = set(canonical_cap.aliases)
+        unknown = [a for a in cap.aliases if a not in canonical_alias_set]
+        if unknown:
             raise ValidationError(
-                f"Command mismatch. Local: {cap.command}, Canonical: {canonical_cap.command}"
+                f"Alias mismatch: {unknown} not among the fabric cap's aliases {canonical_cap.aliases}"
+            )
+        if cap.is_abstract != canonical_cap.is_abstract:
+            raise ValidationError(
+                f"Abstract-flag mismatch. Local: {cap.is_abstract}, Canonical: {canonical_cap.is_abstract}"
             )
         local_stdin = cap.get_stdin_media_urn()
         canonical_stdin = canonical_cap.get_stdin_media_urn()

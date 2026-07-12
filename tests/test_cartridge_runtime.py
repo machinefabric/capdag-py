@@ -67,10 +67,10 @@ from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTIO
 # may fail because Cap requires in/out specs. For tests that only need raw manifest bytes
 # (CBOR mode handshake), this is fine. For tests that need parsed CapManifest, use
 # VALID_MANIFEST instead.
-TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","aliases":["test"]}]}]}'
 
 # Valid manifest with explicit identity and one additional cap for tests that need parsed CapManifest
-VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"},{"urn":"cap:in=\\"media:void\\";test;out=\\"media:void\\"","title":"Test","command":"test"}]}]}'
+VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release","registry_url":null,"description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]},{"urn":"cap:in=\\"media:void\\";test;out=\\"media:void\\"","title":"Test","aliases":["test"]}]}]}'
 
 
 # =============================================================================
@@ -555,7 +555,7 @@ def create_test_manifest(name: str, version: str, description: str, caps: list) 
 
     all_caps = list(caps)
     if not any(cap.urn_string() == CAP_IDENTITY for cap in all_caps):
-        all_caps.insert(0, Cap(CapUrn.from_string(CAP_IDENTITY), "Identity", "identity"))
+        all_caps.insert(0, Cap(CapUrn.from_string(CAP_IDENTITY), "Identity", ["identity"]))
     return CapManifest(
         name=name,
         version=version, channel="release",
@@ -1478,7 +1478,7 @@ def test_361_cli_mode_file_path(tmp_path):
     # CLI mode: pass file path as positional argument; runtime reads the file
     # in extract_effective_payload and relabels media_urn to the stdin source.
     cli_args = [str(test_file)]
-    cap = runtime.find_cap_by_command(runtime.manifest, cap.command)
+    cap = runtime.find_cap_by_command(runtime.manifest, cap.primary_alias())
     payload = runtime.build_payload_from_cli(cap, cli_args)
     effective = extract_effective_payload(payload, "application/cbor", cap, True)
     arr = cbor2.loads(effective)

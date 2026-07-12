@@ -53,7 +53,7 @@ def make_manifest(*caps: str) -> dict:
     """
     all_caps = [CAP_IDENTITY, *caps]
     group_caps = [
-        {"urn": urn, "title": "test", "command": "test", "args": []}
+        {"urn": urn, "title": "test", "aliases": ["test"], "args": []}
         for urn in all_caps
     ]
     cartridge_id = f"test-cartridge-{next(_make_manifest_counter)}"
@@ -1304,7 +1304,7 @@ def _deferred_identity_slave(slave_read, slave_write, caps, succeed: bool):
 
     # 2. Populated RelayNotify — the empty→non-empty transition.
     group_caps = [
-        {"urn": urn, "title": "test", "command": "test", "args": []}
+        {"urn": urn, "title": "test", "aliases": ["test"], "args": []}
         for urn in caps
     ]
     populated = {

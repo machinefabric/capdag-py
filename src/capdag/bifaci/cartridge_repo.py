@@ -104,17 +104,24 @@ class RegistryCap:
     """A single capability advertised by a cartridge in the registry."""
     urn: str
     title: str
-    command: str
+    aliases: List[str]
+    is_abstract: bool = False
     cap_description: Optional[str] = None
     args: Optional[List[RegistryCapArg]] = None
     output: Optional[RegistryCapOutput] = None
 
     @classmethod
     def from_dict(cls, raw: dict) -> "RegistryCap":
+        aliases = raw.get("aliases") or []
+        if not aliases:
+            raise ValueError(
+                f"registry cap {raw.get('urn')!r} must declare at least one alias"
+            )
         return cls(
             urn=raw["urn"],
             title=raw["title"],
-            command=raw["command"],
+            aliases=aliases,
+            is_abstract=bool(raw.get("abstract", False)),
             cap_description=raw.get("cap_description"),
             args=[RegistryCapArg.from_dict(a) for a in raw["args"]] if "args" in raw else None,
             output=RegistryCapOutput.from_dict(raw["output"]) if "output" in raw else None,

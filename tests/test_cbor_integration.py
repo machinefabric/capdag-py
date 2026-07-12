@@ -34,7 +34,7 @@ from capdag.bifaci.host_runtime import CartridgeHost
 from capdag.standard.caps import CAP_IDENTITY
 
 # Test manifest JSON - cartridges MUST include manifest in HELLO response
-TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","command":"test"}]}]}'
+TEST_MANIFEST = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test cartridge","cap_groups":[{"name":"default","caps":[{"urn":"cap:test","title":"Test","aliases":["test"]}]}]}'
 CAP_GENERIC = "cap:echo"
 
 
@@ -490,7 +490,7 @@ def test_1122_full_path_engine_req_to_cartridge_response():
     manifest = (
         b'{"name":"EchoCartridge","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Echo test cartridge","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     c_read, c_write, c_from_rt, c_to_rt = create_cartridge_pair()
@@ -594,8 +594,8 @@ def test_1123_cartridge_error_flows_to_engine():
     manifest = (
         b'{"name":"ErrCartridge","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Error test cartridge","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";fail;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";fail;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     c_read, c_write, c_from_rt, c_to_rt = create_cartridge_pair()
@@ -672,8 +672,8 @@ def test_898_binary_integrity_through_relay():
     manifest = (
         b'{"name":"BinCartridge","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Binary test cartridge","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";binary;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";binary;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     c_read, c_write, c_from_rt, c_to_rt = create_cartridge_pair()
@@ -783,8 +783,8 @@ def test_899_streaming_chunks_through_relay():
     manifest = (
         b'{"name":"StreamCartridge","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Streaming test cartridge","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";stream;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";stream;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     c_read, c_write, c_from_rt, c_to_rt = create_cartridge_pair()
@@ -883,14 +883,14 @@ def test_900_two_cartridges_routed_independently():
     manifest_a = (
         b'{"name":"CartridgeA","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Cartridge A","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";alpha;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";alpha;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
     manifest_b = (
         b'{"name":"CartridgeB","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Cartridge B","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";beta;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";beta;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     ca_read, ca_write, ca_from_rt, ca_to_rt = create_cartridge_pair()
@@ -1036,8 +1036,8 @@ def test_901_req_for_unknown_cap_returns_err_frame():
     manifest = (
         b'{"name":"OneCartridge","version":"1.0","channel":"release","registry_url":null,'
         b'"description":"Known cap cartridge","cap_groups":[{"name":"default","caps":'
-        b'[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]},'
-        b'{"urn":"cap:in=\\"media:void\\";known;out=\\"media:void\\"","title":"Test","command":"test","args":[]}]}]}'
+        b'[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]},'
+        b'{"urn":"cap:in=\\"media:void\\";known;out=\\"media:void\\"","title":"Test","aliases":["test"],"args":[]}]}]}'
     )
 
     c_read, c_write, c_from_rt, c_to_rt = create_cartridge_pair()

@@ -455,7 +455,7 @@ def test_6713_binding_slot_identity_is_outer_media_urn():
     """
     cap_urn_str = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
     urn = CapUrn.from_string(cap_urn_str)
-    cap = Cap.with_description(urn, "Disbind", "disbind", "disbinds a PDF")
+    cap = Cap.with_description(urn, "Disbind", ["disbind"], "disbinds a PDF")
     # slot identity = "media:enc=utf-8;file-path", stdin = "media:ext=pdf"
     cap.add_arg(CapArg(
         media_urn="media:enc=utf-8;file-path",
@@ -665,7 +665,7 @@ def test_6692_assignment_bindings_sorted_by_slot_urn():
     # Cap with two stdin args in reverse alphabetical slot order
     cap_urn_str = "cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\""
     urn = CapUrn.from_string(cap_urn_str)
-    cap = Cap.with_description(urn, "Merge", "merge", "merge two inputs")
+    cap = Cap.with_description(urn, "Merge", ["merge"], "merge two inputs")
     # Slot B comes before A alphabetically; add them in B, A order.
     cap.add_arg(CapArg(
         media_urn="media:enc=utf-8",      # slot: enc=utf-8 (later alphabetically)
@@ -1173,7 +1173,7 @@ def test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity():
     # slot identity = media:enc=utf-8;file-path, stdin source = media:ext=pdf.
     cap_urn_str = "cap:in=\"media:ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
     urn = CapUrn.from_string(cap_urn_str)
-    cap = Cap.with_description(urn, "disbind", "disbind", "disbind cap")
+    cap = Cap.with_description(urn, "disbind", ["disbind"], "disbind cap")
     cap.add_arg(CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
@@ -1318,7 +1318,7 @@ def test_8109_realize_strand_non_producer_secondary_arg_fails_hard():
 
     cap_urn_str = "cap:in=\"media:ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\""
     urn = CapUrn.from_string(cap_urn_str)
-    cap = Cap.with_description(urn, "Merge", "merge", "merge two inputs")
+    cap = Cap.with_description(urn, "Merge", ["merge"], "merge two inputs")
     cap.add_arg(CapArg(
         media_urn="media:enc=utf-8",
         required=True,

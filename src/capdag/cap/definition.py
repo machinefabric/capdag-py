@@ -297,11 +297,16 @@ class Cap:
     - Optional metadata
     """
 
-    def __init__(self, urn: CapUrn, title: str, command: str):
+    def __init__(self, urn: CapUrn, title: str, aliases: List[str]):
         self.urn = urn
         self.version: int = 0
         self.title = title
-        self.command = command
+        # Globally-unique names selecting this cap in both CLIs (replaces the
+        # former non-unique `command`). At least one; uniqueness enforced at publish.
+        self.aliases: List[str] = aliases
+        # Generic-input dispatch umbrella flag (never backed by a cartridge,
+        # never a runnable graph edge). Absent in the wire form => False.
+        self.is_abstract: bool = False
         self.cap_description: Optional[str] = None
         self.documentation: Optional[str] = None
         self.args: List[CapArg] = []
@@ -313,25 +318,25 @@ class Cap:
         self.default_model_spec: Optional[str] = None
 
     @classmethod
-    def with_description(cls, urn: CapUrn, title: str, command: str, description: str) -> "Cap":
+    def with_description(cls, urn: CapUrn, title: str, aliases: List[str], description: str) -> "Cap":
         """Create a Cap with a description"""
-        cap = cls(urn, title, command)
+        cap = cls(urn, title, aliases)
         cap.cap_description = description
         return cap
 
     @classmethod
-    def with_metadata(cls, urn: CapUrn, title: str, command: str, metadata: Dict[str, str]) -> "Cap":
+    def with_metadata(cls, urn: CapUrn, title: str, aliases: List[str], metadata: Dict[str, str]) -> "Cap":
         """Create a Cap with metadata"""
-        cap = cls(urn, title, command)
+        cap = cls(urn, title, aliases)
         cap.metadata = metadata
         return cap
 
     @classmethod
     def with_args(
-        cls, urn: CapUrn, title: str, command: str, args: List[CapArg]
+        cls, urn: CapUrn, title: str, aliases: List[str], args: List[CapArg]
     ) -> "Cap":
         """Create a Cap with arguments"""
-        cap = cls(urn, title, command)
+        cap = cls(urn, title, aliases)
         cap.args = args
         return cap
 
@@ -342,14 +347,14 @@ class Cap:
         title: str,
         cap_description: Optional[str],
         metadata: Dict[str, str],
-        command: str,
+        aliases: List[str],
         args: List[CapArg],
         output: Optional[CapOutput] = None,
         metadata_json: Optional[Any] = None,
         documentation: Optional[str] = None,
     ) -> "Cap":
         """Create a Cap with all fields set"""
-        cap = cls(urn, title, command)
+        cap = cls(urn, title, aliases)
         cap.cap_description = cap_description
         cap.documentation = documentation
         cap.metadata = metadata
@@ -378,9 +383,17 @@ class Cap:
         """Set the output definition"""
         self.output = output
 
-    def get_command(self) -> str:
-        """Get the command"""
-        return self.command
+    def get_aliases(self) -> List[str]:
+        """Get the cap's aliases (globally-unique selection names)."""
+        return self.aliases
+
+    def primary_alias(self) -> str:
+        """The first alias, for single-name display. A cap always has one."""
+        return self.aliases[0] if self.aliases else ""
+
+    def has_alias(self, name: str) -> bool:
+        """Whether name is one of this cap's aliases (exact match)."""
+        return name in self.aliases
 
     def set_description(self, description: str):
         """Set the capability description"""
@@ -501,11 +514,14 @@ class Cap:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict"""
-        result = {
+        result: Dict[str, Any] = {
             "urn": self.urn.to_string(),
             "title": self.title,
-            "command": self.command,
+            "aliases": self.aliases,
         }
+
+        if self.is_abstract:
+            result["abstract"] = True
 
         if self.version != 0:
             result["version"] = self.version
@@ -546,7 +562,14 @@ class Cap:
     def from_dict(cls, data: Dict[str, Any]) -> "Cap":
         """Parse from dict"""
         urn = CapUrn.from_string(data["urn"])
-        cap = cls(urn, data["title"], data["command"])
+        aliases = data.get("aliases") or []
+        if not aliases:
+            raise ValueError(
+                f"cap {urn.to_string()!r} must declare at least one alias "
+                "(the 'aliases' field is required and non-empty)"
+            )
+        cap = cls(urn, data["title"], aliases)
+        cap.is_abstract = bool(data.get("abstract", False))
 
         if "cap_description" in data:
             cap.cap_description = data["cap_description"]
@@ -585,5 +608,6 @@ class Cap:
         return (
             self.urn == other.urn
             and self.title == other.title
-            and self.command == other.command
+            and sorted(self.aliases) == sorted(other.aliases)
+            and self.is_abstract == other.is_abstract
         )

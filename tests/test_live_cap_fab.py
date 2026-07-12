@@ -220,7 +220,7 @@ def test_789_cap_from_json_has_valid_specs():
         json.loads(
             r"""{
                 "urn": "cap:disbind;in=\"media:ext=pdf\";out=\"media:disbound-page;enc=utf-8\"",
-                "command": "disbind",
+                "aliases": ["disbind"],
                 "title": "Disbind PDF",
                 "args": [],
                 "output": null

@@ -160,7 +160,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
         handler(reader, writer)
 
 
-IDENTITY_CAP_JSON = '{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}'
+IDENTITY_CAP_JSON = '{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]}'
 
 
 # TEST6600: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY
@@ -366,7 +366,7 @@ def test_6601_attached_cartridge_identity_derived_from_manifest():
     manifest = (
         b'{"name":"InteropCartridge","version":"2.3.4","channel":"nightly",'
         b'"registry_url":null,"description":"x","cap_groups":[{"name":"default",'
-        b'"caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity","args":[]}],'
+        b'"caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"],"args":[]}],'
         b'"adapter_urns":[]}]}'
     )
 
@@ -398,8 +398,8 @@ def test_413_register_cartridge_adds_cap_table():
     host.register_cartridge("/path/to/converter", "converter", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [
-            {"urn": "cap:convert", "title": "Convert", "command": "convert", "args": []},
-            {"urn": "cap:analyze", "title": "Analyze", "command": "analyze", "args": []},
+            {"urn": "cap:convert", "title": "Convert", "aliases": ["convert"], "args": []},
+            {"urn": "cap:analyze", "title": "Analyze", "aliases": ["analyze"], "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -424,7 +424,7 @@ def test_6594_capabilities_empty_initially():
     assert host.capabilities() is None, "no cartridges → None capabilities"
     register_temp_cartridge(host, "cartridge", [{
         "name": "default",
-        "caps": [{"urn": "cap:test", "title": "Test", "command": "test", "args": []}],
+        "caps": [{"urn": "cap:test", "title": "Test", "aliases": ["test"], "args": []}],
         "adapter_urns": [],
     }])
     with host._lock:
@@ -446,7 +446,7 @@ def test_415_req_triggers_spawn():
     host = CartridgeHost()
     host.register_cartridge("/nonexistent/cartridge/binary", "cartridge", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
-        "caps": [{"urn": "cap:test", "title": "Test", "command": "test", "args": []}],
+        "caps": [{"urn": "cap:test", "title": "Test", "aliases": ["test"], "args": []}],
         "adapter_urns": [],
     }])
 
@@ -985,7 +985,7 @@ def test_425_find_cartridge_for_cap_unknown():
     host = CartridgeHost()
     host.register_cartridge("/path/to/cartridge", "cartridge", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
-        "caps": [{"urn": "cap:known", "title": "Known", "command": "known", "args": []}],
+        "caps": [{"urn": "cap:known", "title": "Known", "aliases": ["known"], "args": []}],
         "adapter_urns": [],
     }])
 
@@ -1015,11 +1015,11 @@ def test_6623_cartridge_death_keeps_known_caps_advertised():
     cap_groups = [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
             {
                 "urn": 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
                 "title": "Thumbnail",
-                "command": "thumbnail",
+                "aliases": ["thumbnail"],
                 "args": [],
             },
         ],
@@ -1055,16 +1055,16 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
     register_temp_cartridge(host, "cartridge1", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "aliases": ["extract"], "args": []},
         ],
         "adapter_urns": [],
     }])
     register_temp_cartridge(host, "cartridge2", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "aliases": ["ocr"], "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -1084,8 +1084,8 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
     register_temp_cartridge(host, "broken", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:void";broken;out="media:void"', "title": "Broken", "command": "broken", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:void";broken;out="media:void"', "title": "Broken", "aliases": ["broken"], "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -1110,8 +1110,8 @@ def test_664_running_cartridge_uses_manifest_caps():
     register_temp_cartridge(host, "path", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "command": "extract", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:ext=pdf";extract;out="media:text"', "title": "Extract", "aliases": ["extract"], "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -1124,8 +1124,8 @@ def test_664_running_cartridge_uses_manifest_caps():
         cartridge.cap_groups = [{
             "name": "default",
             "caps": [
-                {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-                {"urn": 'cap:in="media:text";uppercase;out="media:text"', "title": "Uppercase", "command": "uppercase", "args": []},
+                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+                {"urn": 'cap:in="media:text";uppercase;out="media:text"', "title": "Uppercase", "aliases": ["uppercase"], "args": []},
             ],
             "adapter_urns": [],
         }]
@@ -1147,16 +1147,16 @@ def test_665_cap_table_mixed_running_and_non_running():
     host.register_cartridge("/fake/running", "running", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:void";stale;out="media:void"', "title": "Stale", "command": "stale", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:void";stale;out="media:void"', "title": "Stale", "aliases": ["stale"], "args": []},
         ],
         "adapter_urns": [],
     }])
     host.register_cartridge("/fake/stopped", "stopped", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "command": "ocr", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+            {"urn": 'cap:in="media:image";ocr;out="media:text"', "title": "OCR", "aliases": ["ocr"], "args": []},
         ],
         "adapter_urns": [],
     }])
@@ -1168,8 +1168,8 @@ def test_665_cap_table_mixed_running_and_non_running():
         host._cartridges[0].cap_groups = [{
             "name": "default",
             "caps": [
-                {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
-                {"urn": 'cap:in="media:text";running-op;out="media:text"', "title": "RunningOp", "command": "running-op", "args": []},
+                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
+                {"urn": 'cap:in="media:text";running-op;out="media:text"', "title": "RunningOp", "aliases": ["running-op"], "args": []},
             ],
             "adapter_urns": [],
         }]
@@ -1235,7 +1235,7 @@ def test_1879_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
                     "caps": [{
                         "urn": 'cap:in="media:void";late;out="media:void"',
                         "title": "Late",
-                        "command": "late",
+                        "aliases": ["late"],
                         "args": [],
                     }],
                     "adapter_urns": [],
@@ -1365,7 +1365,7 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     bin_path = register_temp_cartridge(host, "dropcart", [{
         "name": "default",
         "caps": [
-            {"urn": "cap:effect=none", "title": "Identity", "command": "identity", "args": []},
+            {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"], "args": []},
         ],
         "adapter_urns": [],
     }])

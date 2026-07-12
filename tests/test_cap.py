@@ -18,11 +18,11 @@ def _test_urn(tags: str) -> str:
 # TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 def test_108_cap_creation():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     assert cap.urn == urn
     assert cap.title == "Extract Metadata"
-    assert cap.command == "extract-metadata"
+    assert cap.primary_alias() == "extract-metadata"
     assert cap.urn_string() == urn.to_string()
 
 
@@ -33,7 +33,7 @@ def test_109_cap_with_metadata():
         "precision": "double",
         "operations": "add,subtract,multiply,divide",
     }
-    cap = Cap.with_metadata(urn, "Perform Mathematical Operations", "test-command", metadata)
+    cap = Cap.with_metadata(urn, "Perform Mathematical Operations", ["test-command"], metadata)
 
     assert cap.title == "Perform Mathematical Operations"
     assert cap.get_metadata("precision") == "double"
@@ -45,7 +45,7 @@ def test_109_cap_with_metadata():
 # TEST110: Test cap matching with subset semantics for request fulfillment
 def test_110_cap_matching():
     urn = CapUrn.from_string(_test_urn("transform;format=json;type=data_processing"))
-    cap = Cap(urn, "Transform JSON Data", "test-command")
+    cap = Cap(urn, "Transform JSON Data", ["test-command"])
 
     assert cap.accepts_request(_test_urn("transform;format=json;type=data_processing"))
     assert cap.accepts_request(_test_urn("transform;format=*;type=data_processing"))
@@ -56,7 +56,7 @@ def test_110_cap_matching():
 # TEST111: Test getting and setting cap title updates correctly
 def test_111_cap_title():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Document Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Document Metadata", ["extract-metadata"])
 
     assert cap.title == "Extract Document Metadata"
 
@@ -69,9 +69,9 @@ def test_112_cap_definition_equality():
     urn1 = CapUrn.from_string(_test_urn("transform;format=json"))
     urn2 = CapUrn.from_string(_test_urn("transform;format=json"))
 
-    cap1 = Cap(urn1, "Transform JSON Data", "transform")
-    cap2 = Cap(urn2, "Transform JSON Data", "transform")
-    cap3 = Cap(CapUrn.from_string(_test_urn("transform;format=json")), "Convert JSON Format", "transform")
+    cap1 = Cap(urn1, "Transform JSON Data", ["transform"])
+    cap2 = Cap(urn2, "Transform JSON Data", ["transform"])
+    cap3 = Cap(CapUrn.from_string(_test_urn("transform;format=json")), "Convert JSON Format", ["transform"])
 
     assert cap1 == cap2
     assert cap1 != cap3
@@ -81,7 +81,7 @@ def test_112_cap_definition_equality():
 # TEST113: Test cap stdin support via args with stdin source and serialization roundtrip
 def test_113_cap_stdin():
     urn = CapUrn.from_string(_test_urn("generate;target=embeddings"))
-    cap = Cap(urn, "Generate Embeddings", "generate")
+    cap = Cap(urn, "Generate Embeddings", ["generate"])
 
     # By default, caps should not accept stdin
     assert not cap.accepts_stdin()
@@ -124,7 +124,7 @@ def test_114_arg_source_types():
 # implementation-specific coverage.
 def test_8101_cap_to_dict_wire_shape():
     urn = CapUrn.from_string(_test_urn("process"))
-    cap = Cap(urn, "Process", "process-cmd")
+    cap = Cap(urn, "Process", ["process-cmd"])
     cap.set_description("A processing capability")
     cap.add_arg(CapArg(
         media_urn=MEDIA_STRING,
@@ -136,7 +136,7 @@ def test_8101_cap_to_dict_wire_shape():
 
     cap_dict = cap.to_dict()
     assert cap_dict["title"] == "Process"
-    assert cap_dict["command"] == "process-cmd"
+    assert cap_dict["aliases"] == ["process-cmd"]
     assert "cap_description" in cap_dict
     assert len(cap_dict["args"]) == 1
     assert "output" in cap_dict
@@ -225,7 +225,7 @@ def test_591_is_more_specific_than():
 # TEST592: remove_metadata adds then removes metadata correctly
 def test_592_remove_metadata():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
 
     cap.set_metadata("key1", "val1")
     cap.set_metadata("key2", "val2")
@@ -244,7 +244,7 @@ def test_592_remove_metadata():
 # TEST593: registered_by lifecycle — set, get, clear
 def test_593_registered_by_lifecycle():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
 
     # Initially None
     assert cap.get_registered_by() is None
@@ -265,7 +265,7 @@ def test_593_registered_by_lifecycle():
 # TEST594: metadata_json lifecycle — set, get, clear
 def test_594_metadata_json_lifecycle():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
 
     # Initially None
     assert cap.get_metadata_json() is None
@@ -296,7 +296,7 @@ def test_595_with_args_constructor():
         ),
     ]
 
-    cap = Cap.with_args(urn, "Test", "cmd", args)
+    cap = Cap.with_args(urn, "Test", ["cmd"], args)
     assert len(cap.get_args()) == 2
     assert cap.get_args()[0].media_urn == "media:string"
     assert cap.get_args()[0].required is True
@@ -317,7 +317,7 @@ def test_596_with_full_definition_constructor():
         title="Full Cap",
         cap_description="Description",
         metadata=metadata,
-        command="full-cmd",
+        aliases=["full-cmd"],
         args=args,
         output=output,
         metadata_json=json_meta,
@@ -326,7 +326,7 @@ def test_596_with_full_definition_constructor():
     assert cap.title == "Full Cap"
     assert cap.cap_description == "Description"
     assert cap.get_metadata("env") == "prod"
-    assert cap.get_command() == "full-cmd"
+    assert cap.primary_alias() == "full-cmd"
     assert len(cap.get_args()) == 1
     assert cap.get_output() is not None
     assert cap.get_output().media_urn == "media:object"
@@ -367,7 +367,7 @@ def test_597_cap_arg_with_full_definition():
 # TEST598: CapOutput lifecycle — set_output, set/clear metadata
 def test_598_cap_output_lifecycle():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
 
     # Initially no output
     assert cap.get_output() is None
@@ -402,7 +402,7 @@ def test_598_cap_output_lifecycle():
 # TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict
 def test_6211_cap_version_zero_round_trip():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
 
     # Default is 0
     assert cap.version == 0
@@ -419,7 +419,7 @@ def test_6211_cap_version_zero_round_trip():
 # TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization
 def test_6215_cap_version_nonzero_round_trip():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "cmd")
+    cap = Cap(urn, "Test", ["cmd"])
     cap.version = 3
 
     # Serialize: "version" must be present and equal to 3
@@ -437,7 +437,7 @@ def test_6215_cap_version_nonzero_round_trip():
 # TEST1127: Documentation field round-trips through JSON serialize/deserialize.
 def test_1127_cap_documentation_round_trip_with_markdown_body():
     urn = CapUrn.from_string(_test_urn("documented"))
-    cap = Cap(urn, "Documented Cap", "documented")
+    cap = Cap(urn, "Documented Cap", ["documented"])
 
     # A non-trivial markdown body — multi-line, headings, code blocks,
     # backticks, embedded quotes, and a literal CRLF and Unicode dingbat
@@ -464,7 +464,7 @@ def test_1127_cap_documentation_round_trip_with_markdown_body():
 # TEST1128: When documentation is None, the serializer must skip the field entirely.
 def test_1128_cap_documentation_omitted_when_none():
     urn = CapUrn.from_string(_test_urn("undocumented"))
-    cap = Cap(urn, "Undocumented Cap", "undocumented")
+    cap = Cap(urn, "Undocumented Cap", ["undocumented"])
     assert cap.get_documentation() is None
 
     serialized = json.dumps(cap.to_dict())
@@ -481,7 +481,7 @@ def test_1129_cap_documentation_parses_from_capfab_json():
     data = {
         "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",
         "title": "Doc Parse",
-        "command": "docparse",
+        "aliases": ["docparse"],
         "cap_description": "short",
         "documentation": "## Heading\n\nbody text",
         "metadata": {},
@@ -571,7 +571,7 @@ def test_8106_cap_arg_is_main_input_false_on_unparseable_stdin_urn():
 # TEST1130: documentation set/clear lifecycle parallels cap_description.
 def test_1130_cap_documentation_set_and_clear_lifecycle():
     urn = CapUrn.from_string(_test_urn("lifecycle"))
-    cap = Cap.with_description(urn, "Lifecycle", "lifecycle", "short")
+    cap = Cap.with_description(urn, "Lifecycle", ["lifecycle"], "short")
     assert cap.cap_description == "short"
     assert cap.get_documentation() is None
 

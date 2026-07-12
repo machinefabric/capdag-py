@@ -24,7 +24,7 @@ def _test_urn(tags: str) -> str:
 # TEST148: Manifest creation with cap groups
 def test_148_cap_manifest_creation():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     manifest = CapManifest(
         name="TestComponent",
@@ -46,7 +46,7 @@ def test_148_cap_manifest_creation():
 # TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). A missing or unrecognized channel is a hard parse error — no defaults.
 def test_117_cap_manifest_channel_roundtrip():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     manifest = CapManifest(
         name="TestComponent",
@@ -89,7 +89,7 @@ def test_117_cap_manifest_channel_roundtrip():
 # TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build.
 def test_118_dev_manifest_registry_url_is_explicit_null():
     urn = CapUrn.from_string(_test_urn("dev"))
-    cap = Cap(urn, "Dev", "dev")
+    cap = Cap(urn, "Dev", ["dev"])
     manifest = CapManifest(
         name="DevComponent",
         version="0.1.0",
@@ -107,7 +107,7 @@ def test_118_dev_manifest_registry_url_is_explicit_null():
 # TEST149: Author field
 def test_149_cap_manifest_with_author():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     manifest = CapManifest(
         name="TestComponent",
@@ -123,7 +123,7 @@ def test_149_cap_manifest_with_author():
 # TEST150: JSON roundtrip
 def test_150_cap_manifest_json_serialization():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Extract Metadata", "extract-metadata")
+    cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     cap.add_arg(CapArg(
         media_urn="media:ext=pdf",
@@ -178,11 +178,11 @@ def test_151_cap_manifest_required_fields():
 # TEST152: Multiple caps across groups
 def test_152_cap_manifest_with_multiple_caps():
     id1 = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap1 = Cap(id1, "Extract Metadata", "extract-metadata")
+    cap1 = Cap(id1, "Extract Metadata", ["extract-metadata"])
 
     id2 = CapUrn.from_string(_test_urn("extract;target=outline"))
     metadata = {"supports_outline": "true"}
-    cap2 = Cap.with_metadata(id2, "Extract Outline", "extract-outline", metadata)
+    cap2 = Cap.with_metadata(id2, "Extract Outline", ["extract-outline"], metadata)
 
     manifest = CapManifest(
         name="MultiCapComponent",
@@ -219,7 +219,7 @@ def test_153_cap_manifest_empty_cap_groups():
 # TEST154: Optional author field omitted in serialization
 def test_154_cap_manifest_optional_fields():
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test", "test")
+    cap = Cap(urn, "Test", ["test"])
 
     manifest = CapManifest(
         name="TestComponent",
@@ -237,7 +237,7 @@ def test_154_cap_manifest_optional_fields():
 # TEST155: ComponentMetadata trait
 def test_155_cap_manifest_complex_roundtrip():
     urn = CapUrn.from_string(_test_urn("process"))
-    cap = Cap(urn, "Process", "process")
+    cap = Cap(urn, "Process", ["process"])
     cap.set_description("A processing capability")
 
     stdin_arg = CapArg(
@@ -266,7 +266,7 @@ def test_155_cap_manifest_complex_roundtrip():
     assert restored.page_url == manifest.page_url
     assert len(restored.all_caps()) == len(manifest.all_caps())
     assert restored.all_caps()[0].title == manifest.all_caps()[0].title
-    assert restored.all_caps()[0].command == manifest.all_caps()[0].command
+    assert restored.all_caps()[0].aliases == manifest.all_caps()[0].aliases
     assert len(restored.all_caps()[0].get_args()) == len(manifest.all_caps()[0].get_args())
 
 
@@ -275,7 +275,7 @@ def test_475_validate_passes_with_identity():
     from capdag.standard.caps import CAP_IDENTITY
 
     identity_urn = CapUrn.from_string(CAP_IDENTITY)
-    identity_cap = Cap(identity_urn, "Identity", "identity")
+    identity_cap = Cap(identity_urn, "Identity", ["identity"])
     manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([identity_cap])])
     # Should succeed without raising
     manifest.validate()
@@ -284,7 +284,7 @@ def test_475_validate_passes_with_identity():
 # TEST476: validate() fails without CAP_IDENTITY
 def test_476_validate_fails_without_identity():
     specific_urn = CapUrn.from_string(_test_urn("convert"))
-    specific_cap = Cap(specific_urn, "Convert", "convert")
+    specific_cap = Cap(specific_urn, "Convert", ["convert"])
     manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([specific_cap])])
 
     with pytest.raises(ValueError) as exc_info:
@@ -296,7 +296,7 @@ def test_476_validate_fails_without_identity():
 # TEST1284: Cap group with adapter URNs serializes and deserializes correctly
 def test_1284_cap_group_with_adapter_urns():
     urn = CapUrn.from_string(_test_urn("convert"))
-    cap = Cap(urn, "Convert", "convert")
+    cap = Cap(urn, "Convert", ["convert"])
 
     group = CapGroup(
         name="data-formats",
@@ -329,7 +329,7 @@ def test_1873_registry_url_from_build_env_none_for_dev():
 # TEST6363: Cap manifest with page_url — the optional page_url is carried and serialized as `page_url`.
 def test_6363_cap_manifest_with_page_url():
     urn = CapUrn.from_string(_test_urn("extract;target=metadata"))
-    cap = Cap(urn, "Metadata Extractor", "extract-metadata")
+    cap = Cap(urn, "Metadata Extractor", ["extract-metadata"])
     manifest = CapManifest(
         name="TestComponent",
         version="0.1.0",
@@ -350,7 +350,7 @@ def test_6363_cap_manifest_with_page_url():
 # TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
 def test_6371_cap_manifest_compatibility():
     urn = CapUrn.from_string(_test_urn("process"))
-    cap = Cap(urn, "Data Processor", "process")
+    cap = Cap(urn, "Data Processor", ["process"])
     cartridge = CapManifest(
         name="CartridgeComponent",
         version="0.1.0",

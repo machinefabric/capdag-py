@@ -56,7 +56,7 @@ def test_6382_parse_registry_json():
     # JSON without stdin args - means cap doesn't accept stdin
     json_str = '''{
         "urn": "cap:in=\\"media:listing-id\\";use-grinder;out=\\"media:task;id\\"",
-        "command": "grinder_task",
+        "aliases": ["grinder_task"],
         "title": "Create Grinder Tool Task",
         "cap_description": "Create a task for initial document analysis",
         "metadata": {},
@@ -90,7 +90,7 @@ def test_6382_parse_registry_json():
     cap = Cap.from_dict(json.loads(json_str))
 
     assert cap.title == "Create Grinder Tool Task"
-    assert cap.command == "grinder_task"
+    assert cap.primary_alias() == "grinder_task"
     # No stdin source in args means no stdin support
     assert cap.get_stdin_media_urn() is None
 
@@ -100,7 +100,7 @@ def test_138_parse_registry_json_with_stdin():
     """Test parsing cap JSON with stdin args"""
     json_str = '''{
         "urn": "cap:in=\\"media:ext=pdf\\";disbind;out=\\"media:enc=utf-8;page\\"",
-        "command": "disbind",
+        "aliases": ["disbind"],
         "title": "Disbind PDF",
         "args": [
             {
@@ -263,7 +263,7 @@ async def test_908_cached_caps_accessible_when_offline():
     registry = FabricRegistry.new_for_test()
     cap = Cap.from_dict(
         json.loads(
-            '{"urn":"cap:in=media:void;test-offline;out=media:void","command":"test","title":"Test Cap","args":[]}'
+            '{"urn":"cap:in=media:void;test-offline;out=media:void","aliases":["test"],"title":"Test Cap","args":[]}'
         )
     )
     registry.add_caps_to_cache([cap])
@@ -366,7 +366,7 @@ async def test_6333_registry_add_caps_to_cache():
     registry = FabricRegistry.new_for_test()
 
     urn = CapUrn.from_string(_test_urn("test"))
-    cap = Cap(urn, "Test Cap", "test-command")
+    cap = Cap(urn, "Test Cap", ["test-command"])
 
     registry.add_caps_to_cache([cap])
 

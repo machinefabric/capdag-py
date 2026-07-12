@@ -419,7 +419,7 @@ def test_462_attached_cartridge_identity_from_manifest():
     manifest = (
         b'{"name":"TestCart","version":"1.2.3","channel":"nightly",'
         b'"registry_url":null,"description":"d","cap_groups":[{"name":"g",'
-        b'"caps":[{"urn":"cap:effect=none","title":"Identity","command":"identity"}]}]}'
+        b'"caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
     )
 
     rec = _installed_cartridge_record_from_manifest(manifest)
