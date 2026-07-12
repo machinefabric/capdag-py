@@ -602,7 +602,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
 
     # Simulate CLI invocation through the full runtime CLI flow.
     cli_args = [str(test_file)]
-    cap = runtime.find_cap_by_command(runtime.manifest, 'process')
+    cap = runtime.find_cap_by_alias(runtime.manifest, 'process')
     assert cap is not None, "Process cap not found in manifest"
     payloads = cli_extract_all_iterations(runtime, cap, cli_args)
     assert len(payloads) == 1, "scalar file-path must produce a single iteration"
@@ -1075,7 +1075,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
 
     # Simulate full CLI invocation through the new flow.
     cli_args = [str(test_file)]
-    cap = runtime.find_cap_by_command(runtime.manifest, 'process')
+    cap = runtime.find_cap_by_alias(runtime.manifest, 'process')
     assert cap is not None, "Process cap not found in manifest"
     payloads = cli_extract_all_iterations(runtime, cap, cli_args)
     assert len(payloads) == 1
@@ -1478,7 +1478,7 @@ def test_361_cli_mode_file_path(tmp_path):
     # CLI mode: pass file path as positional argument; runtime reads the file
     # in extract_effective_payload and relabels media_urn to the stdin source.
     cli_args = [str(test_file)]
-    cap = runtime.find_cap_by_command(runtime.manifest, cap.primary_alias())
+    cap = runtime.find_cap_by_alias(runtime.manifest, cap.primary_alias())
     payload = runtime.build_payload_from_cli(cap, cli_args)
     effective = extract_effective_payload(payload, "application/cbor", cap, True)
     arr = cbor2.loads(effective)

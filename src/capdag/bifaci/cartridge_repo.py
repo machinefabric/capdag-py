@@ -110,6 +110,11 @@ class RegistryCap:
     args: Optional[List[RegistryCapArg]] = None
     output: Optional[RegistryCapOutput] = None
 
+    def primary_alias(self) -> str:
+        """The cap's first alias — the canonical CLI selection name — or the
+        empty string if it declares none."""
+        return self.aliases[0] if self.aliases else ""
+
     @classmethod
     def from_dict(cls, raw: dict) -> "RegistryCap":
         aliases = raw.get("aliases") or []
