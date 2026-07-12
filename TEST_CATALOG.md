@@ -1,4 +1,4 @@
-# Python Test Catalog
+# CapDag-Py Test Catalog
 
 **Total Tests:** 1191
 
@@ -12,7 +12,7 @@
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Python codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -87,11 +87,11 @@ This catalog lists all tests in the Python codebase.
 | test078 | `test_078_object_does_not_conform_to_string` | TEST78: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING | tests/test_media_urn.py:246 |
 | test088 | `test_088_resolve_seeded_spec` | TEST88: Resolving a media URN seeded into the registry returns the seeded spec verbatim. A regression in the registry-resolution path would surface as a `None`-shaped result here, since there is no local-override fallback to mask it. | tests/test_media_def.py:44 |
 | test089 | `test_089_resolve_seeded_record_spec` | TEST89: A seeded record-shaped media def carries its schema and profile_uri intact through resolution. Catches a regression that dropped optional fields when copying into ResolvedMediaDef. | tests/test_media_def.py:58 |
-| test0090 | `test_0090_absent_scan_root_yields_empty_roster` | TEST90: Absent scan root yields empty roster | tests/test_cartridge_discovery.py:76 |
-| test0091 | `test_0091_missing_cartridge_json_is_manifest_invalid` | TEST91: Missing cartridge json is manifest invalid | tests/test_cartridge_discovery.py:82 |
-| test0092 | `test_0092_channel_mismatch_is_bad_installation` | TEST92: Channel mismatch is bad installation | tests/test_cartridge_discovery.py:89 |
+| test0090 | `test_0090_absent_scan_root_yields_empty_roster` | TEST90: Absent scan root yields empty roster | tests/test_cartridge_discovery.py:78 |
+| test0091 | `test_0091_missing_cartridge_json_is_manifest_invalid` | TEST91: Missing cartridge json is manifest invalid | tests/test_cartridge_discovery.py:84 |
+| test0092 | `test_0092_channel_mismatch_is_bad_installation` | TEST92: Channel mismatch is bad installation | tests/test_cartridge_discovery.py:91 |
 | test093 | `test_093_resolve_unresolvable_fails_hard` | TEST93: Resolving a URN that is neither in the registry cache nor available online fails hard. A regression that made the fail path silently return a stub `ResolvedMediaDef` would surface here as a missing error. | tests/test_media_def.py:79 |
-| test0094 | `test_0094_fabric_manifest_mismatch_is_flagged` | TEST94: Fabric manifest mismatch is flagged | tests/test_cartridge_discovery.py:98 |
+| test0094 | `test_0094_fabric_manifest_mismatch_is_flagged` | TEST94: Fabric manifest mismatch is flagged | tests/test_cartridge_discovery.py:100 |
 | test095 | `test_095_media_def_def_serialize` | TEST95: Test MediaDef serializes with required fields and skips None fields | tests/test_media_def.py:93 |
 | test096 | `test_096_media_def_def_deserialize` | TEST96: Test deserializing MediaDef from JSON object | tests/test_media_def.py:117 |
 | test097 | `test_097_validate_no_duplicate_urns_catches_duplicates` | TEST97: Test duplicate URN validation catches duplicates | tests/test_media_def.py:136 |
@@ -117,7 +117,7 @@ This catalog lists all tests in the Python codebase.
 | test117 | `test_117_cap_manifest_channel_roundtrip` | TEST117: A manifest's channel round-trips through serde and the serialized form uses the canonical lowercase wire word ("release" / "nightly"). A missing or unrecognized channel is a hard parse error — no defaults. | tests/test_manifest.py:47 |
 | test118 | `test_118_dev_manifest_registry_url_is_explicit_null` | TEST118: A dev manifest (built without `MFR_CARTRIDGE_REGISTRY_URL`) carries `registry_url: null` and serializes the field explicitly. The null-vs-absent distinction matters because the parser refuses to accept absent (test117) — so an old SDK can't accidentally pass for a dev build. | tests/test_manifest.py:90 |
 | test119 | `test_119_concatenated_vs_final_payload_divergence` | TEST119: CartridgeResponse::Streaming concatenated() and final_payload() diverge for multi-chunk | tests/test_cartridge_host_runtime.py:284 |
-| test0120 | `test_0120_registry_url_under_dev_slug_is_rejected` | TEST120: Registry url under dev slug is rejected | tests/test_cartridge_discovery.py:106 |
+| test0120 | `test_0120_registry_url_under_dev_slug_is_rejected` | TEST120: Registry url under dev slug is rejected | tests/test_cartridge_discovery.py:108 |
 | test0125 | `test_0125_effect_none_preserves_runtime_media` | TEST125: effect=none preserves runtime media identity | tests/test_cap_urn.py:1092 |
 | test0126 | `test_0126_effect_declared_uses_declared_output` | TEST126: default effect=declared uses the declared output | tests/test_cap_urn.py:1101 |
 | test127 | `test_127_wildcard_identity_routing_isolation` | TEST127: invalid effect=none declarations fail hard | tests/test_cap_urn.py:1080 |
@@ -286,8 +286,8 @@ This catalog lists all tests in the Python codebase.
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:299 |
 | test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:271 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:340 |
-| test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:274 |
-| test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:236 |
+| test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:295 |
+| test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:257 |
 | test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:257 |
 | test305 | `test_305_media_path_output_constant` | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:265 |
 | test306 | `test_306_availability_and_path_output_distinct` | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs | tests/test_media_urn.py:273 |
@@ -296,23 +296,23 @@ This catalog lists all tests in the Python codebase.
 | test309 | `test_309_model_availability_and_path_are_distinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | tests/test_standard_caps.py:51 |
 | test310 | `test_310_llm_generate_text_urn_shape` | TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output. | tests/test_standard_caps.py:58 |
 | test312 | `test_312_all_urn_builders_produce_valid_urns` | TEST312: Test all URN builders produce parseable cap URNs | tests/test_standard_caps.py:68 |
-| test319 | `test_319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:494 |
-| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify round-trip of fields. | tests/test_cartridge_repo.py:151 |
-| test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:163 |
-| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:177 |
-| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | tests/test_cartridge_repo.py:191 |
-| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. | tests/test_cartridge_repo.py:209 |
-| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope. | tests/test_cartridge_repo.py:248 |
-| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. | tests/test_cartridge_repo.py:261 |
-| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. | tests/test_cartridge_repo.py:292 |
-| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters on the categories string list. | tests/test_cartridge_repo.py:318 |
-| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent. | tests/test_cartridge_repo.py:336 |
-| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. | tests/test_cartridge_repo.py:364 |
-| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge. | tests/test_cartridge_repo.py:382 |
-| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. | tests/test_cartridge_repo.py:408 |
-| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:427 |
-| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync returns true on an empty cache, false right after a successful update. | tests/test_cartridge_repo.py:455 |
-| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. | tests/test_cartridge_repo.py:465 |
+| test319 | `test_319_update_cache_rejects_malformed_cap_urn` | TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear. | tests/test_cartridge_repo.py:515 |
+| test320 | `test_320_construct_cartridge_info_and_verify_fields` | TEST320: Construct CartridgeInfo and verify round-trip of fields. | tests/test_cartridge_repo.py:154 |
+| test321 | `test_321_cartridge_info_is_signed` | TEST321: is_signed() requires both team_id and signed_at to be non-empty. | tests/test_cartridge_repo.py:166 |
+| test322 | `test_322_cartridge_info_build_for_platform` | TEST322: build_for_platform returns the matching build for the latest version, None for an unknown platform. | tests/test_cartridge_repo.py:180 |
+| test323 | `test_323_cartridge_repo_server_validate_registry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | tests/test_cartridge_repo.py:194 |
+| test324 | `test_324_cartridge_repo_server_transform_to_array` | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. | tests/test_cartridge_repo.py:230 |
+| test325 | `test_325_cartridge_repo_server_get_cartridges` | TEST325: get_cartridges() wraps the transformed array in the response envelope. | tests/test_cartridge_repo.py:269 |
+| test326 | `test_326_cartridge_repo_server_get_cartridge_by_id` | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. | tests/test_cartridge_repo.py:282 |
+| test327 | `test_327_cartridge_repo_server_search_cartridges` | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. | tests/test_cartridge_repo.py:313 |
+| test328 | `test_328_cartridge_repo_server_get_by_category` | TEST328: get_cartridges_by_category filters on the categories string list. | tests/test_cartridge_repo.py:339 |
+| test329 | `test_329_cartridge_repo_server_get_by_cap` | TEST329: get_cartridges_by_cap parses the request URN and matches each cartridge cap via the conforms_to predicate — not string equality, and the `op` tag has no functional role. A request URN whose tags appear in different declared order than the cap's still resolves because the predicate is order-independent. | tests/test_cartridge_repo.py:357 |
+| test330 | `test_330_cartridge_repo_client_update_cache` | TEST330: update_cache populates the cartridge map keyed by (channel, id) and the cap-to-cartridge index keyed by normalized URNs. | tests/test_cartridge_repo.py:385 |
+| test331 | `test_331_cartridge_repo_client_get_suggestions` | TEST331: get_suggestions_for_cap returns a suggestion with channel propagated from the source cartridge. | tests/test_cartridge_repo.py:403 |
+| test332 | `test_332_cartridge_repo_client_get_cartridge` | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. | tests/test_cartridge_repo.py:429 |
+| test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:448 |
+| test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync returns true on an empty cache, false right after a successful update. | tests/test_cartridge_repo.py:476 |
+| test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. | tests/test_cartridge_repo.py:486 |
 | test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:569 |
 | test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:632 |
 | test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:660 |
@@ -553,14 +553,14 @@ This catalog lists all tests in the Python codebase.
 | test627 | `test_627_insert_schema_rejects_invalid_schema` | TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. A registry that silently accepted invalid schemas would hide compilation problems until the first validation call. | tests/test_media_profile.py:171 |
 | test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:486 |
 | test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:494 |
-| test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with empty cartridge list. | tests/test_cartridge_repo.py:516 |
-| test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with empty cache and non-empty URLs. | tests/test_cartridge_repo.py:522 |
-| test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:528 |
-| test633 | `test_633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description, args, output all parses. | tests/test_cartridge_repo.py:545 |
-| test634 | `test_634_deserialize_cap_group` | TEST634: A registry cap_group parses with caps + adapter_urns. | tests/test_cartridge_repo.py:584 |
-| test635 | `test_635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty. | tests/test_cartridge_repo.py:600 |
-| test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). | tests/test_cartridge_repo.py:640 |
-| test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:660 |
+| test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with empty cartridge list. | tests/test_cartridge_repo.py:537 |
+| test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with empty cache and non-empty URLs. | tests/test_cartridge_repo.py:543 |
+| test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:549 |
+| test633 | `test_633_deserialize_rich_registry_cap` | TEST633: A registry cap with cap_description, args, output all parses. | tests/test_cartridge_repo.py:566 |
+| test634 | `test_634_deserialize_cap_group` | TEST634: A registry cap_group parses with caps + adapter_urns. | tests/test_cartridge_repo.py:605 |
+| test635 | `test_635_deserialize_cartridge_info_wire_shape` | TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty. | tests/test_cartridge_repo.py:621 |
+| test636 | `test_636_deserialize_cartridge_info_with_null_strings` | TEST636: CartridgeInfo with null version/description/author still deserializes (the null_as_empty_string deserializer is the only tolerated coercion — every other malformed input is a hard error). | tests/test_cartridge_repo.py:661 |
+| test637 | `test_637_deserialize_full_registry_response` | TEST637: A full /api/cartridges-shaped response with two cartridges and nested cap_groups round-trips through the response wrapper. | tests/test_cartridge_repo.py:681 |
 | test638 | `test_638_no_peer_router_rejects_all` | TEST638: Verify NoPeerRouter rejects all requests with PeerInvokeNotSupported | tests/test_router.py:9 |
 | test639 | `test_639_wildcard_001_empty_cap_is_illegal` | TEST639: bare/default top-to-top declared form is illegal | tests/test_cap_urn.py:941 |
 | test640 | `test_640_wildcard_in_only_defaults_out` | TEST640: cap:in defaults to the same illegal bare top form | tests/test_cap_urn.py:947 |
@@ -1040,19 +1040,19 @@ This catalog lists all tests in the Python codebase.
 | test1835 | `test_1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | tests/test_cap_urn.py:1721 |
 | test1842 | `test_1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form. | tests/test_cap_urn.py:1731 |
 | test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out-axis, in-axis dominates over y-axis. | tests/test_cap_urn.py:1790 |
-| test1847 | `test_1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. | tests/test_cartridge_repo.py:743 |
-| test1849 | `test_1849_resolve_for_host_compatible_latest` | TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package. | tests/test_cartridge_repo.py:827 |
-| test1850 | `test_1850_resolve_for_host_compatible_outdated` | TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. | tests/test_cartridge_repo.py:845 |
-| test1851 | `test_1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | tests/test_cartridge_repo.py:865 |
-| test1852 | `test_1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | tests/test_cartridge_repo.py:881 |
-| test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:902 |
+| test1847 | `test_1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. | tests/test_cartridge_repo.py:764 |
+| test1849 | `test_1849_resolve_for_host_compatible_latest` | TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package. | tests/test_cartridge_repo.py:848 |
+| test1850 | `test_1850_resolve_for_host_compatible_outdated` | TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. | tests/test_cartridge_repo.py:866 |
+| test1851 | `test_1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | tests/test_cartridge_repo.py:886 |
+| test1852 | `test_1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | tests/test_cartridge_repo.py:902 |
+| test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:923 |
 | test1872 | `test_1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | tests/test_manifest.py:319 |
 | test1873 | `test_1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | tests/test_manifest.py:325 |
 | test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:379 |
-| test1875 | `test_1875_scan_all_reaches_both_dev_and_registry_slugs` | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. | tests/test_cartridge_discovery.py:122 |
-| test1876 | `test_1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | tests/test_cartridge_discovery.py:151 |
-| test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:165 |
-| test1878 | `test_1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:176 |
+| test1875 | `test_1875_scan_all_reaches_both_dev_and_registry_slugs` | TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe. | tests/test_cartridge_discovery.py:124 |
+| test1876 | `test_1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | tests/test_cartridge_discovery.py:154 |
+| test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:168 |
+| test1878 | `test_1878_bundled_provider_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:179 |
 | test1879 | `test_1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1185 |
 | test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | tests/test_fabric_alias.py:53 |
 | test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | tests/test_fabric_alias.py:69 |
@@ -1078,8 +1078,8 @@ This catalog lists all tests in the Python codebase.
 | test6231 | `test_6231_wildcard_empty_cap_defaults` | TEST6231: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:935 |
 | test6235 | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:181 |
 | test6239 | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:206 |
-| test6264 | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:932 |
-| test6268 | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:952 |
+| test6264 | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:953 |
+| test6268 | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:973 |
 | test6282 | `test_6282_resolve_custom_media_def` | TEST6282: Test resolving a custom media URN from a registry-seeded media def | tests/test_media_def.py:622 |
 | test6283 | `test_6283_resolve_custom_with_schema` | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def | tests/test_media_def.py:640 |
 | test6314 | `test_6314_complex_nested_schema_validation` | TEST6314: Complex nested schema validation | tests/test_schema_validation.py:389 |
@@ -1304,17 +1304,17 @@ These tests have a numbering disagreement between the function name and the auth
 - `test078` / `test78` / `test_078_object_does_not_conform_to_string` — tests/test_media_urn.py:246
 - `test088` / `test88` / `test_088_resolve_seeded_spec` — tests/test_media_def.py:44
 - `test089` / `test89` / `test_089_resolve_seeded_record_spec` — tests/test_media_def.py:58
-- `test0090` / `test90` / `test_0090_absent_scan_root_yields_empty_roster` — tests/test_cartridge_discovery.py:76
-- `test0091` / `test91` / `test_0091_missing_cartridge_json_is_manifest_invalid` — tests/test_cartridge_discovery.py:82
-- `test0092` / `test92` / `test_0092_channel_mismatch_is_bad_installation` — tests/test_cartridge_discovery.py:89
+- `test0090` / `test90` / `test_0090_absent_scan_root_yields_empty_roster` — tests/test_cartridge_discovery.py:78
+- `test0091` / `test91` / `test_0091_missing_cartridge_json_is_manifest_invalid` — tests/test_cartridge_discovery.py:84
+- `test0092` / `test92` / `test_0092_channel_mismatch_is_bad_installation` — tests/test_cartridge_discovery.py:91
 - `test093` / `test93` / `test_093_resolve_unresolvable_fails_hard` — tests/test_media_def.py:79
-- `test0094` / `test94` / `test_0094_fabric_manifest_mismatch_is_flagged` — tests/test_cartridge_discovery.py:98
+- `test0094` / `test94` / `test_0094_fabric_manifest_mismatch_is_flagged` — tests/test_cartridge_discovery.py:100
 - `test095` / `test95` / `test_095_media_def_def_serialize` — tests/test_media_def.py:93
 - `test096` / `test96` / `test_096_media_def_def_deserialize` — tests/test_media_def.py:117
 - `test097` / `test97` / `test_097_validate_no_duplicate_urns_catches_duplicates` — tests/test_media_def.py:136
 - `test098` / `test98` / `test_098_validate_no_duplicate_urns_passes_for_unique` — tests/test_media_def.py:155
 - `test099` / `test99` / `test_099_resolved_is_binary` — tests/test_media_def.py:178
-- `test0120` / `test120` / `test_0120_registry_url_under_dev_slug_is_rejected` — tests/test_cartridge_discovery.py:106
+- `test0120` / `test120` / `test_0120_registry_url_under_dev_slug_is_rejected` — tests/test_cartridge_discovery.py:108
 - `test0125` / `test125` / `test_0125_effect_none_preserves_runtime_media` — tests/test_cap_urn.py:1092
 - `test0126` / `test126` / `test_0126_effect_declared_uses_declared_output` — tests/test_cap_urn.py:1101
 - `test0128` / `test128` / `test_0128_effect_dispatch_requires_explicit_wildcard` — tests/test_cap_urn.py:1108
@@ -1325,7 +1325,7 @@ These tests have a numbering disagreement between the function name and the auth
 
 ---
 
-*Generated from Python source tree*
+*Generated from CapDag-Py source tree*
 *Total tests: 1191*
 *Total numbered tests: 1177*
 *Total unnumbered tests: 14*
