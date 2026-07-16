@@ -290,7 +290,7 @@ def test_659_handler_error_returns_err_frame():
                     break
                 if frame.frame_type == FrameType.END:
                     break
-            output.emit_error("PROVIDER_ERROR", "provider crashed")
+            output.emit_error("CARTRIDGE_ERROR", "cartridge crashed")
 
     cap_urn = 'cap:in="media:void";fail;out="media:void"'
     cap = make_test_cap(cap_urn)
@@ -320,8 +320,8 @@ def test_659_handler_error_returns_err_frame():
     err_frame = reader.read()
     assert err_frame.frame_type == FrameType.ERR
     assert err_frame.id == rid
-    assert err_frame.error_code() == "PROVIDER_ERROR"
-    assert "provider crashed" in err_frame.error_message()
+    assert err_frame.error_code() == "CARTRIDGE_ERROR"
+    assert "cartridge crashed" in err_frame.error_message()
 
     close_socks(test_socks)
     close_socks(host_socks)

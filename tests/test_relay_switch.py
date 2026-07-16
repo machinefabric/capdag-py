@@ -391,7 +391,7 @@ def test_429_find_master_for_cap():
     assert "cap:double;in=media:void;out=media:void" in cap_list
 
 
-# TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic provider (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
+# TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
 def test_437_preferred_cap_routes_to_generic():
     engine_read1, slave_write1 = socket.socketpair()
     slave_read1, engine_write1 = socket.socketpair()
@@ -471,8 +471,8 @@ def test_438_preferred_cap_falls_back_when_not_comparable():
     ) == 0
 
 
-# TEST439: Generic provider CAN dispatch specific request (but only matches if no more specific provider exists) With is_dispatchable: generic provider (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
-def test_439_generic_provider_can_dispatch_specific_request():
+# TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
+def test_439_generic_candidate_can_dispatch_specific_request():
     engine_read1, slave_write1 = socket.socketpair()
     slave_read1, engine_write1 = socket.socketpair()
     engine_read2, slave_write2 = socket.socketpair()
@@ -816,8 +816,8 @@ def test_435_urn_matching_exact_and_accepts():
     assert resp1.payload == bytes([42])
 
     # More specific request SHOULD match under is_dispatchable semantics:
-    # Input (contravariant): request's media:text;utf8;normalized conforms_to provider's media:text;utf8
-    # Output (covariant): provider's media:text;utf8 conforms_to request's media:text
+    # Input (contravariant): request's media:text;utf8;normalized conforms_to candidate's media:text;utf8
+    # Output (covariant): candidate's media:text;utf8 conforms_to request's media:text
     req2 = Frame.req(
         MessageId(2),
         'cap:in="media:text;utf8;normalized";process;out="media:text"',
@@ -1090,7 +1090,7 @@ def test_0136_all_masters_ready_false_when_expected_count_unset():
 # TEST137: All masters ready false when partially connected
 def test_0137_all_masters_ready_false_when_partially_connected():
     """1 master connected, 2 expected. This is the live regression: the
-    internal master had caps from t=0 but the external-providers master
+    internal master had caps from t=0 but the external-cartridges master
     was still spawning cartridges. The host saw ready immediately and the
     bidi never started. The predicate must return false until
     len(masters) reaches expected_master_count."""

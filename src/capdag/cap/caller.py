@@ -14,7 +14,7 @@ from capdag.bifaci.frame import Frame, MessageId, compute_checksum
 
 @dataclass
 class StdinSourceData:
-    """Raw byte data for stdin - used for providers (in-process) or small inline data"""
+    """Raw byte data for stdin - used for cartridges (in-process) or small inline data"""
     data: bytes
 
     def __repr__(self):

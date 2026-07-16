@@ -347,7 +347,7 @@ def test_6363_cap_manifest_with_page_url():
     ), f"expected page_url in serialized form, got: {json_str}"
 
 
-# TEST6371: Cap manifest compatibility — cartridge-style and provider-style manifests serialize to the same JSON shape (same keys).
+# TEST6371: Cap manifest compatibility — two independently-constructed cartridge manifests serialize to the same JSON shape (same keys).
 def test_6371_cap_manifest_compatibility():
     urn = CapUrn.from_string(_test_urn("process"))
     cap = Cap(urn, "Data Processor", ["process"])
@@ -359,20 +359,20 @@ def test_6371_cap_manifest_compatibility():
         description="Cartridge-style component",
         cap_groups=[default_group([cap])],
     )
-    provider = CapManifest(
-        name="ProviderComponent",
+    other_cartridge = CapManifest(
+        name="CartridgeComponentTwo",
         version="0.1.0",
         channel="release",
         registry_url=None,
-        description="Provider-style component",
+        description="Second cartridge-style component",
         cap_groups=[default_group([cap])],
     )
     cartridge_map = json.loads(cartridge.to_json())
-    provider_map = json.loads(provider.to_json())
-    assert len(cartridge_map) == len(provider_map)
+    other_cartridge_map = json.loads(other_cartridge.to_json())
+    assert len(cartridge_map) == len(other_cartridge_map)
     for key in ("name", "version", "description", "cap_groups", "channel"):
         assert key in cartridge_map, f"missing key {key}"
-        assert key in provider_map, f"missing key {key}"
+        assert key in other_cartridge_map, f"missing key {key}"
 
 
 # TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship.

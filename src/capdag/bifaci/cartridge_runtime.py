@@ -2841,7 +2841,7 @@ class CartridgeRuntime:
         """Find an Op factory for a cap URN.
         Returns the factory if found, None otherwise.
 
-        Uses is_dispatchable(provider, request): can this registered handler
+        Uses is_dispatchable(candidate, request): can this registered handler
         dispatch the incoming request? Mirrors Rust exactly:
           `registered_urn.is_dispatchable(&request_urn)`
 
@@ -2865,7 +2865,7 @@ class CartridgeRuntime:
         for registered_cap_str, handler in self.handlers.items():
             try:
                 registered_urn = CapUrn.from_string(registered_cap_str)
-                # Use is_dispatchable: can this provider handle this request?
+                # Use is_dispatchable: can this candidate handle this request?
                 if registered_urn.is_dispatchable(request_urn):
                     specificity = registered_urn.specificity()
                     signed_distance = specificity - request_specificity

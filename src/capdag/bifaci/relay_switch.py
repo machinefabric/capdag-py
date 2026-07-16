@@ -268,7 +268,7 @@ class InstalledCartridgeRecord:
         regardless of how the cartridge authored them on the wire.
         Canonical form is what `find_master_for_cap` matches against
         — without this, two-equal-but-differently-spelled URNs route
-        independently and dispatch silently misses the provider."""
+        independently and dispatch silently misses the candidate."""
         seen = set()
         out: List[str] = []
         for group in self.cap_groups:
@@ -660,9 +660,9 @@ class RelaySwitch:
         ``len(masters) >= expected`` AND every connected master is
         healthy. Without this an engine that has only finished
         registering its internal master would falsely report ready
-        before the external-providers master finished spawning + HELLO +
+        before the external-cartridges master finished spawning + HELLO +
         cap-probing its cartridges. Set once at engine boot from the
-        same call site that registers the providers."""
+        same call site that registers the cartridges."""
         with self._lock:
             self._expected_master_count = expected
 
@@ -1207,7 +1207,7 @@ class RelaySwitch:
             except:
                 continue
 
-            # Use is_dispatchable: can this provider handle this request?
+            # Use is_dispatchable: can this candidate handle this request?
             dispatchable = registered_urn.is_dispatchable(request_urn)
 
             if dispatchable:
@@ -1235,7 +1235,7 @@ class RelaySwitch:
                 return idx
 
         # Rank: non-negative distance (refinement/exact) before negative (fallback),
-        # then by smallest absolute distance. This prefers exact or more-specific providers.
+        # then by smallest absolute distance. This prefers exact or more-specific candidates.
         matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
         return matches[0][0]
 

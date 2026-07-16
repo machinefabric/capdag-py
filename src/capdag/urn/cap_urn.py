@@ -534,25 +534,25 @@ class CapUrn:
         return cap.accepts(self)
 
     def _input_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if provider's input is dispatchable for request's input.
+        """Check if candidate's input is dispatchable for request's input.
 
-        Input is CONTRAVARIANT: provider with looser input constraint can handle
+        Input is CONTRAVARIANT: candidate with looser input constraint can handle
         request with stricter input. media: is the identity (top) and means
         "unconstrained" — vacuously true on either side.
 
-        - Request in=media: (unconstrained) + any provider -> YES (no constraint)
-        - Provider in=media: (accepts any) + Request in=media:ext=pdf -> YES
-        - Both specific -> request input must conform to provider's accepted input
+        - Request in=media: (unconstrained) + any candidate -> YES (no constraint)
+        - Candidate in=media: (accepts any) + Request in=media:ext=pdf -> YES
+        - Both specific -> request input must conform to candidate's accepted input
         """
-        # Request wildcard: any provider input is fine
+        # Request wildcard: any candidate input is fine
         if request.in_urn == "media:":
             return True
 
-        # Provider wildcard: provider accepts any input
+        # Candidate wildcard: candidate accepts any input
         if self.in_urn == "media:":
             return True
 
-        # Both specific: request input must conform to provider input requirement
+        # Both specific: request input must conform to candidate input requirement
         try:
             req_in = MediaUrn.from_string(request.in_urn)
         except Exception:
@@ -565,24 +565,24 @@ class CapUrn:
         return req_in.conforms_to(prov_in)
 
     def _output_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if provider's output is dispatchable for request's output.
+        """Check if candidate's output is dispatchable for request's output.
 
-        Output is COVARIANT: provider must produce at least what request needs.
+        Output is COVARIANT: candidate must produce at least what request needs.
 
-        - Request out=media: (unconstrained): any provider output is fine
-        - Provider out=media: + request specific: FAIL (cannot guarantee)
-        - Both specific: provider output must conform to request output
+        - Request out=media: (unconstrained): any candidate output is fine
+        - Candidate out=media: + request specific: FAIL (cannot guarantee)
+        - Both specific: candidate output must conform to request output
         """
-        # Request wildcard: any provider output is fine
+        # Request wildcard: any candidate output is fine
         if request.out_urn == "media:":
             return True
 
-        # Provider wildcard: cannot guarantee specific output request needs
+        # Candidate wildcard: cannot guarantee specific output request needs
         # This is asymmetric with input! Generic output doesn't satisfy specific requirement.
         if self.out_urn == "media:":
             return False
 
-        # Both specific: provider output must conform to request output
+        # Both specific: candidate output must conform to request output
         try:
             req_out = MediaUrn.from_string(request.out_urn)
         except Exception:
@@ -595,18 +595,18 @@ class CapUrn:
         return prov_out.conforms_to(req_out)
 
     def _cap_tags_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if provider's cap-tags are dispatchable for request's cap-tags.
+        """Check if candidate's cap-tags are dispatchable for request's cap-tags.
 
-        Every explicit request tag must be satisfied by provider.
-        Provider may have extra tags (refinement is OK).
+        Every explicit request tag must be satisfied by candidate.
+        Candidate may have extra tags (refinement is OK).
         Wildcard (*) in request means any value acceptable.
-        Wildcard (*) in provider means provider can handle any value.
+        Wildcard (*) in candidate means candidate can handle any value.
         """
         all_keys = set(self.tags.keys()) | set(request.tags.keys())
         for key in all_keys:
-            provider_value = self.tags.get(key)
+            candidate_value = self.tags.get(key)
             request_value = request.tags.get(key)
-            if not TaggedUrn._values_match(provider_value, request_value):
+            if not TaggedUrn._values_match(candidate_value, request_value):
                 return False
         return True
 
@@ -614,17 +614,17 @@ class CapUrn:
         return request.effect == CapEffect.ANY.value or self.effect == request.effect
 
     def is_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if this provider can dispatch (handle) the given request.
+        """Check if this candidate can dispatch (handle) the given request.
 
         This is the PRIMARY predicate for routing/dispatch decisions.
 
-        A provider is dispatchable for a request iff:
-        1. Input axis: provider can handle request's input (contravariant)
-        2. Output axis: provider meets request's output needs (covariant)
-        3. Cap-tags: provider satisfies all explicit request tags, may add more
+        A candidate is dispatchable for a request iff:
+        1. Input axis: candidate can handle request's input (contravariant)
+        2. Output axis: candidate meets request's output needs (covariant)
+        3. Cap-tags: candidate satisfies all explicit request tags, may add more
 
-        Key insight: This is NOT symmetric. provider.is_dispatchable(request) may
-        be true while request.is_dispatchable(provider) is false.
+        Key insight: This is NOT symmetric. candidate.is_dispatchable(request) may
+        be true while request.is_dispatchable(candidate) is false.
         """
         if not self._input_dispatchable(request):
             return False

@@ -378,7 +378,7 @@ class _ManagedCartridge:
     def is_registered_dir(self) -> bool:
         """True for a cartridge registered from a version directory (the
         lazily-spawned, dir-backed kind). Distinguishes roster-managed
-        installs from attached/internal providers during a SyncRoster."""
+        installs from attached/internal cartridges during a SyncRoster."""
         return self.cartridge_dir is not None
 
     def cap_urns(self) -> List[str]:
@@ -525,7 +525,7 @@ class CartridgeHost:
                     version=version,
                     sha256=sha256,
                     cap_groups=list(cap_groups),
-                    # Engine-spawned external providers are operational by
+                    # Engine-spawned external cartridges are operational by
                     # construction: discovery validated the install context and
                     # probed the cartridge before this registration.
                     lifecycle=CartridgeLifecycle.OPERATIONAL,
@@ -643,7 +643,7 @@ class CartridgeHost:
             if entry.cap_urn == cap_urn:
                 return entry.cartridge_idx
 
-        # URN-level matching: use is_dispatchable (provider can handle request)
+        # URN-level matching: use is_dispatchable (candidate can handle request)
         try:
             request_urn = CapUrn.from_string(cap_urn)
         except CapUrnError:
@@ -1232,7 +1232,7 @@ class CartridgeHost:
 
         Running cartridges no longer in the set are killed and dropped from
         the inventory; survivors keep their live process and stats. Only
-        dir-registered cartridges participate — attached/internal providers
+        dir-registered cartridges participate — attached/internal cartridges
         are left untouched. Mirrors the Rust ``sync_registered_roster``.
         """
         def identity_of(rec: "InstalledCartridgeRecord"):
@@ -1254,7 +1254,7 @@ class CartridgeHost:
                     continue
                 rec = cartridge.installed_cartridge_record()
                 if rec is None:
-                    continue  # no resolvable identity (internal provider) — leave it
+                    continue  # no resolvable identity (internal cartridge) — leave it
                 if not cartridge.is_registered_dir():
                     continue  # attached/internal — not part of a dir roster sync
                 if identity_of(rec) in desired_keys:

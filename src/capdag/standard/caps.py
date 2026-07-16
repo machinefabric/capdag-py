@@ -1,7 +1,7 @@
 """Standard capability URN builders
 
 This module provides standard capability URN builders used across
-all MACHFAB providers. These are the single source of truth for URN construction.
+all MACHFAB cartridges. These are the single source of truth for URN construction.
 """
 
 from dataclasses import dataclass

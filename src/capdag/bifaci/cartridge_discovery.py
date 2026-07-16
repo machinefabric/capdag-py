@@ -3,7 +3,7 @@
 The on-disk scan + identity validation + HELLO probe that classifies each
 installed cartridge version directory as attachable (``Directory``) or
 ``Incompatible``. This is the single source of truth used by both the
-engine (for the bundled ``providers/`` tree next to its binary) and the
+engine (for the bundled ``bundled-cartridges/`` tree next to its binary) and the
 daemon (for the user-installed cartridge tree).
 
 Keeping one implementation guarantees the two hosts accept exactly the
@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
 
-from capdag.bifaci.bundled_provider_hashes import bundled_provider_expected_hash
+from capdag.bifaci.bundled_cartridge_hashes import bundled_cartridge_expected_hash
 from capdag.bifaci.cartridge_json import (
     CartridgeInstallSource,
     CartridgeJsonError,
@@ -194,7 +194,7 @@ def discover_cartridges(
     NOT restrict which slugs are scanned; each cartridge is instead
     validated in place against the slug folder it sits under (the
     three-place rule), so a registry-installed cartridge, the reserved
-    ``dev/`` slot (null registry_url), and the engine's bundled providers
+    ``dev/`` slot (null registry_url), and the engine's bundled cartridges
     all coexist and load together. The channel folder IS still pinned to
     the host's channel — release and nightly artefacts never mix.
     """
@@ -420,7 +420,7 @@ def _scan_channel_root(
             )
             continue
 
-        # Bundled-provider integrity. A cartridge marked
+        # Bundled-cartridge integrity. A cartridge marked
         # ``installed_from: bundle`` is shipped INSIDE this build, not
         # user-installed, and has no upstream registry to verify against —
         # so it needs its own integrity proof. Platform-split by necessity:
@@ -430,15 +430,15 @@ def _scan_channel_root(
         #   does NOT bake or verify hashes. We log that we are trusting the
         #   signature — an explicit, visible rule, not a silent skip.
         # - Linux/Windows: binaries are unsigned, so the integrity proof is a
-        #   content hash baked into the build (BUNDLED_PROVIDER_HASHES). The
+        #   content hash baked into the build (BUNDLED_CARTRIDGE_HASHES). The
         #   on-disk directory must hash to the baked value; a mismatch or an
-        #   entry absent from the baked set means the shipped provider was
+        #   entry absent from the baked set means the shipped cartridge was
         #   tampered with or the build failed to record it — surfaced
         #   incompatible + logged, never hosted.
         if cj.installed_from == CartridgeInstallSource.BUNDLE:
             if sys.platform == "darwin":
                 logger.info(
-                    "bundled provider integrity on macOS is the OS code-signature "
+                    "bundled cartridge integrity on macOS is the OS code-signature "
                     "(notarized .app); baked-hash verification is intentionally skipped: "
                     "%s (%s %s)",
                     version_dir,
@@ -446,10 +446,10 @@ def _scan_channel_root(
                     cj.version,
                 )
             else:
-                reason = _verify_bundled_provider_hash(cj.name, cj.version, version_dir)
+                reason = _verify_bundled_cartridge_hash(cj.name, cj.version, version_dir)
                 if reason is not None:
                     logger.error(
-                        "bundled provider hash verification failed (%s, %s %s) — "
+                        "bundled cartridge hash verification failed (%s, %s %s) — "
                         "surfacing as incompatible: %s",
                         version_dir,
                         cj.name,
@@ -465,7 +465,7 @@ def _scan_channel_root(
                             version=cj.version,
                             error=CartridgeAttachmentError(
                                 kind=CartridgeAttachmentErrorKind.BAD_INSTALLATION,
-                                message=f"bundled provider integrity check failed: {reason}",
+                                message=f"bundled cartridge integrity check failed: {reason}",
                                 detected_at_unix_seconds=detected_at,
                             ),
                         )
@@ -510,30 +510,30 @@ def _scan_channel_root(
         )
 
 
-def _verify_bundled_provider_hash(name: str, version: str, version_dir: Path) -> Optional[str]:
-    """Verify a bundled provider's on-disk content against the hash baked
+def _verify_bundled_cartridge_hash(name: str, version: str, version_dir: Path) -> Optional[str]:
+    """Verify a bundled cartridge's on-disk content against the hash baked
     into this build. ``None`` when the directory hashes to the expected
     value for ``(name, version)``; a reason string when the pair is absent
     from the baked set or the hash differs (tamper / corruption /
     unrecorded build).
 
-    Non-macOS only: macOS bundled-provider integrity is the OS
+    Non-macOS only: macOS bundled-cartridge integrity is the OS
     code-signature (see the discovery call site), so the host there
     neither bakes nor checks these hashes.
     """
-    expected = bundled_provider_expected_hash(name, version)
+    expected = bundled_cartridge_expected_hash(name, version)
     if expected is None:
         return (
-            f"no baked hash for bundled provider {name} {version} — this build did not "
-            f"record it (MFR_BUNDLED_PROVIDER_HASHES)"
+            f"no baked hash for bundled cartridge {name} {version} — this build did not "
+            f"record it (MFR_BUNDLED_CARTRIDGE_HASHES)"
         )
     try:
         actual = hash_cartridge_directory(version_dir)
     except Exception as e:
-        return f"failed to hash bundled provider directory: {e}"
+        return f"failed to hash bundled cartridge directory: {e}"
     if actual == expected:
         return None
     return (
-        f"content hash mismatch — baked {expected}, on-disk {actual}; the shipped provider "
+        f"content hash mismatch — baked {expected}, on-disk {actual}; the shipped cartridge "
         f"differs from what this build was compiled to ship"
     )

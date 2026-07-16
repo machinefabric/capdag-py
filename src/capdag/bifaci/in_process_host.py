@@ -332,7 +332,7 @@ class InProcessHostIdentity:
     The host has no on-disk cartridge directory, so the embedding application
     must supply the same four-tuple identity (``registry_url``, ``channel``,
     ``id``, ``version``) it would have read from a cartridge.json — plus a
-    content-derived ``sha256`` so the engine treats the in-process provider
+    content-derived ``sha256`` so the engine treats the in-process cartridge
     indistinguishably from any other installed cartridge.
     """
 
@@ -435,9 +435,9 @@ class InProcessCartridgeHost:
     def find_handler_for_cap(cap_table: CapTable, cap_urn: str) -> Optional[int]:
         """Find the best handler for a cap URN.
 
-        Uses ``is_dispatchable(provider, request)`` to find handlers that can
+        Uses ``is_dispatchable(candidate, request)`` to find handlers that can
         legally handle the request, then ranks by specificity: equivalent
-        matches (distance 0) first, then more specific providers (positive
+        matches (distance 0) first, then more specific candidates (positive
         distance), then more generic ones (negative distance).
         """
         try:

@@ -174,9 +174,9 @@ def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
 
 
-# TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_PROVIDER_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled provider is accepted there and would instead end at the probe.
+# TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
 @pytest.mark.skipif(sys.platform == "darwin", reason="macOS uses code-signature, not baked hashes")
-def test_1878_bundled_provider_without_baked_hash_is_rejected(tmp_path):
+def test_1878_bundled_cartridge_without_baked_hash_is_rejected(tmp_path):
     # Dev slug (null registry) but installed_from=bundle — placement is
     # self-consistent (null→dev), so it passes read_from_dir and reaches the
     # bundled-hash gate, which has no baked entry → BadInstallation.
@@ -189,6 +189,6 @@ def test_1878_bundled_provider_without_baked_hash_is_rejected(tmp_path):
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
     _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
     entry = out[0]
-    assert "bundled provider integrity" in entry.error.message, (
+    assert "bundled cartridge integrity" in entry.error.message, (
         f"message should name the bundled-integrity failure: {entry.error.message}"
     )

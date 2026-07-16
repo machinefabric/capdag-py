@@ -465,7 +465,7 @@ def test_025_find_best_match():
     ]
     request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
 
-    # Both patterns accept; the second is the more specific provider.
+    # Both patterns accept; the second is the more specific candidate.
     matching = [c for c in caps if c.accepts(request)]
     assert len(matching) == 2
     best = max(matching, key=lambda c: c.specificity())
@@ -824,7 +824,7 @@ def test_562_canonical_option():
 
 # TEST568: is_dispatchable with different tag order in output spec
 def test_568_dispatch_output_tag_order():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;enc=utf-8;record"'
     )
     request = CapUrn.from_string(
@@ -832,12 +832,12 @@ def test_568_dispatch_output_tag_order():
     )
 
     # After parsing, both should be normalized to same canonical form
-    assert provider.out_spec() == request.out_spec(), \
+    assert candidate.out_spec() == request.out_spec(), \
         "Output specs should be normalized to same canonical form"
 
     # And dispatch should work
-    assert provider.is_dispatchable(request), \
-        "Provider should dispatch request with same tags in different order"
+    assert candidate.is_dispatchable(request), \
+        "Candidate should dispatch request with same tags in different order"
 
 
 # TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
@@ -1106,117 +1106,117 @@ def test_0126_effect_declared_uses_declared_output():
 
 # TEST128: omitted effect means declared; unconstrained effect must be explicit
 def test_0128_effect_dispatch_requires_explicit_wildcard():
-    none_provider = CapUrn.from_string("cap:effect=none")
+    none_candidate = CapUrn.from_string("cap:effect=none")
     declared_request = CapUrn.from_string("cap:raw")
     any_request = CapUrn.from_string("cap:?effect")
-    assert not none_provider.is_dispatchable(declared_request)
-    assert none_provider.is_dispatchable(any_request)
+    assert not none_candidate.is_dispatchable(declared_request)
+    assert none_candidate.is_dispatchable(any_request)
 
 
-# TEST823: is_dispatchable — exact match provider dispatches request
+# TEST823: is_dispatchable — exact match candidate dispatches request
 def test_823_dispatch_exact_match():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
-    assert provider.is_dispatchable(request)
+    assert candidate.is_dispatchable(request)
 
 
-# TEST824: is_dispatchable — provider with broader input handles specific request (contravariance)
+# TEST824: is_dispatchable — candidate with broader input handles specific request (contravariance)
 def test_824_dispatch_contravariant_input():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"'
     )
-    assert provider.is_dispatchable(request)
+    assert candidate.is_dispatchable(request)
 
 
-# TEST825: is_dispatchable — request with unconstrained input dispatches to specific provider media: on the request input axis means "unconstrained" — vacuously true
+# TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate media: on the request input axis means "unconstrained" — vacuously true
 def test_825_dispatch_request_unconstrained_input():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
-    assert provider.is_dispatchable(request), \
+    assert candidate.is_dispatchable(request), \
         "Request in=media: is unconstrained — axis is vacuously true"
 
 
-# TEST826: is_dispatchable — provider output must satisfy request output (covariance)
+# TEST826: is_dispatchable — candidate output must satisfy request output (covariance)
 def test_826_dispatch_covariant_output():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8"'
     )
-    assert provider.is_dispatchable(request), \
-        "Provider output enc=utf-8;record conforms to request output enc=utf-8"
+    assert candidate.is_dispatchable(request), \
+        "Candidate output enc=utf-8;record conforms to request output enc=utf-8"
 
 
-# TEST827: is_dispatchable — provider with generic output cannot satisfy specific request
+# TEST827: is_dispatchable — candidate with generic output cannot satisfy specific request
 def test_827_dispatch_generic_output_fails():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
-    assert not provider.is_dispatchable(request), \
-        "Provider out=media: cannot guarantee specific output"
+    assert not candidate.is_dispatchable(request), \
+        "Candidate out=media: cannot guarantee specific output"
 
 
-# TEST828: is_dispatchable — wildcard * tag in request, provider missing tag → reject
+# TEST828: is_dispatchable — wildcard * tag in request, candidate missing tag → reject
 def test_828_dispatch_wildcard_requires_tag_presence():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
-    assert not provider.is_dispatchable(request), \
-        "Wildcard * means tag must be present — provider has no candle tag"
+    assert not candidate.is_dispatchable(request), \
+        "Wildcard * means tag must be present — candidate has no candle tag"
 
 
-# TEST829: is_dispatchable — wildcard * tag in request, provider has tag → accept
+# TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept
 def test_829_dispatch_wildcard_with_tag_present():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:candle=metal;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
-    assert provider.is_dispatchable(request), \
-        "Provider has candle=metal, request has candle=* — tag present, any value OK"
+    assert candidate.is_dispatchable(request), \
+        "Candidate has candle=metal, request has candle=* — tag present, any value OK"
 
 
-# TEST830: is_dispatchable — provider extra tags are refinement, always OK
-def test_830_dispatch_provider_extra_tags():
-    provider = CapUrn.from_string(
+# TEST830: is_dispatchable — candidate extra tags are refinement, always OK
+def test_830_dispatch_candidate_extra_tags():
+    candidate = CapUrn.from_string(
         'cap:candle=metal;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
-    assert provider.is_dispatchable(request), \
-        "Provider extra tag candle=metal is refinement — always OK"
+    assert candidate.is_dispatchable(request), \
+        "Candidate extra tag candle=metal is refinement — always OK"
 
 
 # TEST831: is_dispatchable — cross-backend mismatch prevented
 def test_831_dispatch_cross_backend_mismatch():
-    gguf_provider = CapUrn.from_string(
+    gguf_candidate = CapUrn.from_string(
         'cap:gguf=q4_k_m;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
     candle_request = CapUrn.from_string(
         'cap:candle=*;in="media:model-spec";run-inference;out="media:enc=utf-8;record"'
     )
-    assert not gguf_provider.is_dispatchable(candle_request), \
-        "GGUF provider has no candle tag — cross-backend mismatch"
+    assert not gguf_candidate.is_dispatchable(candle_request), \
+        "GGUF candidate has no candle tag — cross-backend mismatch"
 
 
 # TEST832: is_dispatchable is NOT symmetric
@@ -1227,13 +1227,13 @@ def test_832_dispatch_asymmetric():
     narrow = CapUrn.from_string(
         'cap:in="media:ext=pdf";process;out="media:enc=utf-8"'
     )
-    # broad provider CAN dispatch narrow request:
-    #   input: provider in=media: accepts anything -> OK
-    #   output: provider out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 -> OK
+    # broad candidate CAN dispatch narrow request:
+    #   input: candidate in=media: accepts anything -> OK
+    #   output: candidate out=media:enc=utf-8;record conforms to request out=media:enc=utf-8 -> OK
     assert broad.is_dispatchable(narrow)
-    # narrow provider CANNOT dispatch broad request:
+    # narrow candidate CANNOT dispatch broad request:
     #   input: request in=media: unconstrained -> OK
-    #   output: provider out=media:enc=utf-8, request out=media:enc=utf-8;record
+    #   output: candidate out=media:enc=utf-8, request out=media:enc=utf-8;record
     #           enc=utf-8 does NOT conform to enc=utf-8;record -> FAIL
     assert not narrow.is_dispatchable(broad)
 
@@ -1288,28 +1288,28 @@ def test_836_equivalent_non_equivalent():
 
 # TEST837: is_dispatchable — op tag mismatch rejects
 def test_837_dispatch_op_mismatch():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;record"'
     )
-    assert not provider.is_dispatchable(request)
+    assert not candidate.is_dispatchable(request)
 
 
-# TEST838: is_dispatchable — request with wildcard output accepts any provider output
+# TEST838: is_dispatchable — request with wildcard output accepts any candidate output
 def test_838_dispatch_request_wildcard_output():
-    provider = CapUrn.from_string(
+    candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out="media:"'
     )
-    assert provider.is_dispatchable(request), \
-        "Request out=media: is unconstrained — any provider output accepted"
+    assert candidate.is_dispatchable(request), \
+        "Request out=media: is unconstrained — any candidate output accepted"
 
 
-# TEST890: Semantic direction matching - generic provider matches specific request
+# TEST890: Semantic direction matching - generic candidate matches specific request
 def test_890_direction_semantic_matching():
     generic_cap = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
@@ -1364,25 +1364,25 @@ def test_1100_cap_urn_normalizes_media_urn_tag_order():
     assert "enc=utf-8;file-metadata;record" in canonical
 
 
-# TEST1103: Tests that is_dispatchable has correct directionality The available cap (provider) must be dispatchable for the requested cap (request). This tests the directionality: provider.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
+# TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder
 def test_1103_is_dispatchable_uses_correct_directionality():
     general_request = CapUrn.from_string('cap:in="media:ext=pdf";extract;out=media:text')
-    specific_provider = CapUrn.from_string(
+    specific_candidate = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out=media:text;version=2'
     )
 
-    assert specific_provider.is_dispatchable(general_request)
-    assert not general_request.is_dispatchable(specific_provider)
+    assert specific_candidate.is_dispatchable(general_request)
+    assert not general_request.is_dispatchable(specific_candidate)
 
 
-# TEST1104: Tests that is_dispatchable rejects when provider cannot dispatch request
+# TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request
 def test_1104_is_dispatchable_rejects_non_dispatchable():
     request = CapUrn.from_string(
         'cap:in="media:ext=pdf";extract;out=media:text;required=yes'
     )
-    provider = CapUrn.from_string('cap:in="media:ext=pdf";extract;out=media:text')
+    candidate = CapUrn.from_string('cap:in="media:ext=pdf";extract;out=media:text')
 
-    assert not provider.is_dispatchable(request)
+    assert not candidate.is_dispatchable(request)
 
 
 # TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.

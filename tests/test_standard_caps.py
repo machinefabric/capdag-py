@@ -162,12 +162,12 @@ def test_1273_adapter_selection_urn_builder():
 
 
 # TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement.
-def test_1275_adapter_selection_dispatchable_by_specific_provider():
+def test_1275_adapter_selection_dispatchable_by_specific_candidate():
     adapter_request = adapter_selection_urn()
 
-    # A provider that outputs exactly adapter-selection media can dispatch the request
-    specific_provider = CapUrn.from_string(CAP_ADAPTER_SELECTION)
-    assert specific_provider.is_dispatchable(adapter_request), \
+    # A candidate that outputs exactly adapter-selection media can dispatch the request
+    specific_candidate = CapUrn.from_string(CAP_ADAPTER_SELECTION)
+    assert specific_candidate.is_dispatchable(adapter_request), \
         "A cap with adapter-selection output must be dispatchable for adapter-selection requests"
 
     # Identity has wildcard output (media:) — cannot guarantee adapter-selection output
