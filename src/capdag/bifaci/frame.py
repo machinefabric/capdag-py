@@ -116,6 +116,45 @@ class CreditDirection(str, Enum):
             return None
 
 
+class FailureClass(str, Enum):
+    """The failure taxonomy — WHOSE problem a failure is
+    (docs/failure-taxonomy.md, mirrors Rust ops::FailureClass).
+
+    Declared at the error's DEFINITION site and carried structurally through
+    every hop: the ERR frame meta carries the wire token under "class"; no
+    layer ever infers another layer's class from message text. An error that
+    reaches a boundary without a declared class is INTERNAL — unclassified
+    means "ours", never a guess.
+
+    The value is the stable lowercase wire token — used in the ERR frame
+    meta, the machine_runs columns, the gRPC proto, and the loom.
+    """
+    INPUT = "input"  # Deterministic on the INPUT (context overflow, invalid request). Never retryable.
+    RESOURCE = "resource"  # A compute resource was exhausted (GPU VRAM, host memory). Retryable.
+    ENVIRONMENT = "environment"  # The environment failed (network, download, process death). Retryable.
+    INTERNAL = "internal"  # Everything else: a defect in the engine or a cartridge. Ours.
+
+    def as_str(self) -> str:
+        """Stable lowercase wire token (the ERR frame meta contract)."""
+        return self.value
+
+    @classmethod
+    def from_wire(cls, token: str) -> Optional["FailureClass"]:
+        """Parse a wire token, returning None for anything else (matches
+        Rust FailureClass::from_wire). Unknown tokens are a PROTOCOL error,
+        not a fallback case — receivers treat missing/unknown as INTERNAL."""
+        try:
+            return cls(token)
+        except ValueError:
+            return None
+
+    def is_permanent(self) -> bool:
+        """Whether retrying can NEVER succeed: the failure is a deterministic
+        function of the input. Resource/environment/internal stay retryable
+        (memory frees up, networks recover, races un-race)."""
+        return self is FailureClass.INPUT
+
+
 class MessageId:
     """Message ID - either a 16-byte UUID or a simple integer"""
 
@@ -596,9 +635,24 @@ class Frame:
 
     @classmethod
     def err(cls, id: MessageId, code: str, message: str) -> "Frame":
-        """Create an ERR frame"""
+        """Create an ERR frame. The class defaults to INTERNAL — an error
+        that reaches the wire without a declared class is the emitter's
+        problem by definition; emitters with a classified error use
+        `err_classified`."""
+        return cls.err_classified(id, code, FailureClass.INTERNAL, message)
+
+    @classmethod
+    def err_classified(
+        cls, id: MessageId, code: str, failure_class: FailureClass, message: str,
+    ) -> "Frame":
+        """Create an ERR frame carrying the full failure identity: the
+        emitter's machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the
+        failure CLASS (whose problem it is — declared at the error's
+        definition site, see `FailureClass`), and the human message. ERR meta
+        contract (docs/12.2): `code` + `class` + `message`, all text."""
         meta = {
             "code": code,
+            "class": failure_class.as_str(),
             "message": message,
         }
         frame = cls.new(FrameType.ERR, id)
@@ -830,6 +884,21 @@ class Frame:
             return None
         code = self.meta.get("code")
         return code if isinstance(code, str) else None
+
+    def error_class(self) -> Optional["FailureClass"]:
+        """Get the failure class if this is an ERR frame. A frame without a
+        `class` entry (or with an unknown token) classifies as INTERNAL:
+        unclassified means "the emitter's problem", never a guess about the
+        user's input. Returns None for non-ERR frames."""
+        if self.frame_type != FrameType.ERR:
+            return None
+        token = None
+        if self.meta is not None:
+            raw = self.meta.get("class")
+            if isinstance(raw, str):
+                token = raw
+        parsed = FailureClass.from_wire(token) if token is not None else None
+        return parsed if parsed is not None else FailureClass.INTERNAL
 
     def error_message(self) -> Optional[str]:
         """Get error message if this is an ERR frame"""

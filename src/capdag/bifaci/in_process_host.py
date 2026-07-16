@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 import cbor2
 
 from capdag.bifaci.frame import (
+    FailureClass,
     Frame,
     FrameType,
     FlowKey,
@@ -541,8 +542,11 @@ class InProcessCartridgeHost:
                     else:
                         idx = self.find_handler_for_cap(cap_table, cap_urn)
                         if idx is None:
-                            err = Frame.err(
-                                rid, "NO_HANDLER", f"no handler for cap: {cap_urn}"
+                            # No registered handler for a dispatched cap is
+                            # a deployment mismatch — Environment.
+                            err = Frame.err_classified(
+                                rid, "NO_HANDLER", FailureClass.ENVIRONMENT,
+                                f"no handler for cap: {cap_urn}"
                             )
                             err.routing_id = xid
                             write_tx.put(err)

@@ -1733,3 +1733,39 @@ def test_1162_heartbeat_frame_with_memory_meta():
         f"Expected footprint_mb=4096, got {frame.meta['footprint_mb']}"
     assert frame.meta["rss_mb"] == 5120, \
         f"Expected rss_mb=5120, got {frame.meta['rss_mb']}"
+
+
+# TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md):
+# err_classified writes meta code+class+message; plain err defaults class to
+# internal; a missing or unknown class token reads as INTERNAL (unclassified
+# means "ours", never a guess); a known token round-trips exactly.
+def test_1734_err_frame_failure_class_wire_contract():
+    from capdag.bifaci.frame import FailureClass
+
+    id = MessageId.random()
+    classified = Frame.err_classified(id, "CONTEXT_OVERFLOW", FailureClass.INPUT, "prompt too large")
+    assert classified.meta["code"] == "CONTEXT_OVERFLOW"
+    assert classified.meta["class"] == "input"
+    assert classified.meta["message"] == "prompt too large"
+    assert classified.error_class() is FailureClass.INPUT
+
+    plain = Frame.err(id, "BOOM", "unclassified failure")
+    assert plain.meta["class"] == "internal", \
+        "an unclassified ERR emit must declare itself internal on the wire"
+    assert plain.error_class() is FailureClass.INTERNAL
+
+    # A frame from an older/foreign emitter: no class entry at all.
+    legacy = Frame.err(id, "BOOM", "x")
+    del legacy.meta["class"]
+    assert legacy.error_class() is FailureClass.INTERNAL
+
+    # An unknown token is a protocol anomaly, read as unclassified — never a guess.
+    weird = Frame.err(id, "BOOM", "x")
+    weird.meta["class"] = "user-error"
+    assert weird.error_class() is FailureClass.INTERNAL
+
+    assert FailureClass.from_wire("user-error") is None
+    for c in FailureClass:
+        assert FailureClass.from_wire(c.as_str()) is c
+    assert FailureClass.INPUT.is_permanent()
+    assert not any(c.is_permanent() for c in FailureClass if c is not FailureClass.INPUT)

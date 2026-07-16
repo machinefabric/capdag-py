@@ -35,6 +35,7 @@ from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
 
 from capdag.bifaci.frame import (
+    FailureClass,
     Frame,
     FrameType,
     Limits,
@@ -772,19 +773,21 @@ class CartridgeHost:
 
                 cartridge_idx = self._find_cartridge_for_cap_locked(cap_urn)
                 if cartridge_idx is None:
-                    err_frame = Frame.err(frame.id, "NO_HANDLER", f"no cartridge handles cap: {cap_urn}")
+                    # No dispatchable cartridge for a planned cap is a
+                    # deployment/manifest mismatch — Environment.
+                    err_frame = Frame.err_classified(frame.id, "NO_HANDLER", FailureClass.ENVIRONMENT, f"no cartridge handles cap: {cap_urn}")
                     relay_writer.write(err_frame)
                     return
 
                 cartridge = self._cartridges[cartridge_idx]
                 if not cartridge.running:
                     if cartridge.hello_failed:
-                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", "cartridge previously failed to start")
+                        err_frame = Frame.err_classified(frame.id, "SPAWN_FAILED", FailureClass.ENVIRONMENT, "cartridge previously failed to start")
                         relay_writer.write(err_frame)
                         return
                     err = self._spawn_cartridge_locked(cartridge_idx)
                     if err is not None:
-                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", str(err))
+                        err_frame = Frame.err_classified(frame.id, "SPAWN_FAILED", FailureClass.ENVIRONMENT, str(err))
                         relay_writer.write(err_frame)
                         return
 
@@ -917,9 +920,12 @@ class CartridgeHost:
                     failed_entries.append(entry)
 
             for i, key in enumerate(failed_keys):
-                err_frame = Frame.err(
+                # A dead cartridge process is a runtime-environment
+                # failure — Environment (docs/failure-taxonomy.md).
+                err_frame = Frame.err_classified(
                     failed_entries[i].msg_id,
                     "CARTRIDGE_DIED",
+                    FailureClass.ENVIRONMENT,
                     f"cartridge {cartridge_idx} died"
                 )
                 try:

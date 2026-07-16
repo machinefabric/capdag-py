@@ -35,6 +35,7 @@ from typing import Any, Callable, Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
 from capdag.bifaci.frame import (
+    FailureClass,
     Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
@@ -1427,7 +1428,9 @@ class RelaySwitch:
                     continue  # raced another terminal — already fully cleaned
 
                 xid, rid = key
-                err_frame = Frame.err(rid, "MASTER_DIED", f"Relay master {master_idx} connection closed")
+                # A dead relay master is a runtime-environment failure —
+                # Environment (docs/failure-taxonomy.md).
+                err_frame = Frame.err_classified(rid, "MASTER_DIED", FailureClass.ENVIRONMENT, f"Relay master {master_idx} connection closed")
                 err_frame.routing_id = xid
 
                 if state.origin is None:
