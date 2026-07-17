@@ -1181,8 +1181,8 @@ def test_665_cap_table_mixed_running_and_non_running():
     assert any("ocr" in cap for cap in advertised)
 
 
-# TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
-def test_1879_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
+# TEST1871: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed.
+def test_1871_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
     from capdag.bifaci.host_runtime import RegisteredDirSpec
     from capdag.bifaci.cartridge_repo import CartridgeChannel
 

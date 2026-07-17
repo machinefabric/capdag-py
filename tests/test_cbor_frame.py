@@ -1735,11 +1735,11 @@ def test_1162_heartbeat_frame_with_memory_meta():
         f"Expected rss_mb=5120, got {frame.meta['rss_mb']}"
 
 
-# TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md):
+# TEST1900: the ERR frame failure-class wire contract (docs/failure-taxonomy.md):
 # err_classified writes meta code+class+message; plain err defaults class to
 # internal; a missing or unknown class token reads as INTERNAL (unclassified
 # means "ours", never a guess); a known token round-trips exactly.
-def test_1734_err_frame_failure_class_wire_contract():
+def test_1900_err_frame_failure_class_wire_contract():
     from capdag.bifaci.frame import FailureClass
 
     id = MessageId.random()

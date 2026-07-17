@@ -1437,10 +1437,10 @@ def test_0135_runtime_identity_probe_success_makes_caps_routable():
         )
 
 
-# TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A
+# TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A
 # master held unhealthy by a failed probe still has its cartridges visible in
 # the inventory aggregate, even though its caps are excluded from routing.
-def test_0138_unhealthy_master_inventory_retained_but_not_routable():
+def test_1897_unhealthy_master_inventory_retained_but_not_routable():
     switch = _build_deferred_switch(succeed=False)
 
     deadline = time.monotonic() + 15
@@ -1468,13 +1468,13 @@ def test_0138_unhealthy_master_inventory_retained_but_not_routable():
     )
 
 
-# TEST0141: the routable-capability watch (subscribe_capabilities). A
+# TEST1898: the routable-capability watch (subscribe_capabilities). A
 # subscriber must receive the CURRENT routable cap set on subscribe even
 # though it was rebuilt during construction — BEFORE any receiver existed
 # (the watch must persist the value, i.e. send_replace, not a plain
 # broadcast that drops it with zero receivers). The delivered set is the
 # health-filtered routable cap URNs.
-def test_0141_subscribe_capabilities_delivers_routable_set():
+def test_1898_subscribe_capabilities_delivers_routable_set():
     engine_read, slave_write = socket.socketpair()
     slave_read, engine_write = socket.socketpair()
     done = threading.Event()
@@ -1528,7 +1528,7 @@ def test_0141_subscribe_capabilities_delivers_routable_set():
 # Gap-5 lock: an add_master identity-probe FAILURE registers the master as
 # UNHEALTHY (inventory visible) rather than RAISING — matching the reference
 # add_master (and unlike the constructor, which raises; see test_488).
-def test_0142_add_master_probe_failure_registers_unhealthy_not_raises():
+def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
     # First master: a healthy, fully-verified slot.
     g_engine_read, g_slave_write = socket.socketpair()
     g_slave_read, g_engine_write = socket.socketpair()

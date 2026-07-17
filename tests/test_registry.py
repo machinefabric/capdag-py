@@ -248,7 +248,7 @@ def test_143_default_config():
     assert "/schema" in config.schema_base_url
 
 
-# TEST144: Test custom registry URL updates both registry and schema base URLs
+# TEST1899: Test custom registry URL updates both registry and schema base URLs
 def test_144_custom_registry_url():
     """Test setting custom registry URL"""
     config = RegistryConfig().with_registry_url("https://localhost:8888")
@@ -323,7 +323,7 @@ def test_147_registry_for_test_with_config():
 # against a versioned registry — the exact regression where a
 # fabric-registry mirror defaulted its manifest version to 0. This pins
 # both the URL rule and the manifest-driven defver resolution.
-def test_0144_media_def_resolves_to_versioned_object_path_under_manifest():
+def test_1899_media_def_resolves_to_versioned_object_path_under_manifest():
     import hashlib as _hashlib
 
     # 1. Object-path rule: defver >= 1 -> versioned; defver 0 -> flat.

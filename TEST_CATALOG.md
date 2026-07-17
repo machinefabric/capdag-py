@@ -1,4 +1,4 @@
-# Python Test Catalog
+# CapDag-Py Test Catalog
 
 **Total Tests:** 1192
 
@@ -8,11 +8,11 @@
 
 **Numbered Tests Missing Descriptions:** 0
 
-**Numbering Mismatches:** 87
+**Numbering Mismatches:** 89
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the Python codebase.
+This catalog lists all tests in the CapDag-Py codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -130,17 +130,13 @@ This catalog lists all tests in the Python codebase.
 | test0135 | `test_0135_runtime_identity_probe_success_makes_caps_routable` | TEST0135: the SUCCESS path — a master that advertises caps after connecting and then passes the probe flips healthy and its caps become routable. | tests/test_relay_switch.py:1420 |
 | test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST136: All masters ready false when expected count unset | tests/test_relay_switch.py:1049 |
 | test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST137: All masters ready false when partially connected | tests/test_relay_switch.py:1091 |
-| test0138 | `test_0138_unhealthy_master_inventory_retained_but_not_routable` | TEST0138: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing. | tests/test_relay_switch.py:1443 |
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:99 |
 | test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1107 |
 | test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1125 |
-| test0141 | `test_0141_subscribe_capabilities_delivers_routable_set` | TEST0141: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs. | tests/test_relay_switch.py:1477 |
 | test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:193 |
-| test0142 | `test_0142_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1531 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:225 |
 | test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | tests/test_registry.py:238 |
-| test0144 | `test_0144_media_def_resolves_to_versioned_object_path_under_manifest` | TEST0144: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | tests/test_registry.py:326 |
-| test144 | `test_144_custom_registry_url` | TEST144: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:252 |
+| test144 | `test_144_custom_registry_url` | TEST1899: Test custom registry URL updates both registry and schema base URLs | tests/test_registry.py:252 |
 | test145 | `test_145_custom_registry_and_schema_url` | TEST145: Test custom registry and schema URLs set independently | tests/test_registry.py:288 |
 | test146 | `test_146_schema_url_not_overwritten_when_explicit` | TEST146: Test schema URL not overwritten when set explicitly before registry URL | tests/test_registry.py:299 |
 | test147 | `test_147_registry_for_test_with_config` | TEST147: Test registry for test with custom config creates registry with specified URLs | tests/test_registry.py:311 |
@@ -804,9 +800,9 @@ This catalog lists all tests in the Python codebase.
 | test948 | `test_948_invalid_cap_urn` | TEST948: Invalid cap URN in machine notation | tests/test_orchestrator_parser.py:410 |
 | test949 | `test_949_empty_graph` | TEST949: Empty machine notation (no edges) | tests/test_orchestrator_parser.py:399 |
 | test950 | `test_950_reject_cycles` | TEST950: Validate that cycles are rejected | tests/test_orchestrator_parser.py:379 |
+| test951 | `test_951_split_map_array` | TEST951: split_cbor_array with nested maps | tests/test_cbor_util.py:68 |
 | test953 | `test_953_linear_plan_still_works` | TEST953: Linear plans (no ForEach/Collect) still convert successfully | tests/test_orchestrator_plan_converter.py:144 |
 | test954 | `test_954_standalone_collect_passthrough` | TEST954: Standalone Collect nodes are handled as pass-through | tests/test_orchestrator_plan_converter.py:173 |
-| test955 | `test_955_split_map_array` | TEST955: split_cbor_array with nested maps | tests/test_cbor_util.py:68 |
 | test956 | `test_956_roundtrip_assemble_split` | TEST956: assemble then split roundtrip preserves data | tests/test_cbor_util.py:77 |
 | test957 | `test_957_cap_input_file_new` | TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None | tests/test_planner_argument_binding.py:342 |
 | test958 | `test_958_cap_input_file_from_listing` | TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing | tests/test_planner_argument_binding.py:351 |
@@ -1020,7 +1016,6 @@ This catalog lists all tests in the Python codebase.
 | test1314 | `test_1314_fingerprint_ignores_advancing_clocks` | TEST1314: The fingerprint EXCLUDES advancing clocks: two snapshots differing only in age_ms/idle_ms are the same transition, while a flow-counter change is a new one. If dedup keyed on the whole serialized stats, these clocks would defeat it and every sample would write. | tests/test_protocol_trace.py:140 |
 | test1315 | `test_1315_record_to_unwritable_path_is_a_hard_error` | TEST1315: Requested diagnostics fail HARD, never silently: a write to an unwritable sink raises. `/dev/full` opens fine but every write is ENOSPC -- the Linux-standard way to exercise a write failure deterministically. | tests/test_protocol_trace.py:157 |
 | test1317 | `test_1317_wrap_raw_items_empty` | TEST1317: empty item list wraps to empty bytes (mirrors the scalar/empty sink case where a chain produced no items). | tests/test_cbor_util.py:240 |
-| test1734 | `test_1734_err_frame_failure_class_wire_contract` | TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as INTERNAL (unclassified means "ours", never a guess); a known token round-trips exactly. | tests/test_cbor_frame.py:1742 |
 | test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — and only explicit effect=none qualifies. | tests/test_cap_urn.py:1502 |
 | test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1527 |
 | test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1536 |
@@ -1047,6 +1042,7 @@ This catalog lists all tests in the Python codebase.
 | test1851 | `test_1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | tests/test_cartridge_repo.py:886 |
 | test1852 | `test_1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | tests/test_cartridge_repo.py:902 |
 | test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:923 |
+| test1871 | `test_1871_sync_roster_adds_and_removes_registered_dir_live` | TEST1871: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1185 |
 | test1872 | `test_1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | tests/test_manifest.py:319 |
 | test1873 | `test_1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | tests/test_manifest.py:325 |
 | test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:379 |
@@ -1054,7 +1050,6 @@ This catalog lists all tests in the Python codebase.
 | test1876 | `test_1876_other_channel_subtree_is_skipped` | TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent). | tests/test_cartridge_discovery.py:154 |
 | test1877 | `test_1877_registry_cartridge_under_wrong_slug_is_bad_install` | TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent. | tests/test_cartridge_discovery.py:168 |
 | test1878 | `test_1878_bundled_cartridge_without_baked_hash_is_rejected` | TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe. | tests/test_cartridge_discovery.py:179 |
-| test1879 | `test_1879_sync_roster_adds_and_removes_registered_dir_live` | TEST1879: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1185 |
 | test1880 | `test_1880_alias_name_normalization_rules` | TEST1880: alias name normalization lowercases and accepts the allowed character class; rejects colon, whitespace, and out-of-class chars with the right error. A broken validator would let a URN-shaped or whitespace name through, or mangle a valid name. | tests/test_fabric_alias.py:53 |
 | test1881 | `test_1881_token_urn_vs_alias_detection` | TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact. | tests/test_fabric_alias.py:69 |
 | test1882 | `test_1882_classify_alias_target_by_prefix` | TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this. | tests/test_fabric_alias.py:78 |
@@ -1072,6 +1067,11 @@ This catalog lists all tests in the Python codebase.
 | test1894 | `test_1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | tests/test_fabric_alias.py:267 |
 | test1895 | `test_1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | tests/test_fabric_alias.py:279 |
 | test1896 | `test_1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | tests/test_fabric_alias.py:319 |
+| test1897 | `test_1897_unhealthy_master_inventory_retained_but_not_routable` | TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing. | tests/test_relay_switch.py:1443 |
+| test1898 | `test_1898_subscribe_capabilities_delivers_routable_set` | TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs. | tests/test_relay_switch.py:1477 |
+| test1899 | `test_1899_media_def_resolves_to_versioned_object_path_under_manifest` | TEST0144: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | tests/test_registry.py:326 |
+| test1900 | `test_1900_err_frame_failure_class_wire_contract` | TEST1900: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as INTERNAL (unclassified means "ours", never a guess); a known token round-trips exactly. | tests/test_cbor_frame.py:1742 |
+| test1904 | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1531 |
 | test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:152 |
 | test6203 | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:701 |
 | test6211 | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
@@ -1323,12 +1323,14 @@ These tests have a numbering disagreement between the function name and the auth
 - `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1091
 - `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1107
 - `test0140` / `test140` / `test_0140_all_masters_ready_does_not_overshoot` — tests/test_relay_switch.py:1125
+- `test144` / `test1899` / `test_144_custom_registry_url` — tests/test_registry.py:252
+- `test1899` / `test0144` / `test_1899_media_def_resolves_to_versioned_object_path_under_manifest` — tests/test_registry.py:326
 
 ---
 
-*Generated from Python source tree*
+*Generated from CapDag-Py source tree*
 *Total tests: 1192*
 *Total numbered tests: 1178*
 *Total unnumbered tests: 14*
 *Total numbered tests missing descriptions: 0*
-*Total numbering mismatches: 87*
+*Total numbering mismatches: 89*

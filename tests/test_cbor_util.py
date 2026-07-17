@@ -64,8 +64,8 @@ def test_786_roundtrip_split_assemble():
     assert cbor2.loads(reassembled) == original
 
 
-# TEST955: split_cbor_array with nested maps
-def test_955_split_map_array():
+# TEST951: split_cbor_array with nested maps
+def test_951_split_map_array():
     original = [{"name": "Alice"}, {"name": "Bob"}]
     items = split_cbor_array(cbor2.dumps(original))
     assert len(items) == 2
