@@ -1,8 +1,8 @@
 # Python Test Catalog
 
-**Total Tests:** 1191
+**Total Tests:** 1192
 
-**Numbered Tests:** 1177
+**Numbered Tests:** 1178
 
 **Unnumbered Tests:** 14
 
@@ -1020,6 +1020,7 @@ This catalog lists all tests in the Python codebase.
 | test1314 | `test_1314_fingerprint_ignores_advancing_clocks` | TEST1314: The fingerprint EXCLUDES advancing clocks: two snapshots differing only in age_ms/idle_ms are the same transition, while a flow-counter change is a new one. If dedup keyed on the whole serialized stats, these clocks would defeat it and every sample would write. | tests/test_protocol_trace.py:140 |
 | test1315 | `test_1315_record_to_unwritable_path_is_a_hard_error` | TEST1315: Requested diagnostics fail HARD, never silently: a write to an unwritable sink raises. `/dev/full` opens fine but every write is ENOSPC -- the Linux-standard way to exercise a write failure deterministically. | tests/test_protocol_trace.py:157 |
 | test1317 | `test_1317_wrap_raw_items_empty` | TEST1317: empty item list wraps to empty bytes (mirrors the scalar/empty sink case where a chain produced no items). | tests/test_cbor_util.py:240 |
+| test1734 | `test_1734_err_frame_failure_class_wire_contract` | TEST1734: the ERR frame failure-class wire contract (docs/failure-taxonomy.md): err_classified writes meta code+class+message; plain err defaults class to internal; a missing or unknown class token reads as INTERNAL (unclassified means "ours", never a guess); a known token round-trips exactly. | tests/test_cbor_frame.py:1742 |
 | test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — and only explicit effect=none qualifies. | tests/test_cap_urn.py:1502 |
 | test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1527 |
 | test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1536 |
@@ -1326,8 +1327,8 @@ These tests have a numbering disagreement between the function name and the auth
 ---
 
 *Generated from Python source tree*
-*Total tests: 1191*
-*Total numbered tests: 1177*
+*Total tests: 1192*
+*Total numbered tests: 1178*
 *Total unnumbered tests: 14*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 87*
