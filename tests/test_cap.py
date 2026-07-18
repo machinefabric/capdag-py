@@ -584,3 +584,138 @@ def test_1130_cap_documentation_set_and_clear_lifecycle():
     assert cap.get_documentation() is None
     # clearer must not touch cap_description
     assert cap.cap_description == "short"
+
+
+# ===========================================================================
+# Shared parity tests 7100-7104: CapArg.stream_urn / CapArg.is_main_input.
+# Same substantive assertions in every capdag mirror (rust, go, js, objc, py).
+# The py-specific 8102-8106 tests above predate these shared numbers and
+# stay as-is; 7100-7104 are the cross-mirror contract.
+# ===========================================================================
+
+
+# TEST7100: stream_urn() returns the Stdin source's URN when it differs from
+# the declared slot media_urn — the stdin URN, not the slot URN, is what the
+# runtime demuxes the arg's input stream by.
+def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn():
+    arg = CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("media:ext=pdf;pdf-stream")],
+    )
+    assert arg.stream_urn() == "media:ext=pdf;pdf-stream"
+    assert arg.stream_urn() != arg.media_urn
+
+
+# TEST7101: stream_urn() falls back to the declared slot media_urn when the
+# arg declares no Stdin source — a producer-fed arg may be delivered by its
+# declared URN without ever appearing on stdin.
+def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source():
+    arg = CapArg(
+        media_urn="media:enc=utf-8;system-prompt",
+        required=True,
+        sources=[CliFlagSource("--system-prompt")],
+    )
+    assert arg.stream_urn() == "media:enc=utf-8;system-prompt"
+
+
+# TEST7102: is_main_input() is True when the Stdin URN is order-theoretically
+# EQUIVALENT to the cap's in= spec even when the two strings list their tags
+# in a different order — the comparison is the MediaUrn equivalence
+# predicate, never a string comparison.
+def test_7102_is_main_input_true_on_tag_order_insensitive_equivalence_to_in_spec():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    arg = CapArg(
+        media_urn="media:enc=utf-8;file-path",
+        required=True,
+        sources=[StdinSource("media:pdf-stream;ext=pdf")],  # same tags, different order
+    )
+    assert arg.is_main_input(in_spec)
+    # The raw strings genuinely differ — proves the match is equivalence,
+    # not string equality.
+    assert in_spec.to_string() != "media:pdf-stream;ext=pdf"
+
+
+# TEST7103: is_main_input() is False for cli_flag-only and position-only args
+# (no Stdin source means never the main input, whatever the declared slot URN
+# says), and False when the Stdin URN is not equivalent to in=.
+def test_7103_is_main_input_false_without_equivalent_stdin_source():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+
+    cli_flag_only = CapArg(
+        media_urn="media:ext=pdf;pdf-stream",  # slot URN even matches in= — irrelevant
+        required=True,
+        sources=[CliFlagSource("--input")],
+    )
+    assert not cli_flag_only.is_main_input(in_spec)
+
+    position_only = CapArg(
+        media_urn="media:ext=pdf;pdf-stream",
+        required=True,
+        sources=[PositionSource(0)],
+    )
+    assert not position_only.is_main_input(in_spec)
+
+    non_equivalent_stdin = CapArg(
+        media_urn="media:enc=utf-8;system-prompt",
+        required=False,
+        sources=[StdinSource("media:enc=utf-8;system-prompt")],
+    )
+    assert not non_equivalent_stdin.is_main_input(in_spec)
+
+
+# TEST7104: A realistic multi-arg cap (one stdin main input; one required,
+# defaultless cli_flag arg; several defaulted cli_flag args): exactly one arg
+# is the main input, and partitioning the remaining args by
+# required-without-default vs has-default yields the expected sets.
+def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
+    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+
+    args = [
+        CapArg(
+            media_urn="media:enc=utf-8;file-path",
+            required=True,
+            # Main input may ALSO be delivered by cli-flag; stdin is the
+            # defining route.
+            sources=[StdinSource("media:pdf-stream;ext=pdf"), CliFlagSource("--input")],
+        ),
+        CapArg(
+            media_urn="media:enc=utf-8;question",
+            required=True,
+            sources=[CliFlagSource("--question")],
+        ),
+        CapArg(
+            media_urn="media:max-tokens;numeric",
+            required=False,
+            sources=[CliFlagSource("--max-tokens")],
+            default_value=1024,
+        ),
+        CapArg(
+            media_urn="media:numeric;temperature",
+            required=False,
+            sources=[CliFlagSource("--temperature")],
+            default_value=0.7,
+        ),
+        CapArg(
+            media_urn="media:enc=utf-8;system-prompt",
+            required=False,
+            sources=[CliFlagSource("--system-prompt")],
+            default_value="You are a helpful assistant.",
+        ),
+    ]
+
+    main_inputs = [a.media_urn for a in args if a.is_main_input(in_spec)]
+    rest = [a for a in args if not a.is_main_input(in_spec)]
+    required_without_default = [
+        a.media_urn for a in rest if a.required and a.default_value is None
+    ]
+    with_default = [a.media_urn for a in rest if a.default_value is not None]
+
+    assert main_inputs == ["media:enc=utf-8;file-path"], \
+        "exactly one arg must be the main input"
+    assert required_without_default == ["media:enc=utf-8;question"]
+    assert with_default == [
+        "media:max-tokens;numeric",
+        "media:numeric;temperature",
+        "media:enc=utf-8;system-prompt",
+    ]

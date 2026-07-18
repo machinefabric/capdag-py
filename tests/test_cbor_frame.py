@@ -1769,3 +1769,48 @@ def test_1900_err_frame_failure_class_wire_contract():
         assert FailureClass.from_wire(c.as_str()) is c
     assert FailureClass.INPUT.is_permanent()
     assert not any(c.is_permanent() for c in FailureClass if c is not FailureClass.INPUT)
+
+
+
+
+# TEST7105: an ERR frame built WITH an argument attribution round-trips its
+# full declared identity through encode/decode — the meta map carries the
+# `arg_urn` key, error_arg_urn() returns the URN, and code/class/message stay
+# intact (docs/failure-taxonomy.md).
+def test_7105_err_frame_arg_urn_roundtrip():
+    from capdag.bifaci.frame import FailureClass
+
+    rid = MessageId.random()
+    arg_urn = "media:prompt;str;utf8"
+
+    frame = Frame.err_classified(
+        rid, "CONTEXT_OVERFLOW", FailureClass.INPUT, "prompt exceeds context window",
+        arg_urn,
+    )
+    decoded = decode_frame(encode_frame(frame))
+
+    assert decoded.meta["arg_urn"] == arg_urn, \
+        "the encoded ERR meta must carry the arg_urn key verbatim"
+    assert decoded.error_arg_urn() == arg_urn
+    assert decoded.error_code() == "CONTEXT_OVERFLOW"
+    assert decoded.error_class() is FailureClass.INPUT
+    assert decoded.error_message() == "prompt exceeds context window"
+
+
+# TEST7106: an ERR frame built WITHOUT attribution has NO `arg_urn` key in the
+# encoded meta — absent, never an empty string — and error_arg_urn() returns
+# None (docs/failure-taxonomy.md).
+def test_7106_err_frame_without_attribution_has_no_arg_urn():
+    from capdag.bifaci.frame import FailureClass
+
+    rid = MessageId.random()
+
+    frame = Frame.err_classified(rid, "OOM_KILLED", FailureClass.RESOURCE, "out of memory")
+    decoded = decode_frame(encode_frame(frame))
+
+    assert "arg_urn" not in decoded.meta, \
+        "an ERR frame without attribution must not carry an arg_urn key at all"
+    assert decoded.error_arg_urn() is None
+    assert decoded.error_code() == "OOM_KILLED"
+    assert decoded.error_class() is FailureClass.RESOURCE
+    assert decoded.error_message() == "out of memory"

@@ -644,17 +644,24 @@ class Frame:
     @classmethod
     def err_classified(
         cls, id: MessageId, code: str, failure_class: FailureClass, message: str,
+        arg_urn: Optional[str] = None,
     ) -> "Frame":
         """Create an ERR frame carrying the full failure identity: the
         emitter's machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the
         failure CLASS (whose problem it is — declared at the error's
-        definition site, see `FailureClass`), and the human message. ERR meta
-        contract (docs/12.2): `code` + `class` + `message`, all text."""
+        definition site, see `FailureClass`), the human message, and — when
+        the failure is attributed to a specific argument at the emit source —
+        the media URN of that argument. ERR meta contract (docs/12.2 +
+        docs/failure-taxonomy.md): `code` + `class` + `message`, all text,
+        plus an OPTIONAL `arg_urn` entry that is ABSENT when there is no
+        attribution (never an empty string)."""
         meta = {
             "code": code,
             "class": failure_class.as_str(),
             "message": message,
         }
+        if arg_urn is not None:
+            meta["arg_urn"] = arg_urn
         frame = cls.new(FrameType.ERR, id)
         frame.meta = meta
         return frame
@@ -899,6 +906,18 @@ class Frame:
                 token = raw
         parsed = FailureClass.from_wire(token) if token is not None else None
         return parsed if parsed is not None else FailureClass.INTERNAL
+
+    def error_arg_urn(self) -> Optional[str]:
+        """Get the media URN of the argument the failure is attributed to,
+        when the emit source declared one (ERR meta key `arg_urn`,
+        docs/failure-taxonomy.md). Returns None when the frame carries no
+        attribution, and for non-ERR frames."""
+        if self.frame_type != FrameType.ERR:
+            return None
+        if self.meta is None:
+            return None
+        urn = self.meta.get("arg_urn")
+        return urn if isinstance(urn, str) else None
 
     def error_message(self) -> Optional[str]:
         """Get error message if this is an ERR frame"""

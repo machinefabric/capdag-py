@@ -86,6 +86,12 @@ class RuntimeError(Exception):
         """The machine-readable code declared at the emit source, when carried."""
         return None
 
+    def failure_arg_urn(self) -> Optional[str]:
+        """The media URN of the argument the failure is attributed to,
+        declared at the emit source (docs/failure-taxonomy.md); None when
+        the failure carries no attribution."""
+        return None
+
     def failure_reason(self) -> str:
         """The LEAF human reason — the origin's own message for classified
         failures, the exception text otherwise."""
@@ -115,25 +121,31 @@ class HandlerError(RuntimeError):
 class ClassifiedError(RuntimeError):
     """A handler failure carrying its FULL identity: the machine-readable
     code the cartridge's typed error declares (`error_code()`-style), the
-    failure class it declares (whose problem it is), and the human message.
-    Handlers raise this instead of folding the code into message text; the
-    ERR frame carries all three fields to the engine
-    (docs/failure-taxonomy.md). Untyped failures stay `HandlerError` and
-    classify as INTERNAL at the frame boundary.
-    (matches Rust RuntimeError::Classified)
+    failure class it declares (whose problem it is), the human message, and
+    — when the failure is attributed to a specific argument — the media URN
+    of that argument, declared at the emit source. Handlers raise this
+    instead of folding the code into message text; the ERR frame carries the
+    declared fields to the engine (docs/failure-taxonomy.md). Untyped
+    failures stay `HandlerError` and classify as INTERNAL at the frame
+    boundary. (matches Rust RuntimeError::Classified)
     """
 
-    def __init__(self, code: str, failure_class: FailureClass, message: str):
+    def __init__(self, code: str, failure_class: FailureClass, message: str,
+                 arg_urn: Optional[str] = None):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.declared_class = failure_class
         self.message = message
+        self.arg_urn = arg_urn
 
     def failure_class(self) -> FailureClass:
         return self.declared_class
 
     def failure_code(self) -> Optional[str]:
         return self.code
+
+    def failure_arg_urn(self) -> Optional[str]:
+        return self.arg_urn
 
     def failure_reason(self) -> str:
         return self.message
@@ -334,16 +346,19 @@ class StreamError(RuntimeError):
 
 class RemoteError(StreamError):
     """The peer's ERR frame, kept STRUCTURAL: its machine-readable code, the
-    failure class the peer's frame declared (docs/failure-taxonomy.md), and
-    its message — never folded into prose.
-    (matches Rust StreamError::RemoteError)
+    failure class the peer's frame declared (docs/failure-taxonomy.md), its
+    message — never folded into prose — and the media URN of the argument
+    the peer's frame attributed the failure to (None when the frame carried
+    no attribution). (matches Rust StreamError::RemoteError)
     """
 
-    def __init__(self, code: str, failure_class: FailureClass, message: str):
+    def __init__(self, code: str, failure_class: FailureClass, message: str,
+                 arg_urn: Optional[str] = None):
         super().__init__(f"Remote error [{code}]: {message}")
         self.code = code
         self.declared_class = failure_class
         self.message = message
+        self.arg_urn = arg_urn
 
     def failure_class(self) -> FailureClass:
         return self.declared_class
@@ -351,22 +366,26 @@ class RemoteError(StreamError):
     def failure_code(self) -> Optional[str]:
         return self.code
 
+    def failure_arg_urn(self) -> Optional[str]:
+        return self.arg_urn
+
     def failure_reason(self) -> str:
         return self.message
 
 
 def _classify_handler_error(e: Exception) -> tuple:
     """Resolve the identity a failed handler's terminal ERR frame declares
-    (docs/failure-taxonomy.md): the code and class from the emit source when
-    the exception is classified (a `ClassifiedError`, or a peer's
-    `RemoteError` propagated as-is), HANDLER_ERROR/INTERNAL when the handler
-    never declared one. Returns (code, failure_class, message).
+    (docs/failure-taxonomy.md): the code, class, and argument attribution
+    from the emit source when the exception is classified (a
+    `ClassifiedError`, or a peer's `RemoteError` propagated as-is),
+    HANDLER_ERROR/INTERNAL without attribution when the handler never
+    declared one. Returns (code, failure_class, message, arg_urn).
     (matches Rust RuntimeError's accessors at the frame-emit boundary)"""
     if isinstance(e, RuntimeError):
         code = e.failure_code()
         if code is not None:
-            return code, e.failure_class(), e.failure_reason()
-    return "HANDLER_ERROR", FailureClass.INTERNAL, str(e)
+            return code, e.failure_class(), e.failure_reason(), e.failure_arg_urn()
+    return "HANDLER_ERROR", FailureClass.INTERNAL, str(e), None
 
 
 class _WindowCounter:
@@ -1759,11 +1778,12 @@ def demux_multi_stream(
                 code = frame.error_code() or "UNKNOWN"
                 failure_class = frame.error_class() or FailureClass.INTERNAL
                 message = frame.error_message() or "Unknown error"
-                err = RemoteError(code, failure_class, message)
+                arg_urn = frame.error_arg_urn()
+                err = RemoteError(code, failure_class, message, arg_urn)
                 for tx in stream_channels.values():
                     tx.put(err)
                 _close_all_open_streams()
-                streams_queue.put(RemoteError(code, failure_class, message))
+                streams_queue.put(RemoteError(code, failure_class, message, arg_urn))
                 break
 
             else:
@@ -2246,7 +2266,7 @@ def demux_peer_response(
                 failure_class = frame.error_class() or FailureClass.INTERNAL
                 message = frame.error_message() or "Unknown error"
                 item_queue.put(PeerResponseItem.data_err(
-                    RemoteError(code, failure_class, message)
+                    RemoteError(code, failure_class, message, frame.error_arg_urn())
                 ))
                 break
         # Signal end of stream
@@ -3007,8 +3027,10 @@ class CartridgeRuntime:
         except Exception as e:
             # CLI mode still owes the caller the real failure identity
             # (docs/failure-taxonomy.md).
-            code, failure_class, message = _classify_handler_error(e)
+            code, failure_class, message, arg_urn = _classify_handler_error(e)
             error_json = {"error": message, "code": code, "class": failure_class.as_str()}
+            if arg_urn is not None:
+                error_json["arg_urn"] = arg_urn
             print(json.dumps(error_json), file=sys.stderr)
             raise
 
@@ -3257,12 +3279,12 @@ class CartridgeRuntime:
 
                         except Exception as e:
                             # The ERR frame carries the failure's DECLARED
-                            # identity (docs/failure-taxonomy.md): the code
-                            # and class from the emit source when classified,
-                            # HANDLER_ERROR/INTERNAL when the handler never
-                            # declared one.
-                            code, failure_class, message = _classify_handler_error(e)
-                            err_frame = Frame.err_classified(request_id, code, failure_class, message)
+                            # identity (docs/failure-taxonomy.md): the code,
+                            # class, and argument attribution from the emit
+                            # source when classified, HANDLER_ERROR/INTERNAL
+                            # when the handler never declared one.
+                            code, failure_class, message, arg_urn = _classify_handler_error(e)
+                            err_frame = Frame.err_classified(request_id, code, failure_class, message, arg_urn)
                             err_frame.routing_id = routing_id  # Propagate XID
                             try:
                                 sync_writer.write(err_frame)

@@ -44,7 +44,8 @@ class ArgumentInfo:
 
     __slots__ = (
         "name", "media_urn", "description", "resolution",
-        "default_value", "is_required", "is_sequence", "validation",
+        "default_value", "is_required", "is_sequence", "is_main_input",
+        "validation",
     )
 
     def __init__(
@@ -57,6 +58,7 @@ class ArgumentInfo:
         is_required: bool = True,
         is_sequence: bool = False,
         validation: Optional[Any] = None,
+        is_main_input: bool = False,
     ) -> None:
         self.name = name
         self.media_urn = media_urn
@@ -65,6 +67,12 @@ class ArgumentInfo:
         self.default_value = default_value
         self.is_required = is_required
         self.is_sequence = is_sequence
+        # Whether this argument is the cap's MAIN input: it declares a
+        # Stdin source whose URN is tagged-URN-equivalent to the cap URN's
+        # in= spec. Populated from CapArg.is_main_input during
+        # step-argument-requirements assembly. Mirrors Rust
+        # planner::plan_builder::ArgumentInfo::is_main_input.
+        self.is_main_input = is_main_input
         self.validation = validation
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,6 +83,7 @@ class ArgumentInfo:
             "resolution": self.resolution.value,
             "is_required": self.is_required,
             "is_sequence": self.is_sequence,
+            "is_main_input": self.is_main_input,
         }
         if self.default_value is not None:
             d["default_value"] = self.default_value
@@ -438,6 +447,13 @@ class MachinePlanBuilder:
 
             in_spec = cap.urn.in_spec()
             out_spec = cap.urn.out_spec()
+            # Parse the cap's in= spec once for main-input detection. A
+            # spec that fails to parse yields None, and no arg can be the
+            # main input of an unparseable in=.
+            try:
+                in_spec_urn: Optional[MediaUrn] = MediaUrn.from_string(in_spec)
+            except Exception:
+                in_spec_urn = None
             arguments: List[ArgumentInfo] = []
             slots: List[ArgumentInfo] = []
 
@@ -468,6 +484,9 @@ class MachinePlanBuilder:
                     default_value=arg.default_value,
                     is_required=arg.required,
                     validation=validation_json,
+                    is_main_input=(
+                        in_spec_urn is not None and arg.is_main_input(in_spec_urn)
+                    ),
                 )
 
                 is_io_arg = resolution in (
