@@ -844,8 +844,9 @@ class BodyOutcome:
     """
 
     __slots__ = (
-        "body_index", "success", "cap_urns", "failed_cap",
-        "error", "title", "saved_paths", "total_bytes", "duration_ms",
+        "body_index", "success", "cap_urns", "failed_token_id",
+        "error", "failed_arg_urn", "title", "saved_paths", "total_bytes",
+        "duration_ms", "item_preview_text", "item_byte_count",
     )
 
     def __init__(
@@ -853,42 +854,48 @@ class BodyOutcome:
         body_index: int,
         success: bool,
         cap_urns: Optional[List[str]] = None,
-        failed_cap: Optional[str] = None,
+        failed_token_id: Optional[str] = None,
         error: Optional[str] = None,
+        failed_arg_urn: Optional[str] = None,
         title: Optional[str] = None,
         saved_paths: Optional[List[str]] = None,
         total_bytes: int = 0,
         duration_ms: int = 0,
+        item_preview_text: Optional[str] = None,
+        item_byte_count: int = 0,
     ) -> None:
         # body_index: index of this body within the ForEach (0-based)
         self.body_index = body_index
         self.success = success
         # cap_urns: cap URNs in the body's execution pathway (in execution order)
         self.cap_urns = cap_urns or []
-        # failed_cap: the cap URN that was executing when the body failed (None if succeeded)
-        self.failed_cap = failed_cap
+        # failed_token_id: stable StrandStep.token_id that failed (None if succeeded)
+        self.failed_token_id = failed_token_id
         self.error = error
+        self.failed_arg_urn = failed_arg_urn
         # title: human-readable title from stream metadata (per-item for ForEach, stream-level for linear)
         self.title = title
         self.saved_paths = saved_paths or []
         self.total_bytes = total_bytes
         self.duration_ms = duration_ms
+        self.item_preview_text = item_preview_text
+        self.item_byte_count = item_byte_count
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
             "body_index": self.body_index,
             "success": self.success,
             "cap_urns": self.cap_urns,
+            "failed_token_id": self.failed_token_id,
+            "error": self.error,
+            "failed_arg_urn": self.failed_arg_urn,
+            "title": self.title,
             "saved_paths": self.saved_paths,
             "total_bytes": self.total_bytes,
             "duration_ms": self.duration_ms,
+            "item_preview_text": self.item_preview_text,
+            "item_byte_count": self.item_byte_count,
         }
-        if self.failed_cap is not None:
-            d["failed_cap"] = self.failed_cap
-        if self.error is not None:
-            d["error"] = self.error
-        if self.title is not None:
-            d["title"] = self.title
         return d
 
     def __repr__(self) -> str:
@@ -930,11 +937,10 @@ class MachineResult:
             "node_results": {nid: r.to_dict() for nid, r in self.node_results.items()},
             "outputs": self.outputs,
             "total_duration_ms": self.total_duration_ms,
+            "body_outcomes": [b.to_dict() for b in self.body_outcomes],
         }
         if self.error is not None:
             d["error"] = self.error
-        if self.body_outcomes:
-            d["body_outcomes"] = [b.to_dict() for b in self.body_outcomes]
         return d
 
     def __repr__(self) -> str:

@@ -9,7 +9,7 @@ from io import BytesIO
 
 import pytest
 
-from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum, DropReason
+from capdag.bifaci.frame import AttributionClass, Frame, FrameType, Limits, MessageId, compute_checksum, DropReason
 from capdag.bifaci.io import FrameReader, FrameWriter
 from capdag.bifaci.relay_switch import (
     RelaySwitch,
@@ -859,7 +859,7 @@ def test_488_relay_switch_identity_verification_fails():
         assert req is not None
         assert req.frame_type == FrameType.REQ
         assert req.cap == CAP_IDENTITY
-        writer.write(Frame.err(req.id, "BROKEN", "identity verification broken"))
+        writer.write(Frame.err(req.id, "BROKEN", AttributionClass.INTERNAL, "identity verification broken"))
 
     threading.Thread(target=slave_thread, daemon=True).start()
 
@@ -1335,7 +1335,7 @@ def _deferred_identity_slave(slave_read, slave_write, caps, succeed: bool):
             probe_rid = frame.id
             probe_xid = frame.routing_id
             if not succeed:
-                err = Frame.err(frame.id, "BROKEN", "test cartridge")
+                err = Frame.err(frame.id, "BROKEN", AttributionClass.INTERNAL, "test cartridge")
                 err.routing_id = frame.routing_id
                 writer.write(err)
                 return
@@ -1563,7 +1563,7 @@ def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
         assert req.cap == CAP_IDENTITY
-        writer.write(Frame.err(req.id, "BROKEN", "identity verification broken"))
+        writer.write(Frame.err(req.id, "BROKEN", AttributionClass.INTERNAL, "identity verification broken"))
 
     threading.Thread(target=broken_slave, daemon=True).start()
     b_done.wait(timeout=2)
@@ -1593,7 +1593,7 @@ def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
 
 
 # ============================================================
-# Unified RequestTable / protocol_stats() cluster (protocol v3, L7/L8).
+# Unified RequestTable / protocol_stats() cluster (protocol v4, L7/L8).
 # Parity with the reference RelaySwitch tests of the same numbers: the
 # unified request table replaces the smeared routing/peer/parent maps with
 # one register()/terminate() per request, drop-counted no_route/channel_closed
@@ -1686,7 +1686,7 @@ def test_7036_err_terminates_and_releases_all_state():
     delivered = []
     switch._requests.register((xid, rid), _state(0, None, delivered.append))
 
-    err = Frame.err(rid, "HANDLER_ERROR", "boom")
+    err = Frame.err(rid, "HANDLER_ERROR", AttributionClass.INTERNAL, "boom")
     err.routing_id = xid
     switch._handle_master_frame(0, err)
 
@@ -1812,7 +1812,7 @@ def test_7093_dead_consumer_cancels_upstream():
                 return
             if frame.frame_type == FrameType.REQ:
                 req = frame
-        log = Frame.log(req.id, "info", "first result row")
+        log = Frame.log(req.id, "info", AttributionClass.INTERNAL, "first result row")
         log.routing_id = req.routing_id
         writer.write(log)
 

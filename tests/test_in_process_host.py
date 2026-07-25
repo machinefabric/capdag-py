@@ -249,6 +249,9 @@ def test_6751_manifest_includes_all_caps():
     assert len(payload["installed_cartridges"]) == 1
     assert payload["installed_cartridges"][0]["id"] == "thumb-host"
     assert len(payload["installed_cartridges"][0]["cap_groups"]) == 1
+    stats = payload["installed_cartridges"][0]["runtime_stats"]
+    assert stats["running"] is True
+    assert stats["handler_capacity"] == 0
 
 
 # TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID
@@ -271,6 +274,7 @@ def test_658_heartbeat_response():
     resp = reader.read()
     assert resp.frame_type == FrameType.HEARTBEAT
     assert resp.id == hb_id
+    assert resp.meta["handler_capacity"] == 0
 
     close_socks(test_socks)
     close_socks(host_socks)

@@ -26,7 +26,7 @@ from capdag.bifaci.host_runtime import (
 )
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.bifaci.relay_switch import CartridgeLifecycle
-from capdag.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.frame import AttributionClass, Frame, FrameType, Limits, MessageId, compute_checksum
 from capdag.bifaci.io import (
     FrameReader,
     FrameWriter,
@@ -118,7 +118,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
     reader = FrameReader(cartridge_read)
     writer = FrameWriter(cartridge_write)
 
-    limits = handshake_accept(reader, writer, manifest_str.encode("utf-8"))
+    limits = handshake_accept(reader, writer, manifest_str.encode("utf-8"), 0)
     reader.set_limits(limits)
     writer.set_limits(limits)
 
@@ -204,12 +204,12 @@ def test_486_attach_cartridge_identity_verification_fails():
     def broken_cartridge():
         reader = FrameReader(pr)
         writer = FrameWriter(pw)
-        limits = handshake_accept(reader, writer, manifest.encode("utf-8"))
+        limits = handshake_accept(reader, writer, manifest.encode("utf-8"), 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
-        writer.write(Frame.err(req.id, "BROKEN", "identity verification broken"))
+        writer.write(Frame.err(req.id, "BROKEN", AttributionClass.INTERNAL, "identity verification broken"))
 
     t = threading.Thread(target=broken_cartridge, daemon=True)
     t.start()
@@ -639,7 +639,7 @@ def test_419_heartbeat_local_handling():
             assert resp.frame_type == FrameType.HEARTBEAT
             assert resp.id.to_string() == hb_id.to_string()
             log_id = MessageId.new_uuid()
-            w.write(Frame.log(log_id, "info", "heartbeat was answered"))
+            w.write(Frame.log(log_id, "info", AttributionClass.INTERNAL, "heartbeat was answered"))
             cartridge_done.set()
         simulate_cartridge(pr, pw, manifest, handler)
 
@@ -697,7 +697,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
                 return
             req_id = req.id
             r.read()  # END
-            w.write(Frame.log(req_id, "info", "processing"))
+            w.write(Frame.log(req_id, "info", AttributionClass.INTERNAL, "processing"))
             w.write(Frame.stream_start(req_id, "output", "media:"))
             w.write(Frame.chunk(req_id, "output", 0, b"data", 0, compute_checksum(b"data")))
             w.write(Frame.stream_end(req_id, "output", 1))
@@ -1305,7 +1305,7 @@ def test_7089_hello_failed_stays_in_inventory_with_error(tmp_path):
     assert len(records) == 1
     assert records[0].get("attachment_error") is None
 
-    # HELLO permanently fails (e.g. a pre-v3 binary rejected by the version
+    # HELLO permanently fails (e.g. a pre-v4 binary rejected by the version
     # check): the record STAYS, carrying the failure — the UI must always be
     # able to name why a cartridge is not serving.
     with host._lock:
@@ -1391,7 +1391,7 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     with host._lock:
         host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
     response = Frame.heartbeat(hb_id)
-    response.meta = {"drops_total": 42}
+    response.meta = {"drops_total": 42, "handler_capacity": 0}
     host._handle_cartridge_frame(0, response, _NullWriter())
 
     with host._lock:
@@ -1406,7 +1406,7 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     with host._lock:
         host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
     response = Frame.heartbeat(hb_id)
-    response.meta = {"drops_total": 45}
+    response.meta = {"drops_total": 45, "handler_capacity": 0}
     host._handle_cartridge_frame(0, response, _NullWriter())
 
     with host._lock:

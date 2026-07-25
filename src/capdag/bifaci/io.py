@@ -623,6 +623,13 @@ class HandshakeResult:
     """Result of handshake negotiation"""
     limits: Limits
     manifest: bytes
+    handler_capacity: int
+
+
+def _required_hello_limit(value: Optional[int], name: str) -> int:
+    if value is None:
+        raise HandshakeError(f"Protocol violation: HELLO missing positive {name}")
+    return value
 
 
 def handshake(
@@ -656,7 +663,7 @@ def handshake(
     # Protocol version must match exactly (L1). No cross-version operation.
     their_version = their_frame.hello_version()
     if their_version is None:
-        their_version = their_frame.version
+        raise HandshakeError("Protocol violation: HELLO missing version")
     if their_version != PROTOCOL_VERSION:
         raise HandshakeError(
             f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
@@ -666,12 +673,19 @@ def handshake(
     manifest = their_frame.hello_manifest()
     if manifest is None:
         raise HandshakeError("Cartridge HELLO missing required manifest")
+    handler_capacity = their_frame.hello_handler_capacity()
+    if handler_capacity is None:
+        raise HandshakeError("Cartridge HELLO missing required non-negative handler_capacity")
 
     # Negotiate minimum of both
-    their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
-    their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
-    their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
-    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
+    their_max_frame = _required_hello_limit(their_frame.hello_max_frame(), "max_frame")
+    their_max_chunk = _required_hello_limit(their_frame.hello_max_chunk(), "max_chunk")
+    their_max_reorder_buffer = _required_hello_limit(
+        their_frame.hello_max_reorder_buffer(), "max_reorder_buffer"
+    )
+    their_initial_credit = _required_hello_limit(
+        their_frame.hello_initial_credit(), "initial_credit"
+    )
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
@@ -684,13 +698,18 @@ def handshake(
     reader.set_limits(limits)
     writer.set_limits(limits)
 
-    return HandshakeResult(limits=limits, manifest=bytes(manifest))
+    return HandshakeResult(
+        limits=limits,
+        manifest=bytes(manifest),
+        handler_capacity=handler_capacity,
+    )
 
 
 def handshake_accept(
     reader: FrameReader,
     writer: FrameWriter,
     manifest: bytes,
+    handler_capacity: int,
 ) -> Limits:
     """Accept HELLO handshake with manifest (cartridge side - receives first, sends manifest in response)
 
@@ -719,17 +738,21 @@ def handshake_accept(
     # Protocol version must match exactly (L1). No cross-version operation.
     their_version = their_frame.hello_version()
     if their_version is None:
-        their_version = their_frame.version
+        raise HandshakeError("Protocol violation: HELLO missing version")
     if their_version != PROTOCOL_VERSION:
         raise HandshakeError(
             f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
         )
 
     # Negotiate minimum of both
-    their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
-    their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
-    their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
-    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
+    their_max_frame = _required_hello_limit(their_frame.hello_max_frame(), "max_frame")
+    their_max_chunk = _required_hello_limit(their_frame.hello_max_chunk(), "max_chunk")
+    their_max_reorder_buffer = _required_hello_limit(
+        their_frame.hello_max_reorder_buffer(), "max_reorder_buffer"
+    )
+    their_initial_credit = _required_hello_limit(
+        their_frame.hello_initial_credit(), "initial_credit"
+    )
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
@@ -740,7 +763,12 @@ def handshake_accept(
 
     # Send our HELLO with manifest
     our_hello = Frame.hello_with_manifest(
-        limits.max_frame, limits.max_chunk, manifest, limits.max_reorder_buffer, limits.initial_credit
+        limits.max_frame,
+        limits.max_chunk,
+        manifest,
+        handler_capacity,
+        limits.max_reorder_buffer,
+        limits.initial_credit,
     )
     writer.write(our_hello)
 
@@ -918,6 +946,7 @@ class HandshakeResult:
     """Result of handshake"""
     limits: Limits
     manifest: bytes
+    handler_capacity: int
 
 
 async def handshake_async(
@@ -953,7 +982,7 @@ async def handshake_async(
     # Protocol version must match exactly (L1). No cross-version operation.
     their_version = their_frame.hello_version()
     if their_version is None:
-        their_version = their_frame.version
+        raise HandshakeError("Protocol violation: HELLO missing version")
     if their_version != PROTOCOL_VERSION:
         raise HandshakeError(
             f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {their_version}"
@@ -963,12 +992,19 @@ async def handshake_async(
     manifest = their_frame.hello_manifest()
     if manifest is None:
         raise HandshakeError("Cartridge HELLO missing required manifest")
+    handler_capacity = their_frame.hello_handler_capacity()
+    if handler_capacity is None:
+        raise HandshakeError("Cartridge HELLO missing required non-negative handler_capacity")
 
     # Negotiate minimum of both
-    their_max_frame = their_frame.hello_max_frame() or DEFAULT_MAX_FRAME
-    their_max_chunk = their_frame.hello_max_chunk() or DEFAULT_MAX_CHUNK
-    their_max_reorder_buffer = their_frame.hello_max_reorder_buffer() or DEFAULT_MAX_REORDER_BUFFER
-    their_initial_credit = their_frame.hello_initial_credit() or DEFAULT_INITIAL_CREDIT
+    their_max_frame = _required_hello_limit(their_frame.hello_max_frame(), "max_frame")
+    their_max_chunk = _required_hello_limit(their_frame.hello_max_chunk(), "max_chunk")
+    their_max_reorder_buffer = _required_hello_limit(
+        their_frame.hello_max_reorder_buffer(), "max_reorder_buffer"
+    )
+    their_initial_credit = _required_hello_limit(
+        their_frame.hello_initial_credit(), "initial_credit"
+    )
 
     limits = Limits(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
@@ -981,4 +1017,8 @@ async def handshake_async(
     reader.set_limits(limits)
     writer.set_limits(limits)
 
-    return HandshakeResult(limits=limits, manifest=bytes(manifest))
+    return HandshakeResult(
+        limits=limits,
+        manifest=bytes(manifest),
+        handler_capacity=handler_capacity,
+    )

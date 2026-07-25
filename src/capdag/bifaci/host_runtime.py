@@ -35,7 +35,7 @@ from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
 
 from capdag.bifaci.frame import (
-    FailureClass,
+    AttributionClass,
     Frame,
     FrameType,
     Limits,
@@ -358,6 +358,7 @@ class _ManagedCartridge:
         # first heartbeat round-trip carries the counter. Survives across
         # readings (each heartbeat carries the cartridge's running total).
         self.protocol_drops_total: Optional[int] = None
+        self.handler_capacity: int = 0
         # Pending host-initiated heartbeat probes sent to this cartridge
         # (MessageId -> monotonic sent time). A heartbeat frame whose id
         # matches an entry here is a RESPONSE to our own probe (ingest
@@ -595,6 +596,7 @@ class CartridgeHost:
             cartridge.writer_queue = writer_q
             cartridge.manifest = result.manifest
             cartridge.limits = result.limits
+            cartridge.handler_capacity = result.handler_capacity
             cartridge.cap_groups = cap_groups
             cartridge.running = True
             # Derive the install identity from the HELLO manifest. Advertisement
@@ -775,19 +777,19 @@ class CartridgeHost:
                 if cartridge_idx is None:
                     # No dispatchable cartridge for a planned cap is a
                     # deployment/manifest mismatch — Environment.
-                    err_frame = Frame.err_classified(frame.id, "NO_HANDLER", FailureClass.ENVIRONMENT, f"no cartridge handles cap: {cap_urn}")
+                    err_frame = Frame.err(frame.id, "NO_HANDLER", AttributionClass.ENVIRONMENT, f"no cartridge handles cap: {cap_urn}")
                     relay_writer.write(err_frame)
                     return
 
                 cartridge = self._cartridges[cartridge_idx]
                 if not cartridge.running:
                     if cartridge.hello_failed:
-                        err_frame = Frame.err_classified(frame.id, "SPAWN_FAILED", FailureClass.ENVIRONMENT, "cartridge previously failed to start")
+                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", AttributionClass.ENVIRONMENT, "cartridge previously failed to start")
                         relay_writer.write(err_frame)
                         return
                     err = self._spawn_cartridge_locked(cartridge_idx)
                     if err is not None:
-                        err_frame = Frame.err_classified(frame.id, "SPAWN_FAILED", FailureClass.ENVIRONMENT, str(err))
+                        err_frame = Frame.err(frame.id, "SPAWN_FAILED", AttributionClass.ENVIRONMENT, str(err))
                         relay_writer.write(err_frame)
                         return
 
@@ -851,6 +853,12 @@ class CartridgeHost:
                         drops_total = frame.meta.get("drops_total")
                         if isinstance(drops_total, int):
                             cartridge.protocol_drops_total = drops_total
+                        handler_capacity = frame.meta.get("handler_capacity")
+                        if not isinstance(handler_capacity, int) or handler_capacity < 0:
+                            raise Protocol(
+                                "Cartridge heartbeat missing required non-negative handler_capacity"
+                            )
+                        cartridge.handler_capacity = handler_capacity
                 else:
                     # Cartridge-initiated heartbeat request — respond locally,
                     # don't forward.
@@ -922,10 +930,10 @@ class CartridgeHost:
             for i, key in enumerate(failed_keys):
                 # A dead cartridge process is a runtime-environment
                 # failure — Environment (docs/failure-taxonomy.md).
-                err_frame = Frame.err_classified(
+                err_frame = Frame.err(
                     failed_entries[i].msg_id,
                     "CARTRIDGE_DIED",
-                    FailureClass.ENVIRONMENT,
+                    AttributionClass.ENVIRONMENT,
                     f"cartridge {cartridge_idx} died"
                 )
                 try:
@@ -1031,6 +1039,7 @@ class CartridgeHost:
 
         cartridge.manifest = result.manifest
         cartridge.limits = result.limits
+        cartridge.handler_capacity = result.handler_capacity
         cartridge.cap_groups = cap_groups
         cartridge.running = True
         cartridge.writer = writer
@@ -1080,7 +1089,7 @@ class CartridgeHost:
         Retirement (``removed``) is NOT a failure — a roster-retired
         cartridge disappears from the inventory entirely, there is nothing
         to report. A cartridge whose HELLO permanently failed
-        (``hello_failed``, e.g. a pre-v3 binary hard-rejected by the version
+        (``hello_failed``, e.g. a pre-v4 binary hard-rejected by the version
         check) STAYS in the inventory carrying a ``handshake_failed``
         attachment error and no cap_groups — never silently absent; failure
         is named, not hidden. Static inventory records (discovery outcomes
@@ -1101,6 +1110,7 @@ class CartridgeHost:
             if cartridge.process is not None:
                 pid = cartridge.process.pid
             stats = CartridgeRuntimeStats(
+                handler_capacity=cartridge.handler_capacity,
                 running=cartridge.running,
                 pid=pid,
                 protocol_drops_total=cartridge.protocol_drops_total,
@@ -1430,7 +1440,7 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
 # relay connection and a single managed cartridge. The Python mirror does
 # not yet host the full async run loop (that lives in CartridgeHost above
 # for the relay-host path); what is ported here is the bounded routing-table
-# subsystem, its garbage collector, and the protocol-v3 routing/terminal-
+# subsystem, its garbage collector, and the protocol-v4 routing/terminal-
 # bookkeeping algorithm that decides how a continuation frame is routed and
 # when a routing entry is released — exercised in isolation by the
 # routing-GC and routing-selection tests. It mirrors Rust
@@ -1438,7 +1448,7 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
 # ``*_touched`` clock map, a monotonic ``routing_touch_seq`` stamp, a GC
 # that evicts the least-recently-touched entries when a table crosses the
 # soft watermark (with a secondary hard-cap pass for extreme runaway), the
-# v3 ``incoming_body_done`` / ``incoming_response_done`` terminal-drain
+# v4 ``incoming_body_done`` / ``incoming_response_done`` terminal-drain
 # markers, a per-reason drop counter, and the ``protocol_stats()``
 # observability snapshot.
 
@@ -1447,7 +1457,7 @@ class CartridgeHostRuntime:
     """Engine-side runtime owning bounded routing tables for one host.
 
     Mirrors the Rust ``CartridgeHostRuntime`` routing-table discipline.
-    Protocol v3 (L6/L8/L11): the ``incoming_rxids`` entry for a request
+    Protocol v4 (L6/L8/L11): the ``incoming_rxids`` entry for a request
     lives from REQ until the request's RESPONSE terminal, not the
     request-body END — the body END only sets a body-done marker
     (``incoming_body_done``) so self-loop peer-response data frames fall
@@ -1496,7 +1506,7 @@ class CartridgeHostRuntime:
         # Observability counters.
         self.routing_gc_runs_total: int = 0
         self.routing_gc_evicted_total: int = 0
-        # Protocol v3 (L6): keys in ``incoming_rxids`` whose REQUEST BODY has
+        # Protocol v4 (L6): keys in ``incoming_rxids`` whose REQUEST BODY has
         # terminated (END/ERR delivered to the handler) while the entry
         # stays alive for the response phase. Data/terminal frames for a
         # body-done key are self-loop peer responses and route via
@@ -1557,7 +1567,7 @@ class CartridgeHostRuntime:
         self.routing_touch_seq += 1
         self.outgoing_max_seq_touched[key] = self.routing_touch_seq
 
-    # --- v3 continuation-frame routing (PATH C) + terminal drain ---
+    # --- v4 continuation-frame routing (PATH C) + terminal drain ---
     #
     # These implement the reference ``handle_relay_frame`` PATH C route
     # selection and terminal bookkeeping, and the ``handle_cartridge_frame``
@@ -1574,7 +1584,7 @@ class CartridgeHostRuntime:
     ):
         """Resolve the cartridge index a continuation frame
         (STREAM_START/CHUNK/STREAM_END/END/ERR/CREDIT) from the relay
-        routes to, and apply the v3 terminal bookkeeping.
+        routes to, and apply the v4 terminal bookkeeping.
 
         Route selection:
         - CREDIT routes by its mandatory direction (L11): a ``response``
@@ -1582,7 +1592,7 @@ class CartridgeHostRuntime:
           grant credits the REQUESTER's argument streams → outgoing side.
           The (xid, rid) key alone cannot disambiguate this for self-loop
           peer calls. A CREDIT frame with no direction is a counted
-          ``no_route`` drop (v3 requires ``credit_dir``).
+          ``no_route`` drop (v4 requires ``credit_dir``).
         - Data/terminal frames prefer the incoming side while the request
           body is still flowing; after body END they are self-loop peer
           responses and fall through to the outgoing side.
@@ -1659,7 +1669,7 @@ class CartridgeHostRuntime:
         outbound to the relay for request ``(xid, rid)``.
 
         The handler's RESPONSE terminal is the request's true end at this
-        host (v3): once the body has completed too, release the incoming
+        host (v4): once the body has completed too, release the incoming
         routing entry and its body-done marker. If the response terminates
         BEFORE the body END arrives (response-first race), remember it so
         the body END releases the entry immediately.
@@ -1676,7 +1686,7 @@ class CartridgeHostRuntime:
             self.incoming_response_done.add(key)
 
     def remove_incoming_rxid(self, key) -> None:
-        """Fully release an ``incoming_rxids`` entry and its v3 terminal
+        """Fully release an ``incoming_rxids`` entry and its v4 terminal
         markers (cartridge death / cancellation cleanup). Mirrors the
         reference cleanup sweep that clears ``incoming_body_done`` /
         ``incoming_response_done`` alongside ``incoming_rxids`` wherever the
@@ -1740,5 +1750,3 @@ class CartridgeHostRuntime:
                 primary.pop(key, None)
                 touched.pop(key, None)
             self.routing_gc_evicted_total += extra_evict
-
-

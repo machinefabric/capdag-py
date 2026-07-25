@@ -33,6 +33,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_REORDER_BUFFER,
     DEFAULT_INITIAL_CREDIT,
     PROTOCOL_VERSION,
+    AttributionClass,
     compute_checksum,
 )
 
@@ -370,7 +371,13 @@ def test_472_handshake_negotiates_reorder_buffer():
 
     manifest = b'{"name":"test","version":"1.0.0","channel":"release","description":"test","cap_groups":[{"name":"default","caps":[{"urn":"cap:echo"}]}]}'
     cartridge_writer.write(
-        Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 32)
+        Frame.hello_with_manifest(
+            DEFAULT_MAX_FRAME,
+            DEFAULT_MAX_CHUNK,
+            manifest,
+            0,
+            32,
+        )
     )
 
     cartridge_to_host.seek(0)
@@ -380,10 +387,10 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert result.limits.max_reorder_buffer == 32
 
 
-_V3_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
+_V4_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
 
 
-def _run_v3_handshake(cartridge_limits: Limits):
+def _run_v4_handshake(cartridge_limits: Limits):
     """Run a real host<->cartridge handshake over paired BytesIO buffers.
     The cartridge side proposes `cartridge_limits` in its HELLO.
     Returns (host HandshakeResult, cartridge-negotiated Limits).
@@ -413,7 +420,8 @@ def _run_v3_handshake(cartridge_limits: Limits):
         Frame.hello_with_manifest(
             cartridge_limits.max_frame,
             cartridge_limits.max_chunk,
-            _V3_TEST_MANIFEST,
+            _V4_TEST_MANIFEST,
+            0,
             cartridge_limits.max_reorder_buffer,
             cartridge_limits.initial_credit,
         )
@@ -436,15 +444,15 @@ def _run_v3_handshake(cartridge_limits: Limits):
     return host_result, cart_negotiated
 
 
-# TEST7000: v3 handshake succeeds and negotiates the element-wise minimum of all four limits including initial_credit
-def test_7000_v3_handshake_negotiates_all_four_limits():
+# TEST7000: v4 handshake negotiates all limits and required handler capacity.
+def test_7000_v4_handshake_negotiates_all_four_limits():
     cartridge_limits = Limits(
         max_frame=2_000_000,
         max_chunk=128_000,
         max_reorder_buffer=32,
         initial_credit=16,
     )
-    host_result, cart_negotiated = _run_v3_handshake(cartridge_limits)
+    host_result, cart_negotiated = _run_v4_handshake(cartridge_limits)
 
     assert host_result.limits.max_frame == 2_000_000, "min(3.5MB, 2MB)"
     assert host_result.limits.max_chunk == 128_000, "min(256KB, 128KB)"
@@ -472,7 +480,9 @@ def test_7001_handshake_rejects_version_2():
     _host_hello = cartridge_reader.read()
     assert _host_hello is not None
 
-    hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V3_TEST_MANIFEST)
+    hello = Frame.hello_with_manifest(
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V4_TEST_MANIFEST, 0
+    )
     hello.version = 2
     hello.meta["version"] = 2
     cartridge_writer.write(hello)
@@ -483,7 +493,7 @@ def test_7001_handshake_rejects_version_2():
 
     msg = str(exc_info.value)
     assert "version" in msg, f"error must name the version mismatch: {msg}"
-    assert "2" in msg and "3" in msg, f"error must state both versions: {msg}"
+    assert "2" in msg and "4" in msg, f"error must state both versions: {msg}"
 
 
 # TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals
@@ -495,7 +505,7 @@ def test_7002_initial_credit_negotiated_minimum():
         max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
         initial_credit=8,
     )
-    host_result, cart_negotiated = _run_v3_handshake(smaller)
+    host_result, cart_negotiated = _run_v4_handshake(smaller)
     assert host_result.limits.initial_credit == 8
     assert cart_negotiated.initial_credit == 8
 
@@ -506,7 +516,7 @@ def test_7002_initial_credit_negotiated_minimum():
         max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
         initial_credit=128,
     )
-    host_result, cart_negotiated = _run_v3_handshake(larger)
+    host_result, cart_negotiated = _run_v4_handshake(larger)
     assert host_result.limits.initial_credit == 32
     assert cart_negotiated.initial_credit == 32
 
@@ -523,7 +533,7 @@ def test_481_verify_identity_succeeds():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest)
+        handshake_accept(reader, writer, manifest, 0)
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
         ss = reader.read()
@@ -561,10 +571,10 @@ def test_482_verify_identity_fails_on_err():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest)
+        handshake_accept(reader, writer, manifest, 0)
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
-        writer.write(Frame.err(req.id, "BROKEN", "identity handler broken"))
+        writer.write(Frame.err(req.id, "BROKEN", AttributionClass.INTERNAL, "identity handler broken"))
 
     t = threading.Thread(target=cartridge_thread, daemon=True)
     t.start()
@@ -590,7 +600,7 @@ def test_483_verify_identity_fails_on_close():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest)
+        handshake_accept(reader, writer, manifest, 0)
         _ = reader.read()
         cartridge_write_sock.close()
 
@@ -630,7 +640,7 @@ def test_224_handshake_negotiates_to_minimum_limits():
     their_max_frame = received.hello_max_frame() or DEFAULT_MAX_FRAME
     negotiated_frame = min(8000, their_max_frame)
 
-    cartridge_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest)
+    cartridge_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest, 0)
 
     cartridge_writer = FrameWriter.new(cartridge_to_host)
     cartridge_writer.write(cartridge_hello)
@@ -651,7 +661,9 @@ def test_225_handshake_function_full_handshake():
     manifest = b'{"identifier": "test-cartridge", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
     # Cartridge side accepts handshake in background (simulate)
-    cartridge_hello = Frame.hello_with_manifest(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest)
+    cartridge_hello = Frame.hello_with_manifest(
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 0
+    )
     cartridge_writer_temp = FrameWriter.new(cartridge_to_host)
     cartridge_writer_temp.write(cartridge_hello)
 
@@ -688,7 +700,7 @@ def test_226_handshake_accept_receives_first():
 
     manifest = b'{"identifier": "test", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
-    limits = handshake_accept(cartridge_reader, cartridge_writer, manifest)
+    limits = handshake_accept(cartridge_reader, cartridge_writer, manifest, 0)
 
     # Verify negotiated limits
     assert limits.max_frame == DEFAULT_MAX_FRAME

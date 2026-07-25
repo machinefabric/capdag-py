@@ -23,6 +23,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_FRAME,
     DEFAULT_MAX_CHUNK,
     compute_checksum,
+    AttributionClass,
 )
 from capdag.bifaci.io import (
     FrameReader,
@@ -47,7 +48,7 @@ def cartridge_handshake_worker(cartridge_read_sock, cartridge_write_sock, manife
     """Helper: do handshake on cartridge side in a thread"""
     reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
     writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-    limits = handshake_accept(reader, writer, manifest)
+    limits = handshake_accept(reader, writer, manifest, 0)
     reader.set_limits(limits)
     writer.set_limits(limits)
     return reader, writer
@@ -65,7 +66,7 @@ def test_284_handshake_host_cartridge():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         limits_holder.append(limits)
         assert limits.max_frame > 0
         assert limits.max_chunk > 0
@@ -97,7 +98,7 @@ def test_285_request_response_simple():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -137,7 +138,7 @@ def test_286_streaming_chunks():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -189,7 +190,7 @@ def test_287_heartbeat_from_host():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -197,7 +198,9 @@ def test_287_heartbeat_from_host():
         assert frame is not None
         assert frame.frame_type == FrameType.HEARTBEAT
 
-        writer.write(Frame.heartbeat(frame.id))
+        response = Frame.heartbeat(frame.id)
+        response.meta = {"handler_capacity": 0}
+        writer.write(response)
 
     cartridge = threading.Thread(target=cartridge_thread, daemon=True)
     cartridge.start()
@@ -229,7 +232,7 @@ def test_290_limits_negotiation():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         limits_holder.append(limits)
 
     cartridge = threading.Thread(target=cartridge_thread, daemon=True)
@@ -261,7 +264,7 @@ def test_291_binary_payload_roundtrip():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -306,7 +309,7 @@ def test_292_message_id_uniqueness():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -345,7 +348,7 @@ def test_299_empty_payload_roundtrip():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb", buffering=0))
         writer = FrameWriter(cartridge_write_sock.makefile("wb", buffering=0))
-        limits = handshake_accept(reader, writer, TEST_MANIFEST)
+        limits = handshake_accept(reader, writer, TEST_MANIFEST, 0)
         reader.set_limits(limits)
         writer.set_limits(limits)
 
@@ -430,7 +433,7 @@ def cartridge_handshake_with_identity(c_from_rt, c_to_rt, manifest):
     """
     reader = FrameReader(c_from_rt)
     writer = FrameWriter(c_to_rt)
-    limits = handshake_accept(reader, writer, manifest)
+    limits = handshake_accept(reader, writer, manifest, 0)
     reader.set_limits(limits)
     writer.set_limits(limits)
 
@@ -606,7 +609,7 @@ def test_1123_cartridge_error_flows_to_engine():
         req = reader.read()
         assert req is not None, "Expected REQ"
         seq = SeqAssigner()
-        err = Frame.err(req.id, "FAIL_CODE", "Something went wrong")
+        err = Frame.err(req.id, "FAIL_CODE", AttributionClass.INTERNAL, "Something went wrong")
         seq.assign(err)
         writer.write(err)
         seq.remove(FlowKey.from_frame(err))

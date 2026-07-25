@@ -19,6 +19,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_CHUNK,
     DEFAULT_MAX_REORDER_BUFFER,
     DEFAULT_INITIAL_CREDIT,
+    AttributionClass,
     compute_checksum,
     verify_chunk_checksum,
 )
@@ -152,7 +153,7 @@ def test_180_hello_frame():
 def test_181_hello_frame_with_manifest():
     """Test HELLO frame with manifest (cartridge side)"""
     manifest_json = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[]}]}'
-    frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json)
+    frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json, 0)
     assert frame.frame_type == FrameType.HELLO
     assert frame.hello_max_frame() == 1_000_000
     assert frame.hello_max_chunk() == 100_000
@@ -197,7 +198,7 @@ def test_184_chunk_frame():
 def test_185_err_frame():
     """Test ERR frame creation"""
     id = MessageId.new_uuid()
-    frame = Frame.err(id, "NOT_FOUND", "Cap not found")
+    frame = Frame.err(id, "NOT_FOUND", AttributionClass.INTERNAL, "Cap not found")
     assert frame.frame_type == FrameType.ERR
     assert frame.error_code() == "NOT_FOUND"
     assert frame.error_message() == "Cap not found"
@@ -207,7 +208,7 @@ def test_185_err_frame():
 def test_186_log_frame():
     """Test LOG frame creation"""
     id = MessageId.new_uuid()
-    frame = Frame.log(id, "info", "Processing started")
+    frame = Frame.log(id, "info", AttributionClass.INTERNAL, "Processing started")
     assert frame.frame_type == FrameType.LOG
     assert frame.id == id
     assert frame.log_level() == "info"
@@ -297,7 +298,7 @@ def test_192_log_accessors_on_non_log_frame():
 # TEST193: Test hello_max_frame and hello_max_chunk return None for non-Hello frame types
 def test_193_hello_accessors_on_non_hello_frame():
     """Test hello accessors return None for non-HELLO frames"""
-    err = Frame.err(MessageId.new_uuid(), "E", "m")
+    err = Frame.err(MessageId.new_uuid(), "E", AttributionClass.INTERNAL, "m")
     assert err.hello_max_frame() is None
     assert err.hello_max_chunk() is None
     assert err.hello_manifest() is None
@@ -355,10 +356,10 @@ def test_198_limits_default():
     assert limits.initial_credit == 32, "default initial_credit = 32 chunks"
 
 
-# TEST199: Test PROTOCOL_VERSION is 3
+# TEST199: Test PROTOCOL_VERSION is 4
 def test_199_protocol_version_constant():
     """Test PROTOCOL_VERSION constant"""
-    assert PROTOCOL_VERSION == 3
+    assert PROTOCOL_VERSION == 4
 
 
 # TEST200: Test integer key constants match the protocol specification
@@ -381,7 +382,7 @@ def test_200_key_constants():
 def test_201_hello_manifest_binary_data():
     """Test manifest preserves binary data"""
     binary_manifest = bytes([0x00, 0x01, 0xFF, 0xFE, 0x80])
-    frame = Frame.hello_with_manifest(1000, 500, binary_manifest)
+    frame = Frame.hello_with_manifest(1000, 500, binary_manifest, 0)
     assert frame.hello_manifest() == binary_manifest
 
 
@@ -724,7 +725,7 @@ def test_446_seq_assigner_mixed_types():
     rid = MessageId.random()
 
     f_req = Frame.req(rid, "cap:test", b"", "")
-    f_log = Frame.log(rid, "info", "log message")
+    f_log = Frame.log(rid, "info", AttributionClass.INTERNAL, "log message")
     f_chunk = Frame.chunk(rid, "s0", 0, b"payload", 0, compute_checksum(b"payload"))
     f_end = Frame.end(rid)
 
@@ -1735,82 +1736,102 @@ def test_1162_heartbeat_frame_with_memory_meta():
         f"Expected rss_mb=5120, got {frame.meta['rss_mb']}"
 
 
-# TEST1900: the ERR frame failure-class wire contract (docs/failure-taxonomy.md):
-# err_classified writes meta code+class+message; plain err defaults class to
-# internal; a missing or unknown class token reads as INTERNAL (unclassified
-# means "ours", never a guess); a known token round-trips exactly.
-def test_1900_err_frame_failure_class_wire_contract():
-    from capdag.bifaci.frame import FailureClass
-
+# TEST1900: ERR attribution is mandatory and strict. Missing and unknown tokens
+# are protocol violations rather than compatibility defaults.
+def test_1900_err_frame_attribution_class_wire_contract():
     id = MessageId.random()
-    classified = Frame.err_classified(id, "CONTEXT_OVERFLOW", FailureClass.INPUT, "prompt too large")
+    classified = Frame.err(id, "CONTEXT_OVERFLOW", AttributionClass.INPUT, "prompt too large")
     assert classified.meta["code"] == "CONTEXT_OVERFLOW"
-    assert classified.meta["class"] == "input"
+    assert classified.meta["attribution_class"] == "input"
     assert classified.meta["message"] == "prompt too large"
-    assert classified.error_class() is FailureClass.INPUT
+    assert classified.attribution_class() is AttributionClass.INPUT
 
-    plain = Frame.err(id, "BOOM", "unclassified failure")
-    assert plain.meta["class"] == "internal", \
-        "an unclassified ERR emit must declare itself internal on the wire"
-    assert plain.error_class() is FailureClass.INTERNAL
+    missing = Frame.err(id, "BOOM", AttributionClass.INTERNAL, "x")
+    del missing.meta["attribution_class"]
+    with pytest.raises(ValueError, match="missing required text attribution_class"):
+        missing.attribution_class()
 
-    # A frame from an older/foreign emitter: no class entry at all.
-    legacy = Frame.err(id, "BOOM", "x")
-    del legacy.meta["class"]
-    assert legacy.error_class() is FailureClass.INTERNAL
+    weird = Frame.err(id, "BOOM", AttributionClass.INTERNAL, "x")
+    weird.meta["attribution_class"] = "user-error"
+    with pytest.raises(ValueError, match="unknown attribution_class"):
+        weird.attribution_class()
 
-    # An unknown token is a protocol anomaly, read as unclassified — never a guess.
-    weird = Frame.err(id, "BOOM", "x")
-    weird.meta["class"] = "user-error"
-    assert weird.error_class() is FailureClass.INTERNAL
+    assert AttributionClass.from_wire("user-error") is None
+    for c in AttributionClass:
+        assert AttributionClass.from_wire(c.as_str()) is c
+    assert AttributionClass.INPUT.is_permanent()
+    assert not any(c.is_permanent() for c in AttributionClass if c is not AttributionClass.INPUT)
 
-    assert FailureClass.from_wire("user-error") is None
-    for c in FailureClass:
-        assert FailureClass.from_wire(c.as_str()) is c
-    assert FailureClass.INPUT.is_permanent()
-    assert not any(c.is_permanent() for c in FailureClass if c is not FailureClass.INPUT)
+    malformed_arg = Frame.err(id, "BOOM", AttributionClass.INTERNAL, "x")
+    malformed_arg.meta["arg_urn"] = 7
+    with pytest.raises(ValueError, match="arg_urn must be text"):
+        malformed_arg.attribution_arg_urn()
+
+    malformed_arg.meta["arg_urn"] = ""
+    with pytest.raises(ValueError, match="arg_urn must not be empty"):
+        malformed_arg.attribution_arg_urn()
 
 
 
 
 # TEST7105: an ERR frame built WITH an argument attribution round-trips its
 # full declared identity through encode/decode — the meta map carries the
-# `arg_urn` key, error_arg_urn() returns the URN, and code/class/message stay
+# `arg_urn` key, attribution_arg_urn() returns the URN, and code/class/message stay
 # intact (docs/failure-taxonomy.md).
 def test_7105_err_frame_arg_urn_roundtrip():
-    from capdag.bifaci.frame import FailureClass
+    from capdag.bifaci.frame import AttributionClass
 
     rid = MessageId.random()
     arg_urn = "media:prompt;str;utf8"
 
-    frame = Frame.err_classified(
-        rid, "CONTEXT_OVERFLOW", FailureClass.INPUT, "prompt exceeds context window",
+    frame = Frame.err(
+        rid, "CONTEXT_OVERFLOW", AttributionClass.INPUT, "prompt exceeds context window",
         arg_urn,
     )
     decoded = decode_frame(encode_frame(frame))
 
     assert decoded.meta["arg_urn"] == arg_urn, \
         "the encoded ERR meta must carry the arg_urn key verbatim"
-    assert decoded.error_arg_urn() == arg_urn
+    assert decoded.attribution_arg_urn() == arg_urn
     assert decoded.error_code() == "CONTEXT_OVERFLOW"
-    assert decoded.error_class() is FailureClass.INPUT
+    assert decoded.attribution_class() is AttributionClass.INPUT
     assert decoded.error_message() == "prompt exceeds context window"
 
 
+# TEST7117: non-progress LOG carries the same source attribution tuple as ERR,
+# including an optional argument URN, through the actual wire codec.
+def test_7117_log_frame_arg_urn_roundtrip():
+    from capdag.bifaci.frame import AttributionClass
+
+    frame = Frame.log(
+        MessageId.random(),
+        "warn",
+        AttributionClass.RESOURCE,
+        "model cache is under memory pressure",
+        "media:model-spec",
+    )
+    decoded = decode_frame(encode_frame(frame))
+    assert decoded.frame_type is FrameType.LOG
+    assert decoded.log_level() == "warn"
+    assert decoded.attribution_class() is AttributionClass.RESOURCE
+    assert decoded.attribution_arg_urn() == "media:model-spec"
+    assert decoded.log_message() == "model cache is under memory pressure"
+
+
 # TEST7106: an ERR frame built WITHOUT attribution has NO `arg_urn` key in the
-# encoded meta — absent, never an empty string — and error_arg_urn() returns
+# encoded meta — absent, never an empty string — and attribution_arg_urn() returns
 # None (docs/failure-taxonomy.md).
 def test_7106_err_frame_without_attribution_has_no_arg_urn():
-    from capdag.bifaci.frame import FailureClass
+    from capdag.bifaci.frame import AttributionClass
 
     rid = MessageId.random()
 
-    frame = Frame.err_classified(rid, "OOM_KILLED", FailureClass.RESOURCE, "out of memory")
+    frame = Frame.err(rid, "OOM_KILLED", AttributionClass.RESOURCE, "out of memory")
     decoded = decode_frame(encode_frame(frame))
 
     assert "arg_urn" not in decoded.meta, \
         "an ERR frame without attribution must not carry an arg_urn key at all"
-    assert decoded.error_arg_urn() is None
+    assert decoded.attribution_arg_urn() is None
     assert decoded.error_code() == "OOM_KILLED"
-    assert decoded.error_class() is FailureClass.RESOURCE
+    assert decoded.attribution_class() is AttributionClass.RESOURCE
     assert decoded.error_message() == "out of memory"

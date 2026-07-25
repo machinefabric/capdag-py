@@ -57,6 +57,7 @@ from capdag.urn.media_urn import MediaUrn
 from capdag.bifaci.frame import (
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_INITIAL_CREDIT,
     Frame, FrameType, MessageId, CreditDirection, DropReason, compute_checksum,
+    AttributionClass,
 )
 from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
 from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
@@ -2120,7 +2121,7 @@ def test_839_peer_response_delivers_logs_before_stream_start():
     # sending download progress before the actual data response
     raw_queue.put(Frame.progress(req_id, 0.1, "downloading file 1/10"))
     raw_queue.put(Frame.progress(req_id, 0.5, "downloading file 5/10"))
-    raw_queue.put(Frame.log(req_id, "status", "large file in progress"))
+    raw_queue.put(Frame.log(req_id, "status", AttributionClass.INTERNAL, "large file in progress"))
 
     # Now send the actual data
     raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
@@ -2160,8 +2161,8 @@ def test_839_peer_response_delivers_logs_before_stream_start():
     assert response.recv() is None, "stream must end after STREAM_END"
 
 
-# TEST840: PeerResponse::collect_bytes discards LOG frames
-def test_840_peer_response_collect_bytes_discards_logs():
+# TEST840: PeerResponse::collect_bytes rejects unhandled LOG frames.
+def test_840_peer_response_collect_bytes_rejects_unhandled_logs():
     from capdag.bifaci.frame import compute_checksum
 
     req_id = MessageId.new_uuid()
@@ -2170,7 +2171,7 @@ def test_840_peer_response_collect_bytes_discards_logs():
     # STREAM_START
     raw_queue.put(Frame.stream_start(req_id, "s1", "media:binary"))
 
-    # LOG frames (should be discarded by collect_bytes)
+    # LOG frames require explicit forwarding.
     raw_queue.put(Frame.progress(req_id, 0.25, "working"))
     raw_queue.put(Frame.progress(req_id, 0.75, "almost"))
 
@@ -2179,19 +2180,19 @@ def test_840_peer_response_collect_bytes_discards_logs():
     raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
 
     # Another LOG
-    raw_queue.put(Frame.log(req_id, "info", "done"))
+    raw_queue.put(Frame.log(req_id, "info", AttributionClass.INTERNAL, "done"))
 
     # STREAM_END + sentinel
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
-    result = response.collect_bytes()
-    assert result == b"hello", "collect_bytes must return only data, discarding all LOG frames"
+    with pytest.raises(PeerResponseError, match="explicit diagnostic forwarding"):
+        response.collect_bytes()
 
 
-# TEST841: PeerResponse::collect_value discards LOG frames
-def test_841_peer_response_collect_value_discards_logs():
+# TEST841: PeerResponse::collect_value rejects unhandled LOG frames.
+def test_841_peer_response_collect_value_rejects_unhandled_logs():
     from capdag.bifaci.frame import compute_checksum
 
     req_id = MessageId.new_uuid()
@@ -2202,7 +2203,7 @@ def test_841_peer_response_collect_value_discards_logs():
 
     # LOG frames before the data value
     raw_queue.put(Frame.progress(req_id, 0.5, "half"))
-    raw_queue.put(Frame.log(req_id, "debug", "processing"))
+    raw_queue.put(Frame.log(req_id, "debug", AttributionClass.INTERNAL, "processing"))
 
     # Single CHUNK with a CBOR integer
     cbor_payload = cbor2.dumps(42)
@@ -2213,8 +2214,8 @@ def test_841_peer_response_collect_value_discards_logs():
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
-    value = response.collect_value()
-    assert value == 42, "collect_value must skip LOG frames and return first data value"
+    with pytest.raises(PeerResponseError, match="explicit diagnostic forwarding"):
+        response.collect_value()
 
 
 # =============================================================================
@@ -2289,7 +2290,7 @@ def test_842_progress_sender_emits_frames():
 
     ps = emitter.progress_sender()
     ps.progress(0.5, "halfway there")
-    ps.log("info", "loading complete")
+    ps.log("info", AttributionClass.INTERNAL, "loading complete")
 
     # Filter out non-LOG frames (emitter may send STREAM_START etc)
     log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
@@ -2354,7 +2355,7 @@ def test_845_progress_sender_independent_of_emitter():
 
     ps = emitter.progress_sender()
     ps.progress(0.5, "halfway there")
-    ps.log("info", "loading complete")
+    ps.log("info", AttributionClass.INTERNAL, "loading complete")
 
     log_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.LOG]
     assert len(log_frames) == 2, "ProgressSender should emit 2 frames"
@@ -2397,11 +2398,11 @@ def test_1283_adapter_selection_custom_override():
 
 
 # =============================================================================
-# Protocol v3 parity tests — writer-thread terminal gate, counted drops,
+# Protocol v4 parity tests — writer-thread terminal gate, counted drops,
 # credit-based output, LIVE credited input demux (mirrors capdag Rust tests
 # in src/bifaci/cartridge_runtime.rs, adapted to the mirror's synchronous
 # SyncFrameWriter — no separate writer *thread*). Input streams are consumed
-# incrementally as frames arrive (protocol v3, L16) via `demux_multi_stream`
+# incrementally as frames arrive (protocol v4, L16) via `demux_multi_stream`
 # + `InputStream.recv()` — never buffered to completion.
 # =============================================================================
 
@@ -2482,7 +2483,7 @@ def test_7021_writer_gate_precision():
     assert sync_writer.write(progress_b) == GatedWrite.WRITTEN
 
     # But a flow frame for A is gated.
-    late_a = Frame.log(rid_a, "info", "late")
+    late_a = Frame.log(rid_a, "info", AttributionClass.INTERNAL, "late")
     assert sync_writer.write(late_a) == GatedWrite.DROPPED_POST_TERMINAL
 
     frames = _decode_wire(mock_writer)
@@ -2532,7 +2533,7 @@ def test_7086_drop_snapshot_matches_induced_drops():
     dead_writer = _DeadWriter()
     dead_sync = SyncFrameWriter(dead_writer, drops=drops)
     try:
-        dead_sync.write(Frame.log(rid, "info", "dead channel"))
+        dead_sync.write(Frame.log(rid, "info", AttributionClass.INTERNAL, "dead channel"))
     except Exception:
         pass
 
@@ -2802,7 +2803,7 @@ def test_protocol_drops_snapshot_starts_empty():
 
 
 # =============================================================================
-# LIVE INPUT MODEL parity tests (protocol v3, L16) — mirror capdag Rust's
+# LIVE INPUT MODEL parity tests (protocol v4, L16) — mirror capdag Rust's
 # src/bifaci/cartridge_runtime.rs test7070/test7073/test1300/test1301/test1302.
 # `demux_multi_stream` delivers InputStream items incrementally as raw wire
 # frames arrive — never buffered to completion — and item-granular sequence

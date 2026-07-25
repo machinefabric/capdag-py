@@ -438,7 +438,7 @@ def test_462_attached_cartridge_identity_from_manifest():
 
 
 # =============================================================================
-# Protocol v3 (L6/L8/L11): CREDIT routing, terminal drain, protocol_stats()
+# Protocol v4 (L6/L8/L11): CREDIT routing, terminal drain, protocol_stats()
 # =============================================================================
 #
 # These exercise CartridgeHostRuntime.route_continuation_frame /
@@ -564,7 +564,7 @@ def test_route_continuation_frame_credit_direction_selects_side():
 
 
 def test_route_continuation_frame_credit_without_direction_is_counted_drop():
-    """A CREDIT frame with no direction cannot be routed (v3 requires
+    """A CREDIT frame with no direction cannot be routed (v4 requires
     credit_dir) — it is a counted no_route drop, never a silent loss."""
     runtime = CartridgeHostRuntime()
     xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
@@ -588,7 +588,7 @@ def test_route_continuation_frame_no_route_is_counted_drop():
     assert runtime.drops.get(DropReason.NO_ROUTE) == before + 1
 
 
-def test_death_cleanup_helper_clears_v3_terminal_markers():
+def test_death_cleanup_helper_clears_v4_terminal_markers():
     """remove_incoming_rxid — the death/cancellation cleanup helper — clears
     incoming_body_done / incoming_response_done alongside incoming_rxids, so
     a dying cartridge's markers never outlive the entry."""

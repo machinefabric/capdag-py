@@ -7,7 +7,7 @@ Frames use integer keys for compact encoding and support native binary payloads.
 
 Each frame is a CBOR map with integer keys:
 {
-  0: version (u8, always 3)
+  0: version (u8, always 4)
   1: frame_type (u8)
   2: id (bytes[16] or uint)
   3: seq (u64)
@@ -34,9 +34,9 @@ Each frame is a CBOR map with integer keys:
 - RELAY_NOTIFY (10): Relay capability advertisement (slave → master)
 - RELAY_STATE (11): Relay host system resources + cap demands (master → slave)
 - CANCEL (12): Cancel a specific in-flight request by RID
-- CREDIT (13): Grant per-stream flow-control credit, in CHUNK units (protocol v3)
+- CREDIT (13): Grant per-stream flow-control credit, in CHUNK units (protocol v4)
 
-Protocol v3 adds two integer keys: 19 (credit grant, CREDIT frames) and
+Protocol v4 adds two integer keys: 19 (credit grant, CREDIT frames) and
 20 (unbounded flag, STREAM_START frames).
 """
 
@@ -46,10 +46,10 @@ from enum import Enum, IntEnum
 from dataclasses import dataclass
 
 
-# Protocol version. Version 3: credit-based per-stream flow control, unbounded
-# streams, terminal metadata on END (final progress rides in the terminal frame),
-# counted drops, handshake version enforcement. Version 2 handshakes are rejected.
-PROTOCOL_VERSION = 3
+# Protocol version 4 requires explicit handler capacity and strict diagnostic
+# attribution in addition to credit-based flow control and terminal metadata.
+# Every other version is rejected during handshake.
+PROTOCOL_VERSION = 4
 
 # Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
 # Larger payloads automatically use CHUNK frames
@@ -74,7 +74,7 @@ class FrameType(IntEnum):
     RELAY_NOTIFY = 10  # Relay capability advertisement (slave → master)
     RELAY_STATE = 11   # Relay host system resources + cap demands (master → slave)
     CANCEL = 12        # Cancel a specific in-flight request by RID
-    CREDIT = 13        # Grant per-stream flow-control credit, in CHUNK units (protocol v3).
+    CREDIT = 13        # Grant per-stream flow-control credit, in CHUNK units (protocol v4).
                        # Non-flow: bypasses seq assignment and reorder buffers, and is
                        # forwarded end-to-end by intermediaries (never originated or absorbed).
 
@@ -116,18 +116,12 @@ class CreditDirection(str, Enum):
             return None
 
 
-class FailureClass(str, Enum):
-    """The failure taxonomy — WHOSE problem a failure is
-    (docs/failure-taxonomy.md, mirrors Rust ops::FailureClass).
+class AttributionClass(str, Enum):
+    """The source-declared diagnostic domain.
 
-    Declared at the error's DEFINITION site and carried structurally through
-    every hop: the ERR frame meta carries the wire token under "class"; no
-    layer ever infers another layer's class from message text. An error that
-    reaches a boundary without a declared class is INTERNAL — unclassified
-    means "ours", never a guess.
-
-    The value is the stable lowercase wire token — used in the ERR frame
-    meta, the machine_runs columns, the gRPC proto, and the loom.
+    ERR and non-progress LOG frames carry the stable token under the mandatory
+    ``attribution_class`` metadata key. Receivers reject missing or unknown
+    values instead of inferring from prose or substituting INTERNAL.
     """
     INPUT = "input"  # Deterministic on the INPUT (context overflow, invalid request). Never retryable.
     RESOURCE = "resource"  # A compute resource was exhausted (GPU VRAM, host memory). Retryable.
@@ -135,14 +129,13 @@ class FailureClass(str, Enum):
     INTERNAL = "internal"  # Everything else: a defect in the engine or a cartridge. Ours.
 
     def as_str(self) -> str:
-        """Stable lowercase wire token (the ERR frame meta contract)."""
+        """Stable lowercase wire token for ERR and non-progress LOG frames."""
         return self.value
 
     @classmethod
-    def from_wire(cls, token: str) -> Optional["FailureClass"]:
+    def from_wire(cls, token: str) -> Optional["AttributionClass"]:
         """Parse a wire token, returning None for anything else (matches
-        Rust FailureClass::from_wire). Unknown tokens are a PROTOCOL error,
-        not a fallback case — receivers treat missing/unknown as INTERNAL."""
+        Rust AttributionClass::from_wire). Unknown tokens are a protocol error."""
         try:
             return cls(token)
         except ValueError:
@@ -152,7 +145,7 @@ class FailureClass(str, Enum):
         """Whether retrying can NEVER succeed: the failure is a deterministic
         function of the input. Resource/environment/internal stay retryable
         (memory frees up, networks recover, races un-race)."""
-        return self is FailureClass.INPUT
+        return self is AttributionClass.INPUT
 
 
 class MessageId:
@@ -431,6 +424,7 @@ class Frame:
             "max_reorder_buffer": max_reorder_buffer,
             "initial_credit": initial_credit,
             "version": PROTOCOL_VERSION,
+            "handler_capacity": 0,
         }
         frame = cls.new(FrameType.HELLO, MessageId(0))
         frame.meta = meta
@@ -442,6 +436,7 @@ class Frame:
         max_frame: int,
         max_chunk: int,
         manifest: bytes,
+        handler_capacity: int,
         max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER,
         initial_credit: int = DEFAULT_INITIAL_CREDIT,
     ) -> "Frame":
@@ -450,6 +445,9 @@ class Frame:
         The manifest is JSON-encoded cartridge metadata including name, version, and caps.
         This is the ONLY way for cartridges to communicate their capabilities.
         """
+        if not isinstance(handler_capacity, int) or isinstance(handler_capacity, bool) \
+                or handler_capacity < 0:
+            raise ValueError("handler_capacity must be a non-negative integer")
         meta = {
             "max_frame": max_frame,
             "max_chunk": max_chunk,
@@ -457,6 +455,7 @@ class Frame:
             "initial_credit": initial_credit,
             "version": PROTOCOL_VERSION,
             "manifest": manifest,
+            "handler_capacity": handler_capacity,
         }
         frame = cls.new(FrameType.HELLO, MessageId(0))
         frame.meta = meta
@@ -608,12 +607,26 @@ class Frame:
         return frame
 
     @classmethod
-    def log(cls, id: MessageId, level: str, message: str) -> "Frame":
-        """Create a LOG frame for progress/status"""
+    def log(
+        cls, id: MessageId, level: str, attribution_class: AttributionClass,
+        message: str, arg_urn: Optional[str] = None,
+    ) -> "Frame":
+        """Create an attributed non-progress LOG frame."""
+        if not isinstance(level, str) or not level.strip():
+            raise ValueError("Frame.log requires a non-empty level")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("Frame.log requires a non-empty message")
+        if level == "progress":
+            raise ValueError("Frame.log cannot create progress frames; use Frame.progress")
+        if arg_urn is not None and (not isinstance(arg_urn, str) or not arg_urn):
+            raise ValueError("Frame.log arg_urn must be non-empty when present")
         meta = {
             "level": level,
+            "attribution_class": attribution_class.as_str(),
             "message": message,
         }
+        if arg_urn is not None:
+            meta["arg_urn"] = arg_urn
         frame = cls.new(FrameType.LOG, id)
         frame.meta = meta
         return frame
@@ -634,30 +647,28 @@ class Frame:
         return frame
 
     @classmethod
-    def err(cls, id: MessageId, code: str, message: str) -> "Frame":
-        """Create an ERR frame. The class defaults to INTERNAL — an error
-        that reaches the wire without a declared class is the emitter's
-        problem by definition; emitters with a classified error use
-        `err_classified`."""
-        return cls.err_classified(id, code, FailureClass.INTERNAL, message)
-
-    @classmethod
-    def err_classified(
-        cls, id: MessageId, code: str, failure_class: FailureClass, message: str,
+    def err(
+        cls, id: MessageId, code: str, attribution_class: AttributionClass, message: str,
         arg_urn: Optional[str] = None,
     ) -> "Frame":
         """Create an ERR frame carrying the full failure identity: the
         emitter's machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the
         failure CLASS (whose problem it is — declared at the error's
-        definition site, see `FailureClass`), the human message, and — when
+        definition site, see `AttributionClass`), the human message, and — when
         the failure is attributed to a specific argument at the emit source —
         the media URN of that argument. ERR meta contract (docs/12.2 +
-        docs/failure-taxonomy.md): `code` + `class` + `message`, all text,
+        docs/failure-taxonomy.md): `code` + `attribution_class` + `message`, all text,
         plus an OPTIONAL `arg_urn` entry that is ABSENT when there is no
         attribution (never an empty string)."""
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError("Frame.err requires a non-empty code")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("Frame.err requires a non-empty message")
+        if arg_urn is not None and (not isinstance(arg_urn, str) or not arg_urn):
+            raise ValueError("Frame.err arg_urn must be non-empty when present")
         meta = {
             "code": code,
-            "class": failure_class.as_str(),
+            "attribution_class": attribution_class.as_str(),
             "message": message,
         }
         if arg_urn is not None:
@@ -892,32 +903,32 @@ class Frame:
         code = self.meta.get("code")
         return code if isinstance(code, str) else None
 
-    def error_class(self) -> Optional["FailureClass"]:
-        """Get the failure class if this is an ERR frame. A frame without a
-        `class` entry (or with an unknown token) classifies as INTERNAL:
-        unclassified means "the emitter's problem", never a guess about the
-        user's input. Returns None for non-ERR frames."""
-        if self.frame_type != FrameType.ERR:
-            return None
-        token = None
-        if self.meta is not None:
-            raw = self.meta.get("class")
-            if isinstance(raw, str):
-                token = raw
-        parsed = FailureClass.from_wire(token) if token is not None else None
-        return parsed if parsed is not None else FailureClass.INTERNAL
+    def attribution_class(self) -> "AttributionClass":
+        """Parse mandatory attribution on ERR and non-progress LOG frames."""
+        attributed_log = self.frame_type == FrameType.LOG and self.log_level() != "progress"
+        if self.frame_type != FrameType.ERR and not attributed_log:
+            raise ValueError(f"{self.frame_type.name} frames do not carry attribution")
+        raw = self.meta.get("attribution_class") if self.meta is not None else None
+        if not isinstance(raw, str):
+            raise ValueError("frame missing required text attribution_class")
+        parsed = AttributionClass.from_wire(raw)
+        if parsed is None:
+            raise ValueError(f"unknown attribution_class '{raw}'")
+        return parsed
 
-    def error_arg_urn(self) -> Optional[str]:
-        """Get the media URN of the argument the failure is attributed to,
-        when the emit source declared one (ERR meta key `arg_urn`,
-        docs/failure-taxonomy.md). Returns None when the frame carries no
-        attribution, and for non-ERR frames."""
-        if self.frame_type != FrameType.ERR:
-            return None
-        if self.meta is None:
+    def attribution_arg_urn(self) -> Optional[str]:
+        """Return strict source-declared argument attribution for a diagnostic."""
+        attributed_log = self.frame_type == FrameType.LOG and self.log_level() != "progress"
+        if self.frame_type != FrameType.ERR and not attributed_log:
+            raise ValueError(f"{self.frame_type.name} frames do not carry diagnostic argument attribution")
+        if self.meta is None or "arg_urn" not in self.meta:
             return None
         urn = self.meta.get("arg_urn")
-        return urn if isinstance(urn, str) else None
+        if not isinstance(urn, str):
+            raise ValueError("diagnostic arg_urn must be text when present")
+        if not urn.strip():
+            raise ValueError("diagnostic arg_urn must not be empty")
+        return urn
 
     def error_message(self) -> Optional[str]:
         """Get error message if this is an ERR frame"""
@@ -1001,6 +1012,15 @@ class Frame:
             return None
         val = self.meta.get("initial_credit")
         if isinstance(val, int) and val > 0:
+            return val
+        return None
+
+    def hello_handler_capacity(self) -> Optional[int]:
+        """Extract the required non-negative handler capacity."""
+        if self.frame_type != FrameType.HELLO or self.meta is None:
+            return None
+        val = self.meta.get("handler_capacity")
+        if isinstance(val, int) and val >= 0:
             return val
         return None
 

@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
 from capdag.bifaci.frame import (
-    FailureClass,
+    AttributionClass,
     Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
@@ -193,6 +193,7 @@ class CartridgeRuntimeStats:
     ``CartridgeRuntimeStats``. Absent (``None``) for cartridges that are not
     yet running (e.g. dir-registered, spawn-on-demand)."""
 
+    handler_capacity: int = 0
     running: bool = False
     pid: Optional[int] = None
     active_request_count: int = 0
@@ -868,7 +869,9 @@ class RelaySwitch:
         # response-forwarding path in `_handle_master_frame` counts
         # channel_closed drops (mirrors the reference's `let _ = tx.send(...)`).
         if state.external_channel is not None:
-            err_frame = Frame.err(rid, "CANCELLED", "Request cancelled")
+            err_frame = Frame.err(
+                rid, "CANCELLED", AttributionClass.INTERNAL, "Request cancelled"
+            )
             err_frame.routing_id = xid
             try:
                 state.external_channel(err_frame)
@@ -1160,7 +1163,7 @@ class RelaySwitch:
                     # Control/side-channel frames are legal ANYWHERE during
                     # the probe (spec 12.4: LOG interleaves without affecting
                     # data flow; CREDIT/HEARTBEAT are the control plane the
-                    # writer gate itself exempts, L4). A v3 cartridge
+                    # writer gate itself exempts, L4). A v4 cartridge
                     # crediting its probe input as it consumes (L10) must
                     # not fail identity verification.
                     continue
@@ -1430,7 +1433,7 @@ class RelaySwitch:
                 xid, rid = key
                 # A dead relay master is a runtime-environment failure —
                 # Environment (docs/failure-taxonomy.md).
-                err_frame = Frame.err_classified(rid, "MASTER_DIED", FailureClass.ENVIRONMENT, f"Relay master {master_idx} connection closed")
+                err_frame = Frame.err(rid, "MASTER_DIED", AttributionClass.ENVIRONMENT, f"Relay master {master_idx} connection closed")
                 err_frame.routing_id = xid
 
                 if state.origin is None:
@@ -1718,6 +1721,7 @@ def _installed_cartridge_record_to_wire(ic: InstalledCartridgeRecord) -> dict:
             "last_heartbeat_unix_seconds": rs.last_heartbeat_unix_seconds,
             "restart_count": rs.restart_count,
             "protocol_drops_total": rs.protocol_drops_total,
+            "handler_capacity": rs.handler_capacity,
         }
     lifecycle = ic.effective_lifecycle()
     if lifecycle != CartridgeLifecycle.DISCOVERED:
@@ -1826,7 +1830,11 @@ def _parse_relay_notify_payload(
         runtime_stats = None
         rs_raw = item.get("runtime_stats")
         if isinstance(rs_raw, dict):
+            if not isinstance(rs_raw.get("handler_capacity"), int) \
+                    or rs_raw["handler_capacity"] < 0:
+                raise ValueError("runtime_stats.handler_capacity must be a non-negative integer")
             runtime_stats = CartridgeRuntimeStats(
+                handler_capacity=rs_raw["handler_capacity"],
                 running=bool(rs_raw.get("running", False)),
                 pid=rs_raw.get("pid"),
                 active_request_count=int(rs_raw.get("active_request_count", 0)),

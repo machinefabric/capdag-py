@@ -21,6 +21,7 @@ synchronous cartridge-host style, rather than tokio tasks.
 """
 
 import json
+import os
 import queue
 import threading
 from abc import ABC, abstractmethod
@@ -29,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import cbor2
 
 from capdag.bifaci.frame import (
-    FailureClass,
+    AttributionClass,
     Frame,
     FrameType,
     FlowKey,
@@ -152,7 +153,7 @@ class ResponseWriter:
 
     def emit_error(self, code: str, message: str) -> None:
         """Send an error response."""
-        self.send(Frame.err(MessageId(0), code, message))
+        self.send(Frame.err(MessageId(0), code, AttributionClass.INTERNAL, message))
 
 
 # =============================================================================
@@ -416,7 +417,16 @@ class InProcessCartridgeHost:
                 }
             ],
             "attachment_error": None,
-            "runtime_stats": None,
+            "runtime_stats": {
+                "running": True,
+                "handler_capacity": 0,
+                "pid": os.getpid(),
+                "active_request_count": 0,
+                "peer_request_count": 0,
+                "memory_footprint_mb": 0,
+                "memory_rss_mb": 0,
+                "restart_count": 0,
+            },
             "lifecycle": "operational",
         }
         payload = {"installed_cartridges": [cartridge]}
@@ -531,7 +541,9 @@ class InProcessCartridgeHost:
                     xid = frame.routing_id
                     cap_urn = frame.cap
                     if cap_urn is None:
-                        err = Frame.err(rid, "PROTOCOL_ERROR", "REQ missing cap URN")
+                        err = Frame.err(
+                            rid, "PROTOCOL_ERROR", AttributionClass.INTERNAL, "REQ missing cap URN"
+                        )
                         err.routing_id = xid
                         write_tx.put(err)
                         continue
@@ -544,8 +556,8 @@ class InProcessCartridgeHost:
                         if idx is None:
                             # No registered handler for a dispatched cap is
                             # a deployment mismatch — Environment.
-                            err = Frame.err_classified(
-                                rid, "NO_HANDLER", FailureClass.ENVIRONMENT,
+                            err = Frame.err(
+                                rid, "NO_HANDLER", AttributionClass.ENVIRONMENT,
                                 f"no handler for cap: {cap_urn}"
                             )
                             err.routing_id = xid
@@ -629,12 +641,16 @@ class InProcessCartridgeHost:
                             del pending_peer_requests[peer_rid]
                             write_tx.put(Frame.cancel(peer_rid, force_kill))
 
-                    err = Frame.err(target_rid, "CANCELLED", "Request cancelled")
+                    err = Frame.err(
+                        target_rid, "CANCELLED", AttributionClass.INTERNAL, "Request cancelled"
+                    )
                     err.routing_id = xid
                     write_tx.put(err)
 
                 elif ft == FrameType.HEARTBEAT:
-                    write_tx.put(Frame.heartbeat(frame.id))
+                    response = Frame.heartbeat(frame.id)
+                    response.meta = {"handler_capacity": 0}
+                    write_tx.put(response)
 
                 # else: RelayNotify, RelayState, etc. — not expected from relay side
         finally:

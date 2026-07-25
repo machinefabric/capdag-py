@@ -59,7 +59,7 @@ from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 
 from capdag.bifaci.frame import (
     Frame, FrameType, Limits, MessageId, DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK,
-    DEFAULT_INITIAL_CREDIT, CreditDirection, DropReason, FailureClass,
+    DEFAULT_INITIAL_CREDIT, CreditDirection, DropReason, AttributionClass,
     compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey,
 )
 from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
@@ -75,12 +75,12 @@ from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH
 class RuntimeError(Exception):
     """Errors that can occur in the cartridge runtime"""
 
-    def failure_class(self) -> FailureClass:
+    def attribution_class(self) -> AttributionClass:
         """The failure class this error DECLARES (docs/failure-taxonomy.md).
         `ClassifiedError` carries its origin's declaration; a `RemoteError`
         carries the class the PEER's frame declared; everything else is
         INTERNAL — unclassified means "ours", never a guess."""
-        return FailureClass.INTERNAL
+        return AttributionClass.INTERNAL
 
     def failure_code(self) -> Optional[str]:
         """The machine-readable code declared at the emit source, when carried."""
@@ -130,15 +130,15 @@ class ClassifiedError(RuntimeError):
     boundary. (matches Rust RuntimeError::Classified)
     """
 
-    def __init__(self, code: str, failure_class: FailureClass, message: str,
+    def __init__(self, code: str, attribution_class: AttributionClass, message: str,
                  arg_urn: Optional[str] = None):
         super().__init__(f"{code}: {message}")
         self.code = code
-        self.declared_class = failure_class
+        self.declared_class = attribution_class
         self.message = message
         self.arg_urn = arg_urn
 
-    def failure_class(self) -> FailureClass:
+    def attribution_class(self) -> AttributionClass:
         return self.declared_class
 
     def failure_code(self) -> Optional[str]:
@@ -260,7 +260,7 @@ class SyncFrameWriter:
     All frames pass through the SeqAssigner before writing, ensuring
     monotonically increasing seq per flow (RID + optional XID). This matches
     the Rust cartridge_runtime writer thread with SeqAssigner and Go's
-    syncFrameWriter — extended for protocol v3 with the terminal gate
+    syncFrameWriter — extended for protocol v4 with the terminal gate
     (post-terminal flow frames are dropped and counted, never written) and
     counted drops on write failure (L8): a send on a dead writer is a counted
     `channel_closed` drop, never a silent loss, even for callers that ignore
@@ -328,7 +328,7 @@ class CapacityHandle:
 
 # =============================================================================
 # LIVE INPUT MODEL — incremental per-item demux, never buffer-then-dispatch
-# (protocol v3, L16). Replaces the old CreditWindowAccountant/buffered-
+# (protocol v4, L16). Replaces the old CreditWindowAccountant/buffered-
 # PendingIncomingRequest regime: input streams are consumed item-by-item as
 # frames arrive, exactly mirroring the Rust reference's InputStream::recv()/
 # demux_multi_stream. Buffering collectors (collect_*) refuse unbounded
@@ -352,15 +352,15 @@ class RemoteError(StreamError):
     no attribution). (matches Rust StreamError::RemoteError)
     """
 
-    def __init__(self, code: str, failure_class: FailureClass, message: str,
+    def __init__(self, code: str, attribution_class: AttributionClass, message: str,
                  arg_urn: Optional[str] = None):
         super().__init__(f"Remote error [{code}]: {message}")
         self.code = code
-        self.declared_class = failure_class
+        self.declared_class = attribution_class
         self.message = message
         self.arg_urn = arg_urn
 
-    def failure_class(self) -> FailureClass:
+    def attribution_class(self) -> AttributionClass:
         return self.declared_class
 
     def failure_code(self) -> Optional[str]:
@@ -379,13 +379,13 @@ def _classify_handler_error(e: Exception) -> tuple:
     from the emit source when the exception is classified (a
     `ClassifiedError`, or a peer's `RemoteError` propagated as-is),
     HANDLER_ERROR/INTERNAL without attribution when the handler never
-    declared one. Returns (code, failure_class, message, arg_urn).
+    declared one. Returns (code, attribution_class, message, arg_urn).
     (matches Rust RuntimeError's accessors at the frame-emit boundary)"""
     if isinstance(e, RuntimeError):
         code = e.failure_code()
         if code is not None:
-            return code, e.failure_class(), e.failure_reason(), e.failure_arg_urn()
-    return "HANDLER_ERROR", FailureClass.INTERNAL, str(e), None
+            return code, e.attribution_class(), e.failure_reason(), e.failure_arg_urn()
+    return "HANDLER_ERROR", AttributionClass.INTERNAL, str(e), None
 
 
 class _WindowCounter:
@@ -563,7 +563,10 @@ class StreamEmitter(Protocol):
         The receiver concatenates raw payloads to reconstruct the CBOR sequence."""
         ...
 
-    def emit_log(self, level: str, message: str) -> None:
+    def emit_log(
+        self, level: str, attribution_class: AttributionClass, message: str,
+        arg_urn: Optional[str] = None,
+    ) -> None:
         """Emit a log message at the given level.
         Sends a LOG frame (side-channel, does not affect response stream)."""
         ...
@@ -675,8 +678,8 @@ class PeerResponse:
 
     The handler drains this with recv() and reacts to each PeerResponseItem as it arrives.
     LOG frames are delivered in real-time as they arrive (not buffered until data starts).
-    For callers that don't care about LOG frames, collect_bytes() and collect_value()
-    silently discard them and return only data.
+    Collection helpers reject LOG frames so source diagnostics cannot be
+    silently discarded. Callers that accept diagnostics must drain recv().
     """
 
     def __init__(self, q: queue.Queue, grants: Optional[InputGrantEmitter] = None):
@@ -704,9 +707,9 @@ class PeerResponse:
         return item
 
     def collect_bytes(self) -> bytes:
-        """Collect all data chunks into a single byte vector, discarding LOG frames.
+        """Collect all data chunks into a single byte vector.
 
-        WARNING: Only call this if you know the stream is finite.
+        Rejects unhandled LOG frames. Only call this for a finite stream.
         """
         result = bytearray()
         while True:
@@ -714,7 +717,9 @@ class PeerResponse:
             if item is None:
                 break
             if item.is_log:
-                continue  # Discard LOG frames
+                raise PeerResponseError(
+                    "peer response emitted a LOG frame; collect with explicit diagnostic forwarding"
+                )
             err = item.data_error
             if err is not None:
                 raise err
@@ -729,17 +734,26 @@ class PeerResponse:
         return bytes(result)
 
     def collect_value(self):
-        """Collect a single CBOR data value (expects exactly one data chunk), discarding LOG frames."""
+        """Require exactly one data value and no LOG frames in the response."""
+        value = None
+        has_value = False
         while True:
             item = self.recv()
             if item is None:
-                raise PeerResponseError("Peer response ended without data")
+                if not has_value:
+                    raise PeerResponseError("Peer response ended without data")
+                return value
             if item.is_log:
-                continue  # Discard LOG frames
+                raise PeerResponseError(
+                    "peer response emitted a LOG frame; collect with explicit diagnostic forwarding"
+                )
             err = item.data_error
             if err is not None:
                 raise err
-            return item.data_value
+            if has_value:
+                raise PeerResponseError("Peer response contained more than one value")
+            value = item.data_value
+            has_value = True
 
 
 class PendingPeerRequest:
@@ -754,7 +768,7 @@ class PendingPeerRequest:
 @dataclass
 class ActiveRequest:
     """Tracks one in-flight incoming request for LIVE frame routing (protocol
-    v3, L16). Unlike the old buffer-then-dispatch regime (PendingIncomingRequest),
+    v4, L16). Unlike the old buffer-then-dispatch regime (PendingIncomingRequest),
     this holds no accumulated stream state — every STREAM_START/CHUNK/
     STREAM_END/END frame for this request is routed onto `raw_queue` the
     instant it arrives, and the handler thread's `demux_multi_stream` drains
@@ -926,9 +940,13 @@ class CliStreamEmitter:
         """In CLI mode, emit list items as individual output"""
         self.emit_cbor(value)
 
-    def emit_log(self, level: str, message: str) -> None:
+    def emit_log(
+        self, level: str, attribution_class: AttributionClass, message: str,
+        arg_urn: Optional[str] = None,
+    ) -> None:
         """In CLI mode, logs go to stderr"""
-        print(f"[{level.upper()}] {message}", file=sys.stderr)
+        coordinate = f" arg={arg_urn}" if arg_urn is not None else ""
+        print(f"[{level.upper()} {attribution_class.as_str()}{coordinate}] {message}", file=sys.stderr)
 
     def progress(self, progress: float, message: str) -> None:
         """In CLI mode, progress goes to stderr"""
@@ -956,7 +974,7 @@ class ThreadSafeEmitter:
     does NOT track seq itself. This matches the Rust cartridge_runtime writer thread
     with SeqAssigner and Go's threadSafeEmitter with syncFrameWriter.
 
-    Flow control (protocol v3, L9): when constructed with a `credit_router`,
+    Flow control (protocol v4, L9): when constructed with a `credit_router`,
     every CHUNK acquires one credit before it is sent — a slow consumer
     naturally throttles this emitter. `write`/`emit_list_item` block the
     calling thread on an exhausted window; `blocking_write`/
@@ -1317,12 +1335,15 @@ class ThreadSafeEmitter:
         """Alias for `emit_list_item` — see class docstring on the blocking/async split."""
         self.emit_list_item(value)
 
-    def emit_log(self, level: str, message: str) -> None:
+    def emit_log(
+        self, level: str, attribution_class: AttributionClass, message: str,
+        arg_urn: Optional[str] = None,
+    ) -> None:
         """Emit a log message at the given level.
         Sends a LOG frame (side-channel, does not affect response stream).
         Seq assigned by SyncFrameWriter. Never credited (L14) — control
         frames must flow even while the data window is exhausted."""
-        frame = Frame.log(self.request_id, level, message)
+        frame = Frame.log(self.request_id, level, attribution_class, message, arg_urn)
         frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(frame)
 
@@ -1367,9 +1388,12 @@ class ProgressSender:
         frame.routing_id = self._routing_id
         self._writer.write(frame)
 
-    def log(self, level: str, message: str) -> None:
+    def log(
+        self, level: str, attribution_class: AttributionClass, message: str,
+        arg_urn: Optional[str] = None,
+    ) -> None:
         """Emit a log message."""
-        frame = Frame.log(self._request_id, level, message)
+        frame = Frame.log(self._request_id, level, attribution_class, message, arg_urn)
         frame.routing_id = self._routing_id
         self._writer.write(frame)
 
@@ -1410,7 +1434,7 @@ class Request:
 class InputStream:
     """A single input stream — yields decoded CBOR values with optional
     per-item metadata from CHUNK frames, delivered INCREMENTALLY as they
-    arrive off the wire (protocol v3, L16) — never buffered to completion.
+    arrive off the wire (protocol v4, L16) — never buffered to completion.
     Handler never sees Frame, STREAM_START, STREAM_END, checksum, seq, or index.
 
     Metadata semantics depend on mode:
@@ -1606,7 +1630,7 @@ def demux_multi_stream(
     """Demux for multi-stream mode (handler input). Spawns a background
     thread that reads the raw per-request Frame queue and splits it into
     per-stream InputStream channels, delivered LIVE as frames arrive — never
-    buffered to completion (protocol v3, L16).
+    buffered to completion (protocol v4, L16).
 
     `raw_rx` is fed by the main loop's live per-request routing: frames for
     this request are `put()` onto it as they arrive off the wire, even while
@@ -1775,15 +1799,22 @@ def demux_multi_stream(
             elif frame.frame_type == FrameType.ERR:
                 # Keep the peer's declared code/class/message structural —
                 # never folded into prose (docs/failure-taxonomy.md).
-                code = frame.error_code() or "UNKNOWN"
-                failure_class = frame.error_class() or FailureClass.INTERNAL
-                message = frame.error_message() or "Unknown error"
-                arg_urn = frame.error_arg_urn()
-                err = RemoteError(code, failure_class, message, arg_urn)
+                code = frame.error_code()
+                attribution_class = frame.attribution_class()
+                message = frame.error_message()
+                if code is None or message is None:
+                    err = ProtocolError("ERR frame missing required text code or message")
+                    for tx in stream_channels.values():
+                        tx.put(err)
+                    _close_all_open_streams()
+                    streams_queue.put(err)
+                    break
+                arg_urn = frame.attribution_arg_urn()
+                err = RemoteError(code, attribution_class, message, arg_urn)
                 for tx in stream_channels.values():
                     tx.put(err)
                 _close_all_open_streams()
-                streams_queue.put(RemoteError(code, failure_class, message, arg_urn))
+                streams_queue.put(RemoteError(code, attribution_class, message, arg_urn))
                 break
 
             else:
@@ -1799,7 +1830,7 @@ def demux_multi_stream(
 class OutputStream:
     """Synchronous output stream that emits STREAM_START/CHUNK/STREAM_END frames.
 
-    Flow control (protocol v3, L9): when constructed with a `credit_router`,
+    Flow control (protocol v4, L9): when constructed with a `credit_router`,
     every CHUNK acquires one credit before it is sent — the receiver's
     consumption replenishes it. `write`/`emit_list_item` block the calling
     thread on an exhausted window; `blocking_write`/`blocking_emit_list_item`
@@ -2128,7 +2159,7 @@ def dispatch_op(
 
     `input_package` is the live, incrementally-delivered stream bundle
     produced by `demux_multi_stream()` — NOT a pre-buffered frame queue
-    (protocol v3, L16).
+    (protocol v4, L16).
 
     Raises HandlerError on Op failure.
     """
@@ -2150,7 +2181,7 @@ def demux_peer_response(
 ) -> PeerResponse:
     """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems,
     LIVE — items are delivered as frames arrive, never buffered to completion
-    (protocol v3, L16). Spawns a background thread that reads frames from the
+    (protocol v4, L16). Spawns a background thread that reads frames from the
     raw queue and converts them into PeerResponseItems (Data or Log). Returns
     immediately so LOG frames can be consumed before data arrives (critical
     for keeping the engine's activity timer alive during long peer calls).
@@ -2262,11 +2293,16 @@ def demux_peer_response(
             elif frame.frame_type == FrameType.ERR:
                 # Keep the peer's declared code/class/message structural —
                 # never folded into prose (docs/failure-taxonomy.md).
-                code = frame.error_code() or "UNKNOWN"
-                failure_class = frame.error_class() or FailureClass.INTERNAL
-                message = frame.error_message() or "Unknown error"
+                code = frame.error_code()
+                attribution_class = frame.attribution_class()
+                message = frame.error_message()
+                if code is None or message is None:
+                    item_queue.put(PeerResponseItem.data_err(
+                        ProtocolError("ERR frame missing required text code or message")
+                    ))
+                    break
                 item_queue.put(PeerResponseItem.data_err(
-                    RemoteError(code, failure_class, message, frame.error_arg_urn())
+                    RemoteError(code, attribution_class, message, frame.attribution_arg_urn())
                 ))
                 break
         # Signal end of stream
@@ -3027,8 +3063,12 @@ class CartridgeRuntime:
         except Exception as e:
             # CLI mode still owes the caller the real failure identity
             # (docs/failure-taxonomy.md).
-            code, failure_class, message, arg_urn = _classify_handler_error(e)
-            error_json = {"error": message, "code": code, "class": failure_class.as_str()}
+            code, attribution_class, message, arg_urn = _classify_handler_error(e)
+            error_json = {
+                "error": message,
+                "code": code,
+                "attribution_class": attribution_class.as_str(),
+            }
             if arg_urn is not None:
                 error_json["arg_urn"] = arg_urn
             print(json.dumps(error_json), file=sys.stderr)
@@ -3049,7 +3089,9 @@ class CartridgeRuntime:
         # Perform handshake - send our manifest in the HELLO response
         # Handshake uses raw_writer directly (HELLO is non-flow, seq doesn't matter)
         try:
-            limits = handshake_accept(reader, raw_writer, self.manifest_data)
+            limits = handshake_accept(
+                reader, raw_writer, self.manifest_data, self._capacity.get()
+            )
             reader.set_limits(limits)
             sync_writer.set_limits(limits)
             self.limits = limits
@@ -3061,7 +3103,7 @@ class CartridgeRuntime:
         pending_peer_requests: Dict[str, PendingPeerRequest] = {}
         pending_lock = threading.Lock()
 
-        # Track active incoming requests for LIVE frame routing (protocol v3,
+        # Track active incoming requests for LIVE frame routing (protocol v4,
         # L16): registered the instant REQ is seen, so subsequent
         # STREAM_START/CHUNK/STREAM_END/END frames route onto the request's
         # raw_queue as they arrive — even before the handler thread is
@@ -3076,7 +3118,7 @@ class CartridgeRuntime:
         active_handlers: List[threading.Thread] = []
 
         # Routes inbound CREDIT frames to the gates of streams local senders
-        # are writing (protocol v3 flow control, both directions). Gates
+        # are writing (protocol v4 flow control, both directions). Gates
         # register when an emitter/OutputStream starts a credited stream;
         # close_request releases waiters on handler completion.
         credit_router = CreditRouter()
@@ -3106,7 +3148,12 @@ class CartridgeRuntime:
             cap = self._capacity.get()
             while request_queue and (cap == 0 or running_handler_count < cap):
                 qrid, qxid, qfn = request_queue.pop(0)
-                dequeued_log = Frame.log(qrid, "dequeued", "Request dequeued, handler starting")
+                dequeued_log = Frame.log(
+                    qrid,
+                    "dequeued",
+                    AttributionClass.INTERNAL,
+                    "Request dequeued, handler starting",
+                )
                 dequeued_log.routing_id = qxid
                 try:
                     sync_writer.write(dequeued_log)
@@ -3129,7 +3176,7 @@ class CartridgeRuntime:
             """Dispatch a live-routed request: spawn its handler immediately
             under capacity, else queue it with a "queued" LOG frame. Input
             frames route onto the request's raw_queue as they arrive
-            regardless (protocol v3, L16) — nothing is buffered to completion
+            regardless (protocol v4, L16) — nothing is buffered to completion
             before dispatch."""
             nonlocal running_handler_count
             with capacity_lock:
@@ -3137,7 +3184,9 @@ class CartridgeRuntime:
                 if cap > 0 and running_handler_count >= cap:
                     queue_pos = len(request_queue) + 1
                     log_frame = Frame.log(
-                        request_id, "queued",
+                        request_id,
+                        "queued",
+                        AttributionClass.INTERNAL,
                         f"Request queued (position {queue_pos}, {running_handler_count} active)",
                     )
                     log_frame.routing_id = routing_id
@@ -3173,6 +3222,7 @@ class CartridgeRuntime:
                     err_frame = Frame.err(
                         frame.id,
                         "INVALID_REQUEST",
+                        AttributionClass.INTERNAL,
                         "Request missing cap URN"
                     )
                     err_frame.routing_id = routing_id_for_errors
@@ -3189,6 +3239,7 @@ class CartridgeRuntime:
                     err_frame = Frame.err(
                         frame.id,
                         "PROTOCOL_ERROR",
+                        AttributionClass.INTERNAL,
                         "REQ frame must have empty payload — use STREAM_START for arguments"
                     )
                     err_frame.routing_id = routing_id_for_errors
@@ -3202,10 +3253,10 @@ class CartridgeRuntime:
                 if factory is None:
                     # A dispatched cap this binary doesn't handle is a
                     # deployment/manifest mismatch — Environment.
-                    err_frame = Frame.err_classified(
+                    err_frame = Frame.err(
                         frame.id,
                         "NO_HANDLER",
-                        FailureClass.ENVIRONMENT,
+                        AttributionClass.ENVIRONMENT,
                         f"No handler registered for cap: {cap_urn}",
                     )
                     err_frame.routing_id = routing_id_for_errors
@@ -3220,7 +3271,7 @@ class CartridgeRuntime:
                 # CHUNK/STREAM_END/END frames route onto it immediately
                 # (even while capacity-queued). The handler's
                 # `demux_multi_stream` drains this queue incrementally as
-                # frames arrive (protocol v3, L16) — never buffered to
+                # frames arrive (protocol v4, L16) — never buffered to
                 # completion first.
                 request_id = frame.id
                 routing_id = frame.routing_id
@@ -3283,8 +3334,8 @@ class CartridgeRuntime:
                             # class, and argument attribution from the emit
                             # source when classified, HANDLER_ERROR/INTERNAL
                             # when the handler never declared one.
-                            code, failure_class, message, arg_urn = _classify_handler_error(e)
-                            err_frame = Frame.err_classified(request_id, code, failure_class, message, arg_urn)
+                            code, attribution_class, message, arg_urn = _classify_handler_error(e)
+                            err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
                             err_frame.routing_id = routing_id  # Propagate XID
                             try:
                                 sync_writer.write(err_frame)
@@ -3305,7 +3356,10 @@ class CartridgeRuntime:
                 # Protocol observability (L8): this cartridge's dropped-frame
                 # total rides every heartbeat so the host can surface it
                 # without a dedicated stats round-trip.
-                response.meta = {"drops_total": self._drop_counters.total()}
+                response.meta = {
+                    "drops_total": self._drop_counters.total(),
+                    "handler_capacity": self._capacity.get(),
+                }
                 try:
                     sync_writer.write(response)
                 except Exception as e:
@@ -3322,7 +3376,12 @@ class CartridgeRuntime:
 
             elif frame.frame_type == FrameType.HELLO:
                 # Unexpected HELLO after handshake - protocol error
-                err_frame = Frame.err(frame.id, "PROTOCOL_ERROR", "Unexpected HELLO after handshake")
+                err_frame = Frame.err(
+                    frame.id,
+                    "PROTOCOL_ERROR",
+                    AttributionClass.INTERNAL,
+                    "Unexpected HELLO after handshake",
+                )
                 try:
                     sync_writer.write(err_frame)
                 except Exception:

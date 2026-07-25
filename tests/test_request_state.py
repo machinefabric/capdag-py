@@ -1,4 +1,4 @@
-"""Tests for the unified request table (protocol v3, L7/L8) — TEST7030-7033,
+"""Tests for the unified request table (protocol v4, L7/L8) — TEST7030-7033,
 TEST7087, TEST7088, TEST7092. Mirrors capdag/src/bifaci/request_state.rs
 (and the capdag-objc RequestStateTests.swift mirror).
 """
