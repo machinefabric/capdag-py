@@ -844,7 +844,7 @@ class BodyOutcome:
     """
 
     __slots__ = (
-        "body_index", "success", "cap_urns", "failed_token_id",
+        "body_index", "foreach_token_id", "success", "cap_urns", "failed_token_id",
         "error", "failed_arg_urn", "title", "saved_paths", "total_bytes",
         "duration_ms", "item_preview_text", "item_byte_count",
     )
@@ -852,6 +852,7 @@ class BodyOutcome:
     def __init__(
         self,
         body_index: int,
+        foreach_token_id: Optional[str],
         success: bool,
         cap_urns: Optional[List[str]] = None,
         failed_token_id: Optional[str] = None,
@@ -864,8 +865,26 @@ class BodyOutcome:
         item_preview_text: Optional[str] = None,
         item_byte_count: int = 0,
     ) -> None:
+        if type(body_index) is not int or body_index < 0:
+            raise ValueError("body_index must be a non-negative integer")
+        if foreach_token_id is None and body_index != 0:
+            raise ValueError("a linear BodyOutcome must use body_index 0")
+        if foreach_token_id is not None and (
+            not isinstance(foreach_token_id, str) or not foreach_token_id
+        ):
+            raise ValueError("foreach_token_id must be None or a non-empty string")
+        if failed_token_id is not None and (
+            not isinstance(failed_token_id, str) or not failed_token_id
+        ):
+            raise ValueError("failed_token_id must be None or a non-empty string")
+        if failed_arg_urn is not None and (
+            not isinstance(failed_arg_urn, str) or not failed_arg_urn
+        ):
+            raise ValueError("failed_arg_urn must be None or a non-empty string")
         # body_index: index of this body within the ForEach (0-based)
         self.body_index = body_index
+        # Stable ForEach StrandStep token; None only for a linear whole-run outcome.
+        self.foreach_token_id = foreach_token_id
         self.success = success
         # cap_urns: cap URNs in the body's execution pathway (in execution order)
         self.cap_urns = cap_urns or []
@@ -884,6 +903,7 @@ class BodyOutcome:
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
             "body_index": self.body_index,
+            "foreach_token_id": self.foreach_token_id,
             "success": self.success,
             "cap_urns": self.cap_urns,
             "failed_token_id": self.failed_token_id,
@@ -899,7 +919,10 @@ class BodyOutcome:
         return d
 
     def __repr__(self) -> str:
-        return f"BodyOutcome(body_index={self.body_index}, success={self.success})"
+        return (
+            f"BodyOutcome(foreach_token_id={self.foreach_token_id!r}, "
+            f"body_index={self.body_index}, success={self.success})"
+        )
 
 
 class MachineResult:

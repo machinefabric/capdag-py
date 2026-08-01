@@ -264,6 +264,7 @@ def cbor_decode_response(response: CartridgeResponse) -> CartridgeResponse:
 class _CartridgeEvent:
     """Internal event from a cartridge reader thread."""
     cartridge_idx: int
+    generation: int
     frame: Optional[Frame]  # None = death
     is_death: bool
 
@@ -346,6 +347,9 @@ class _ManagedCartridge:
         # cartridge is advertised in the RelayNotify aggregate.
         self.installed_identity: Optional["InstalledCartridgeRecord"] = None
         self.running: bool = False
+        # Monotonic process identity. Reader events carry this generation so
+        # a delayed event from a retired process cannot affect its replacement.
+        self.generation: int = 0
         self.hello_failed: bool = False
         # Retired by a roster sync (the install was removed/replaced on
         # disk). A removed cartridge disappears from the inventory entirely
@@ -599,6 +603,7 @@ class CartridgeHost:
             cartridge.handler_capacity = result.handler_capacity
             cartridge.cap_groups = cap_groups
             cartridge.running = True
+            cartridge.generation = 1
             # Derive the install identity from the HELLO manifest. Advertisement
             # is identity-gated, so without this the attached cartridge is
             # silently excluded from every RelayNotify and the engine can never
@@ -619,7 +624,7 @@ class CartridgeHost:
             daemon=True
         ).start()
         threading.Thread(
-            target=self._reader_loop, args=(cartridge_idx, reader),
+            target=self._reader_loop, args=(cartridge_idx, cartridge.generation, reader),
             daemon=True
         ).start()
 
@@ -758,8 +763,17 @@ class CartridgeHost:
 
             try:
                 event = self._event_queue.get_nowait()
+                with self._lock:
+                    is_current = (
+                        0 <= event.cartridge_idx < len(self._cartridges)
+                        and self._cartridges[event.cartridge_idx].generation == event.generation
+                    )
+                if not is_current:
+                    continue
                 if event.is_death:
-                    self._handle_cartridge_death(event.cartridge_idx, relay_writer)
+                    self._handle_cartridge_death(
+                        event.cartridge_idx, event.generation, relay_writer
+                    )
                 elif event.frame is not None:
                     self._handle_cartridge_frame(event.cartridge_idx, event.frame, relay_writer)
             except queue.Empty:
@@ -901,11 +915,21 @@ class CartridgeHost:
                 self._request_routing.pop(id_key, None)
                 self._peer_requests.pop(id_key, None)
 
-    def _handle_cartridge_death(self, cartridge_idx: int, relay_writer: FrameWriter) -> None:
+    def _handle_cartridge_death(
+        self, cartridge_idx: int, generation: int, relay_writer: FrameWriter
+    ) -> None:
         """Process a cartridge death event."""
         with self._lock:
+            if (
+                cartridge_idx < 0
+                or cartridge_idx >= len(self._cartridges)
+                or self._cartridges[cartridge_idx].generation != generation
+            ):
+                return
             cartridge = self._cartridges[cartridge_idx]
+            cartridge.generation += 1
             cartridge.running = False
+            cartridge.pending_heartbeats.clear()
 
             if cartridge.writer_queue is not None:
                 # Signal writer to stop
@@ -966,22 +990,27 @@ class CartridgeHost:
             except Exception:
                 return
 
-    def _reader_loop(self, cartridge_idx: int, reader: FrameReader) -> None:
+    def _reader_loop(
+        self, cartridge_idx: int, generation: int, reader: FrameReader
+    ) -> None:
         """Reader thread — reads frames from cartridge and sends events."""
         while True:
             try:
                 frame = reader.read()
                 if frame is None:
                     self._event_queue.put(_CartridgeEvent(
-                        cartridge_idx=cartridge_idx, frame=None, is_death=True
+                        cartridge_idx=cartridge_idx, generation=generation,
+                        frame=None, is_death=True
                     ))
                     return
                 self._event_queue.put(_CartridgeEvent(
-                    cartridge_idx=cartridge_idx, frame=frame, is_death=False
+                    cartridge_idx=cartridge_idx, generation=generation,
+                    frame=frame, is_death=False
                 ))
             except Exception:
                 self._event_queue.put(_CartridgeEvent(
-                    cartridge_idx=cartridge_idx, frame=None, is_death=True
+                    cartridge_idx=cartridge_idx, generation=generation,
+                    frame=None, is_death=True
                 ))
                 return
 
@@ -996,6 +1025,8 @@ class CartridgeHost:
             cartridge.hello_failed = True
             cartridge.last_death_message = "cartridge has no path"
             return "cartridge has no path"
+
+        generation = cartridge.generation + 1
 
         try:
             proc = subprocess.Popen(
@@ -1042,6 +1073,7 @@ class CartridgeHost:
         cartridge.handler_capacity = result.handler_capacity
         cartridge.cap_groups = cap_groups
         cartridge.running = True
+        cartridge.generation = generation
         cartridge.writer = writer
 
         writer_q = queue.Queue(maxsize=64)
@@ -1055,7 +1087,7 @@ class CartridgeHost:
             daemon=True
         ).start()
         threading.Thread(
-            target=self._reader_loop, args=(cartridge_idx, reader),
+            target=self._reader_loop, args=(cartridge_idx, generation, reader),
             daemon=True
         ).start()
 

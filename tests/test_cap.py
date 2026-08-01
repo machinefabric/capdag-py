@@ -719,3 +719,41 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
         "media:numeric;temperature",
         "media:enc=utf-8;system-prompt",
     ]
+
+
+# TEST8065: cardinality follows the declared main input even when another
+# stdin-capable argument appears first.
+def test_8065_sequence_shape_uses_main_input_identity_not_argument_order():
+    cap = Cap.with_args(
+        CapUrn.from_string(
+            'cap:in="media:enc=utf-8";ordered;out="media:enc=utf-8;result"'
+        ),
+        "Ordered args",
+        ["ordered"],
+        [
+            CapArg(
+                media_urn="media:enc=utf-8;context",
+                required=False,
+                sources=[StdinSource("media:enc=utf-8;context")],
+            ),
+            CapArg(
+                media_urn="media:enc=utf-8",
+                required=True,
+                sources=[StdinSource("media:enc=utf-8")],
+                is_sequence=True,
+            ),
+        ],
+    )
+
+    assert cap.sequence_shape() == (True, False)
+
+
+# TEST8066: a void-input cap has scalar input cardinality without inventing an arg.
+def test_8066_void_input_sequence_shape_is_scalar_without_arguments():
+    cap = Cap(
+        CapUrn.from_string('cap:in="media:void";clock;out="media:time"'),
+        "Clock",
+        ["clock"],
+    )
+
+    assert cap.sequence_shape() == (False, False)

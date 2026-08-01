@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from capdag.urn.cap_urn import CapUrn
-from capdag.urn.media_urn import MediaUrn
+from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
 from capdag.machine.graph import EdgeAssignmentBinding, MachineEdge, MachineStrand, NodeId
 from capdag.machine.error import (
     AmbiguousMachineNotationError,
@@ -182,6 +182,7 @@ def resolve_pre_interned(
         cap = registry.get_cached_cap(cap_urn_str)
         if cap is None:
             raise UnknownCapError(cap_urn_str)
+
         _input_is_sequence, output_is_sequence = cap.sequence_shape()
         node_is_sequence[wiring.target_node_id] = output_is_sequence
 
@@ -192,6 +193,22 @@ def resolve_pre_interned(
         cap = registry.get_cached_cap(cap_urn_str)
         if cap is None:
             raise UnknownCapError(cap_urn_str)
+
+        cap_in_spec = MediaUrn.from_string(cap.urn.in_spec())
+        primary_arg_index: Optional[int] = None
+        if not cap_in_spec.is_equivalent(MediaUrn.from_string(MEDIA_VOID)):
+            primary_arg_index = next(
+                (
+                    index
+                    for index, arg in enumerate(cap.args)
+                    if arg.is_main_input(cap_in_spec)
+                ),
+                None,
+            )
+            if primary_arg_index is None:
+                raise ValueError(
+                    "cap registry invariant: every non-void cap declares its main input"
+                )
 
         # Build two parallel lists:
         # - stdin_arg_urns: the per-arg stream URN to match against (what upstream
@@ -264,14 +281,15 @@ def resolve_pre_interned(
         bindings.sort(key=lambda b: str(b.cap_arg_media_urn))
 
         # Derive `is_loop` from cardinality — the single ForEach rule
-        # (`Cap.needs_foreach`): the primary data input (the first stdin arg)
+        # (`Cap.needs_foreach`): the primary data input (the arg whose stdin
+        # matches `in=`)
         # carries a sequence but this cap consumes it as a scalar, so it maps
         # per-item. The primary stdin source node is the binding feeding the
-        # first stdin arg's slot. A cap with no stdin arg (config-only) never
+        # main arg's slot. A void-input cap has no main arg and never
         # loops.
         primary_stdin_source_is_sequence = False
-        if stdin_arg_slot_urns:
-            primary_slot = stdin_arg_slot_urns[0]
+        if primary_arg_index is not None:
+            primary_slot = stdin_arg_slot_urns[primary_arg_index]
             for b in bindings:
                 if b.cap_arg_media_urn.is_equivalent(primary_slot):
                     primary_stdin_source_is_sequence = node_is_sequence[b.source]

@@ -22,12 +22,24 @@ from capdag.planner.error import InternalError
 
 # TEST6525: Body outcomes preserve explicit null attribution coordinates and preview fields in JSON.
 def test_6525_body_outcome_serialization_preserves_attribution_shape():
-    encoded = BodyOutcome(body_index=0, success=True).to_dict()
+    encoded = BodyOutcome(body_index=0, foreach_token_id=None, success=True).to_dict()
 
+    assert "foreach_token_id" in encoded and encoded["foreach_token_id"] is None
     assert "failed_token_id" in encoded and encoded["failed_token_id"] is None
     assert "failed_arg_urn" in encoded and encoded["failed_arg_urn"] is None
     assert "item_preview_text" in encoded and encoded["item_preview_text"] is None
     assert encoded["item_byte_count"] == 0
+
+    with pytest.raises(ValueError, match="linear BodyOutcome must use body_index 0"):
+        BodyOutcome(body_index=1, foreach_token_id=None, success=True)
+
+    foreach = BodyOutcome(
+        body_index=3,
+        foreach_token_id="tok-foreach",
+        success=True,
+    )
+    assert foreach.to_dict()["foreach_token_id"] == "tok-foreach"
+    assert foreach.to_dict()["body_index"] == 3
 
 
 # TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types

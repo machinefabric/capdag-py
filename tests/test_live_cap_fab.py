@@ -214,6 +214,43 @@ def test_788_foreach_only_with_sequence_input():
     )
 
 
+# TEST8064: a sequence-consuming cap is reached directly from sequence data,
+# never through a dangling ForEach boundary.
+def test_8064_sequence_consumer_never_follows_foreach_directly():
+    graph = LiveCapFab()
+    graph.add_cap(
+        _make_test_cap(
+            "media:enc=utf-8",
+            "media:enc=utf-8;ext=txt",
+            "concat",
+            "Concat Text",
+            input_is_sequence=True,
+        )
+    )
+    graph.add_cap(
+        _make_test_cap(
+            "media:enc=utf-8",
+            "media:enc=utf-8;summary",
+            "summarize",
+            "Summarize Text",
+        )
+    )
+
+    paths = graph.find_paths_to_exact_target(
+        _media("media:enc=utf-8;page"),
+        _media("media:enc=utf-8;ext=txt"),
+        True,
+        4,
+        20,
+    )
+
+    assert paths
+    assert all(
+        all(step.step_type != StrandStepType.FOR_EACH for step in path.steps)
+        for path in paths
+    )
+
+
 # TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec
 def test_789_cap_from_json_has_valid_specs():
     cap = Cap.from_dict(

@@ -482,9 +482,10 @@ class Cap:
         """Cardinality shape of this cap's primary data path:
         ``(input_is_sequence, output_is_sequence)``.
 
-        ``input_is_sequence`` is the ``is_sequence`` flag of the first arg
-        that carries a ``Stdin`` source — the primary data input the wire
-        delivers. ``output_is_sequence`` is the output's ``is_sequence`` flag.
+        ``input_is_sequence`` is the ``is_sequence`` flag of the arg whose
+        ``Stdin`` source matches the cap URN's ``in=`` spec. Argument
+        declaration order has no semantics. ``output_is_sequence`` is the
+        output's ``is_sequence`` flag.
 
         This is THE single definition of cap cardinality. Path search
         (``planner.live_cap_fab``), editor realization, and notation
@@ -492,11 +493,21 @@ class Cap:
         diverge — the distinction that decides whether a ForEach is
         synthesized.
         """
+        from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
+
+        in_spec = MediaUrn.from_string(self.urn.in_spec())
+        void_media = MediaUrn.from_string(MEDIA_VOID)
         input_is_sequence = False
-        for arg in self.args:
-            if any(isinstance(source, StdinSource) for source in arg.sources):
-                input_is_sequence = arg.is_sequence
-                break
+        if not in_spec.is_equivalent(void_media):
+            main_input = next(
+                (arg for arg in self.args if arg.is_main_input(in_spec)),
+                None,
+            )
+            if main_input is None:
+                raise ValueError(
+                    "cap registry invariant: every non-void cap declares its main input"
+                )
+            input_is_sequence = main_input.is_sequence
         output_is_sequence = self.output.is_sequence if self.output is not None else False
         return input_is_sequence, output_is_sequence
 

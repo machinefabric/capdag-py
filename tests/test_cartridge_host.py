@@ -1029,9 +1029,10 @@ def test_6623_cartridge_death_keeps_known_caps_advertised():
 
     with host._lock:
         host._cartridges[0].running = True
+        host._cartridges[0].generation = 1
 
     relay_writer = FrameWriter(io.BytesIO())
-    host._handle_cartridge_death(0, relay_writer)
+    host._handle_cartridge_death(0, 1, relay_writer)
 
     with host._lock:
         advertised = [entry.cap_urn for entry in host._cap_table]
@@ -1047,6 +1048,38 @@ def test_6623_cartridge_death_keeps_known_caps_advertised():
     caps = _aggregate_cap_urns(host.capabilities())
     assert CAP_IDENTITY in caps
     assert any("thumbnail" in cap for cap in caps)
+
+
+# TEST8067: a delayed reader death from a retired process generation cannot
+# tear down the replacement occupying the same cartridge slot. The current
+# generation still performs the real death transition.
+def test_8067_stale_reader_death_cannot_kill_replacement_generation():
+    host = CartridgeHost()
+    register_temp_cartridge(host, "cartridge", [{
+        "name": "default",
+        "caps": [{
+            "urn": "cap:effect=none",
+            "title": "Identity",
+            "aliases": ["identity"],
+            "args": [],
+        }],
+        "adapter_urns": [],
+    }])
+    with host._lock:
+        cartridge = host._cartridges[0]
+        cartridge.running = True
+        cartridge.generation = 7
+
+    relay_writer = FrameWriter(io.BytesIO())
+    host._handle_cartridge_death(0, 6, relay_writer)
+    with host._lock:
+        assert host._cartridges[0].running
+        assert host._cartridges[0].generation == 7
+
+    host._handle_cartridge_death(0, 7, relay_writer)
+    with host._lock:
+        assert not host._cartridges[0].running
+        assert host._cartridges[0].generation == 8
 
 
 # TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).

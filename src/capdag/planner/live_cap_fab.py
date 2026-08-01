@@ -403,21 +403,7 @@ class LiveCapFab:
         to_canonical = str(to_spec)
         cap_canonical = str(cap.urn)
 
-        # Determine input_is_sequence from the stdin arg's is_sequence field.
-        input_is_sequence = False
-        for arg in cap.args:
-            is_stdin = any(
-                getattr(src, "stdin", None) is not None
-                for src in getattr(arg, "sources", [])
-            )
-            if is_stdin:
-                input_is_sequence = bool(getattr(arg, "is_sequence", False))
-                break
-
-        # Determine output_is_sequence from the cap's output field.
-        output_is_sequence = False
-        if cap.output is not None:
-            output_is_sequence = bool(getattr(cap.output, "is_sequence", False))
+        input_is_sequence, output_is_sequence = cap.sequence_shape()
 
         edge_idx = len(self._edges)
         edge = LiveMachinePlanEdge(
@@ -490,48 +476,63 @@ class LiveCapFab:
         max_depth: int = 10,
     ) -> List[ReachableTargetInfo]:
         """BFS reachability from source. Returns unique reachable targets."""
-        # visited_nodes tracks (canonical, is_sequence) pairs to avoid re-expansion.
-        visited_nodes: Set[Tuple[str, bool]] = set()
+        # The third key member tracks whether a synthesized ForEach still needs
+        # its immediately following scalar-input cap.
+        visited_nodes: Set[Tuple[str, bool, bool]] = set()
         # visited maps canonical string → ReachableTargetInfo for deduplication.
         visited: Dict[str, ReachableTargetInfo] = {}
         queue: deque = deque()
 
         # Seed with outgoing edges from source
         for edge, out_seq in self._get_outgoing_edges(source, is_sequence):
-            queue.append((edge.to_spec, out_seq, 1))
+            queue.append((
+                edge.to_spec,
+                out_seq,
+                edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH,
+                1,
+            ))
 
         while queue:
-            current_urn, cur_is_seq, depth = queue.popleft()
+            current_urn, cur_is_seq, pending_foreach, depth = queue.popleft()
             if depth > max_depth:
                 continue
 
-            node_key = (str(current_urn), cur_is_seq)
+            node_key = (str(current_urn), cur_is_seq, pending_foreach)
             if node_key in visited_nodes:
+                if not pending_foreach:
+                    current_key = str(current_urn)
+                    if current_key in visited:
+                        info = visited[current_key]
+                        info.path_count += 1
+                        if depth < info.min_path_length:
+                            info.min_path_length = depth
+                continue
+            visited_nodes.add(node_key)
+
+            if not pending_foreach:
                 current_key = str(current_urn)
                 if current_key in visited:
                     info = visited[current_key]
                     info.path_count += 1
                     if depth < info.min_path_length:
                         info.min_path_length = depth
-                continue
-            visited_nodes.add(node_key)
-
-            current_key = str(current_urn)
-            if current_key in visited:
-                info = visited[current_key]
-                info.path_count += 1
-                if depth < info.min_path_length:
-                    info.min_path_length = depth
-            else:
-                visited[current_key] = ReachableTargetInfo(
-                    media_def=current_urn,
-                    display_name=current_key,
-                    min_path_length=depth,
-                    path_count=1,
-                )
+                else:
+                    visited[current_key] = ReachableTargetInfo(
+                        media_def=current_urn,
+                        display_name=current_key,
+                        min_path_length=depth,
+                        path_count=1,
+                    )
 
             for edge, out_seq in self._get_outgoing_edges(current_urn, cur_is_seq):
-                queue.append((edge.to_spec, out_seq, depth + 1))
+                if pending_foreach and not self._can_follow_foreach(edge):
+                    continue
+                queue.append((
+                    edge.to_spec,
+                    out_seq,
+                    edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH,
+                    depth + 1,
+                ))
 
         # Sort: min_path_length ascending, then display_name
         results = sorted(
@@ -661,6 +662,10 @@ class LiveCapFab:
         if len(results) >= max_paths:
             return
 
+        pending_foreach = bool(
+            path and path[-1].edge_type == LiveMachinePlanEdgeType.FOR_EACH
+        )
+
         if path and current.is_equivalent(target):
             steps = []
             cap_count = 0
@@ -678,7 +683,7 @@ class LiveCapFab:
                     prev_cap_token = step.token_id
 
             if depth_limit == 0:
-                if cap_count > 0:
+                if cap_count > 0 and not pending_foreach:
                     desc = " → ".join(step.title() for step in steps)
                     results.append(Strand(
                         steps=steps,
@@ -690,7 +695,7 @@ class LiveCapFab:
                     ))
                 return
 
-            if cap_count > 0:
+            if cap_count > 0 and not pending_foreach:
                 return
 
         if depth_limit == 0:
@@ -705,6 +710,8 @@ class LiveCapFab:
             for edge, out_seq in self._get_outgoing_edges(current, is_sequence):
                 if len(results) >= max_paths:
                     return
+                if pending_foreach and not self._can_follow_foreach(edge):
+                    continue
                 next_key = (str(edge.to_spec), out_seq)
                 if next_key in visited and not edge.to_spec.is_equivalent(target):
                     continue
@@ -723,6 +730,13 @@ class LiveCapFab:
                 path.pop()
         finally:
             visited.discard(vk)
+
+    @staticmethod
+    def _can_follow_foreach(edge: LiveMachinePlanEdge) -> bool:
+        return (
+            edge.edge_type == LiveMachinePlanEdgeType.CAP
+            and not edge.input_is_sequence
+        )
 
     def _edge_to_step(
         self,
