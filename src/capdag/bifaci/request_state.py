@@ -598,7 +598,9 @@ class AdmissionController:
                     slot.mark_unavailable(now)
             self._condition.notify_all()
 
-    def acquire(self, key: AdmissionKey) -> AdmissionPermit:
+    def acquire(
+        self, key: AdmissionKey, cancel: Optional[threading.Event] = None
+    ) -> AdmissionPermit:
         """Take a FIFO admission slot for ``key``, waiting for capacity.
 
         An UNAVAILABLE target does not fail the caller immediately. The request
@@ -608,6 +610,9 @@ class AdmissionController:
         queue instead of terminally failing every body waiting on it (17.2: one
         body's process loss must not terminate unrelated queued bodies). Only
         when the window expires does the wait fail, and it fails hard.
+
+        ``cancel``, when set, abandons the wait (the caller gave up); the
+        ticket is removed so it cannot strand the queue behind a dead head.
         """
         with self._condition:
             slot = self._slots.get(key)
@@ -623,6 +628,11 @@ class AdmissionController:
             slot.queue.append(ticket)
 
             while True:
+                if cancel is not None and cancel.is_set():
+                    self._remove_ticket_locked(key, ticket)
+                    raise AdmissionError(
+                        f"admission wait for '{key.id}' was cancelled"
+                    )
                 slot = self._slots.get(key)
                 if slot is None:
                     raise AdmissionError(
@@ -643,10 +653,15 @@ class AdmissionController:
                         f"cartridge '{key.id}' was unavailable for longer than "
                         f"{int(self.grace)}s while this request waited for capacity"
                     )
-                # Available: wait indefinitely for capacity. Mid-outage: wait no
-                # longer than what is left of the window — a timeout there is not
-                # an error, the next iteration re-reads the slot and decides.
-                self._condition.wait(remaining)
+                # Available: wait for capacity. Mid-outage: wait no longer than
+                # what is left of the window — a timeout there is not an error,
+                # the next iteration re-reads the slot and decides. A cancellable
+                # wait polls, because ``Condition`` cannot select on an Event.
+                if cancel is not None:
+                    poll = 0.02 if remaining is None else min(0.02, remaining)
+                    self._condition.wait(poll)
+                else:
+                    self._condition.wait(remaining)
 
     def _remove_ticket_locked(self, key: AdmissionKey, ticket: int) -> None:
         """Drop a ticket so an abandoned waiter cannot strand the queue behind

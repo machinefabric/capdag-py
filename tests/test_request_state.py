@@ -265,3 +265,183 @@ def test_7033_terminated_summaries_ring():
     assert last.frames_in == 1
     assert last.bytes_in == 10
     assert snap.terminated_by_kind.get("cancelled") == RECENT_TERMINATED_CAP + 3
+
+
+# =============================================================================
+# Admission control (mirrors Rust src/bifaci/request_state.rs tests)
+# =============================================================================
+
+import threading
+import time as _time
+
+from capdag.bifaci.request_state import (
+    AdmissionController,
+    AdmissionError,
+    AdmissionKey,
+)
+
+
+def _admission_key():
+    return AdmissionKey(
+        master_idx=0,
+        registry_url=None,
+        channel="release",
+        id="cartridge",
+        version="1.0.0",
+        sha256="sha",
+    )
+
+
+def _acquire_async(controller, key, out):
+    """Acquire on a worker thread, recording the permit or the error."""
+    def run():
+        try:
+            out.append(("ok", controller.acquire(key)))
+        except AdmissionError as e:
+            out.append(("err", e))
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
+# TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter.
+def test_7110_admission_fifo_releases_one_waiter():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure(key, 1)
+    first = controller.acquire(key)
+
+    second_out, third_out = [], []
+    _acquire_async(controller, key, second_out)
+    # Let the second waiter take its ticket before the third queues, so the
+    # FIFO order under test is deterministic.
+    _time.sleep(0.05)
+    _acquire_async(controller, key, third_out)
+    _time.sleep(0.05)
+    assert not second_out and not third_out, "no waiter is admitted while the slot is held"
+
+    first.release()
+    deadline = _time.monotonic() + 2
+    while not second_out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert second_out and second_out[0][0] == "ok", "second FIFO waiter must be admitted"
+    assert not third_out, "one release admits only one waiter"
+
+    second_out[0][1].release()
+    deadline = _time.monotonic() + 2
+    while not third_out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert third_out and third_out[0][0] == "ok", "third FIFO waiter must be admitted next"
+    third_out[0][1].release()
+
+
+# TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end.
+def test_7112_capacity_reconfiguration_wakes_existing_waiters():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure(key, 1)
+    active = controller.acquire(key)
+
+    out = []
+    _acquire_async(controller, key, out)
+    _time.sleep(0.05)
+    assert not out, "a waiter must not be admitted at capacity 1 while the slot is held"
+
+    controller.configure(key, 0)  # unlimited
+    deadline = _time.monotonic() + 2
+    while not out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert out and out[0][0] == "ok", "unlimited HELLO capacity must wake queued work"
+    out[0][1].release()
+    active.release()
+
+
+# TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed.
+def test_7114_transient_unavailability_does_not_fail_queued_work():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure(key, 1)
+    active = controller.acquire(key)
+
+    out = []
+    _acquire_async(controller, key, out)
+    _time.sleep(0.05)
+
+    # The target vanishes from its host's inventory...
+    controller.disable_master(key.master_idx)
+    _time.sleep(0.05)
+    assert not out, "an outage inside the grace window must not fail queued work"
+
+    # ...and comes back, which is what must release the queue.
+    controller.configure(key, 1)
+    active.release()
+    deadline = _time.monotonic() + 2
+    while not out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert out and out[0][0] == "ok", "a restored admission target must admit the work queued on it"
+    out[0][1].release()
+
+
+# TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever.
+def test_1943_outage_outliving_the_grace_window_fails_queued_work():
+    controller = AdmissionController()
+    # Shorten the window so the expiry path is exercised without sleeping
+    # through a real minute. Production uses ADMISSION_UNAVAILABLE_GRACE_SECONDS.
+    controller.grace = 0.15
+    key = _admission_key()
+    controller.configure(key, 1)
+    active = controller.acquire(key)
+
+    out = []
+    _acquire_async(controller, key, out)
+    _time.sleep(0.05)
+    assert not out, "the window must not expire early"
+
+    controller.disable_master(key.master_idx)
+    deadline = _time.monotonic() + 3
+    while not out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert out and out[0][0] == "err", "queued work must not acquire a target that never came back"
+    assert "unavailable for longer than" in str(out[0][1]), (
+        "the failure must name the outage, not a generic routing error"
+    )
+    active.release()
+
+
+# TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head.
+def test_7111_cancelled_admission_waiter_cannot_block_queue():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure(key, 1)
+    active = controller.acquire(key)
+
+    cancel = threading.Event()
+    cancelled_out = []
+
+    def run():
+        try:
+            cancelled_out.append(("ok", controller.acquire(key, cancel)))
+        except AdmissionError as e:
+            cancelled_out.append(("err", e))
+
+    threading.Thread(target=run, daemon=True).start()
+    _time.sleep(0.05)
+    cancel.set()
+    deadline = _time.monotonic() + 2
+    while not cancelled_out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert cancelled_out and cancelled_out[0][0] == "err", (
+        "a cancelled waiter must report why it stopped waiting"
+    )
+
+    next_out = []
+    _acquire_async(controller, key, next_out)
+    _time.sleep(0.05)
+    active.release()
+    deadline = _time.monotonic() + 2
+    while not next_out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert next_out and next_out[0][0] == "ok", (
+        "the next body must be admitted, not stranded behind the cancelled ticket"
+    )
+    next_out[0][1].release()

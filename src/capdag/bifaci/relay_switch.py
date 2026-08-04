@@ -755,7 +755,7 @@ class RelaySwitch:
                                 # (starting its grace window), one that returned
                                 # is configured again, releasing anything queued.
                                 self._configure_master_admission_locked(
-                                    source_idx, installed_cartridges
+                                    master_idx, installed_cartridges
                                 )
                                 master.host_protocol_stats = host_protocol_stats
                                 if probe_required:
