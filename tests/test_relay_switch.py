@@ -65,6 +65,10 @@ def make_manifest(*caps: str) -> dict:
                 "id": cartridge_id,
                 "version": "0.0.0",
                 "sha256": "0" * 64,
+                # v4: an advertised installed cartridge always carries its
+                # runtime stats — the switch resolves admission capacity from
+                # handler_capacity.
+                "runtime_stats": {"running": True, "handler_capacity": 0},
                 "cap_groups": [
                     {
                         "name": "test",
@@ -1315,6 +1319,10 @@ def _deferred_identity_slave(slave_read, slave_write, caps, succeed: bool):
                 "id": "test-cartridge",
                 "version": "0.0.0",
                 "sha256": "0" * 64,
+                # v4: an advertised installed cartridge always carries its
+                # runtime stats — the switch resolves admission capacity from
+                # handler_capacity.
+                "runtime_stats": {"running": True, "handler_capacity": 0},
                 "cap_groups": [
                     {"name": "test", "caps": group_caps, "adapter_urns": []},
                 ],

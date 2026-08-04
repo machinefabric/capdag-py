@@ -21,6 +21,7 @@ with its own lock (threading.Lock/RLock), mirroring Rust's
 `RwLock<RequestTable>` and the capdag-objc mirror's un-synchronized class.
 """
 
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -136,6 +137,10 @@ class RequestState:
         # snapshot shows only anonymous rids, making background chatter
         # indistinguishable from run traffic.
         self.cap_urn: Optional[str] = None
+        # The process slot this request owns, released exactly once when the
+        # request terminates. ``None`` for requests that took no permit (peer
+        # calls and relay-internal probes).
+        self.admission_permit: Optional["AdmissionPermit"] = None
         # Child peer calls spawned under this request (cancel cascade).
         self.children: List[RequestKey] = []
         self.phase: RequestPhase = RequestPhase.CREATED
@@ -348,6 +353,10 @@ class RequestTable:
         state = self._entries.pop(key, None)
         if state is None:
             return None
+        # Terminal state reached: give the cartridge its slot back. Exactly
+        # once — the entry is removed above, so no other path can double-release.
+        if state.admission_permit is not None:
+            state.admission_permit.release()
         xid, rid = key
         # Only remove the rid index if it points at THIS xid — a re-used RID
         # under another XID (never valid per register, but defensive against
@@ -455,3 +464,205 @@ class RequestTable:
             total_registered=self._total_registered,
             terminated_by_kind=dict(sorted(self._terminated_by_kind.items())),
         )
+
+
+# =============================================================================
+# Admission control (mirrors Rust src/bifaci/request_state.rs).
+#
+# FIFO admission per cartridge install identity behind one relay master. The
+# cartridge-side ``handler_capacity`` gate (cartridge_runtime.py) bounds what one
+# process runs at a time; THIS gate bounds what the switch dispatches to it, so
+# work queues in the switch instead of piling up unacknowledged on the wire.
+# =============================================================================
+
+#: How long a queued request waits for an admission target that has gone
+#: unavailable before it is failed.
+#:
+#: A cartridge disappearing from its host's inventory is not, by itself, a
+#: reason to fail work that has not started: the process may be respawning, the
+#: host may be re-publishing its roster, or a transient registry outage may have
+#: briefly retired and then restored the install. 17.2 requires that queued
+#: bodies are NOT assigned terminal failure from another body's process loss and
+#: that "once a replacement instance advertises capacity, subsequent queued work
+#: is admitted to that live instance" — this window is how long the queue is held
+#: open for that replacement to appear.
+#:
+#: It is a bound, not a retry: when it expires the wait fails hard and the
+#: failure is classified ``environment``, so a target that is genuinely gone
+#: surfaces promptly instead of hanging the run.
+ADMISSION_UNAVAILABLE_GRACE_SECONDS = 60.0
+
+
+class AdmissionError(Exception):
+    """A request could not take an admission slot. Carries the operator-facing
+    reason; the switch maps it to a cartridge-unavailable routing error."""
+
+
+@dataclass(frozen=True)
+class AdmissionKey:
+    """Stable admission identity for one cartridge behind one relay master."""
+
+    master_idx: int
+    registry_url: Optional[str]
+    channel: str
+    id: str
+    version: str
+    sha256: str
+
+
+class _AdmissionSlot:
+    def __init__(self) -> None:
+        # ``None`` while the target is available; the monotonic instant it went
+        # unavailable otherwise. Kept as an instant rather than a bool so the
+        # grace window measures the OUTAGE, not the arrival time of each waiter
+        # — a request that queues late into an outage does not get a fresh
+        # window.
+        self.unavailable_since: Optional[float] = None
+        self.capacity: int = 0
+        self.active: int = 0
+        self.queue: Deque[int] = deque()
+
+    @property
+    def available(self) -> bool:
+        return self.unavailable_since is None
+
+    def mark_unavailable(self, now: float) -> None:
+        """Mark unavailable, preserving the start of an outage already in
+        progress."""
+        if self.unavailable_since is None:
+            self.unavailable_since = now
+
+    def grace_remaining(self, now: float, grace: float) -> Optional[float]:
+        """Remaining grace for an outage, or ``None`` when available. ``0.0``
+        means the window has expired."""
+        if self.unavailable_since is None:
+            return None
+        return max(0.0, grace - (now - self.unavailable_since))
+
+
+class AdmissionPermit:
+    """An actively owned process slot. Released exactly once."""
+
+    def __init__(self, controller: "AdmissionController", key: AdmissionKey) -> None:
+        self._controller = controller
+        self._key = key
+        self._released = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self._controller._release(self._key)
+
+
+class AdmissionController:
+    """FIFO admission shared by every request path in a RelaySwitch."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._slots: Dict[AdmissionKey, _AdmissionSlot] = {}
+        self._tickets = 0
+        # ``ADMISSION_UNAVAILABLE_GRACE_SECONDS`` in production. Tests shorten
+        # it to drive the expiry path without sleeping through a real minute.
+        self.grace = ADMISSION_UNAVAILABLE_GRACE_SECONDS
+
+    def configure(self, key: AdmissionKey, capacity: int) -> None:
+        """Register or update a target's capacity. A configure is the target
+        advertising itself: it ENDS any outage, which is what releases waiters
+        queued through a respawn or a roster round-trip."""
+        with self._condition:
+            slot = self._slots.get(key)
+            if slot is None:
+                slot = _AdmissionSlot()
+                self._slots[key] = slot
+            slot.unavailable_since = None
+            slot.capacity = capacity
+            self._condition.notify_all()
+
+    def reconcile_master(self, master_idx: int, available: set) -> None:
+        """Mark every slot of this master absent from the advertised set
+        unavailable."""
+        now = time.monotonic()
+        with self._condition:
+            for key, slot in self._slots.items():
+                if key.master_idx == master_idx and key not in available:
+                    slot.mark_unavailable(now)
+            self._condition.notify_all()
+
+    def disable_master(self, master_idx: int) -> None:
+        """Mark every slot of this master unavailable (master died)."""
+        now = time.monotonic()
+        with self._condition:
+            for key, slot in self._slots.items():
+                if key.master_idx == master_idx:
+                    slot.mark_unavailable(now)
+            self._condition.notify_all()
+
+    def acquire(self, key: AdmissionKey) -> AdmissionPermit:
+        """Take a FIFO admission slot for ``key``, waiting for capacity.
+
+        An UNAVAILABLE target does not fail the caller immediately. The request
+        stays queued for :data:`ADMISSION_UNAVAILABLE_GRACE_SECONDS` measured
+        from the start of the outage, so a cartridge that is respawning — or
+        that a transient registry outage briefly retired — resumes serving its
+        queue instead of terminally failing every body waiting on it (17.2: one
+        body's process loss must not terminate unrelated queued bodies). Only
+        when the window expires does the wait fail, and it fails hard.
+        """
+        with self._condition:
+            slot = self._slots.get(key)
+            if slot is None:
+                raise AdmissionError(
+                    f"cartridge '{key.id}' has no configured admission target"
+                )
+            ticket = self._tickets
+            self._tickets += 1
+            # Queue even while unavailable: the loop below owns the grace
+            # window, so a request arriving mid-outage gets the same treatment
+            # as one that was already waiting when the outage began.
+            slot.queue.append(ticket)
+
+            while True:
+                slot = self._slots.get(key)
+                if slot is None:
+                    raise AdmissionError(
+                        f"admission slot for '{key.id}' disappeared while queued"
+                    )
+                has_capacity = slot.capacity == 0 or slot.active < slot.capacity
+                if slot.available and has_capacity and slot.queue and slot.queue[0] == ticket:
+                    slot.queue.popleft()
+                    slot.active += 1
+                    self._condition.notify_all()
+                    return AdmissionPermit(self, key)
+
+                remaining = slot.grace_remaining(time.monotonic(), self.grace)
+                if remaining is not None and remaining <= 0.0:
+                    # Outage outlived the window — the target is gone, not slow.
+                    self._remove_ticket_locked(key, ticket)
+                    raise AdmissionError(
+                        f"cartridge '{key.id}' was unavailable for longer than "
+                        f"{int(self.grace)}s while this request waited for capacity"
+                    )
+                # Available: wait indefinitely for capacity. Mid-outage: wait no
+                # longer than what is left of the window — a timeout there is not
+                # an error, the next iteration re-reads the slot and decides.
+                self._condition.wait(remaining)
+
+    def _remove_ticket_locked(self, key: AdmissionKey, ticket: int) -> None:
+        """Drop a ticket so an abandoned waiter cannot strand the queue behind
+        it. Caller must hold the condition."""
+        slot = self._slots.get(key)
+        if slot is None:
+            return
+        try:
+            slot.queue.remove(ticket)
+        except ValueError:
+            pass
+        self._condition.notify_all()
+
+    def _release(self, key: AdmissionKey) -> None:
+        with self._condition:
+            slot = self._slots.get(key)
+            if slot is not None and slot.active > 0:
+                slot.active -= 1
+            self._condition.notify_all()

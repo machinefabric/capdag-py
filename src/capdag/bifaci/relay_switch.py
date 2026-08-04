@@ -41,6 +41,9 @@ from capdag.bifaci.frame import (
 )
 from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity, identity_nonce
 from capdag.bifaci.request_state import (
+    AdmissionController,
+    AdmissionError,
+    AdmissionKey,
     FrameDirection,
     RequestState,
     RequestStateError,
@@ -86,6 +89,15 @@ class AllMastersUnhealthyError(RelaySwitchError):
     """All masters are unhealthy"""
     def __init__(self):
         super().__init__("All relay masters are unhealthy")
+
+
+class CartridgeUnavailableError(RelaySwitchError):
+    """The cartridge that would serve this request left its host's inventory
+    and did not come back within the admission grace window.
+
+    Distinct from ProtocolError because nothing violated the protocol — the
+    deployment changed under a valid request, which is an ``environment``
+    failure, not an engine defect (docs/failure-taxonomy.md)."""
 
 
 # =============================================================================
@@ -394,6 +406,10 @@ class RelaySwitch:
         # by `self._lock` (the table itself is unsynchronized, mirroring the
         # reference `RwLock<RequestTable>`).
         self._requests: RequestTable = RequestTable()
+        # Switch-side FIFO admission: a positive handler_capacity bounds how
+        # many requests the switch dispatches to one cartridge install at a
+        # time. Mirrors the reference RelaySwitch.admission.
+        self._admission: AdmissionController = AdmissionController()
         # Dropped-frame accounting (L8): unroutable/post-terminal frames are
         # counted drops, never silent losses and never protocol errors.
         self._drops: DropCounters = DropCounters()
@@ -502,6 +518,12 @@ class RelaySwitch:
             )
             self._masters.append(master_conn)
             reader_thread.start()
+
+            # Seed admission from this master's initial inventory, so the very
+            # first dispatch is gated exactly like every later one.
+            self._configure_master_admission_locked(
+                len(self._masters) - 1, master_conn.installed_cartridges
+            )
 
         # Build initial routing tables. Order matters:
         # `_rebuild_capabilities` reads `_aggregate_installed_cartridges`
@@ -640,6 +662,7 @@ class RelaySwitch:
                     slot.limits = limits
                     slot.caps = caps
                     slot.installed_cartridges = installed_cartridges
+                    self._configure_master_admission_locked(idx, installed_cartridges)
                     slot.healthy = healthy_at_register
                     slot.reader_handle = reader_thread
                     slot.last_error = identity_failure
@@ -727,6 +750,13 @@ class RelaySwitch:
                                 master.limits = limits
                                 master.caps = caps
                                 master.installed_cartridges = installed_cartridges
+                                # Refresh admission from the fresh inventory: a
+                                # cartridge that left it goes unavailable
+                                # (starting its grace window), one that returned
+                                # is configured again, releasing anything queued.
+                                self._configure_master_admission_locked(
+                                    source_idx, installed_cartridges
+                                )
                                 master.host_protocol_stats = host_protocol_stats
                                 if probe_required:
                                     master.healthy = False
@@ -892,6 +922,121 @@ class RelaySwitch:
 
             return rids
 
+    @staticmethod
+    def _admission_key(master_idx: int, record: "InstalledCartridgeRecord") -> AdmissionKey:
+        """Stable admission identity for one installed cartridge behind one
+        master. Mirrors the reference ``RelaySwitch::admission_key``."""
+        return AdmissionKey(
+            master_idx=master_idx,
+            registry_url=record.registry_url,
+            channel=record.channel,
+            id=record.id,
+            version=record.version,
+            sha256=record.sha256,
+        )
+
+    def _configure_master_admission_locked(
+        self, master_idx: int, cartridges: List["InstalledCartridgeRecord"]
+    ) -> None:
+        """Refresh every admission slot this master advertises and mark the
+        rest of its slots unavailable. Caller must hold ``self._lock``.
+        Mirrors ``configure_master_admission``."""
+        available = set()
+        for record in cartridges:
+            if record.runtime_stats is None:
+                raise ProtocolError(
+                    f"cartridge '{record.id}' on master {master_idx} is missing "
+                    "mandatory v4 runtime_stats"
+                )
+            capacity = record.runtime_stats.handler_capacity if record.runtime_stats.running else 1
+            key = self._admission_key(master_idx, record)
+            # A host may expose several process instances of the same logical
+            # install. They share one admission identity: preserve the first
+            # host-ordered record, matching host dispatch.
+            if key not in available:
+                available.add(key)
+                self._admission.configure(key, capacity)
+        self._admission.reconcile_master(master_idx, available)
+
+    def _cap_admission_target_locked(
+        self, master_idx: int, registered_cap: str
+    ) -> Tuple[AdmissionKey, int]:
+        """Admission identity and capacity of the cartridge that owns
+        ``registered_cap`` on this master. Caller must hold ``self._lock``.
+        Mirrors ``cap_admission_target``."""
+        if master_idx < 0 or master_idx >= len(self._masters):
+            raise ProtocolError(f"selected master index {master_idx} no longer exists")
+        owner = None
+        owner_key = None
+        for record in self._masters[master_idx].installed_cartridges:
+            if record.attachment_error is not None:
+                continue
+            if registered_cap not in record.cap_urns():
+                continue
+            key = self._admission_key(master_idx, record)
+            if owner is None:
+                owner, owner_key = record, key
+                continue
+            if key != owner_key:
+                raise ProtocolError(
+                    f"master {master_idx} has multiple distinct installed cartridges "
+                    f"claiming cap '{registered_cap}'; routing is ambiguous"
+                )
+        if owner is None:
+            raise ProtocolError(
+                f"master {master_idx} advertises cap '{registered_cap}' without an "
+                "installed-cartridge owner"
+            )
+        if owner.runtime_stats is None:
+            raise ProtocolError(
+                f"cartridge '{owner.id}' on master {master_idx} is missing mandatory "
+                "v4 runtime_stats"
+            )
+        capacity = owner.runtime_stats.handler_capacity if owner.runtime_stats.running else 1
+        return owner_key, capacity
+
+    def _registered_cap_for_locked(self, master_idx: int, cap_urn: str) -> str:
+        """The cap-table entry on this master that ``cap_urn`` dispatches to.
+        Caller must hold ``self._lock``."""
+        request_urn = CapUrn.from_string(cap_urn)
+        for registered, idx in self._cap_table:
+            if idx != master_idx:
+                continue
+            if CapUrn.from_string(registered).is_dispatchable(request_urn):
+                return registered
+        raise NoHandlerError(cap_urn)
+
+    def admission_capacity_for_cap(self, cap_urn: str) -> int:
+        """Authoritative handler capacity for the cartridge selected by normal
+        cap dispatch. A positive capacity is an execution boundary: callers
+        must not pre-acquire that request as part of a multi-cap live pipeline,
+        because the permit represents an actively owned process slot. Zero
+        means unlimited. Mirrors ``admission_capacity_for_cap``."""
+        with self._lock:
+            dest_idx = self._find_master_for_cap(cap_urn, None)
+            if dest_idx is None:
+                raise NoHandlerError(cap_urn)
+            registered = self._registered_cap_for_locked(dest_idx, cap_urn)
+            _, capacity = self._cap_admission_target_locked(dest_idx, registered)
+            return capacity
+
+    def _acquire_cap_admission(self, cap_urn: str, preferred_cap: Optional[str]):
+        """Resolve the cartridge that will serve ``cap_urn`` and take its
+        admission slot, waiting for capacity. Called WITHOUT ``self._lock``:
+        acquiring can block, and blocking under the switch lock would deadlock
+        every path that must run for a slot to be released."""
+        with self._lock:
+            dest_idx = self._find_master_for_cap(cap_urn, preferred_cap)
+            if dest_idx is None:
+                raise NoHandlerError(cap_urn)
+            registered = self._registered_cap_for_locked(dest_idx, cap_urn)
+            key, capacity = self._cap_admission_target_locked(dest_idx, registered)
+            self._admission.configure(key, capacity)
+        try:
+            return self._admission.acquire(key)
+        except AdmissionError as e:
+            raise CartridgeUnavailableError(str(e)) from e
+
     def send_to_master(self, frame: Frame, preferred_cap: Optional[str] = None) -> None:
         """Send a frame to the appropriate master (engine → cartridge direction)
 
@@ -908,6 +1053,32 @@ class RelaySwitch:
             NoHandlerError: No master found for cap
             UnknownRequestError: Unknown request ID for continuation frame
         """
+        # A REQ takes an admission permit BEFORE the switch lock: acquiring can
+        # block waiting for a slot, and blocking under ``self._lock`` would
+        # deadlock every path that must run for a slot to be released. Route
+        # resolution needs the lock, so the sequence is resolve → release →
+        # acquire → relock → register, exactly as the reference orders it.
+        permit = None
+        if frame.frame_type == FrameType.REQ:
+            permit = self._acquire_cap_admission(frame.cap, preferred_cap)
+        admitted = False
+        try:
+            self._send_to_master_admitted(frame, preferred_cap, permit)
+            admitted = True
+        finally:
+            # Any failure past the acquire must give the slot back, or a
+            # bounded cartridge loses capacity permanently.
+            if permit is not None and not admitted:
+                permit.release()
+
+    def _send_to_master_admitted(
+        self,
+        frame: Frame,
+        preferred_cap: Optional[str],
+        permit,
+    ) -> None:
+        """The locked half of :meth:`send_to_master`, with the REQ's admission
+        permit (if any) already taken."""
         with self._lock:
             if frame.frame_type == FrameType.REQ:
                 # Find master for this cap
@@ -928,6 +1099,9 @@ class RelaySwitch:
                     external_channel=None,
                     is_peer=False,
                 ).with_cap_urn(frame.cap)
+                # The request table owns the permit now: it is released when the
+                # request terminates (End | Err | Cancelled | MasterDied).
+                state.admission_permit = permit
                 try:
                     self._requests.register(key, state)
                 except RequestStateError as e:
@@ -1415,6 +1589,10 @@ class RelaySwitch:
                 return  # Already handled
 
             self._masters[master_idx].healthy = False
+            # Every slot behind this master goes unavailable. Queued work is
+            # NOT failed here: it rides the admission grace window in case the
+            # master reconnects.
+            self._admission.disable_master(master_idx)
 
             # Find all pending requests routed to this master.
             dead_keys = self._requests.keys_where(
