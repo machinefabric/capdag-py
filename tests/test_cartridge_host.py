@@ -1445,3 +1445,134 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     with host._lock:
         records = host._build_installed_cartridge_identities()
     assert records[0]["runtime_stats"]["protocol_drops_total"] == 45
+
+
+def _cap_groups_from_urns(urns):
+    """Single-group cap_groups from cap URN strings, in the wire shape the
+    host stores. Mirrors the reference test helper."""
+    return [{
+        "name": "default",
+        "caps": [
+            {"urn": u, "title": "Retiring", "aliases": ["retiring"], "args": []}
+            for u in urns
+        ],
+        "adapter_urns": [],
+    }]
+
+
+def _retire_fixture(tmp_path):
+    """A registered-dir cartridge, marked running, for roster-retire tests.
+    Mirrors the reference test helper."""
+    from capdag.bifaci.cartridge_repo import CartridgeChannel
+
+    (tmp_path / "cartridge.json").write_text(
+        '{"name":"retiring","version":"1.0.0","channel":"release","registry_url":null,'
+        '"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"dev"}',
+        encoding="utf-8",
+    )
+    entry = tmp_path / "bin"
+    entry.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    host = CartridgeHost()
+    host.register_cartridge_dir(
+        str(entry),
+        str(tmp_path),
+        "retiring",
+        CartridgeChannel.RELEASE,
+        None,
+        "1.0.0",
+        _cap_groups_from_urns(['cap:in="media:void";out="media:void";retiring']),
+    )
+    # Pretend it started: retirement only has to make a decision about a LIVE
+    # process.
+    host._cartridges[0].running = True
+    return host, entry
+
+
+# TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means "no NEW work" — the process must survive until the requests it is already handling terminate.
+def test_1945_roster_retire_drains_a_busy_cartridge_before_killing_it(tmp_path):
+    from capdag.bifaci.host_runtime import _RoutingEntry
+
+    host, _entry = _retire_fixture(tmp_path)
+
+    # One request in flight on this cartridge.
+    host._request_routing["req-1"] = _RoutingEntry(cartridge_idx=0, msg_id=None)
+
+    host._sync_registered_roster([])
+
+    cartridge = host._cartridges[0]
+    assert cartridge.removed and cartridge.hello_failed, (
+        "a retired cartridge must leave the cap table and inventory immediately"
+    )
+    assert cartridge.retiring_since is not None, (
+        "a busy retired cartridge must be marked draining"
+    )
+    assert cartridge.running, (
+        "a cartridge mid-request must not be killed by a roster change"
+    )
+
+    # Still busy → still alive.
+    with host._lock:
+        host._reap_drained_cartridges_locked()
+    assert cartridge.running
+
+    # The request terminates; the next reap collects it.
+    host._request_routing.pop("req-1")
+    with host._lock:
+        host._reap_drained_cartridges_locked()
+    assert not cartridge.running, (
+        "a drained cartridge must be shut down once its last request ends"
+    )
+    assert cartridge.retiring_since is None
+
+
+# TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to).
+def test_1946_roster_retire_kills_an_idle_cartridge_as_retired(tmp_path):
+    host, _entry = _retire_fixture(tmp_path)
+
+    host._sync_registered_roster([])
+
+    cartridge = host._cartridges[0]
+    assert cartridge.retiring_since is None
+    assert not cartridge.running
+    assert cartridge.removed
+
+
+# TEST1947: a roster that flaps — retire then restore the same identity — keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it.
+def test_1947_roster_flap_cancels_retirement_instead_of_respawning(tmp_path):
+    from capdag.bifaci.host_runtime import RegisteredDirSpec, _RoutingEntry
+    from capdag.bifaci.cartridge_repo import CartridgeChannel
+
+    host, entry = _retire_fixture(tmp_path)
+    spec = RegisteredDirSpec(
+        entry_point=str(entry),
+        version_dir=str(tmp_path),
+        id="retiring",
+        channel=CartridgeChannel.RELEASE,
+        registry_url=None,
+        version="1.0.0",
+        cap_groups=_cap_groups_from_urns(['cap:in="media:void";out="media:void";retiring']),
+    )
+
+    # Busy, so the outage puts it into a drain rather than killing it.
+    host._request_routing["req-1"] = _RoutingEntry(cartridge_idx=0, msg_id=None)
+    host._sync_registered_roster([])
+    assert host._cartridges[0].retiring_since is not None
+
+    # The registry answers again and the roster is restored.
+    host._sync_registered_roster([spec])
+
+    assert len(host._cartridges) == 1, (
+        "the restored identity must reuse the draining process, not spawn a second one"
+    )
+    cartridge = host._cartridges[0]
+    assert cartridge.retiring_since is None
+    assert not cartridge.removed
+    assert not cartridge.hello_failed
+    assert cartridge.running, "the process must never have been killed"
+
+    # And it is not reaped afterwards.
+    host._request_routing.pop("req-1")
+    with host._lock:
+        host._reap_drained_cartridges_locked()
+    assert cartridge.running

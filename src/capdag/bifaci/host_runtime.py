@@ -298,6 +298,18 @@ class RegisteredDirSpec:
     cap_groups: List[Any]
 
 
+# How long a retired cartridge may keep running to finish the requests it is
+# already serving.
+#
+# Retirement means "stop giving this install NEW work", not "destroy the work
+# it is doing". The cartridge is dropped from the cap table immediately (so
+# nothing new routes to it) and killed only once its in-flight requests have
+# terminated. This bound is a backstop for a cartridge that never finishes;
+# heartbeat monitoring still applies during the drain. Mirrors the reference
+# ``RETIRE_DRAIN_TIMEOUT``.
+RETIRE_DRAIN_TIMEOUT_SECONDS = 600.0
+
+
 class CartridgeProcessHandle:
     """Thread-safe handle for sending commands to a running
     ``CartridgeHost``. Obtained via ``process_handle()`` before calling
@@ -357,6 +369,17 @@ class _ManagedCartridge:
         # attachment error. Mirrors the reference ``ManagedCartridge.removed``
         # (Swift ``isRemoved``).
         self.removed: bool = False
+        # Set when a roster sync retired this cartridge while it still had
+        # work in flight. It is already out of the cap table and the
+        # inventory, so nothing new routes to it; the process stays alive
+        # until its in-flight requests terminate or ``RETIRE_DRAIN_TIMEOUT``
+        # expires. Mirrors the reference ``retiring_since``.
+        self.retiring_since: Optional[float] = None
+        # Set before killing a retired cartridge so the death handler
+        # attributes its pending work to the retirement rather than reporting
+        # an unexpected crash. Mirrors the reference
+        # ``ShutdownReason::RosterRetired``.
+        self.retired: bool = False
         # Cumulative protocol drop count self-reported by the cartridge as
         # ``drops_total`` in heartbeat response meta. ``None`` until the
         # first heartbeat round-trip carries the counter. Survives across
@@ -732,6 +755,11 @@ class CartridgeHost:
             if now - last_stats_publish >= STATS_INTERVAL_SECONDS:
                 last_stats_publish = now
                 with self._lock:
+                    # Retired-but-draining cartridges are reaped here: the
+                    # tick is the host's regular opportunity to notice that
+                    # the last in-flight request of a retired install has
+                    # terminated.
+                    self._reap_drained_cartridges_locked()
                     any_running = any(c.running for c in self._cartridges)
                     if any_running:
                         self._rebuild_capabilities(emit=True)
@@ -951,14 +979,25 @@ class CartridgeHost:
                     failed_keys.append(req_id)
                     failed_entries.append(entry)
 
+            # A retirement is not a crash: the deployment said this install is
+            # no longer wanted. Reporting it as CARTRIDGE_DIED would tell the
+            # operator a healthy process crashed. Both are Environment — the
+            # cause is outside the engine either way.
+            code = "CARTRIDGE_RETIRED" if cartridge.retired else "CARTRIDGE_DIED"
+            reason = (
+                f"cartridge {cartridge_idx} retired: it is no longer in the "
+                "host's desired roster"
+                if cartridge.retired
+                else f"cartridge {cartridge_idx} died"
+            )
             for i, key in enumerate(failed_keys):
                 # A dead cartridge process is a runtime-environment
                 # failure — Environment (docs/failure-taxonomy.md).
                 err_frame = Frame.err(
                     failed_entries[i].msg_id,
-                    "CARTRIDGE_DIED",
+                    code,
                     AttributionClass.ENVIRONMENT,
-                    f"cartridge {cartridge_idx} died"
+                    reason,
                 )
                 try:
                     relay_writer.write(err_frame)
@@ -1265,6 +1304,49 @@ class CartridgeHost:
                     except Exception:
                         pass
 
+    def _in_flight_count_locked(self, cartridge: "_ManagedCartridge") -> int:
+        """Requests this cartridge is currently serving. Killing mid-request
+        strands the caller, so retirement must wait for these to finish.
+        Caller must hold ``self._lock``. Mirrors the reference
+        ``in_flight_count``."""
+        idx = self._cartridges.index(cartridge)
+        return sum(
+            1 for entry in self._request_routing.values() if entry.cartridge_idx == idx
+        )
+
+    def _retire_kill_locked(self, cartridge: "_ManagedCartridge") -> None:
+        """Kill a retired cartridge. Caller must hold ``self._lock``.
+        Mirrors the reference ``retire_kill``."""
+        cartridge.retiring_since = None
+        cartridge.retired = True
+        if cartridge.writer_queue is not None:
+            cartridge.writer_queue.put(None)
+            cartridge.writer_queue = None
+        if cartridge.process is not None:
+            try:
+                cartridge.process.kill()
+            except Exception:
+                pass
+            cartridge.process = None
+        cartridge.running = False
+
+    def _reap_drained_cartridges_locked(self) -> None:
+        """Kill retired cartridges that finished draining, and any whose
+        drain outlived ``RETIRE_DRAIN_TIMEOUT_SECONDS``. Called on the host's
+        periodic tick. Caller must hold ``self._lock``. Mirrors the reference
+        ``reap_drained_cartridges``."""
+        now = time.monotonic()
+        for cartridge in self._cartridges:
+            if cartridge.retiring_since is None:
+                continue
+            if not cartridge.running:
+                cartridge.retiring_since = None
+                continue
+            drained = self._in_flight_count_locked(cartridge) == 0
+            expired = now - cartridge.retiring_since >= RETIRE_DRAIN_TIMEOUT_SECONDS
+            if drained or expired:
+                self._retire_kill_locked(cartridge)
+
     def _sync_registered_roster(self, desired: List[RegisteredDirSpec]) -> None:
         """Replace the live registered-dir roster with a freshly-discovered
         set and re-publish RelayNotify, so the engine sees added/removed
@@ -1301,23 +1383,39 @@ class CartridgeHost:
                     continue  # attached/internal — not part of a dir roster sync
                 if identity_of(rec) in desired_keys:
                     continue  # still desired — keep, preserving any live process
-                if cartridge.running:
-                    if cartridge.writer_queue is not None:
-                        cartridge.writer_queue.put(None)
-                        cartridge.writer_queue = None
-                    if cartridge.process is not None:
-                        try:
-                            cartridge.process.kill()
-                        except Exception:
-                            pass
-                        cartridge.process = None
-                    cartridge.running = False
-                # Retire: drop from the inventory entirely (not a failure —
-                # nothing to report). ``hello_failed`` also keeps it out of
-                # the cap table / dispatch / spawn paths. Mirrors the
-                # reference ``removed`` + ``hello_failed`` pair.
+                # Retire = stop giving it NEW work. Dropping it from the
+                # inventory entirely (not a failure — nothing to report) does
+                # that immediately; ``hello_failed`` also keeps it out of the
+                # cap table / dispatch / spawn paths. Mirrors the reference
+                # ``removed`` + ``hello_failed`` pair.
                 cartridge.removed = True
                 cartridge.hello_failed = True
+                if not cartridge.running:
+                    continue
+                if self._in_flight_count_locked(cartridge) == 0:
+                    self._retire_kill_locked(cartridge)
+                    continue
+                # DRAIN. Killing here would ERR every in-flight request of a
+                # cartridge that is healthy and doing exactly what it was
+                # asked to do. It finishes, then dies (see
+                # ``_reap_drained_cartridges_locked``).
+                cartridge.retiring_since = time.monotonic()
+
+            # A roster that flaps — retire, then restore the same identity
+            # moments later, exactly what a transient registry outage
+            # produces — must find the DRAINING process again rather than
+            # leave it to die and spawn a second one beside it. Un-retiring
+            # keeps the live process, its warm model, and its queue.
+            for cartridge in self._cartridges:
+                if cartridge.retiring_since is None:
+                    continue
+                rec = cartridge.installed_cartridge_record()
+                if rec is None or identity_of(rec) not in desired_keys:
+                    continue
+                cartridge.retiring_since = None
+                cartridge.retired = False
+                cartridge.removed = False
+                cartridge.hello_failed = False
 
             # Compute which desired specs are not already registered.
             present_keys = set()
