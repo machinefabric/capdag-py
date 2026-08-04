@@ -215,7 +215,9 @@ def test_788_foreach_only_with_sequence_input():
 
 
 # TEST8064: a sequence-consuming cap is reached directly from sequence data,
-# never through a dangling ForEach boundary.
+# never through a dangling ForEach boundary. A ForEach followed by a SCALAR cap
+# stays legal — that is the map half of the ordinary map-then-fold plan — so the
+# invariant is about what may follow the boundary, not about ForEach appearing.
 def test_8064_sequence_consumer_never_follows_foreach_directly():
     graph = LiveCapFab()
     graph.add_cap(
@@ -245,10 +247,23 @@ def test_8064_sequence_consumer_never_follows_foreach_directly():
     )
 
     assert paths
-    assert all(
-        all(step.step_type != StrandStepType.FOR_EACH for step in path.steps)
+    # Sequence data reaches the sequence consumer directly, with no boundary.
+    assert any(
+        len(path.steps) == 1
+        and path.steps[0].step_type == StrandStepType.CAP
+        and path.steps[0].input_is_sequence
         for path in paths
     )
+    # A ForEach boundary may only qualify a SCALAR-input cap. Following one with a
+    # sequence consumer is the dangling `ForEach -> concat` the resolver rejects.
+    # ForEach followed by a scalar cap stays legal — that is the map half of the
+    # ordinary map-then-fold plan.
+    for path in paths:
+        for step, following in zip(path.steps, path.steps[1:]):
+            if step.step_type != StrandStepType.FOR_EACH:
+                continue
+            assert following.step_type == StrandStepType.CAP
+            assert not following.input_is_sequence
 
 
 # TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec
@@ -417,7 +432,7 @@ def test_1293_roundtrip_requires_cap_steps():
 # TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
 def test_1150_add_cap_and_basic_traversal():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_text", "Extract Text"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:digitized-text", "extract_text", "Extract Text"))
 
     assert len(graph._edges) == 1
     assert len(graph._nodes) == 2
@@ -425,12 +440,12 @@ def test_1150_add_cap_and_basic_traversal():
     source = _media("media:ext=pdf")
     targets = graph.get_reachable_targets(source, False, 5)
 
-    extracted_text = _media("media:extracted-text")
+    digitized_text = _media("media:digitized-text")
     cap_target = next(
-        (t for t in targets if t.media_def.is_equivalent(extracted_text)),
+        (t for t in targets if t.media_def.is_equivalent(digitized_text)),
         None
     )
-    assert cap_target is not None, "extracted-text should be reachable"
+    assert cap_target is not None, "digitized-text should be reachable"
     assert cap_target.min_path_length == 1
 
 
@@ -461,8 +476,8 @@ def test_1151_exact_vs_conformance_matching():
 # TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.
 def test_1152_multi_step_path():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract", "Extract"))
-    graph.add_cap(_make_test_cap("media:extracted-text", "media:summary-text", "summarize", "Summarize"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:digitized-text", "extract", "Extract"))
+    graph.add_cap(_make_test_cap("media:digitized-text", "media:summary-text", "summarize", "Summarize"))
 
     source = _media("media:ext=pdf")
     target = _media("media:summary-text")
@@ -477,11 +492,11 @@ def test_1152_multi_step_path():
 # TEST1153: Repeated path searches return the same path order for the same graph and target.
 def test_1153_deterministic_ordering():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_a", "Extract A"))
-    graph.add_cap(_make_test_cap("media:ext=pdf", "media:extracted-text", "extract_b", "Extract B"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:digitized-text", "extract_a", "Extract A"))
+    graph.add_cap(_make_test_cap("media:ext=pdf", "media:digitized-text", "extract_b", "Extract B"))
 
     source = _media("media:ext=pdf")
-    target = _media("media:extracted-text")
+    target = _media("media:digitized-text")
 
     paths1 = graph.find_paths_to_exact_target(source, target, False, 5, 10)
     paths2 = graph.find_paths_to_exact_target(source, target, False, 5, 10)
@@ -498,15 +513,15 @@ def test_1153_deterministic_ordering():
 def test_1154_sync_from_caps():
     graph = LiveCapFab()
     caps = [
-        _make_test_cap("media:ext=pdf", "media:extracted-text", "op1", "Op1"),
-        _make_test_cap("media:extracted-text", "media:summary-text", "op2", "Op2"),
+        _make_test_cap("media:ext=pdf", "media:digitized-text", "op1", "Op1"),
+        _make_test_cap("media:digitized-text", "media:summary-text", "op2", "Op2"),
     ]
     graph.sync_from_caps(caps)
 
     assert len(graph._edges) == 2
     assert len(graph._nodes) == 3
 
-    new_caps = [_make_test_cap("media:image", "media:extracted-text", "ocr", "OCR")]
+    new_caps = [_make_test_cap("media:image", "media:digitized-text", "ocr", "OCR")]
     graph.sync_from_caps(new_caps)
 
     assert len(graph._edges) == 1

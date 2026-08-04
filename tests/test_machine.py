@@ -165,7 +165,7 @@ def test_1184_single_edge_strand_resolves_correctly():
 # TEST6709: Resolving a strand with two chained caps shares the intermediate node.
 def test_6709_two_step_chain_shares_intermediate_node():
     urn1 = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
+    urn2 = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
     cap1 = _simple_cap(urn1, "media:ext=pdf", "media:enc=utf-8;ext=txt")
     cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
@@ -516,7 +516,7 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 
 def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
     split_urn = "cap:in=\"media:list;enc=utf-8\";split;out=\"media:enc=utf-8\""
-    embed_urn = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
+    embed_urn = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
     splitter = _simple_cap(split_urn, "media:list;enc=utf-8", "media:enc=utf-8")
     splitter.output.is_sequence = True
     embed = _simple_cap(embed_urn, "media:enc=utf-8", "media:vec;record")
@@ -1067,7 +1067,7 @@ def test_1178_match_single_source_picks_unique_arg():
 # TEST1185: Resolving a chained strand reuses the intermediate node between adjacent caps.
 def test_1185_resolve_strand_chained_caps_share_intermediate_node():
     urn_extract = "cap:in=\"media:ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn_embed = "cap:in=media:embed;enc=utf-8;out=\"media:vec;record\""
+    urn_embed = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
     extract = _simple_cap(urn_extract, "media:ext=pdf", "media:enc=utf-8;ext=txt")
     embed = _simple_cap(urn_embed, "media:enc=utf-8", "media:vec;record")
     reg = _registry_with([extract, embed])

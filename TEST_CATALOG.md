@@ -1,8 +1,8 @@
 # CapDag-Py Test Catalog
 
-**Total Tests:** 1200
+**Total Tests:** 1205
 
-**Numbered Tests:** 1186
+**Numbered Tests:** 1191
 
 **Unnumbered Tests:** 14
 
@@ -214,17 +214,17 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test221 | `test_221_read_frame_returns_none_on_eof` | TEST221: Test read_frame returns Ok(None) on clean EOF (empty stream) | tests/test_cbor_io.py:310 |
 | test222 | `test_222_read_frame_fails_on_truncated_length_prefix` | TEST222: Test read_frame handles truncated length prefix (fewer than 4 bytes available) | tests/test_cbor_io.py:316 |
 | test223 | `test_223_read_frame_fails_on_truncated_frame_body` | TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available) | tests/test_cbor_io.py:323 |
-| test224 | `test_224_handshake_negotiates_to_minimum_limits` | TEST224: Test MessageId::Uint roundtrips through encode/decode | tests/test_cbor_io.py:610 |
-| test225 | `test_225_handshake_function_full_handshake` | TEST225: Test decode_frame rejects non-map CBOR values (e.g., array, integer, string) | tests/test_cbor_io.py:646 |
-| test226 | `test_226_handshake_accept_receives_first` | TEST226: Test decode_frame rejects CBOR map missing required version field | tests/test_cbor_io.py:676 |
-| test227 | `test_227_handshake_fails_if_cartridge_missing_manifest` | TEST227: Test decode_frame rejects CBOR map with invalid frame_type value | tests/test_cbor_io.py:707 |
-| test228 | `test_228_read_frame_enforces_limit` | TEST228: Test decode_frame rejects CBOR map missing required id field | tests/test_cbor_io.py:732 |
-| test229 | `test_229_frame_with_zero_length_payload` | TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits | tests/test_cbor_io.py:750 |
-| test230 | `test_230_frame_roundtrip_preserves_fields` | TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits | tests/test_cbor_io.py:765 |
-| test231 | `test_231_multiple_readers_on_same_stream` | TEST231: Test handshake fails when peer sends non-HELLO frame | tests/test_cbor_io.py:787 |
-| test232 | `test_232_writer_flushes_after_each_frame` | TEST232: Test handshake fails when cartridge HELLO is missing required manifest | tests/test_cbor_io.py:812 |
-| test233 | `test_233_frame_encoding_preserves_binary_data` | TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode | tests/test_cbor_io.py:825 |
-| test234 | `test_234_handshake_with_very_small_limits` | TEST234: Test decode_frame handles garbage CBOR bytes gracefully with an error | tests/test_cbor_io.py:838 |
+| test224 | `test_224_handshake_negotiates_to_minimum_limits` | TEST224: Test MessageId::Uint roundtrips through encode/decode | tests/test_cbor_io.py:619 |
+| test225 | `test_225_handshake_function_full_handshake` | TEST225: Test decode_frame rejects non-map CBOR values (e.g., array, integer, string) | tests/test_cbor_io.py:655 |
+| test226 | `test_226_handshake_accept_receives_first` | TEST226: Test decode_frame rejects CBOR map missing required version field | tests/test_cbor_io.py:687 |
+| test227 | `test_227_handshake_fails_if_cartridge_missing_manifest` | TEST227: Test decode_frame rejects CBOR map with invalid frame_type value | tests/test_cbor_io.py:718 |
+| test228 | `test_228_read_frame_enforces_limit` | TEST228: Test decode_frame rejects CBOR map missing required id field | tests/test_cbor_io.py:743 |
+| test229 | `test_229_frame_with_zero_length_payload` | TEST229: Test FrameReader/FrameWriter set_limits updates the negotiated limits | tests/test_cbor_io.py:761 |
+| test230 | `test_230_frame_roundtrip_preserves_fields` | TEST230: Test async handshake exchanges HELLO frames and negotiates minimum limits | tests/test_cbor_io.py:776 |
+| test231 | `test_231_multiple_readers_on_same_stream` | TEST231: Test handshake fails when peer sends non-HELLO frame | tests/test_cbor_io.py:798 |
+| test232 | `test_232_writer_flushes_after_each_frame` | TEST232: Test handshake fails when cartridge HELLO is missing required manifest | tests/test_cbor_io.py:823 |
+| test233 | `test_233_frame_encoding_preserves_binary_data` | TEST233: Test binary payload with all 256 byte values roundtrips through encode/decode | tests/test_cbor_io.py:836 |
+| test234 | `test_234_handshake_with_very_small_limits` | TEST234: Test decode_frame handles garbage CBOR bytes gracefully with an error | tests/test_cbor_io.py:849 |
 | test235 | `test_235_response_chunk` | TEST235: Test ResponseChunk stores payload, seq, offset, len, and eof fields correctly | tests/test_cartridge_host_runtime.py:45 |
 | test236 | `test_236_response_chunk_with_all_fields` | TEST236: Test ResponseChunk with all fields populated preserves offset, len, and eof | tests/test_cartridge_host_runtime.py:62 |
 | test237 | `test_237_cartridge_response_single` | TEST237: Test CartridgeResponse::Single final_payload returns the single payload slice | tests/test_cartridge_host_runtime.py:79 |
@@ -277,11 +277,11 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test287 | `test_287_heartbeat_from_host` | TEST287: Host-initiated heartbeat | tests/test_cbor_integration.py:185 |
 | test288 | `test_288_media_documentation_propagates_through_resolve` | TEST288: Documentation propagates from MediaDef through resolve_media_urn into ResolvedMediaDef. This is the resolution path used by every consumer that asks the registry for a media def — info panels, the cap navigator, the UI — so a regression here makes the new field invisible everywhere. | tests/test_media_def.py:547 |
 | test289 | `test_289_media_def_def_documentation_round_trip` | TEST289: MediaDef serializes documentation only when present and round-trips losslessly. Mirrors TEST1127/1128 for the cap side. | tests/test_media_def.py:568 |
-| test290 | `test_290_limits_negotiation` | TEST290: Limit negotiation picks minimum | tests/test_cbor_integration.py:223 |
-| test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:255 |
-| test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:300 |
+| test290 | `test_290_limits_negotiation` | TEST290: Limit negotiation picks minimum | tests/test_cbor_integration.py:225 |
+| test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:257 |
+| test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:302 |
 | test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:272 |
-| test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:341 |
+| test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:343 |
 | test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:295 |
 | test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:257 |
 | test304 | `test_304_media_availability_output_constant` | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags | tests/test_media_urn.py:257 |
@@ -339,8 +339,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test366 | `test_366_stream_end_frame` | TEST366: Frame::stream_end stores request_id and stream_id | tests/test_cbor_frame.py:443 |
 | test367 | `test_367_stream_start_with_empty_stream_id` | TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:459 |
 | test368 | `test_368_stream_start_with_empty_media_urn` | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:470 |
-| test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:1002 |
-| test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:1018 |
+| test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:1013 |
+| test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:1029 |
 | test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1655 |
 | test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1687 |
 | test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1714 |
@@ -386,8 +386,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:395 |
 | test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:435 |
 | test439 | `test_439_generic_candidate_can_dispatch_specific_request` | TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:475 |
-| test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:1067 |
-| test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:1087 |
+| test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:1078 |
+| test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:1098 |
 | test442 | `test_442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | tests/test_cbor_frame.py:594 |
 | test443 | `test_443_seq_assigner_independent_rids` | TEST443: SeqAssigner maintains independent counters for different RIDs | tests/test_cbor_frame.py:615 |
 | test444 | `test_444_seq_assigner_skips_non_flow` | TEST444: SeqAssigner skips non-flow frames (Heartbeat, RelayNotify, RelayState, Hello) | tests/test_cbor_frame.py:640 |
@@ -416,9 +416,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:285 |
 | test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1766 |
 | test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1775 |
-| test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:516 |
-| test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:554 |
-| test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:583 |
+| test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:525 |
+| test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:563 |
+| test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:592 |
 | test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:177 |
 | test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:200 |
 | test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:833 |
@@ -572,13 +572,13 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test650 | `test_650_wildcard_012_preserve_other_tags` | TEST650: cap:in=media:;out=media:;test preserves other tags | tests/test_cap_urn.py:1014 |
 | test652 | `test_652_wildcard_cap_identity_constant` | TEST652: CAP_IDENTITY constant matches identity caps regardless of string form | tests/test_cap_urn.py:1065 |
 | test653 | `test_653_effect_none_illegal_declaration_rejected` | TEST653: invalid effect=none declarations fail at construction | tests/test_cap_urn.py:1086 |
-| test658 | `test_658_heartbeat_response` | TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID | tests/test_in_process_host.py:255 |
-| test659 | `test_659_handler_error_returns_err_frame` | TEST659: InProcessCartridgeHost handler error returns ERR frame | tests/test_in_process_host.py:281 |
-| test660 | `test_660_closest_specificity_routing` | TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity | tests/test_in_process_host.py:332 |
-| test662 | `test_662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). | tests/test_cartridge_host.py:1053 |
-| test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1082 |
-| test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1108 |
-| test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | tests/test_cartridge_host.py:1145 |
+| test658 | `test_658_heartbeat_response` | TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID | tests/test_in_process_host.py:258 |
+| test659 | `test_659_handler_error_returns_err_frame` | TEST659: InProcessCartridgeHost handler error returns ERR frame | tests/test_in_process_host.py:285 |
+| test660 | `test_660_closest_specificity_routing` | TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity | tests/test_in_process_host.py:336 |
+| test662 | `test_662_rebuild_capabilities_includes_non_running_cartridges` | TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet). | tests/test_cartridge_host.py:1086 |
+| test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1115 |
+| test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1141 |
+| test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | tests/test_cartridge_host.py:1178 |
 | test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:872 |
 | test667 | `test_667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | tests/test_cbor_frame.py:545 |
 | test668 | `test_668_resolve_slot_with_populated_byte_slot_values` | TEST668: resolve_slot_with_populated_byte_slot_values | tests/test_planner_argument_binding.py:37 |
@@ -622,43 +622,43 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test725 | `test_725_structure_incompatibility_record_to_opaque` | TEST725: Tests structure incompatibility for record-to-opaque flow | tests/test_cardinality.py:197 |
 | test726 | `test_726_apply_structure_add_record` | TEST726: Tests applying Record structure adds record marker to URN | tests/test_cardinality.py:203 |
 | test727 | `test_727_apply_structure_remove_record` | TEST727: Tests applying Opaque structure removes record marker from URN | tests/test_cardinality.py:208 |
-| test728 | `test_728_cap_node_helpers` | TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types | tests/test_plan.py:23 |
-| test729 | `test_729_edge_types` | TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants | tests/test_plan.py:43 |
+| test728 | `test_728_cap_node_helpers` | TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types | tests/test_plan.py:46 |
+| test729 | `test_729_edge_types` | TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants | tests/test_plan.py:66 |
 | test730 | `test_730_media_shape_from_urn_all_combinations` | TEST730: Tests MediaShape correctly parses all four combinations | tests/test_cardinality.py:213 |
 | test731 | `test_731_media_shape_compatible_direct` | TEST731: Tests MediaShape compatibility for matching shapes | tests/test_cardinality.py:232 |
 | test732 | `test_732_media_shape_cardinality_changes` | TEST732: Tests MediaShape compatibility for cardinality changes with matching structure | tests/test_cardinality.py:245 |
 | test733 | `test_733_media_shape_structure_mismatch` | TEST733: Tests MediaShape incompatibility when structures don't match | tests/test_cardinality.py:264 |
-| test734 | `test_734_topological_order_self_loop` | TEST734: Tests topological sort detects self-referencing cycles (A→A) Verifies that self-loops are recognized as cycles and produce an error | tests/test_plan.py:53 |
-| test735 | `test_735_topological_order_multiple_entry_points` | TEST735: Tests topological sort handles graphs with multiple independent starting nodes Verifies that parallel entry points (A→C, B→C) both precede their merge point in ordering | tests/test_plan.py:62 |
-| test736 | `test_736_topological_order_complex_dag` | TEST736: Tests topological sort on a complex multi-path DAG with 6 nodes Verifies that all dependency constraints are satisfied in a graph with multiple converging paths | tests/test_plan.py:82 |
-| test737 | `test_737_linear_chain_single_cap` | TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output | tests/test_plan.py:108 |
-| test738 | `test_738_linear_chain_empty` | TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges | tests/test_plan.py:116 |
-| test739 | `test_739_node_execution_result_success` | TEST739: Tests NodeExecutionResult structure for successful node execution Verifies that success status, outputs (binary and text), and error fields work correctly | tests/test_plan.py:123 |
+| test734 | `test_734_topological_order_self_loop` | TEST734: Tests topological sort detects self-referencing cycles (A→A) Verifies that self-loops are recognized as cycles and produce an error | tests/test_plan.py:76 |
+| test735 | `test_735_topological_order_multiple_entry_points` | TEST735: Tests topological sort handles graphs with multiple independent starting nodes Verifies that parallel entry points (A→C, B→C) both precede their merge point in ordering | tests/test_plan.py:85 |
+| test736 | `test_736_topological_order_complex_dag` | TEST736: Tests topological sort on a complex multi-path DAG with 6 nodes Verifies that all dependency constraints are satisfied in a graph with multiple converging paths | tests/test_plan.py:105 |
+| test737 | `test_737_linear_chain_single_cap` | TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output | tests/test_plan.py:131 |
+| test738 | `test_738_linear_chain_empty` | TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges | tests/test_plan.py:139 |
+| test739 | `test_739_node_execution_result_success` | TEST739: Tests NodeExecutionResult structure for successful node execution Verifies that success status, outputs (binary and text), and error fields work correctly | tests/test_plan.py:146 |
 | test740 | `test_740_cap_shape_info_from_specs` | TEST740: Tests CapShapeInfo correctly parses cap specs | tests/test_cardinality.py:279 |
 | test741 | `test_741_cap_shape_info_pattern` | TEST741: Tests CapShapeInfo pattern detection — OneToMany requires output is_sequence=true | tests/test_cardinality.py:288 |
-| test742 | `test_742_edge_type_serialization` | TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that edge types like Direct and JsonField correctly round-trip through serde_json | tests/test_plan.py:137 |
-| test743 | `test_743_execution_node_type_serialization` | TEST743: Tests ExecutionNodeType enum serialization and deserialization to/from JSON Verifies that node types like Cap and ForEach correctly serialize with their fields | tests/test_plan.py:149 |
-| test744 | `test_744_plan_serialization` | TEST744: Tests MachinePlan serialization and deserialization to/from JSON Verifies that complete plans with nodes and edges correctly round-trip through JSON | tests/test_plan.py:161 |
-| test745 | `test_745_merge_strategy_serialization` | TEST745: Tests MergeStrategy enum serialization to JSON Verifies that merge strategies like Concat and ZipWith serialize to correct string values | tests/test_plan.py:173 |
-| test746 | `test_746_cap_node_output` | TEST746: Tests creation of Output node type that references a source node Verifies that MachineNode::output() correctly constructs an Output node with name and source | tests/test_plan.py:179 |
-| test747 | `test_747_cap_node_merge` | TEST747: Tests creation and validation of Merge node that combines multiple inputs Verifies that Merge nodes with multiple input nodes and a strategy can be added to plans | tests/test_plan.py:187 |
-| test748 | `test_748_cap_node_split` | TEST748: Tests creation of Split node that distributes input to multiple outputs Verifies that Split nodes correctly specify an input node and output count | tests/test_plan.py:203 |
-| test749 | `test_749_get_node` | TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None | tests/test_plan.py:215 |
+| test742 | `test_742_edge_type_serialization` | TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that edge types like Direct and JsonField correctly round-trip through serde_json | tests/test_plan.py:160 |
+| test743 | `test_743_execution_node_type_serialization` | TEST743: Tests ExecutionNodeType enum serialization and deserialization to/from JSON Verifies that node types like Cap and ForEach correctly serialize with their fields | tests/test_plan.py:172 |
+| test744 | `test_744_plan_serialization` | TEST744: Tests MachinePlan serialization and deserialization to/from JSON Verifies that complete plans with nodes and edges correctly round-trip through JSON | tests/test_plan.py:184 |
+| test745 | `test_745_merge_strategy_serialization` | TEST745: Tests MergeStrategy enum serialization to JSON Verifies that merge strategies like Concat and ZipWith serialize to correct string values | tests/test_plan.py:196 |
+| test746 | `test_746_cap_node_output` | TEST746: Tests creation of Output node type that references a source node Verifies that MachineNode::output() correctly constructs an Output node with name and source | tests/test_plan.py:202 |
+| test747 | `test_747_cap_node_merge` | TEST747: Tests creation and validation of Merge node that combines multiple inputs Verifies that Merge nodes with multiple input nodes and a strategy can be added to plans | tests/test_plan.py:210 |
+| test748 | `test_748_cap_node_split` | TEST748: Tests creation of Split node that distributes input to multiple outputs Verifies that Split nodes correctly specify an input node and output count | tests/test_plan.py:226 |
+| test749 | `test_749_get_node` | TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None | tests/test_plan.py:238 |
 | test750 | `test_750_strand_shape_valid` | TEST750: Tests shape chain analysis for valid chain with matching structures | tests/test_cardinality.py:300 |
 | test751 | `test_751_strand_shape_structure_mismatch` | TEST751: Tests shape chain analysis detects structure mismatch | tests/test_cardinality.py:311 |
 | test752 | `test_752_strand_shape_with_fanout` | TEST752: Tests shape chain analysis with fan-out (matching structures) Fan-out requires output is_sequence=true on the disbind cap | tests/test_cardinality.py:323 |
 | test753 | `test_753_strand_shape_list_record_to_list_record` | TEST753: Tests shape chain analysis correctly handles list-to-list record flow | tests/test_cardinality.py:341 |
-| test754 | `test_754_extract_prefix_nonexistent` | TEST754: extract_prefix_to with nonexistent node returns error | tests/test_plan.py:277 |
-| test755 | `test_755_extract_foreach_body` | TEST755: extract_foreach_body extracts body as standalone plan | tests/test_plan.py:283 |
-| test756 | `test_756_extract_foreach_body_unclosed` | TEST756: extract_foreach_body for unclosed ForEach (single body cap) | tests/test_plan.py:300 |
-| test757 | `test_757_extract_foreach_body_wrong_type` | TEST757: extract_foreach_body fails for non-ForEach node | tests/test_plan.py:311 |
-| test758 | `test_758_extract_suffix_from` | TEST758: extract_suffix_from extracts collect → cap_post → output | tests/test_plan.py:317 |
-| test759 | `test_759_extract_suffix_nonexistent` | TEST759: extract_suffix_from fails for nonexistent node | tests/test_plan.py:332 |
-| test760 | `test_760_decomposition_covers_all_caps` | TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes | tests/test_plan.py:338 |
-| test761 | `test_761_prefix_is_dag` | TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:352 |
-| test762 | `test_762_body_is_dag` | TEST762: Body sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:358 |
-| test763 | `test_763_suffix_is_dag` | TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:364 |
-| test764 | `test_764_extract_prefix_to_input_slot` | TEST764: extract_prefix_to with InputSlot as target (trivial prefix) | tests/test_plan.py:372 |
+| test754 | `test_754_extract_prefix_nonexistent` | TEST754: extract_prefix_to with nonexistent node returns error | tests/test_plan.py:300 |
+| test755 | `test_755_extract_foreach_body` | TEST755: extract_foreach_body extracts body as standalone plan | tests/test_plan.py:306 |
+| test756 | `test_756_extract_foreach_body_unclosed` | TEST756: extract_foreach_body for unclosed ForEach (single body cap) | tests/test_plan.py:323 |
+| test757 | `test_757_extract_foreach_body_wrong_type` | TEST757: extract_foreach_body fails for non-ForEach node | tests/test_plan.py:334 |
+| test758 | `test_758_extract_suffix_from` | TEST758: extract_suffix_from extracts collect → cap_post → output | tests/test_plan.py:340 |
+| test759 | `test_759_extract_suffix_nonexistent` | TEST759: extract_suffix_from fails for nonexistent node | tests/test_plan.py:355 |
+| test760 | `test_760_decomposition_covers_all_caps` | TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes | tests/test_plan.py:361 |
+| test761 | `test_761_prefix_is_dag` | TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:375 |
+| test762 | `test_762_body_is_dag` | TEST762: Body sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:381 |
+| test763 | `test_763_suffix_is_dag` | TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG) | tests/test_plan.py:387 |
+| test764 | `test_764_extract_prefix_to_input_slot` | TEST764: extract_prefix_to with InputSlot as target (trivial prefix) | tests/test_plan.py:395 |
 | test765 | `test_765_validation_to_json_empty` | TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None | tests/test_plan_builder.py:38 |
 | test766 | `test_766_validation_to_json_with_constraints` | TEST766: Tests validation_to_json() converts MediaValidation with constraints to JSON Verifies that min/max validation rules are correctly serialized as JSON fields | tests/test_plan_builder.py:45 |
 | test767 | `test_767_argument_info_serialization` | TEST767: Tests ArgumentInfo struct serialization to JSON Verifies that argument metadata including resolution status and validation is correctly serialized | tests/test_plan_builder.py:54 |
@@ -681,9 +681,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test786 | `test_786_roundtrip_split_assemble` | TEST786: split then assemble roundtrip preserves data | tests/test_cbor_util.py:55 |
 | test787 | `test_787_find_paths_sorting_prefers_shorter` | TEST787: Tests find_paths_to_exact_target() sorts paths by length, preferring shorter ones Verifies that among multiple paths, the shortest is ranked first | tests/test_live_cap_fab.py:166 |
 | test788 | `test_788_foreach_only_with_sequence_input` | TEST788: ForEach is only synthesized when is_sequence=true | tests/test_live_cap_fab.py:186 |
-| test789 | `test_789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | tests/test_live_cap_fab.py:218 |
-| test790 | `test_790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | tests/test_live_cap_fab.py:240 |
-| test791 | `test_791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | tests/test_live_cap_fab.py:253 |
+| test789 | `test_789_cap_from_json_has_valid_specs` | TEST789: Tests that caps loaded from JSON have correct in_spec/out_spec | tests/test_live_cap_fab.py:270 |
+| test790 | `test_790_identity_urn_is_specific` | TEST790: Tests identity_urn is specific and doesn't match everything | tests/test_live_cap_fab.py:292 |
+| test791 | `test_791_sync_from_cap_urns_adds_edges` | TEST791: Tests sync_from_cap_urns actually adds edges | tests/test_live_cap_fab.py:305 |
 | test792 | `test_792_argument_binding_requires_input` | TEST792: Tests ArgumentBinding requires_input distinguishes Slots from Literals Verifies Slot returns true (needs user input) while Literal returns false | tests/test_planner_argument_binding.py:200 |
 | test793 | `test_793_argument_binding_serialization` | TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values | tests/test_planner_argument_binding.py:206 |
 | test794 | `test_794_argument_bindings_add_file_path` | TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant | tests/test_planner_argument_binding.py:218 |
@@ -738,10 +738,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2305 |
 | test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2328 |
 | test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2353 |
-| test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:1102 |
-| test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:1135 |
-| test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:1033 |
-| test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:1055 |
+| test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:1113 |
+| test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:1146 |
+| test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:1044 |
+| test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:1066 |
 | test850 | `test_850_all_format_conversion_paths_build_valid_urns` | TEST850: all_format_conversion_paths each entry builds a valid parseable CapUrn | tests/test_standard_format_conversion.py:9 |
 | test851 | `test_851_format_conversion_urn_specs` | TEST851: format_conversion_urn in/out specs match the input constants | tests/test_standard_format_conversion.py:23 |
 | test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:413 |
@@ -760,10 +760,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:362 |
 | test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:384 |
 | test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:406 |
-| test898 | `test_898_binary_integrity_through_relay` | TEST898: Binary data integrity through full relay path (256 byte values) | tests/test_cbor_integration.py:671 |
-| test899 | `test_899_streaming_chunks_through_relay` | TEST899: Streaming chunks flow through relay without accumulation | tests/test_cbor_integration.py:782 |
-| test900 | `test_900_two_cartridges_routed_independently` | TEST900: Two cartridges routed independently by cap_urn | tests/test_cbor_integration.py:881 |
-| test901 | `test_901_req_for_unknown_cap_returns_err_frame` | TEST901: REQ for unknown cap returns ERR frame (not fatal) | tests/test_cbor_integration.py:1034 |
+| test898 | `test_898_binary_integrity_through_relay` | TEST898: Binary data integrity through full relay path (256 byte values) | tests/test_cbor_integration.py:673 |
+| test899 | `test_899_streaming_chunks_through_relay` | TEST899: Streaming chunks flow through relay without accumulation | tests/test_cbor_integration.py:784 |
+| test900 | `test_900_two_cartridges_routed_independently` | TEST900: Two cartridges routed independently by cap_urn | tests/test_cbor_integration.py:883 |
+| test901 | `test_901_req_for_unknown_cap_returns_err_frame` | TEST901: REQ for unknown cap returns ERR frame (not fatal) | tests/test_cbor_integration.py:1036 |
 | test902 | `test_902_compute_checksum_empty` | TEST902: Verify FNV-1a checksum handles empty data | tests/test_cbor_frame.py:1521 |
 | test903 | `test_903_chunk_with_chunk_index_and_checksum` | TEST903: Verify CHUNK frame can store chunk_index and checksum fields | tests/test_cbor_frame.py:1527 |
 | test904 | `test_904_stream_end_with_chunk_count` | TEST904: Verify STREAM_END frame can store chunk_count field | tests/test_cbor_frame.py:1543 |
@@ -780,20 +780,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1450 |
 | test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1461 |
 | test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation | tests/test_cap_urn.py:1479 |
-| test924 | `test_924_validate_invalid_edge` | TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node | tests/test_plan.py:437 |
-| test925 | `test_925_topological_order_diamond` | TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last) | tests/test_plan.py:446 |
-| test926 | `test_926_topological_order_detects_cycle` | TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error | tests/test_plan.py:465 |
-| test927 | `test_927_execution_result` | TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly | tests/test_plan.py:426 |
-| test928 | `test_928_validate_invalid_from_node` | TEST928: Tests plan validation detects edges originating from non-existent nodes Verifies that validate() returns an error when an edge references a missing from_node | tests/test_plan.py:481 |
-| test929 | `test_929_validate_invalid_entry_node` | TEST929: Tests plan validation detects invalid entry node references Verifies that validate() returns an error when entry_nodes contains a non-existent node ID | tests/test_plan.py:490 |
-| test930 | `test_930_validate_invalid_output_node` | TEST930: Tests plan validation detects invalid output node references Verifies that validate() returns an error when output_nodes contains a non-existent node ID | tests/test_plan.py:499 |
-| test931 | `test_931_node_execution_result_failure` | TEST931: Tests NodeExecutionResult structure for failed node execution Verifies that failure status, error message, and absence of outputs are correctly represented | tests/test_plan.py:508 |
-| test932 | `test_932_execution_result_failure` | TEST932: Tests MachineResult structure for failed chain execution Verifies that failure status, error message, and absence of outputs are correctly represented | tests/test_plan.py:522 |
+| test924 | `test_924_validate_invalid_edge` | TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node | tests/test_plan.py:460 |
+| test925 | `test_925_topological_order_diamond` | TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last) | tests/test_plan.py:469 |
+| test926 | `test_926_topological_order_detects_cycle` | TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error | tests/test_plan.py:488 |
+| test927 | `test_927_execution_result` | TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly | tests/test_plan.py:449 |
+| test928 | `test_928_validate_invalid_from_node` | TEST928: Tests plan validation detects edges originating from non-existent nodes Verifies that validate() returns an error when an edge references a missing from_node | tests/test_plan.py:504 |
+| test929 | `test_929_validate_invalid_entry_node` | TEST929: Tests plan validation detects invalid entry node references Verifies that validate() returns an error when entry_nodes contains a non-existent node ID | tests/test_plan.py:513 |
+| test930 | `test_930_validate_invalid_output_node` | TEST930: Tests plan validation detects invalid output node references Verifies that validate() returns an error when output_nodes contains a non-existent node ID | tests/test_plan.py:522 |
+| test931 | `test_931_node_execution_result_failure` | TEST931: Tests NodeExecutionResult structure for failed node execution Verifies that failure status, error message, and absence of outputs are correctly represented | tests/test_plan.py:531 |
+| test932 | `test_932_execution_result_failure` | TEST932: Tests MachineResult structure for failed chain execution Verifies that failure status, error message, and absence of outputs are correctly represented | tests/test_plan.py:545 |
 | test933 | `test_933_serialization_roundtrip` | TEST933: Tests CapInputCollection serializes to JSON and deserializes correctly Verifies JSON round-trip preserves folder_id, folder_name, files and file metadata | tests/test_collection_input.py:56 |
-| test934 | `test_934_find_first_foreach` | TEST934: find_first_foreach detects ForEach in a plan | tests/test_plan.py:379 |
-| test935 | `test_935_find_first_foreach_linear` | TEST935: find_first_foreach returns None for linear plans | tests/test_plan.py:385 |
-| test936 | `test_936_has_foreach` | TEST936: has_foreach detects ForEach nodes | tests/test_plan.py:391 |
-| test937 | `test_937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | tests/test_plan.py:413 |
+| test934 | `test_934_find_first_foreach` | TEST934: find_first_foreach detects ForEach in a plan | tests/test_plan.py:402 |
+| test935 | `test_935_find_first_foreach_linear` | TEST935: find_first_foreach returns None for linear plans | tests/test_plan.py:408 |
+| test936 | `test_936_has_foreach` | TEST936: has_foreach detects ForEach nodes | tests/test_plan.py:414 |
+| test937 | `test_937_extract_prefix_to` | TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan | tests/test_plan.py:436 |
 | test938 | `test_938_different_caps_different_hashes` | TEST938: Two genuinely different caps must hash to different keys. If the canonical-form algorithm ever drifts to coalesce non-equivalent URNs (e.g. by stripping a tag that has functional meaning), this test fails immediately. Renumbered from TEST141 to resolve a collision with Go/ObjC's TEST141 (URL-shape). | tests/test_registry.py:214 |
 | test939 | `test_939_cap_urn_canonical_form_drops_wildcard_in_out` | TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form. | tests/test_cap_urn.py:263 |
 | test947 | `test_947_cap_not_found` | TEST947: Cap not found in registry | tests/test_orchestrator_parser.py:421 |
@@ -878,18 +878,18 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:130 |
 | test1108 | `test_1108_resolve_all_passes_node_id` | TEST1108: ResolveAll with node_id threads correctly through to each binding. | tests/test_planner_argument_binding.py:157 |
 | test1109 | `test_1109_slot_key_uses_node_id_not_cap_urn` | TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match. | tests/test_planner_argument_binding.py:184 |
-| test1111 | `test_1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_live_cap_fab.py:484 |
-| test1112 | `test_1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_live_cap_fab.py:529 |
-| test1113 | `test_1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_live_cap_fab.py:551 |
-| test1114 | `test_1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | tests/test_live_cap_fab.py:573 |
-| test1115 | `test_1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_live_cap_fab.py:604 |
-| test1116 | `test_1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | tests/test_live_cap_fab.py:633 |
-| test1117 | `test_1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_live_cap_fab.py:655 |
-| test1118 | `test_1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_live_cap_fab.py:678 |
-| test1119 | `test_1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_live_cap_fab.py:693 |
-| test1120 | `test_1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_live_cap_fab.py:734 |
-| test1122 | `test_1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_cbor_integration.py:490 |
-| test1123 | `test_1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_cbor_integration.py:593 |
+| test1111 | `test_1111_foreach_for_user_provided_list_source` | TEST1111: ForEach works for user-provided list sources not in the graph. This is the original bug — media:enc=utf-8;ext=txt;list is a user import source, not a cap output. Previously, no ForEach edge existed for it because insert_cardinality_transitions() only pre-computed edges for cap outputs. With dynamic synthesis, ForEach is available for ANY list source. | tests/test_live_cap_fab.py:536 |
+| test1112 | `test_1112_no_collect_in_path_finding` | TEST1112: Collect is not synthesized during path finding. Reaching a list target type requires the cap itself to output a list type. | tests/test_live_cap_fab.py:581 |
+| test1113 | `test_1113_multi_cap_path_no_collect` | TEST1113: Multi-cap path without Collect — Collect is not synthesized | tests/test_live_cap_fab.py:603 |
+| test1114 | `test_1114_graph_stores_only_cap_edges` | TEST1114: Graph stores only Cap edges after sync | tests/test_live_cap_fab.py:625 |
+| test1115 | `test_1115_dynamic_foreach_with_is_sequence` | TEST1115: ForEach is synthesized when is_sequence=true AND caps can consume items | tests/test_live_cap_fab.py:656 |
+| test1116 | `test_1116_collect_never_synthesized` | TEST1116: Collect is never synthesized during path finding | tests/test_live_cap_fab.py:685 |
+| test1117 | `test_1117_no_foreach_when_not_sequence` | TEST1117: ForEach is NOT synthesized when is_sequence=false | tests/test_live_cap_fab.py:707 |
+| test1118 | `test_1118_no_foreach_without_cap_consumers` | TEST1118: ForEach not synthesized without cap consumers even with is_sequence=true | tests/test_live_cap_fab.py:730 |
+| test1119 | `test_1119_strand_knit_with_registry_returns_single_strand_machine` | TEST1119: Strand::knit returns a single-strand Machine via the new resolver. Smoke test the registry-threaded API end-to-end. | tests/test_live_cap_fab.py:745 |
+| test1120 | `test_1120_strand_knit_unknown_cap_fails_hard` | TEST1120: Strand::knit fails hard when the cap is not in the registry — the planner produces strands referencing caps that must be present in the cap registry's cache for resolution to succeed. | tests/test_live_cap_fab.py:786 |
+| test1122 | `test_1122_full_path_engine_req_to_cartridge_response` | TEST1122: Full path: engine REQ → runtime → cartridge → response back through relay | tests/test_cbor_integration.py:492 |
+| test1123 | `test_1123_cartridge_error_flows_to_engine` | TEST1123: Cartridge ERR frame flows back to engine through relay | tests/test_cbor_integration.py:595 |
 | test1126 | `test_1126_map_progress_deterministic` | TEST1126: map_progress is deterministic — same inputs always produce same output | tests/test_executor.py:143 |
 | test1127 | `test_1127_cap_documentation_round_trip_with_markdown_body` | TEST1127: Documentation field round-trips through JSON serialize/deserialize. | tests/test_cap.py:438 |
 | test1128 | `test_1128_cap_documentation_omitted_when_none` | TEST1128: When documentation is None, the serializer must skip the field entirely. | tests/test_cap.py:465 |
@@ -898,8 +898,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1133 | `test_1133_media_def_def_documentation_lifecycle` | TEST1133: MediaDef set/clear lifecycle for documentation. Catches a regression where the setter or clearer accidentally writes to or reads from `description` (the short field) instead of `documentation` (the long markdown body). | tests/test_media_def.py:593 |
 | test1135 | `test_1135_strand_node_urn_accessor` | TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId. | tests/test_machine.py:598 |
 | test1136 | `test_1136_parse_machine_undefined_alias_raises_syntax_error` | TEST1136: parse_machine with undefined cap alias raises MachineParseError wrapping UndefinedAliasError. | tests/test_machine.py:617 |
-| test1140 | `test_1140_write_stream_chunked_reassembly` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity. | tests/test_cbor_io.py:859 |
-| test1141 | `test_1141_exact_max_chunk_stream_chunked` | TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK | tests/test_cbor_io.py:901 |
+| test1140 | `test_1140_write_stream_chunked_reassembly` | TEST1140: write_stream_chunked (protocol v2) splits payload into STREAM_START → CHUNK(s) → STREAM_END → END with correct frame types, stream_id, media_urn, and data integrity. | tests/test_cbor_io.py:870 |
+| test1141 | `test_1141_exact_max_chunk_stream_chunked` | TEST1141: write_stream_chunked with data exactly equal to max_chunk produces exactly one CHUNK | tests/test_cbor_io.py:912 |
 | test1142 | `test_1142_resolved_graph_to_mermaid_renders_shapes_dedupes_edges_and_escapes` | TEST1142: ResolvedGraph.to_mermaid() renders node shapes, deduplicates edges, and escapes labels | tests/test_orchestrator_types.py:13 |
 | test1143 | `test_1143_input_item_from_string_distinguishes_glob_directory_and_file` | TEST1143: InputItem::from_string distinguishes glob patterns, directories, and files | tests/test_input_resolver.py:585 |
 | test1144 | `test_1144_content_structure_helpers_and_display` | TEST1144: ContentStructure is_list/is_record helpers and Display implementation are correct | tests/test_input_resolver.py:603 |
@@ -908,11 +908,11 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1147 | `test_1147_machine_syntax_error_display_is_specific` | TEST1147: InvalidWiringError display message is human-readable and specific. | tests/test_machine.py:713 |
 | test1148 | `test_1148_machine_parse_error_from_syntax_preserves_variant` | TEST1148: MachineParseError::from(MachineSyntaxError) preserves the syntax error variant | tests/test_machine.py:720 |
 | test1149 | `test_1149_machine_parse_error_from_resolution_preserves_variant` | TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant | tests/test_machine.py:730 |
-| test1150 | `test_1150_add_cap_and_basic_traversal` | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. | tests/test_live_cap_fab.py:381 |
-| test1151 | `test_1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. | tests/test_live_cap_fab.py:401 |
-| test1152 | `test_1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | tests/test_live_cap_fab.py:425 |
-| test1153 | `test_1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | tests/test_live_cap_fab.py:441 |
-| test1154 | `test_1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | tests/test_live_cap_fab.py:461 |
+| test1150 | `test_1150_add_cap_and_basic_traversal` | TEST1150: Adding one cap creates one edge and makes its output reachable in one step. | tests/test_live_cap_fab.py:433 |
+| test1151 | `test_1151_exact_vs_conformance_matching` | TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives. | tests/test_live_cap_fab.py:453 |
+| test1152 | `test_1152_multi_step_path` | TEST1152: Path finding returns the expected two-cap chain through an intermediate media type. | tests/test_live_cap_fab.py:477 |
+| test1153 | `test_1153_deterministic_ordering` | TEST1153: Repeated path searches return the same path order for the same graph and target. | tests/test_live_cap_fab.py:493 |
+| test1154 | `test_1154_sync_from_caps` | TEST1154: Syncing from caps replaces the existing graph contents with the new cap set. | tests/test_live_cap_fab.py:513 |
 | test1155 | `test_1155_from_strand_produces_single_strand_machine` | TEST1155: Building a machine from one strand produces one strand with one resolved edge. | tests/test_machine.py:198 |
 | test1156 | `test_1156_from_strands_keeps_strands_disjoint` | TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order. | tests/test_machine.py:212 |
 | test1157 | `test_1157_from_strands_empty_raises_no_capability_steps` | TEST1157: Building from zero strands fails with NoCapabilitySteps. | tests/test_machine.py:233 |
@@ -995,11 +995,11 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:540 |
 | test1287 | `test_1287_confirmed_all_adapters_no_match` | TEST1287: detect_file_confirmed fails when all adapters return empty END (no match) | tests/test_input_resolver.py:557 |
 | test1288 | `test_1288_structure_from_marker_tags` | TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure | tests/test_input_resolver.py:275 |
-| test1289 | `test_1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | tests/test_live_cap_fab.py:273 |
-| test1290 | `test_1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. | tests/test_live_cap_fab.py:298 |
-| test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery. | tests/test_live_cap_fab.py:325 |
-| test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_fab.py:350 |
-| test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded. | tests/test_live_cap_fab.py:367 |
+| test1289 | `test_1289_bfs_reachable_includes_source_roundtrip` | TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A). | tests/test_live_cap_fab.py:325 |
+| test1290 | `test_1290_iddfs_finds_roundtrip_paths` | TEST1290: IDDFS find_paths_to_exact_target finds round-trip paths when source == target. | tests/test_live_cap_fab.py:350 |
+| test1291 | `test_1291_iddfs_roundtrip_with_sequence` | TEST1291: IDDFS round-trip paths are also found with is_sequence=true. The ForEach/Collect edges must not block round-trip discovery. | tests/test_live_cap_fab.py:377 |
+| test1292 | `test_1292_bfs_iddfs_roundtrip_consistency` | TEST1292: BFS and IDDFS agree that round-trip targets exist. | tests/test_live_cap_fab.py:402 |
+| test1293 | `test_1293_roundtrip_requires_cap_steps` | TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded. | tests/test_live_cap_fab.py:419 |
 | test1294 | `test_1294_rule11_void_input_with_stdin` | TEST1294: RULE11 - void-input cap with stdin source rejected | tests/test_validation.py:301 |
 | test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:313 |
 | test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:325 |
@@ -1042,7 +1042,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1851 | `test_1851_resolve_for_host_incompatible` | TEST1851: no version ships a host build → Incompatible, no resolved version/package, reason states the host platform. | tests/test_cartridge_repo.py:886 |
 | test1852 | `test_1852_resolve_for_host_skips_build_with_no_installer` | TEST1852: a host build whose packages[] is empty AND has no legacy `package` ships no installer; resolution must SKIP it (not resolve to an un-downloadable version) and fall through to an older usable version. | tests/test_cartridge_repo.py:902 |
 | test1853 | `test_1853_host_platform_normalized_form` | TEST1853: host_platform() returns a normalized {os}-{arch} string with arch aarch64 mapped to arm64 — the exact form the registry uses. | tests/test_cartridge_repo.py:923 |
-| test1871 | `test_1871_sync_roster_adds_and_removes_registered_dir_live` | TEST1871: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1185 |
+| test1871 | `test_1871_sync_roster_adds_and_removes_registered_dir_live` | TEST1871: SyncRoster updates the LIVE host inventory in place — the engine sees an added registered-dir cartridge via a fresh RelayNotify without reconnecting, and a subsequent empty sync removes it. This is the macOS-XPC `syncDiscoveryOutcomes` parity path the daemon uses after a registry verdict flips a held cartridge to Listed. | tests/test_cartridge_host.py:1218 |
 | test1872 | `test_1872_registry_url_from_build_env_passes_through_nonempty` | TEST1872: `registry_url_from_build_env` passes a non-empty registry URL through unchanged. This is the function that decides the engine's baked PRIMARY registry (surfaced over SystemService.HealthStatus); a published build must report exactly the URL it was compiled with. | tests/test_manifest.py:319 |
 | test1873 | `test_1873_registry_url_from_build_env_none_for_dev` | TEST1873: an unset env (None) yields None — a dev build has no baked registry, so the engine reports an empty primary-registry URL and loads only `dev/` cartridges. This is the dev-engine contract the registry sheets rely on to omit the read-only "Primary · built-in" row. | tests/test_manifest.py:325 |
 | test1874 | `test_1874_registry_url_from_build_env_rejects_empty_string` | TEST1874: an exported-but-empty env (`Some("")`) is neither a dev build nor a valid identity and MUST fail hard at compile time, so the build can never silently hash the empty string into a fake registry slug. We assert the panic rather than letting a bogus empty primary registry ship. | tests/test_manifest.py:379 |
@@ -1085,8 +1085,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6283 | `test_6283_resolve_custom_with_schema` | TEST6283: Test resolving a custom record media def carrying a schema from a registry-seeded media def | tests/test_media_def.py:640 |
 | test6314 | `test_6314_complex_nested_schema_validation` | TEST6314: Complex nested schema validation | tests/test_schema_validation.py:389 |
 | test6317 | `test_6317_media_urn_resolution_with_registry` | TEST6317: Media urn resolution with registry | tests/test_schema_validation.py:453 |
-| test6326 | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:932 |
-| test6330 | `test_6330_chunking_data_integrity_3x` | TEST6330: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:968 |
+| test6326 | `test_6326_max_chunk_plus_one_splits_into_two_chunks` | TEST6326: Test payload of max_chunk + 1 bytes produces exactly two chunks | tests/test_cbor_io.py:943 |
+| test6330 | `test_6330_chunking_data_integrity_3x` | TEST6330: Test auto-chunking preserves data integrity across chunk boundaries for 3x max_chunk payload | tests/test_cbor_io.py:979 |
 | test6333 | `test_6333_registry_add_caps_to_cache` | TEST6333: Test adding caps to the registry cache and retrieving them | tests/test_registry.py:365 |
 | test6336 | `test_6336_registry_config_builder_pattern` | TEST6336: Test registry configuration builder sets registry and schema URLs | tests/test_registry.py:379 |
 | test6340 | `test_6340_normalize_urn_with_trailing_semicolon` | TEST6340: normalize_cap_urn strips trailing semicolons, producing the same canonical form with or without a trailing semicolon | tests/test_registry.py:390 |
@@ -1103,6 +1103,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6388 | `test_6388_per_cap_url_uses_sha256` | TEST6388: Per-cap URLs use SHA-256 of the canonical URN as the path key. The path scheme is /caps/<sha256-hex> — no colons, no quotes, no percent-encoding gymnastics. Same hash function across every capdag implementation guarantees a single bucket key per equivalence class. | tests/test_registry.py:125 |
 | test6391 | `test_6391_same_cap_different_spellings_same_url` | TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key. | tests/test_registry.py:181 |
 | test6396 | `test_6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `except Exception: return urn` fallback, normalize_cap_urn returned the raw string and _cap_defver then reported "not part of manifest" (a NotFoundError); this test asserts the truthful error type on both the direct and the public (get_cap) paths. | tests/test_registry.py:408 |
+| test6525 | `test_6525_body_outcome_serialization_preserves_attribution_shape` | TEST6525: Body outcomes preserve explicit null attribution coordinates and preview fields in JSON. | tests/test_plan.py:24 |
 | test6544 | `test_6544_builder_rejects_structural_keys` | TEST6544: Builder rejects reserved structural keys on tag/marker helpers | tests/test_cap_urn.py:403 |
 | test6586 | `test_6586_file_path_array_invalid_json_fails` | TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:852 |
 | test6587 | `test_6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | tests/test_cartridge_runtime.py:882 |
@@ -1135,12 +1136,12 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6749 | `test_6749_identity_verification` | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) | tests/test_in_process_host.py:160 |
 | test6750 | `test_6750_no_handler_returns_err` | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | tests/test_in_process_host.py:206 |
 | test6751 | `test_6751_manifest_includes_all_caps` | TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps | tests/test_in_process_host.py:236 |
-| test7000 | `test_7000_v4_handshake_negotiates_all_four_limits` | TEST7000: v4 handshake negotiates all limits and required handler capacity. | tests/test_cbor_io.py:441 |
-| test7001 | `test_7001_handshake_rejects_version_2` | TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error | tests/test_cbor_io.py:461 |
-| test7002 | `test_7002_initial_credit_negotiated_minimum` | TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals | tests/test_cbor_io.py:491 |
-| test7003 | `test_7003_decode_frame_rejects_malformed_id_wrong_length` | TEST7003: decode_frame rejects a MessageId byte string that is not exactly 16 bytes, for every wrong length — it must never fall back to a fabricated MessageId(0), which would misroute the frame | tests/test_cbor_io.py:1183 |
-| test7004 | `test_7004_decode_frame_rejects_malformed_id_wrong_type` | TEST7004: decode_frame rejects an id whose CBOR type is neither bytes nor an unsigned integer (text, float, bool, array, map) — a wrong-typed id is a hard decode error, not a fabricated zero id | tests/test_cbor_io.py:1198 |
-| test7005 | `test_7005_decode_frame_strict_routing_id` | TEST7005: a present routing_id (key 13) must be a well-formed MessageId — a malformed one is a hard InvalidFrameError, never silently dropped (which would strip the relay hint and misroute) nor fabricated as MessageId(0). Valid routing_ids still round-trip; an absent routing_id decodes as None. | tests/test_cbor_io.py:1212 |
+| test7000 | `test_7000_v4_handshake_negotiates_all_four_limits` | TEST7000: v4 handshake negotiates all limits and required handler capacity. | tests/test_cbor_io.py:448 |
+| test7001 | `test_7001_handshake_rejects_version_2` | TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error | tests/test_cbor_io.py:468 |
+| test7002 | `test_7002_initial_credit_negotiated_minimum` | TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals | tests/test_cbor_io.py:500 |
+| test7003 | `test_7003_decode_frame_rejects_malformed_id_wrong_length` | TEST7003: decode_frame rejects a MessageId byte string that is not exactly 16 bytes, for every wrong length — it must never fall back to a fabricated MessageId(0), which would misroute the frame | tests/test_cbor_io.py:1194 |
+| test7004 | `test_7004_decode_frame_rejects_malformed_id_wrong_type` | TEST7004: decode_frame rejects an id whose CBOR type is neither bytes nor an unsigned integer (text, float, bool, array, map) — a wrong-typed id is a hard decode error, not a fabricated zero id | tests/test_cbor_io.py:1209 |
+| test7005 | `test_7005_decode_frame_strict_routing_id` | TEST7005: a present routing_id (key 13) must be a well-formed MessageId — a malformed one is a hard InvalidFrameError, never silently dropped (which would strip the relay hint and misroute) nor fabricated as MessageId(0). Valid routing_ids still round-trip; an absent routing_id decodes as None. | tests/test_cbor_io.py:1223 |
 | test7010 | `test_7010_credit_frame_roundtrip` | TEST7010: CREDIT frame round-trips encode/decode with rid, stream_id, and credit count | tests/test_cbor_frame.py:1569 |
 | test7011 | `test_7011_credit_is_non_flow` | TEST7011: CREDIT is a non-flow frame — no seq assigned, passes the reorder buffer untouched regardless of flow state | tests/test_cbor_frame.py:1602 |
 | test7012 | `test_7012_stream_start_unbounded_roundtrip` | TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded | tests/test_cbor_frame.py:1629 |
@@ -1176,14 +1177,14 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test7086 | `test_7086_drop_snapshot_matches_induced_drops` | TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops. | tests/test_cartridge_runtime.py:2521 |
 | test7087 | `test_7087_snapshot_field_names_are_stable` | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. | tests/test_request_state.py:67 |
 | test7088 | `test_7088_last_activity_monotonic` | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. | tests/test_request_state.py:128 |
-| test7089 | `test_7089_hello_failed_stays_in_inventory_with_error` | TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. | tests/test_cartridge_host.py:1276 |
-| test7090 | `test_7090_heartbeat_drops_total_reaches_inventory_stats` | TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` — absent until the first reading, then tracking the running total as-is. | tests/test_cartridge_host.py:1363 |
+| test7089 | `test_7089_hello_failed_stays_in_inventory_with_error` | TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. | tests/test_cartridge_host.py:1309 |
+| test7090 | `test_7090_heartbeat_drops_total_reaches_inventory_stats` | TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` — absent until the first reading, then tracking the running total as-is. | tests/test_cartridge_host.py:1396 |
 | test7091 | `test_7091_switch_retains_host_protocol_stats_from_relay_notify` | TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map — never a zeroed placeholder. | tests/test_relay_switch.py:1918 |
 | test7092 | `test_7092_cap_urn_attribution_survives_lifecycle` | TEST7092: A request registered with its originating REQ's cap URN carries that identity through the ACTIVE snapshot and into the terminated ring — observability surfaces can always NAME a request (background chatter vs run traffic), never just show a bare rid. A request registered without one (pre-attribution mirror, unknown origin) snapshots with cap_urn null — absent, never invented. | tests/test_request_state.py:46 |
 | test7093 | `test_7093_dead_consumer_cancels_upstream` | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller callback) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. | tests/test_relay_switch.py:1791 |
-| test7094 | `test_7094_decode_frame_rejects_missing_id` | TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id | tests/test_cbor_io.py:1170 |
-| test7097 | `test_7097_decode_frame_accepts_valid_id_variants` | TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames | tests/test_cbor_io.py:1267 |
-| test7098 | `test_7098_decode_frame_rejects_negative_int_id` | TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family | tests/test_cbor_io.py:1253 |
+| test7094 | `test_7094_decode_frame_rejects_missing_id` | TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id | tests/test_cbor_io.py:1181 |
+| test7097 | `test_7097_decode_frame_accepts_valid_id_variants` | TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames | tests/test_cbor_io.py:1278 |
+| test7098 | `test_7098_decode_frame_rejects_negative_int_id` | TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family | tests/test_cbor_io.py:1264 |
 | test7100 | `test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn` | TEST7100: stream_urn() returns the Stdin source's URN when it differs from the declared slot media_urn — the stdin URN, not the slot URN, is what the runtime demuxes the arg's input stream by. | tests/test_cap.py:600 |
 | test7101 | `test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source` | TEST7101: stream_urn() falls back to the declared slot media_urn when the arg declares no Stdin source — a producer-fed arg may be delivered by its declared URN without ever appearing on stdin. | tests/test_cap.py:613 |
 | test7102 | `test_7102_is_main_input_true_on_tag_order_insensitive_equivalence_to_in_spec` | TEST7102: is_main_input() is True when the Stdin URN is order-theoretically EQUIVALENT to the cap's in= spec even when the two strings list their tags in a different order — the comparison is the MediaUrn equivalence predicate, never a string comparison. | tests/test_cap.py:626 |
@@ -1192,6 +1193,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test7105 | `test_7105_err_frame_arg_urn_roundtrip` | TEST7105: an ERR frame built WITH an argument attribution round-trips its full declared identity through encode/decode — the meta map carries the `arg_urn` key, attribution_arg_urn() returns the URN, and code/class/message stay intact (docs/failure-taxonomy.md). | tests/test_cbor_frame.py:1781 |
 | test7106 | `test_7106_err_frame_without_attribution_has_no_arg_urn` | TEST7106: an ERR frame built WITHOUT attribution has NO `arg_urn` key in the encoded meta — absent, never an empty string — and attribution_arg_urn() returns None (docs/failure-taxonomy.md). | tests/test_cbor_frame.py:1824 |
 | test7117 | `test_7117_log_frame_arg_urn_roundtrip` | TEST7117: non-progress LOG carries the same source attribution tuple as ERR, including an optional argument URN, through the actual wire codec. | tests/test_cbor_frame.py:1803 |
+| test8064 | `test_8064_sequence_consumer_never_follows_foreach_directly` | TEST8064: a sequence-consuming cap is reached directly from sequence data, never through a dangling ForEach boundary. A ForEach followed by a SCALAR cap stays legal — that is the map half of the ordinary map-then-fold plan — so the invariant is about what may follow the boundary, not about ForEach appearing. | tests/test_live_cap_fab.py:221 |
+| test8065 | `test_8065_sequence_shape_uses_main_input_identity_not_argument_order` | TEST8065: cardinality follows the declared main input even when another stdin-capable argument appears first. | tests/test_cap.py:726 |
+| test8066 | `test_8066_void_input_sequence_shape_is_scalar_without_arguments` | TEST8066: a void-input cap has scalar input cardinality without inventing an arg. | tests/test_cap.py:752 |
+| test8067 | `test_8067_stale_reader_death_cannot_kill_replacement_generation` | TEST8067: a delayed reader death from a retired process generation cannot tear down the replacement occupying the same cartridge slot. The current generation still performs the real death transition. | tests/test_cartridge_host.py:1056 |
 | test8101 | `test_8101_cap_to_dict_wire_shape` | TEST8101: (py-specific) Cap.to_dict emits the full wire shape including args and output. Behavior beyond the shared cross-mirror set, kept here as implementation-specific coverage. | tests/test_cap.py:125 |
 | test8102 | `test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source` | TEST8102: (py-specific) CapArg.stream_urn() falls back to the declared slot media URN when the arg declares no Stdin source at all — a producer-fed arg may be delivered by its declared URN without ever appearing on stdin. | tests/test_cap.py:498 |
 | test8103 | `test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present` | TEST8103: (py-specific) CapArg.stream_urn() returns the Stdin source's URN, not the declared slot media URN, when the two differ — e.g. a file-path slot whose piped content is actually a pdf-stream. | tests/test_cap.py:510 |
@@ -1337,8 +1342,8 @@ These tests have a numbering disagreement between the function name and the auth
 ---
 
 *Generated from CapDag-Py source tree*
-*Total tests: 1200*
-*Total numbered tests: 1186*
+*Total tests: 1205*
+*Total numbered tests: 1191*
 *Total unnumbered tests: 14*
 *Total numbered tests missing descriptions: 0*
 *Total numbering mismatches: 89*
