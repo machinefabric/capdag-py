@@ -240,3 +240,23 @@ def test_976_wrap_raw_items_roundtrips_and_assemble_rejects_them():
 def test_1317_wrap_raw_items_empty():
     seq = wrap_raw_items_as_cbor_sequence([])
     assert seq == b"", "empty item list must wrap to empty bytes"
+
+
+# TEST8113: split_cbor_array / assemble_cbor_array decode-then-re-encode
+# arbitrary CBOR values. The reference encoder shrinks lossless floats to
+# half-precision on the wire, so a ciborium-authored array holding 0.5 arrives
+# as 0xf9 — both directions must carry the value through as a number, never
+# CBOR undefined (the corruption the Swift mirror hit when its CBOR library
+# could not re-encode half-precision).
+def test_8113_array_split_assemble_normalize_half_precision_floats():
+    # [0.5] with 0.5 as half-precision, exactly as ciborium encodes it.
+    ciborium_array = bytes([0x81, 0xF9, 0x38, 0x00])
+
+    items = split_cbor_array(ciborium_array)
+    assert len(items) == 1
+    assert cbor2.loads(items[0]) == 0.5, "split item must carry the half-precision float as a number"
+
+    half_item = bytes([0xF9, 0x38, 0x00])
+    assembled = assemble_cbor_array([half_item])
+    assert 0xF7 not in assembled, "assembled array must not contain CBOR undefined"
+    assert cbor2.loads(assembled) == [0.5], "assembled array must carry the value as a number"

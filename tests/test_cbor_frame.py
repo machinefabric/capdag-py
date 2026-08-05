@@ -1835,3 +1835,49 @@ def test_7106_err_frame_without_attribution_has_no_arg_urn():
     assert decoded.error_code() == "OOM_KILLED"
     assert decoded.attribution_class() is AttributionClass.RESOURCE
     assert decoded.error_message() == "out of memory"
+
+
+# TEST8111: decode_frame reads narrow-width wire floats into the single
+# in-memory float representation, matching the reference decoder (ciborium
+# yields f64 for every CBOR float width). The reference ENCODER shrinks
+# lossless floats to half-precision on the wire (0.5 travels as 0xf9), so a
+# mirror must read a half- or single-precision progress and still expose it
+# numerically.
+def test_8111_decode_frame_normalizes_narrow_float_widths():
+    from capdag.bifaci.io import encode_frame, decode_frame
+
+    encoded = encode_frame(Frame.progress(MessageId.from_cbor(7), 0.5, "halfway"))
+
+    double_half_point = bytes([0xFB, 0x3F, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    half_half_point = bytes([0xF9, 0x38, 0x00])
+    single_half_point = bytes([0xFA, 0x3F, 0x00, 0x00, 0x00])
+    assert double_half_point in encoded, "fixture must contain double-encoded 0.5"
+
+    from_half = decode_frame(encoded.replace(double_half_point, half_half_point))
+    assert from_half.log_progress() == 0.5, "half-precision wire progress must be readable"
+
+    from_single = decode_frame(encoded.replace(double_half_point, single_half_point))
+    assert from_single.log_progress() == 0.5, "single-precision wire progress must be readable"
+
+
+# TEST8112: the relay forwarding hop — decode a cartridge frame whose progress
+# rode the wire as half-precision, re-encode it, and decode again: the value
+# must survive as a number and the re-encoded bytes must never contain CBOR
+# undefined (0xf7). In the Swift mirror this exact hop corrupted progress to
+# undefined (read as null by the engine), failing every ForEach body on macOS.
+def test_8112_half_precision_progress_survives_decode_encode_relay_hop():
+    from capdag.bifaci.io import encode_frame, decode_frame
+
+    encoded = encode_frame(Frame.progress(MessageId.from_cbor(7), 0.5, "halfway"))
+    double_half_point = bytes([0xFB, 0x3F, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    half_half_point = bytes([0xF9, 0x38, 0x00])
+    assert double_half_point in encoded, "fixture must contain double-encoded 0.5"
+    cartridge_wire = encoded.replace(double_half_point, half_half_point)
+
+    received = decode_frame(cartridge_wire)
+    forwarded = encode_frame(received)
+    assert 0xF7 not in forwarded, "re-encoded frame must not contain CBOR undefined"
+
+    at_engine = decode_frame(forwarded)
+    assert at_engine.log_level() == "progress"
+    assert at_engine.log_progress() == 0.5, "progress must reach the engine as a number"
