@@ -89,6 +89,13 @@ def test_473_cap_discard_parses_as_valid_urn():
     urn = CapUrn.from_string(CAP_DISCARD)
     assert urn.in_spec() == "media:", "CAP_DISCARD input must be wildcard media:"
     assert urn.out_spec() == MEDIA_VOID, "CAP_DISCARD output must be media:void"
+    # The constant is the canonical rendering: default in= (media:) and
+    # default effect (declared) are omitted; only out=media:void remains.
+    assert str(urn) == CAP_DISCARD, \
+        "CAP_DISCARD must be the canonical rendering of the discard cap"
+    explicit = CapUrn.from_string("cap:in=media:;out=media:void")
+    assert str(explicit) == CAP_DISCARD, \
+        "explicit in=media: surface form must normalize to CAP_DISCARD"
 
 
 # TEST474: CAP_DISCARD accepts specific-input/void-output caps

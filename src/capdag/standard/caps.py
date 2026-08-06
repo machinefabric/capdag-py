@@ -79,8 +79,10 @@ CAP_IDENTITY = "cap:effect=none"
 
 # Discard capability — the terminal morphism. Standard, NOT mandatory.
 # Accepts any media type as input and produces void output.
+# Canonical form: default in= (media:) and default effect (declared)
+# are omitted; only out=media:void remains.
 # The capdag lib provides a default implementation; cartridges may override.
-CAP_DISCARD = "cap:in=media:;out=media:void"
+CAP_DISCARD = "cap:out=media:void"
 
 # Adapter-selection capability. Default implementation returns empty END (no match).
 # Cartridges that inspect file content override this with a handler
