@@ -1965,6 +1965,268 @@ def test_538_input_package_error_propagation():
 # =============================================================================
 
 # TEST539: OutputStream sends STREAM_START on first write
+# ── Live-feed transport resolution (13.2 §Reference Media, live family) ──
+
+LIVE_FEED_CAP_URN = 'cap:drain;in="media:feed-frames";out="media:fmt=json;record"'
+
+
+def _live_feed_manifest(arg_is_sequence: bool):
+    from capdag.bifaci.manifest import CapManifest
+
+    return CapManifest.from_dict({
+        "name": "FeedCartridge",
+        "version": "1.0.0",
+        "channel": "release",
+        "registry_url": None,
+        "description": "Live feed test cartridge",
+        "cap_groups": [{
+            "name": "default",
+            "caps": [
+                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]},
+                {
+                    "urn": LIVE_FEED_CAP_URN,
+                    "title": "Drain",
+                    "aliases": ["drain"],
+                    "args": [{
+                        "media_urn": "media:live;synthetic",
+                        "required": True,
+                        "is_sequence": arg_is_sequence,
+                        "sources": [{"stdin": "media:feed-frames"}],
+                    }],
+                },
+            ],
+        }],
+    })
+
+
+def _live_feed_ctx(arg_is_sequence: bool = True):
+    from capdag.bifaci.cartridge_runtime import LiveFeedContext
+    from capdag.bifaci.live_feed import LiveFeedProviders
+
+    providers = LiveFeedProviders()
+    handles: list = []
+    ctx = LiveFeedContext(
+        LIVE_FEED_CAP_URN,
+        _live_feed_manifest(arg_is_sequence),
+        providers,
+        handles,
+    )
+    return ctx, providers, handles
+
+
+def _send_live_reference(raw_queue, rid, selector: str):
+    payload = cbor2.dumps(selector)
+    raw_queue.put(Frame.stream_start(rid, "ref", "media:live;synthetic"))
+    raw_queue.put(Frame.chunk(rid, "ref", 0, payload, 0, compute_checksum(payload)))
+    raw_queue.put(Frame.stream_end(rid, "ref", 1))
+    raw_queue.put(Frame.end(rid))
+
+
+# TEST8128: a live-feed reference resolves through the demux exactly like a
+# file path — the handler receives an UNBOUNDED SEQUENCE InputStream labeled
+# with the arg's stdin CONTENT urn, delivering the captured items with
+# seq/pts_us/capture_ts_us metadata, and the op is none the wiser.
+def test_8128_live_feed_reference_resolves_to_unbounded_content_stream():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(raw_queue, rid, '{"params":{"items":5,"interval_ms":1,"item_bytes":4}}')
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"resolution must succeed: {stream}"
+    assert stream.media_urn() == "media:feed-frames", "labeled with the CONTENT urn"
+    assert stream.is_unbounded(), "a live feed makes no length promise (L16)"
+    assert stream.stream_meta().get("feed") == "synthetic", \
+        "STREAM_START meta carries the provider's format actuals"
+
+    seqs = []
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), f"items must deliver cleanly: {item}"
+        value, meta = item
+        assert isinstance(value, bytes) and len(value) == 4
+        assert meta is not None, "every live item carries metadata"
+        assert "pts_us" in meta and "capture_ts_us" in meta
+        seqs.append(meta["seq"])
+    assert seqs == [0, 1, 2, 3, 4], "all items, in capture order"
+    assert len(handles) == 1, "the open feed registered its handle"
+
+
+# TEST8129: overrun under drop-oldest — a flooding feed with a lagging
+# consumer loses items ONLY at the capture edge, counts every loss, and
+# stamps the next delivered item with a gap marker. delivered + dropped
+# always equals captured.
+def test_8129_overrun_drop_oldest_counts_and_marks_gaps():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, providers, _handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(
+        raw_queue,
+        rid,
+        '{"params":{"items":50,"interval_ms":0,"item_bytes":4,"ring":2}}',
+    )
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"resolution must succeed: {stream}"
+    # Lag: let the producer flood to completion before consuming.
+    time.sleep(0.2)
+
+    delivered = 0
+    dropped_via_gaps = 0
+    last_seq = None
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), "drop-oldest never fails the stream"
+        _value, meta = item
+        seq = meta["seq"]
+        if last_seq is not None:
+            assert seq > last_seq, "seq strictly increases across gaps"
+        gap = meta.get("gap")
+        if gap is not None:
+            assert gap["dropped"] > 0, "a gap marker means real loss"
+            dropped_via_gaps += gap["dropped"]
+        delivered += 1
+        last_seq = seq
+    assert delivered < 50, "a lagging consumer cannot receive everything"
+    assert dropped_via_gaps > 0, "the loss is visible in-band"
+    assert delivered + dropped_via_gaps == 50, \
+        "every captured item is either delivered or counted as dropped — nothing silent"
+    assert providers.overruns_total() == dropped_via_gaps, \
+        "the runtime-wide overrun counter matches the in-band accounting"
+
+
+# TEST8130: on_overrun=fail — a pipeline that declares it needs every frame
+# gets a classified FEED_OVERRUN stream error instead of loss.
+def test_8130_overrun_fail_ends_feed_with_classified_error():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, _handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(
+        raw_queue,
+        rid,
+        '{"on_overrun":"fail","params":{"items":50,"interval_ms":0,"item_bytes":4,"ring":2}}',
+    )
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception)
+    time.sleep(0.2)
+
+    saw_overrun_error = False
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            assert "FEED_OVERRUN" in str(item), f"the failure names the overrun: {item}"
+            saw_overrun_error = True
+    assert saw_overrun_error, "on_overrun=fail must surface the overrun as an error"
+
+
+# TEST8131: max_items stop condition — the feed ends itself after exactly N
+# captured items; the stream ends cleanly (a run stops on its own when its
+# input ends, 15.2 §Runs Stop).
+def test_8131_max_items_stop_condition_ends_feed():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, _handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(
+        raw_queue,
+        rid,
+        '{"stop":{"max_items":3},"params":{"items":1000,"interval_ms":1,"item_bytes":4}}',
+    )
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception)
+    delivered = 0
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception)
+        delivered += 1
+    assert delivered == 3, "the stop condition bounds the feed exactly"
+
+
+# TEST8132: stop = close the tap — closing the feed's handle ends the stream
+# cleanly mid-capture; what was already captured drains, then the stream
+# ends without error (the drain path of a stopped run).
+def test_8132_handle_close_stops_feed_and_drains():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(
+        raw_queue,
+        rid,
+        '{"params":{"items":100000,"interval_ms":2,"item_bytes":4}}',
+    )
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception)
+    first = stream.recv()
+    assert first is not None and not isinstance(first, Exception), "live item"
+    handles[0].close()
+
+    deadline = time.monotonic() + 5.0
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), "drained items are clean"
+        assert time.monotonic() < deadline, "a closed feed must end promptly"
+
+
+# TEST8133: a live-feed arg declared is_sequence=false is a contract
+# violation — a feed is an unbounded SEQUENCE — and fails hard at
+# resolution, never delivering a mislabeled stream.
+def test_8133_scalar_live_feed_arg_rejected():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, _handles = _live_feed_ctx(arg_is_sequence=False)
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(raw_queue, rid, "{}")
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    err = package.recv()
+    assert isinstance(err, Exception), "a scalar live-feed arg must be rejected"
+    assert "is_sequence" in str(err)
+
+
+# TEST8134: an unparseable selector is a hard error — never a silent
+# all-defaults feed.
+def test_8134_invalid_selector_rejected():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, _handles = _live_feed_ctx()
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(raw_queue, rid, "{not json")
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    err = package.recv()
+    assert isinstance(err, Exception), "garbage selectors must be rejected"
+    assert "selector" in str(err)
+
+
 # TEST8126: derive_response_media — the response label is the effect
 # inference over the declared input, per effect value; an unparseable
 # cap URN fails hard instead of falling back.

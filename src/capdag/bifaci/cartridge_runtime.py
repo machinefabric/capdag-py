@@ -1771,9 +1771,110 @@ class InputPackage:
             result.append((urn, data, meta))
 
 
+class LiveFeedContext:
+    """Runtime-side context for LIVE-FEED reference resolution (13.2
+    §Reference Media, live family). An incoming stream whose media URN
+    carries the ``live`` marker is a reference: the demux accumulates its
+    selector value, opens the feed through the registered providers, and
+    delivers an UNBOUNDED SEQUENCE ``InputStream`` labeled with the arg's
+    stdin content URN. Opened feeds register their handles for stop.
+    (matches Rust LiveFeedContext)"""
+
+    def __init__(self, cap_urn: str, manifest, providers, handles: list):
+        from capdag.bifaci.live_feed import MEDIA_LIVE_FEED
+
+        # Canonical rendering so the manifest lookup compares
+        # canonical-to-canonical, independent of surface spelling.
+        self._cap_urn = CapUrn.from_string(cap_urn).to_string()
+        self._manifest = manifest
+        self._providers = providers
+        self._handles = handles
+        self._live_pattern = MediaUrn.from_string(MEDIA_LIVE_FEED)
+
+    def is_live_feed(self, media_urn_str: str) -> bool:
+        try:
+            urn = MediaUrn.from_string(media_urn_str)
+        except Exception:
+            return False
+        return self._live_pattern.accepts(urn)
+
+    def _find_arg(self, incoming: MediaUrn):
+        if self._manifest is None:
+            return None
+        cap_def = next(
+            (c for c in self._manifest.all_caps() if c.urn.to_string() == self._cap_urn),
+            None,
+        )
+        if cap_def is None:
+            return None
+        for arg in cap_def.args:
+            try:
+                arg_urn = MediaUrn.from_string(arg.media_urn)
+            except Exception:
+                continue
+            if arg_urn.is_equivalent(incoming):
+                return arg
+        return None
+
+    def resolve(self, reference_urn: str, selector_bytes: bytes) -> "InputStream":
+        """Resolve the live reference into an open feed and the InputStream
+        delivering it. Hard errors on: no matching arg, an arg without a
+        stdin source, an arg not declared ``is_sequence``, an unparseable
+        selector, or a provider/device failure."""
+        from capdag.bifaci.live_feed import (
+            DELIVERY_QUEUE_CAP,
+            LiveFeedSelector,
+            open_feed,
+        )
+
+        incoming = MediaUrn.from_string(reference_urn)
+        arg = self._find_arg(incoming)
+        if arg is None:
+            raise StreamError(
+                f"cap '{self._cap_urn}' declares no arg matching live-feed "
+                f"reference '{reference_urn}'"
+            )
+        stdin_urn = None
+        for source in arg.sources:
+            stdin = getattr(source, "stdin", None)
+            if stdin is not None:
+                stdin_urn = stdin
+                break
+        if stdin_urn is None:
+            raise StreamError(
+                f"live-feed arg '{arg.media_urn}' on cap '{self._cap_urn}' declares "
+                f"no stdin source — a live reference must resolve to piped content "
+                f"(13.2 §Reference Media)"
+            )
+        if not arg.is_sequence:
+            raise StreamError(
+                f"live-feed arg '{arg.media_urn}' on cap '{self._cap_urn}' must "
+                f"declare is_sequence=true — a live feed is an unbounded SEQUENCE "
+                f"of items"
+            )
+        try:
+            selector = LiveFeedSelector.parse(selector_bytes)
+        except Exception as e:
+            raise StreamError(str(e))
+        delivery: queue.Queue = queue.Queue(maxsize=DELIVERY_QUEUE_CAP)
+        try:
+            opened = open_feed(self._providers, reference_urn, selector, delivery.put)
+        except Exception as e:
+            raise StreamError(str(e))
+        self._handles.append(opened.handle)
+        return InputStream(
+            media_urn=stdin_urn,
+            stream_meta=opened.stream_meta,
+            q=delivery,
+            unbounded=True,
+            grants=None,
+        )
+
+
 def demux_multi_stream(
     raw_rx: queue.Queue,
     credit: Optional[InputCreditContext] = None,
+    live_feed_ctx: Optional[LiveFeedContext] = None,
 ) -> InputPackage:
     """Demux for multi-stream mode (handler input). Spawns a background
     thread that reads the raw per-request Frame queue and splits it into
@@ -1797,6 +1898,10 @@ def demux_multi_stream(
     def _worker() -> None:
         # stream_id -> per-stream item queue delivered to the handler.
         stream_channels: Dict[str, queue.Queue] = {}
+        # Live-feed reference accumulators: stream_id -> (reference_urn,
+        # accumulated selector-value payloads). Resolved on STREAM_END —
+        # the value is a small reference, never the data (13.2).
+        lf_accumulators: Dict[str, Tuple[str, list]] = {}
         # stream_id -> remaining credit window (L10/L12). Starts at the
         # negotiated initial_credit; handler consumption (grants) extends
         # it; a chunk arriving with the window at zero is a fatal
@@ -1823,6 +1928,10 @@ def demux_multi_stream(
                     streams_queue.put(StreamError("STREAM_START missing stream_id"))
                     break
                 media_urn = frame.media_urn or ""
+
+                if live_feed_ctx is not None and live_feed_ctx.is_live_feed(media_urn):
+                    lf_accumulators[stream_id] = (media_urn, [])
+                    continue
 
                 chunk_q: queue.Queue = queue.Queue()
                 stream_channels[stream_id] = chunk_q
@@ -1854,6 +1963,13 @@ def demux_multi_stream(
 
             elif frame.frame_type == FrameType.CHUNK:
                 stream_id = frame.stream_id or ""
+
+                # Live-feed reference accumulation — the demux consumes the
+                # small selector value; it never reaches the handler.
+                if stream_id in lf_accumulators:
+                    if frame.payload:
+                        lf_accumulators[stream_id][1].append(frame.payload)
+                    continue
 
                 # Credit-violation check (L12): a chunk beyond the granted
                 # window is a fatal protocol error for this request.
@@ -1927,6 +2043,32 @@ def demux_multi_stream(
 
             elif frame.frame_type == FrameType.STREAM_END:
                 stream_id = frame.stream_id or ""
+                # Live-feed reference ended — resolve: open the device
+                # through the registered provider and deliver the unbounded
+                # sequence stream (13.2 §Reference Media).
+                if stream_id in lf_accumulators:
+                    reference_urn, chunks = lf_accumulators.pop(stream_id)
+                    selector_bytes = b""
+                    for chunk_payload in chunks:
+                        try:
+                            value = cbor2.loads(chunk_payload)
+                        except Exception:
+                            selector_bytes += bytes(chunk_payload)
+                            continue
+                        if isinstance(value, bytes):
+                            selector_bytes += value
+                        elif isinstance(value, str):
+                            selector_bytes += value.encode("utf-8")
+                        else:
+                            selector_bytes += cbor2.dumps(value)
+                    try:
+                        input_stream = live_feed_ctx.resolve(reference_urn, selector_bytes)
+                    except Exception as e:
+                        streams_queue.put(e if isinstance(e, StreamError) else StreamError(str(e)))
+                        break
+                    streams_queue.put(input_stream)
+                    continue
+
                 # Sequence stream ending mid-item is a truncation — surface
                 # it, never silently drop the partial item.
                 seq = seq_reassembly.pop(stream_id, None)
@@ -2983,6 +3125,11 @@ class CartridgeRuntime:
         # Benign post-terminal stragglers suppressed by the writer's
         # terminal gate (L4) — never drops, nothing went wrong.
         self._straggler_counters = StragglerCounters()
+        # Live-feed providers (13.2 §Reference Media, live family). Ships
+        # with the built-in synthetic feed; capture-capable cartridges
+        # register hardware providers.
+        from capdag.bifaci.live_feed import LiveFeedProviders
+        self._live_feed_providers = LiveFeedProviders()
 
         # Try to parse the manifest for CLI mode support
         try:
@@ -3071,6 +3218,17 @@ class CartridgeRuntime:
         writer's terminal gate suppressed, per frame type. Separate from
         drops — nothing went wrong."""
         return self._straggler_counters.snapshot()
+
+    def register_live_feed_provider(self, pattern: str, provider) -> None:
+        """Register a live-feed provider (13.2 §Reference Media): a capture
+        backend for a reference-URN pattern. The built-in synthetic feed is
+        pre-registered."""
+        self._live_feed_providers.register(pattern, provider)
+
+    def protocol_overruns_total(self) -> int:
+        """Runtime-wide live-feed overrun total (12.5 §Overrun) — its own
+        category, never counted as drops. Rides heartbeat meta."""
+        return self._live_feed_providers.overruns_total()
 
     def protocol_drops(self) -> DropSnapshot:
         """Protocol observability snapshot (L8): this runtime's dropped-frame
@@ -3539,12 +3697,30 @@ class CartridgeRuntime:
                         # over-window chunks are CREDIT_VIOLATION. Delivered
                         # LIVE as frames arrive on raw_queue — never
                         # buffered to completion first.
+                        # Live-feed resolution context (13.2). Per-request
+                        # handle list; py has no Cancel-frame arm yet, so
+                        # stop-by-operator is a documented divergence — feeds
+                        # end via stop conditions or process lifecycle.
+                        try:
+                            lf_ctx = LiveFeedContext(
+                                cap_urn,
+                                self.manifest,
+                                self._live_feed_providers,
+                                [],
+                            )
+                        except Exception as lf_err:
+                            print(
+                                f"[CartridgeRuntime] live-feed context unavailable for cap={cap_urn}: {lf_err}",
+                                file=sys.stderr,
+                            )
+                            lf_ctx = None
                         input_package = demux_multi_stream(
                             raw_queue,
                             InputCreditContext(
                                 writer=sync_writer, rid=request_id, xid=routing_id,
                                 initial_credit=initial_credit,
                             ),
+                            live_feed_ctx=lf_ctx,
                         )
                         try:
                             dispatch_op(factory(), input_package, emitter, peer_invoker)
@@ -3587,6 +3763,7 @@ class CartridgeRuntime:
                 response.meta = {
                     "drops_total": self._drop_counters.total(),
                     "stragglers_total": self._straggler_counters.total(),
+                    "overruns_total": self._live_feed_providers.overruns_total(),
                     "handler_capacity": self._capacity.get(),
                 }
                 try:
