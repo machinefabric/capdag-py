@@ -29,12 +29,18 @@ def _key(x: int, r: int):
     return (MessageId(x), MessageId(r))
 
 
+# The ledger seed every test request negotiates — deliberately a small
+# odd-sized window so seed arithmetic is visible in assertions.
+TEST_INITIAL_CREDIT = 8
+
+
 def _state(dest: int, origin, is_peer: bool) -> RequestState:
     return RequestState(
         routing=RoutingEntry(source_master_idx=origin, destination_master_idx=dest),
         origin=origin,
         external_channel=None,
         is_peer=is_peer,
+        initial_credit=TEST_INITIAL_CREDIT,
     )
 
 
@@ -238,8 +244,40 @@ def test_7032_record_frame_stats_and_phase():
     assert s1.bytes_out == 100
     assert s1.unbounded
     assert s1.ended
-    # +4 granted, -1 consumed inbound chunk
-    assert s1.credit_outstanding == 3
+    # The ledger is the REMAINING WINDOW: seeded with the negotiated initial
+    # credit, +4 granted, -1 per chunk in EITHER direction (the inbound chunk
+    # and the outbound chunk each consumed one).
+    assert s1.credit_outstanding == TEST_INITIAL_CREDIT + 4 - 2, \
+        "window = seed + grants - chunks"
+
+
+# TEST8115: recently_terminated_rid discriminates the teardown race from
+# genuine routing loss: true for a rid whose request just terminated, false
+# for a rid the table never knew, false again once the summary is evicted
+# past the ring's horizon — a pathologically late frame ages back into
+# no_route, where something that stale belongs.
+def test_8115_recently_terminated_rid_discriminates_and_ages_out():
+    table = RequestTable()
+
+    k = _key(1, 500)
+    table.register(k, _state(0, None, False))
+    assert not table.recently_terminated_rid(MessageId(500)), \
+        "a LIVE request is not recently terminated"
+    assert table.terminate(k, TerminalKind.END) is not None
+    assert table.recently_terminated_rid(MessageId(500)), \
+        "a just-terminated rid must be in the ring"
+    assert not table.recently_terminated_rid(MessageId(9999)), \
+        "an unknown rid is a genuine routing anomaly, never post_terminal"
+
+    # Push the ring past its horizon: rid 500's summary must age out.
+    for n in range(1000, 1000 + RECENT_TERMINATED_CAP):
+        k = _key(n, n)
+        table.register(k, _state(0, None, False))
+        assert table.terminate(k, TerminalKind.END) is not None
+    assert not table.recently_terminated_rid(MessageId(500)), \
+        "eviction past RECENT_TERMINATED_CAP ends post_terminal classification"
+    assert table.recently_terminated_rid(MessageId(1000 + RECENT_TERMINATED_CAP - 1)), \
+        "the newest termination is still in the ring"
 
 
 # TEST7033: Terminated requests leave a bounded ring of summaries carrying kind,
