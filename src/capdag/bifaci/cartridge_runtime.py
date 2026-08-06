@@ -46,6 +46,7 @@ import json
 import io
 import asyncio
 import threading
+import time
 import queue
 import glob
 from enum import Enum
@@ -209,6 +210,65 @@ class GatedWrite(str, Enum):
     """
     WRITTEN = "written"
     DROPPED_POST_TERMINAL = "dropped_post_terminal"
+
+
+# Scalar-stream write coalescing: cap on BYTES buffered before an emission
+# forces a flush (mirrors the Rust COALESCE_MAX_BYTES).
+COALESCE_MAX_BYTES = 4096
+
+# Scalar-stream write coalescing: oldest buffered byte AGE (seconds) that
+# forces a flush on the next emission (mirrors the Rust COALESCE_MAX_AGE).
+COALESCE_MAX_AGE_SECONDS = 0.020
+
+
+class CoalesceBuf:
+    """Shared write-coalescing buffer for one SCALAR stream (mirrors the Rust
+    ``CoalesceBuf``).
+
+    Chunk boundaries on a scalar stream are non-semantic — every receiver
+    decodes each CHUNK payload as one CBOR bytes value and concatenates the
+    inner bytes — so folding many small emissions into one chunk is invisible
+    to consumers while dividing frame count, credit traffic, and the relay's
+    per-frame work by the batch factor. Sequence streams are NEVER coalesced:
+    their chunk runs delimit items. Nothing is ever dropped: ``close()``
+    flushes before STREAM_END, and every non-bytes emission flushes first so
+    ordering within the stream is preserved.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._buf = bytearray()
+        self._oldest: Optional[float] = None
+
+    def append(self, data: bytes) -> Optional[bytes]:
+        """Append ``data``; returns a batch that is DUE (size or age
+        threshold crossed) and must be sent now, or None while the batch is
+        still accumulating."""
+        with self._lock:
+            if not self._buf:
+                self._oldest = time.monotonic()
+            self._buf.extend(data)
+            aged = (
+                self._oldest is not None
+                and time.monotonic() - self._oldest >= COALESCE_MAX_AGE_SECONDS
+            )
+            if len(self._buf) >= COALESCE_MAX_BYTES or aged:
+                batch = bytes(self._buf)
+                self._buf = bytearray()
+                self._oldest = None
+                return batch
+            return None
+
+    def take(self) -> Optional[bytes]:
+        """Take whatever is buffered, unconditionally. The
+        flush/close/ordering-barrier primitive."""
+        with self._lock:
+            if not self._buf:
+                return None
+            batch = bytes(self._buf)
+            self._buf = bytearray()
+            self._oldest = None
+            return batch
 
 
 def write_gated(
@@ -1003,6 +1063,8 @@ class ThreadSafeEmitter:
         self.routing_id = routing_id  # XID from incoming REQ — set on all response frames
         self.chunk_index = 0
         self.chunk_lock = threading.Lock()
+        # Write-coalescing buffer for scalar byte emissions (see CoalesceBuf).
+        self._coalesce = CoalesceBuf()
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
         self.stream_started = False
         self.stream_lock = threading.Lock()
@@ -1137,28 +1199,20 @@ class ThreadSafeEmitter:
 
         # Split large byte/text data, encode each chunk as complete CBOR value
         if isinstance(value, bytes):
-            # Split bytes BEFORE encoding, encode each chunk as bytes
-            offset = 0
-            while offset < len(value):
-                chunk_size = min(self.max_chunk, len(value) - offset)
-                chunk_bytes = value[offset:offset + chunk_size]
-
-                # Encode as complete bytes - independently decodable
-                cbor_payload = cbor2.dumps(chunk_bytes)
-
-                with self.chunk_lock:
-                    idx = self.chunk_index
-                    self.chunk_index += 1
-
-                # Seq=0 placeholder — SyncFrameWriter assigns the real seq
-                frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
-                frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
-                self._acquire_credit()
-                self.writer.write(frame)
-
-                offset += chunk_size
+            # Byte emissions COALESCE (the per-token path): on a scalar
+            # stream a CBOR-bytes chunk is pure byte-stream continuation, so
+            # small rapid emissions accumulate and ship as one chunk per
+            # size/age threshold; close() flushes the tail before STREAM_END.
+            if not value:
+                return
+            batch = self._coalesce.append(value)
+            if batch is not None:
+                self._write_coalesced_batch(batch)
 
         elif isinstance(value, str):
+            # ORDERING BARRIER: a non-bytes value must not overtake bytes
+            # still sitting in the coalescing buffer.
+            self.flush()
             # Split string BEFORE encoding, encode each chunk as str
             str_bytes = value.encode('utf-8')
             offset = 0
@@ -1190,6 +1244,7 @@ class ThreadSafeEmitter:
                 offset += len(chunk_str.encode('utf-8'))
 
         elif isinstance(value, list):
+            self.flush()
             # Array: send each element as independent CBOR chunk
             for element in value:
                 cbor_payload = cbor2.dumps(element)
@@ -1204,6 +1259,7 @@ class ThreadSafeEmitter:
                 self.writer.write(frame)
 
         elif isinstance(value, dict):
+            self.flush()
             # Map: send each entry as [key, value] pair chunk
             for key, val in value.items():
                 entry = [key, val]
@@ -1219,6 +1275,7 @@ class ThreadSafeEmitter:
                 self.writer.write(frame)
 
         else:
+            self.flush()
             # For other types (int, float, bool, None): encode as single chunk
             cbor_payload = cbor2.dumps(value)
 
@@ -1230,6 +1287,31 @@ class ThreadSafeEmitter:
             frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
             self._acquire_credit()
             self.writer.write(frame)
+
+    def _write_coalesced_batch(self, batch: bytes) -> None:
+        """Ship one coalesced batch: split at ``max_chunk``, each piece one
+        CBOR-bytes CHUNK, one credit per chunk."""
+        offset = 0
+        while offset < len(batch):
+            chunk_size = min(self.max_chunk, len(batch) - offset)
+            chunk_bytes = batch[offset:offset + chunk_size]
+            cbor_payload = cbor2.dumps(chunk_bytes)
+            with self.chunk_lock:
+                idx = self.chunk_index
+                self.chunk_index += 1
+            frame = Frame.chunk(self.request_id, self.stream_id, 0, cbor_payload, idx, compute_checksum(cbor_payload))
+            frame.routing_id = self.routing_id
+            self._acquire_credit()
+            self.writer.write(frame)
+            offset += chunk_size
+
+    def flush(self) -> None:
+        """Ship any coalesced-but-unsent bytes to the wire now. ``close()``
+        and ``finalize()`` call this; handlers only need it for explicit
+        mid-stream latency barriers."""
+        batch = self._coalesce.take()
+        if batch is not None:
+            self._write_coalesced_batch(batch)
 
     def finalize(self) -> None:
         """Send STREAM_END + END to complete the response.
@@ -1243,6 +1325,10 @@ class ThreadSafeEmitter:
         """
         # Ensure STREAM_START was sent (even if handler emitted nothing)
         self._ensure_stream_started()
+
+        # Coalesced tail bytes ship BEFORE the STREAM_END that promises the
+        # chunk count — flushing here is what makes coalescing lossless.
+        self.flush()
 
         # STREAM_END (seq assigned by SyncFrameWriter). Unbounded streams
         # (started via start_unbounded) carry no chunk_count promise (L16).
@@ -1272,6 +1358,9 @@ class ThreadSafeEmitter:
         an alias — see class docstring.
         """
         self._ensure_stream_started()
+        # Raw-payload writes never coalesce; barrier-flush so they cannot
+        # overtake buffered CBOR-bytes emissions on the same stream.
+        self.flush()
         offset = 0
         while offset < len(data):
             chunk_size = min(self.max_chunk, len(data) - offset)

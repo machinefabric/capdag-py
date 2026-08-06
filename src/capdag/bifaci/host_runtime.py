@@ -30,6 +30,7 @@ import subprocess
 import threading
 import queue
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
@@ -1620,6 +1621,18 @@ class CartridgeHostRuntime:
         # (RID -> cartridge_idx) plus its parallel touched clock.
         self.outgoing_rids: dict = {}
         self.outgoing_rids_touched: dict = {}
+        # Bounded ring of RIDs whose routing entries were released by an
+        # OBSERVED terminal — a completed request, a completed peer response,
+        # or a cartridge death (which synthesizes the ERR terminal itself).
+        # This is the discriminator between the two ways a frame can arrive
+        # with no routing entry: a hit means the frame crossed its request's
+        # terminal in flight (the ordinary teardown race of credit-based flow
+        # control — counted post_terminal), a miss means the host never
+        # routed this RID within the ring's horizon (no_route, a genuine
+        # anomaly). GC evictions are deliberately NOT recorded here: an
+        # evicted entry never saw its terminal, so a frame for it is real
+        # routing loss and stays no_route beside the GC eviction counter.
+        self.recent_released_rids: deque = deque()
         # List 2: INCOMING_RXIDS — incoming requests from relay
         # ((XID, RID) -> cartridge_idx). Continuations route by this table.
         self.incoming_rxids: dict = {}
@@ -1773,7 +1786,12 @@ class CartridgeHostRuntime:
             routed_via_incoming = True
 
         if cartridge_idx is None:
-            self.drops.record(DropReason.NO_ROUTE)
+            # Discriminate the teardown race from real routing loss: a RID
+            # released by an observed terminal is the ordinary END/Credit
+            # race (post_terminal); a RID this host never routed is a
+            # genuine anomaly (no_route). Counted either way (L6/L8), never
+            # a silent loss.
+            self.drops.record(self._classify_unroutable(rid))
             return None
 
         is_terminal = frame_type in (FrameType.END, FrameType.ERR)
@@ -1785,14 +1803,43 @@ class CartridgeHostRuntime:
                     self.incoming_response_done.discard(key)
                     self.incoming_rxids.pop(key, None)
                     self.incoming_rxids_touched.pop(key, None)
+                    self.note_released_rid(rid)
                 else:
                     self.incoming_body_done.add(key)
             else:
                 # Peer response completed — clean up outgoing_rids.
                 self.outgoing_rids.pop(rid, None)
                 self.outgoing_rids_touched.pop(rid, None)
+                self.note_released_rid(rid)
 
         return (cartridge_idx, routed_via_incoming)
+
+    # How many terminal-released RIDs the discrimination ring retains
+    # (mirrors the Rust host's RECENT_RELEASED_RIDS_CAP).
+    RECENT_RELEASED_RIDS_CAP = 64
+
+    def note_released_rid(self, rid) -> None:
+        """Record that ``rid``'s routing entry was released by an observed
+        terminal (see ``recent_released_rids``). Deduplicated; bounded at
+        ``RECENT_RELEASED_RIDS_CAP``."""
+        if rid in self.recent_released_rids:
+            return
+        if len(self.recent_released_rids) == self.RECENT_RELEASED_RIDS_CAP:
+            self.recent_released_rids.popleft()
+        self.recent_released_rids.append(rid)
+
+    def recently_released_rid(self, rid) -> bool:
+        """Whether ``rid``'s routing entry was recently released by a
+        terminal — the post_terminal / no_route discriminator for unroutable
+        frames."""
+        return rid in self.recent_released_rids
+
+    def _classify_unroutable(self, rid) -> DropReason:
+        """post_terminal for a rid a terminal just released, no_route for a
+        rid this host never routed."""
+        if self.recently_released_rid(rid):
+            return DropReason.POST_TERMINAL
+        return DropReason.NO_ROUTE
 
     def record_response_terminal(self, xid, rid) -> None:
         """Record that the handler's RESPONSE terminal (END/ERR) has passed
@@ -1812,6 +1859,7 @@ class CartridgeHostRuntime:
             self.incoming_body_done.discard(key)
             self.incoming_rxids.pop(key, None)
             self.incoming_rxids_touched.pop(key, None)
+            self.note_released_rid(rid)
         elif key in self.incoming_rxids:
             self.incoming_response_done.add(key)
 
@@ -1825,6 +1873,9 @@ class CartridgeHostRuntime:
         self.incoming_rxids_touched.pop(key, None)
         self.incoming_body_done.discard(key)
         self.incoming_response_done.discard(key)
+        # A death/cancel sweep synthesizes the terminal for this request;
+        # stragglers for it are post_terminal, not routing anomalies.
+        self.note_released_rid(key[1])
 
     # --- garbage collector ---
 

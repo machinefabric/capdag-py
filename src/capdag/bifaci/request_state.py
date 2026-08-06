@@ -87,7 +87,11 @@ class StreamFlowStats:
     bytes_out: int = 0
     chunks_in: int = 0
     chunks_out: int = 0
-    # Credits granted through this runtime minus chunks that consumed them.
+    # The stream's REMAINING credit window as observed by this runtime: the
+    # negotiated initial window, plus credits granted through this runtime,
+    # minus chunks that consumed them (in either direction — a stream's
+    # chunks flow one way and its grants the other). Non-negative in healthy
+    # operation; a negative value means the producer overran its window.
     # Diagnostic — the endpoints hold the authoritative windows.
     credit_outstanding: int = 0
     # Stream announced with unbounded=true (no length promise).
@@ -118,6 +122,7 @@ class RequestState:
         origin: Optional[int],
         external_channel: Optional[Callable[[Frame], None]],
         is_peer: bool,
+        initial_credit: int,
     ) -> None:
         """Create request state.
 
@@ -126,12 +131,16 @@ class RequestState:
             origin: Master index the response must return to (None = external caller).
             external_channel: Response delivery callback for externally-registered requests.
             is_peer: Whether this is a cartridge-initiated peer invocation.
+            initial_credit: The NEGOTIATED initial credit window of this
+                request's destination — the ledger seed for every stream
+                (see ``StreamFlowStats.credit_outstanding``).
         """
         now = time.monotonic()
         self.routing = routing
         self.origin = origin
         self.external_channel = external_channel
         self.is_peer = is_peer
+        self.initial_credit = initial_credit
         # Cap URN of the originating REQ, when known at registration — the
         # request's nameable identity on the L8 surface. Without it a stats
         # snapshot shows only anonymous rids, making background chatter
@@ -163,7 +172,11 @@ class RequestState:
             self.phase = RequestPhase.STREAMING
         stats = self.streams.get(frame.stream_id)
         if stats is None:
-            stats = StreamFlowStats()
+            # A fresh stream starts with the NEGOTIATED initial window (L10):
+            # the producer may send that many chunks before any CREDIT frame
+            # arrives, so a ledger that starts at zero reads every healthy
+            # stream as negative by exactly the initial window.
+            stats = StreamFlowStats(credit_outstanding=self.initial_credit)
             self.streams[frame.stream_id] = stats
         num_bytes = len(frame.payload) if frame.payload is not None else 0
         if direction == FrameDirection.INBOUND:
@@ -171,12 +184,16 @@ class RequestState:
             stats.bytes_in += num_bytes
             if frame.frame_type == FrameType.CHUNK:
                 stats.chunks_in += 1
-                stats.credit_outstanding -= 1
         else:
             stats.frames_out += 1
             stats.bytes_out += num_bytes
             if frame.frame_type == FrameType.CHUNK:
                 stats.chunks_out += 1
+        # A chunk consumes one credit from ITS stream's window regardless of
+        # which way it flows past this runtime — a stream's chunks all flow
+        # one direction, and its grants flow the other.
+        if frame.frame_type == FrameType.CHUNK:
+            stats.credit_outstanding -= 1
         if frame.frame_type == FrameType.STREAM_START and frame.is_unbounded():
             stats.unbounded = True
         elif frame.frame_type == FrameType.STREAM_END:
@@ -399,6 +416,25 @@ class RequestTable:
         """Install the termination observer (see field docs). One observer;
         installing replaces any previous one."""
         self._terminate_observer = observer
+
+    def recently_terminated_rid(self, rid: MessageId) -> bool:
+        """Whether this RID belongs to a recently terminated request (the
+        bounded ``_recent_terminated`` ring).
+
+        This is the discriminator between the two ways a frame can arrive
+        with no routing state. A hit here means the frame CROSSED its
+        request's terminal in flight — the ordinary teardown race of
+        credit-based flow control (a grant or straggler emitted before the
+        sender observed END/ERR) — which receivers count as ``post_terminal``.
+        A miss means the table has never known the RID within the ring's
+        horizon: a genuine ``no_route`` anomaly worth alarming on. The ring
+        holds the last ``RECENT_TERMINATED_CAP`` terminations; the race
+        window is milliseconds, so eviction cannot misclassify a real race,
+        only age a pathologically late frame back into ``no_route`` — where
+        something that stale belongs.
+        """
+        rid_str = str(rid)
+        return any(t.rid == rid_str for t in self._recent_terminated)
 
     def record_frame(self, key: RequestKey, direction: FrameDirection, frame: Frame) -> None:
         """Record a frame moving through the runtime for this request.

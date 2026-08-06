@@ -1098,6 +1098,7 @@ class RelaySwitch:
                     origin=None,
                     external_channel=None,
                     is_peer=False,
+                    initial_credit=self._master_initial_credit_locked(dest_idx),
                 ).with_cap_urn(frame.cap)
                 # The request table owns the permit now: it is released when the
                 # request terminates (End | Err | Cancelled | MasterDied).
@@ -1129,6 +1130,12 @@ class RelaySwitch:
                 entry = self._requests.get(key)
                 if entry is None:
                     raise UnknownRequestError(frame.id.to_string())
+
+                # RECORD the outbound frame in the request's flow ledger.
+                # Engine-originated grants and chunks are half of every
+                # stream's credit arithmetic; skipping them made the snapshot
+                # ledger read healthy streams as deep-negative.
+                self._requests.record_frame(key, FrameDirection.OUTBOUND, frame)
 
                 dest_idx = entry.routing.destination_master_idx
                 self._masters[dest_idx].socket_writer.write(frame)
@@ -1208,6 +1215,27 @@ class RelaySwitch:
             # frames are forwarded). Pass-through frames are discarded — the
             # pump has no engine consumer.
             self._handle_master_frame(master_frame.master_idx, master_frame.frame)
+
+    def _classify_unroutable_locked(self, rid: MessageId) -> DropReason:
+        """Discriminate an unroutable frame's drop reason: a RID whose request
+        recently terminated is the ordinary teardown race of credit-based
+        flow control (``post_terminal`` — a grant or straggler that crossed
+        END/ERR in flight); a RID the table never knew is a genuine routing
+        anomaly (``no_route``). Caller holds ``self._lock``."""
+        if self._requests.recently_terminated_rid(rid):
+            return DropReason.POST_TERMINAL
+        return DropReason.NO_ROUTE
+
+    def _master_initial_credit_locked(self, dest_idx: int) -> int:
+        """The destination master's negotiated initial credit — the ledger
+        seed for requests routed to it (``RequestState.initial_credit``).
+        When the slot has already detached (a resolve/attach race — the
+        registration that follows will fail on delivery), the switch-level
+        negotiated minimum is the correct window bound. Caller holds
+        ``self._lock``."""
+        if 0 <= dest_idx < len(self._masters):
+            return self._masters[dest_idx].limits.initial_credit
+        return self._negotiated_limits.initial_credit
 
     def _next_xid_locked(self) -> MessageId:
         """Allocate a fresh routing id (xid). Caller MUST hold ``_lock``."""
@@ -1440,6 +1468,7 @@ class RelaySwitch:
                     origin=source_idx,
                     external_channel=None,
                     is_peer=True,
+                    initial_credit=self._master_initial_credit_locked(dest_idx),
                 ).with_cap_urn(frame.cap)
                 try:
                     self._requests.register(key, state)
@@ -1490,12 +1519,17 @@ class RelaySwitch:
                         kind = TerminalKind.END if frame.frame_type == FrameType.END else TerminalKind.ERR
                         state = self._requests.terminate(key, kind)
                         if state is None:
-                            self._drops.record(DropReason.NO_ROUTE)
+                            # Classify by the terminated ring: a frame for a
+                            # request that JUST terminated is the ordinary
+                            # teardown race (post_terminal); only a RID the
+                            # table never knew is a routing anomaly
+                            # (no_route).
+                            self._drops.record(self._classify_unroutable_locked(rid))
                             return None
                     else:
                         state = self._requests.get(key)
                         if state is None:
-                            self._drops.record(DropReason.NO_ROUTE)
+                            self._drops.record(self._classify_unroutable_locked(rid))
                             return None
 
                     if state.origin is None:
@@ -1546,13 +1580,13 @@ class RelaySwitch:
                     rid = frame.id
                     xid = self._requests.xid_for_rid(rid)
                     if xid is None:
-                        self._drops.record(DropReason.NO_ROUTE)
+                        self._drops.record(self._classify_unroutable_locked(rid))
                         return None
                     key = (xid, rid)
                     self._requests.record_frame(key, FrameDirection.INBOUND, frame)
                     state = self._requests.get(key)
                     if state is None:
-                        self._drops.record(DropReason.NO_ROUTE)
+                        self._drops.record(self._classify_unroutable_locked(rid))
                         return None
                     frame.routing_id = xid
                     self._masters[state.routing.destination_master_idx].socket_writer.write(frame)
