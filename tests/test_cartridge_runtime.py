@@ -1978,6 +1978,9 @@ def test_539_output_stream_sends_stream_start():
 
     stream.start(False, None)
     stream.emit_cbor(b"test")
+    # Small byte emissions coalesce; the flush is what ships the chunk. The
+    # contract under test is unchanged: STREAM_START precedes the first chunk.
+    stream.flush()
 
     assert len(mock_writer.frames) >= 2
     assert mock_writer.frames[0].frame_type == FrameType.STREAM_START

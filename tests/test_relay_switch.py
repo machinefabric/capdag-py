@@ -10,6 +10,7 @@ from io import BytesIO
 import pytest
 
 from capdag.bifaci.frame import AttributionClass, CreditDirection, DEFAULT_INITIAL_CREDIT, DropReason, Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.io import CborError
 from capdag.bifaci.io import FrameReader, FrameWriter
 from capdag.bifaci.relay_switch import (
     RelaySwitch,
@@ -1711,15 +1712,23 @@ def test_8118_send_to_master_records_outbound_flow_and_window():
 
     # An outbound chunk and an outbound grant from the engine side. The
     # ledger records BEFORE the write, exactly like the inbound path records
-    # before routing, so stats never depend on delivery succeeding.
+    # before routing, so stats never depend on delivery succeeding — the mock
+    # master's far end may already be closed, and that write failure is
+    # irrelevant to the accounting under test.
     payload = bytes(7)
     chunk = Frame.chunk(rid, "s", 0, payload, 0, compute_checksum(payload))
     chunk.routing_id = xid
-    switch.send_to_master(chunk)
+    try:
+        switch.send_to_master(chunk)
+    except CborError:
+        pass
 
     credit = Frame.credit(rid, "s", 3, CreditDirection.RESPONSE)
     credit.routing_id = xid
-    switch.send_to_master(credit)
+    try:
+        switch.send_to_master(credit)
+    except CborError:
+        pass
 
     stats = switch.protocol_stats()
     req = next((r for r in stats.requests.active if r.rid == str(rid)), None)
@@ -1764,11 +1773,17 @@ def test_7035_end_terminates_and_releases_all_state():
     assert summary.rid == rid.to_string()
     assert summary.frames_in == 1, "ingress recording captured the terminal frame"
 
-    # A follow-up frame for the released key is a counted no_route drop.
+    # A follow-up frame for the released key is a counted drop CLASSIFIED as
+    # the teardown race: the request just terminated, so it counts
+    # post_terminal — no_route stays reserved for RIDs the table never knew
+    # (TEST8114).
     late = Frame.progress(rid, 1.0, "late")
     late.routing_id = xid
     switch._handle_master_frame(0, late)
-    assert switch.protocol_stats().drops.by_reason.get("no_route") == 1
+    drops = switch.protocol_stats().drops
+    assert drops.by_reason.get("post_terminal") == 1
+    assert drops.by_reason.get("no_route") in (None, 0), \
+        "a just-terminated request's straggler is not a routing anomaly"
 
 
 # TEST7036: After ERR, the same total-cleanup invariant holds as after END,
