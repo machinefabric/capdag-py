@@ -1781,22 +1781,19 @@ class LiveFeedContext:
     (matches Rust LiveFeedContext)"""
 
     def __init__(self, cap_urn: str, manifest, providers, handles: list):
-        from capdag.bifaci.live_feed import MEDIA_LIVE_FEED
-
         # Canonical rendering so the manifest lookup compares
         # canonical-to-canonical, independent of surface spelling.
         self._cap_urn = CapUrn.from_string(cap_urn).to_string()
         self._manifest = manifest
         self._providers = providers
         self._handles = handles
-        self._live_pattern = MediaUrn.from_string(MEDIA_LIVE_FEED)
 
     def is_live_feed(self, media_urn_str: str) -> bool:
         try:
             urn = MediaUrn.from_string(media_urn_str)
         except Exception:
             return False
-        return self._live_pattern.accepts(urn)
+        return urn.is_live_feed()
 
     def _find_arg(self, incoming: MediaUrn):
         if self._manifest is None:

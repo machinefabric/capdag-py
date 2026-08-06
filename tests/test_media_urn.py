@@ -340,6 +340,19 @@ def test_551_is_file_path():
     assert not MediaUrn.from_string(MEDIA_IDENTITY).is_file_path()
 
 
+# TEST553: is_live_feed returns true for every URN carrying the `live`
+# marker tag (the reference-media family the runtime resolves via
+# providers), false for everything else — including content URNs a feed
+# delivers.
+def test_553_is_live_feed():
+    assert MediaUrn.from_string("media:live").is_live_feed()
+    assert MediaUrn.from_string("media:live;synthetic").is_live_feed()
+    assert MediaUrn.from_string("media:audio;live;microphone").is_live_feed()
+    assert not MediaUrn.from_string(MEDIA_STRING).is_live_feed()
+    assert not MediaUrn.from_string(MEDIA_FILE_PATH).is_live_feed()
+    assert not MediaUrn.from_string("media:audio;pcm").is_live_feed()
+
+
 # TEST555: with_tag adds a tag and without_tag removes it
 def test_555_with_tag_and_without_tag():
     urn = MediaUrn.from_string("media:string")

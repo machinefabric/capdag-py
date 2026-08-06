@@ -545,6 +545,16 @@ class MediaUrn:
         """
         return self.has_marker_tag("file-path")
 
+    def is_live_feed(self) -> bool:
+        """True if this URN carries the ``live`` marker tag — a live-feed
+        REFERENCE (13.2 §Reference Media): the arg value is a selector
+        record the runtime resolves into an unbounded content stream via a
+        registered provider, the same transport-resolution family as
+        ``media:file-path``. This is the canonical membership predicate for
+        that family; callers must not test the ``live`` tag themselves.
+        """
+        return self.has_marker_tag("live")
+
     def extension(self) -> Optional[str]:
         """Get the extension tag value if present"""
         return self._urn.get_tag("ext")

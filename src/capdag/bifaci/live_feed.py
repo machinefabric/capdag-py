@@ -100,6 +100,36 @@ class LiveFeedSelector:
         stop_raw = obj.get("stop") or {}
         if not isinstance(stop_raw, dict):
             raise LiveFeedError("live-feed selector 'stop' must be a record")
+        # Unknown stop fields are rejected like the selector's own — a
+        # misspelled stop condition silently ignored would run an unbounded
+        # feed the caller meant to bound.
+        stop_known = {"duration_ms", "max_items"}
+        stop_unknown = set(stop_raw.keys()) - stop_known
+        if stop_unknown:
+            raise LiveFeedError(
+                f"live-feed selector has unknown stop field(s) "
+                f"{sorted(stop_unknown)} — known fields: {sorted(stop_known)}"
+            )
+
+        def _stop_count(key: str):
+            value = stop_raw.get(key)
+            if value is None:
+                return None
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise LiveFeedError(
+                    f"live-feed selector stop.{key} must be a non-negative "
+                    f"integer, got: {value!r}"
+                )
+            return value
+
+        device = obj.get("device")
+        if device is not None and not isinstance(device, str):
+            raise LiveFeedError(
+                f"live-feed selector 'device' must be a string, got: {device!r}"
+            )
+        params = obj.get("params") or {}
+        if not isinstance(params, dict):
+            raise LiveFeedError("live-feed selector 'params' must be a record")
         on_overrun = obj.get("on_overrun", OVERRUN_DROP_OLDEST)
         if on_overrun not in (OVERRUN_DROP_OLDEST, OVERRUN_FAIL):
             raise LiveFeedError(
@@ -107,11 +137,11 @@ class LiveFeedSelector:
                 f"or '{OVERRUN_FAIL}', got: {on_overrun!r}"
             )
         return cls(
-            device=obj.get("device"),
-            params=obj.get("params") or {},
+            device=device,
+            params=params,
             stop=LiveFeedStop(
-                duration_ms=stop_raw.get("duration_ms"),
-                max_items=stop_raw.get("max_items"),
+                duration_ms=_stop_count("duration_ms"),
+                max_items=_stop_count("max_items"),
             ),
             on_overrun=on_overrun,
         )

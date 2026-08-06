@@ -2227,6 +2227,28 @@ def test_8134_invalid_selector_rejected():
     assert "selector" in str(err)
 
 
+# TEST8136: unknown selector fields are rejected at every nesting level —
+# a misspelled stop condition (`duration` for `duration_ms`) silently
+# ignored would run an unbounded feed the caller meant to bound.
+def test_8136_unknown_selector_fields_rejected():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    for bad in (
+        '{"devise": "mic0"}',
+        '{"stop": {"duration": 1000}}',
+        '{"stop": {"max_item": 3}}',
+    ):
+        ctx, _providers, _handles = _live_feed_ctx()
+        raw_queue = queue.Queue()
+        rid = MessageId.new_uuid()
+        _send_live_reference(raw_queue, rid, bad)
+
+        package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+        err = package.recv()
+        assert isinstance(err, Exception), f"unknown field must be rejected: {bad}"
+        assert "selector" in str(err), f"{bad}: {err}"
+
+
 # TEST8126: derive_response_media — the response label is the effect
 # inference over the declared input, per effect value; an unparseable
 # cap URN fails hard instead of falling back.
