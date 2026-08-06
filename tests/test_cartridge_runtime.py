@@ -9,6 +9,7 @@ import io
 import threading
 import time
 from capdag.bifaci.cartridge_runtime import (
+    COALESCE_MAX_AGE_SECONDS,
     CartridgeRuntime,
     NoPeerInvoker,
     CliStreamEmitter,
@@ -1995,14 +1996,95 @@ def test_540_output_stream_close_sends_stream_end():
         max_chunk=256_000,
     )
 
+    # Three small rapid emissions COALESCE into one CHUNK (scalar-stream
+    # chunk boundaries are non-semantic), flushed by close() BEFORE the
+    # STREAM_END that promises the count — coalescing must be lossless and
+    # order-preserving, and the count must match what actually shipped.
     stream.start(False, None)
     stream.emit_cbor(b"chunk1")
     stream.emit_cbor(b"chunk2")
     stream.emit_cbor(b"chunk3")
     stream.close()
 
+    chunks = [f for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert len(chunks) == 1, "small rapid emissions coalesce into one chunk"
+    assert cbor2.loads(chunks[0].payload) == b"chunk1chunk2chunk3", \
+        "coalescing is lossless and order-preserving"
+
     stream_end = next(frame for frame in mock_writer.frames if frame.frame_type == FrameType.STREAM_END)
-    assert stream_end.chunk_count == 3
+    assert stream_end.chunk_count == 1, "STREAM_END promises the COALESCED chunk count"
+    chunk_pos = next(i for i, f in enumerate(mock_writer.frames) if f.frame_type == FrameType.CHUNK)
+    end_pos = next(i for i, f in enumerate(mock_writer.frames) if f.frame_type == FrameType.STREAM_END)
+    assert chunk_pos < end_pos, "the flushed tail ships BEFORE STREAM_END"
+
+
+# TEST8119: the coalescing AGE bound — an emission arriving after the
+# buffer's oldest byte crossed COALESCE_MAX_AGE flushes the accumulated
+# batch, so steady token emission lags the wire by at most one write-gap;
+# the tail emitted after that flush ships with close(). Nothing is lost,
+# order is preserved, and the frame count is the batch count, not the
+# emission count.
+def test_8119_coalesce_age_bound_flushes_on_next_write():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:enc=utf-8",
+        max_chunk=256_000,
+    )
+    stream.start(False, None)
+
+    stream.write(b"ab")
+    stream.write(b"cd")
+    # Cross the age bound, then write again: THIS write must flush all three
+    # fragments as one chunk.
+    time.sleep(COALESCE_MAX_AGE_SECONDS + 0.01)
+    stream.write(b"ef")
+    # A fresh fragment after the flush stays buffered until close.
+    stream.write(b"gh")
+    stream.close()
+
+    chunks = [f for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert len(chunks) == 2, \
+        "one age-flushed batch + one close-flushed tail — never one frame per write"
+    assert cbor2.loads(chunks[0].payload) == b"abcdef"
+    assert cbor2.loads(chunks[1].payload) == b"gh"
+
+
+# TEST8120: a non-bytes emission is an ordering BARRIER — buffered bytes ship
+# first, then the barrier value, and close() flushes the tail. STREAM_END
+# promises the coalesced count.
+def test_8120_non_bytes_emission_barriers_coalesced_bytes():
+    mock_writer = MockFrameWriter()
+    sync_writer = SyncFrameWriter(mock_writer)
+    stream = OutputStream(
+        writer=sync_writer,
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:enc=utf-8",
+        max_chunk=256_000,
+    )
+    stream.start(False, None)
+
+    stream.emit_cbor(b"tok1")
+    stream.emit_cbor(b"tok2")
+    stream.emit_cbor(7)
+    stream.emit_cbor(b"tok3")
+    stream.close()
+
+    chunks = [f for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert len(chunks) == 3, "batch, barrier value, close-flushed tail"
+    assert cbor2.loads(chunks[0].payload) == b"tok1tok2"
+    assert cbor2.loads(chunks[1].payload) == 7
+    assert cbor2.loads(chunks[2].payload) == b"tok3"
+
+    stream_end = next(f for f in mock_writer.frames if f.frame_type == FrameType.STREAM_END)
+    assert stream_end.chunk_count == 3, "STREAM_END promises the coalesced count"
+    last_chunk_pos = max(i for i, f in enumerate(mock_writer.frames) if f.frame_type == FrameType.CHUNK)
+    end_pos = next(i for i, f in enumerate(mock_writer.frames) if f.frame_type == FrameType.STREAM_END)
+    assert last_chunk_pos < end_pos, "tail ships before STREAM_END"
 
 
 # TEST541: OutputStream chunks large data correctly

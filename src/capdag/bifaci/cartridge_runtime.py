@@ -1945,6 +1945,8 @@ class OutputStream:
         self.routing_id = routing_id
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
         self.chunk_index = 0
+        # Write-coalescing buffer for scalar byte emissions (see CoalesceBuf).
+        self._coalesce = CoalesceBuf()
         self.started = False
         self.closed = False
         # Whether this stream was started unbounded (no length promise, L16).
@@ -2033,11 +2035,37 @@ class OutputStream:
                 raise RuntimeError("OutputStream already closed")
             if not self.started:
                 self._start_unlocked()
-            offset = 0
-            while offset < len(data):
-                chunk_size = min(self.max_chunk, len(data) - offset)
-                self._write_chunk_payload(cbor2.dumps(data[offset:offset + chunk_size]))
-                offset += chunk_size
+            # Coalesce: small writes accumulate and ship as one CHUNK once
+            # the size or age threshold is crossed (see CoalesceBuf);
+            # close() flushes the tail. Chunk boundaries on a scalar stream
+            # are non-semantic, so this is invisible to every consumer.
+            if not data:
+                return
+            batch = self._coalesce.append(data)
+            if batch is not None:
+                self._write_coalesced_batch(batch)
+
+    def _write_coalesced_batch(self, batch: bytes) -> None:
+        """Ship one coalesced batch: split at ``max_chunk``, each piece one
+        CBOR-bytes CHUNK, one credit per chunk (inside
+        ``_write_chunk_payload``). Caller holds ``self._lock``."""
+        offset = 0
+        while offset < len(batch):
+            chunk_size = min(self.max_chunk, len(batch) - offset)
+            self._write_chunk_payload(cbor2.dumps(batch[offset:offset + chunk_size]))
+            offset += chunk_size
+
+    def _flush_locked(self) -> None:
+        batch = self._coalesce.take()
+        if batch is not None:
+            self._write_coalesced_batch(batch)
+
+    def flush(self) -> None:
+        """Ship any coalesced-but-unsent bytes to the wire now. ``close()``
+        calls this; handlers only need it for explicit mid-stream latency
+        barriers."""
+        with self._lock:
+            self._flush_locked()
 
     def blocking_write(self, data: bytes) -> None:
         """Alias for `write` — see class docstring on the blocking/async split."""
@@ -2053,13 +2081,18 @@ class OutputStream:
                 self._start_unlocked()
 
             if isinstance(value, bytes):
-                offset = 0
-                while offset < len(value):
-                    chunk_size = min(self.max_chunk, len(value) - offset)
-                    chunk_bytes = value[offset:offset + chunk_size]
-                    self._write_chunk_payload(cbor2.dumps(chunk_bytes))
-                    offset += chunk_size
+                # Byte emissions coalesce exactly like `write` — on a scalar
+                # stream a CBOR-bytes chunk is pure byte-stream continuation.
+                if not value:
+                    return
+                batch = self._coalesce.append(value)
+                if batch is not None:
+                    self._write_coalesced_batch(batch)
                 return
+
+            # ORDERING BARRIER: a non-bytes value must not overtake bytes
+            # still sitting in the coalescing buffer.
+            self._flush_locked()
 
             if isinstance(value, str):
                 encoded = value.encode("utf-8")
@@ -2088,6 +2121,10 @@ class OutputStream:
                 raise RuntimeError("OutputStream already closed")
             if not self.started:
                 self._start_unlocked()
+            # Coalesced tail bytes ship BEFORE the STREAM_END that promises
+            # the chunk count — flushing here is what makes coalescing
+            # lossless.
+            self._flush_locked()
             if self.unbounded:
                 frame = Frame.stream_end_unbounded(self.request_id, self.stream_id)
             else:
