@@ -267,7 +267,7 @@ def test_8115_recently_terminated_rid_discriminates_and_ages_out():
     assert table.recently_terminated_rid(MessageId(500)), \
         "a just-terminated rid must be in the ring"
     assert not table.recently_terminated_rid(MessageId(9999)), \
-        "an unknown rid is a genuine routing anomaly, never post_terminal"
+        "an unknown rid is a genuine routing anomaly, never a benign straggler"
 
     # Push the ring past its horizon: rid 500's summary must age out.
     for n in range(1000, 1000 + RECENT_TERMINATED_CAP):
@@ -275,7 +275,7 @@ def test_8115_recently_terminated_rid_discriminates_and_ages_out():
         table.register(k, _state(0, None, False))
         assert table.terminate(k, TerminalKind.END) is not None
     assert not table.recently_terminated_rid(MessageId(500)), \
-        "eviction past RECENT_TERMINATED_CAP ends post_terminal classification"
+        "eviction past RECENT_TERMINATED_CAP ends benign-straggler classification"
     assert table.recently_terminated_rid(MessageId(1000 + RECENT_TERMINATED_CAP - 1)), \
         "the newest termination is still in the ring"
 

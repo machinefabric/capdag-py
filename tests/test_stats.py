@@ -3,32 +3,74 @@
 Tests use # TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
-from capdag.bifaci.frame import DropReason, FlowKey
-from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
+from capdag.bifaci.frame import DropReason, FlowKey, FrameType
+from capdag.bifaci.stats import (
+    DropCounters,
+    DropSnapshot,
+    StragglerCounters,
+    StragglerSnapshot,
+    TerminatedFlows,
+)
 
 
-# TEST7019: Drop counters record per-reason exactly once per drop, and the
-# snapshot omits zero-count reasons while totalling all of them.
+# TEST7019: Drop counters record per-reason × per-frame-type exactly once
+# per drop; the snapshot totals all of them, breaks each reason down by
+# frame type, and omits zero-count entries.
 def test_7019_drop_counters_record_and_snapshot():
     counters = DropCounters()
     assert counters.total() == 0
     assert counters.snapshot() == DropSnapshot()
 
-    assert counters.record(DropReason.POST_TERMINAL) == 1
-    assert counters.record(DropReason.POST_TERMINAL) == 2
-    assert counters.record(DropReason.CHANNEL_CLOSED) == 1
+    assert counters.record(DropReason.NO_ROUTE, FrameType.CHUNK) == 1
+    assert counters.record(DropReason.NO_ROUTE, FrameType.CREDIT) == 2
+    assert counters.record(DropReason.CHANNEL_CLOSED, FrameType.LOG) == 1
 
-    assert counters.get(DropReason.POST_TERMINAL) == 2
+    assert counters.get(DropReason.NO_ROUTE) == 2
     assert counters.get(DropReason.CHANNEL_CLOSED) == 1
-    assert counters.get(DropReason.NO_ROUTE) == 0
+    assert counters.get(DropReason.CANCELLED) == 0
+    assert counters.get_frame(DropReason.NO_ROUTE, FrameType.CHUNK) == 1
+    assert counters.get_frame(DropReason.NO_ROUTE, FrameType.CREDIT) == 1
+    assert counters.get_frame(DropReason.NO_ROUTE, FrameType.END) == 0
     assert counters.total() == 3
 
     snap = counters.snapshot()
     assert snap.total == 3
-    assert snap.by_reason.get("post_terminal") == 2
+    assert snap.by_reason.get("no_route") == 2
     assert snap.by_reason.get("channel_closed") == 1
-    assert "no_route" not in snap.by_reason, (
+    assert "cancelled" not in snap.by_reason, (
         "zero-count reasons are omitted from the snapshot"
+    )
+    no_route = snap.by_reason_frame_type["no_route"]
+    assert no_route.get("chunk") == 1
+    assert no_route.get("credit") == 1
+    assert "end" not in no_route, (
+        "zero-count frame types are omitted from the breakdown"
+    )
+
+
+# TEST8127: Straggler counters — the benign post-terminal category is
+# separate from drops, counted per frame type, and its snapshot names what
+# crossed the terminal (late credit vs late chunk) while omitting
+# zero-count types.
+def test_8127_straggler_counters_record_and_snapshot():
+    stragglers = StragglerCounters()
+    assert stragglers.total() == 0
+    assert stragglers.snapshot() == StragglerSnapshot()
+
+    assert stragglers.record(FrameType.CREDIT) == 1
+    assert stragglers.record(FrameType.CREDIT) == 2
+    assert stragglers.record(FrameType.CHUNK) == 3
+
+    assert stragglers.get(FrameType.CREDIT) == 2
+    assert stragglers.get(FrameType.CHUNK) == 1
+    assert stragglers.get(FrameType.END) == 0
+
+    snap = stragglers.snapshot()
+    assert snap.total == 3
+    assert snap.by_frame_type.get("credit") == 2
+    assert snap.by_frame_type.get("chunk") == 1
+    assert "end" not in snap.by_frame_type, (
+        "zero-count frame types are omitted from the snapshot"
     )
 
 

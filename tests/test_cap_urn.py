@@ -1113,6 +1113,69 @@ def test_0128_effect_dispatch_requires_explicit_wildcard():
     assert none_candidate.is_dispatchable(any_request)
 
 
+# TEST8121: is_conformant_runtime_output — effect=declared accepts a more
+# specific emission, rejects a more generic one
+def test_8121_effect_conformance_declared_asymmetry():
+    cap = CapUrn.from_string('cap:extract;in="media:ext=pdf";out="media:record"')
+    inp = MediaUrn.from_string("media:ext=pdf")
+
+    # Emitting exactly the declared out is conformant.
+    assert cap.is_conformant_runtime_output(inp, MediaUrn.from_string("media:record"))
+    # A more specific emission than the declared out is conformant.
+    assert cap.is_conformant_runtime_output(
+        inp, MediaUrn.from_string("media:fmt=json;record")
+    )
+    # A more generic emission than the declared out is a violation.
+    assert not cap.is_conformant_runtime_output(inp, MediaUrn.from_string("media:"))
+    # An unrelated emission is a violation.
+    assert not cap.is_conformant_runtime_output(
+        inp, MediaUrn.from_string("media:ext=png;image")
+    )
+
+
+# TEST8122: is_conformant_runtime_output — effect=none requires the emission
+# to be tag-equivalent to the runtime input; MORE specific is still a lie
+def test_8122_effect_conformance_none_requires_equivalence():
+    cap = CapUrn.from_string("cap:decimate-sequence;effect=none")
+    inp = MediaUrn.from_string("media:ext=png;image")
+
+    # Exactly the runtime input type: conformant.
+    assert cap.is_conformant_runtime_output(inp, inp)
+    # effect=none promises the output type IS the input type; more specific is a lie.
+    assert not cap.is_conformant_runtime_output(
+        inp, MediaUrn.from_string("media:ext=png;image;width=64")
+    )
+    # A more generic emission is a violation.
+    assert not cap.is_conformant_runtime_output(inp, MediaUrn.from_string("media:image"))
+
+    # A nonconforming runtime input is an upstream contract break: an error,
+    # not False.
+    strict = CapUrn.from_string('cap:effect=none;in="media:image";out="media:image"')
+    non_image = MediaUrn.from_string("media:ext=pdf")
+    with pytest.raises(CapUrnError):
+        strict.is_conformant_runtime_output(non_image, non_image)
+
+
+# TEST8123: is_conformant_runtime_output — effect=patch requires exactly the
+# delta-patched input type
+def test_8123_effect_conformance_patch_requires_patched_input():
+    cap = CapUrn.from_string(
+        'cap:convert;effect=patch;in="media:ext=jpeg;image";out="media:ext=png;image"'
+    )
+    inp = MediaUrn.from_string("media:ext=jpeg;image;width=64")
+
+    # The delta-patched input type (preserved tags intact) is conformant.
+    assert cap.is_conformant_runtime_output(
+        inp, MediaUrn.from_string("media:ext=png;image;width=64")
+    )
+    # Dropping the preserved width tag violates the patch promise.
+    assert not cap.is_conformant_runtime_output(
+        inp, MediaUrn.from_string("media:ext=png;image")
+    )
+    # Emitting the unpatched input type is a violation.
+    assert not cap.is_conformant_runtime_output(inp, inp)
+
+
 # TEST823: is_dispatchable — exact match candidate dispatches request
 def test_823_dispatch_exact_match():
     candidate = CapUrn.from_string(

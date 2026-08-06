@@ -682,6 +682,44 @@ class CapUrn:
             )
         return runtime_out
 
+    def is_conformant_runtime_output(
+        self, runtime_input: MediaUrn, runtime_output: MediaUrn
+    ) -> bool:
+        """Does an actually-emitted runtime output satisfy this cap's declared
+        effect contract for the given runtime input?
+
+        This is THE effect-audit predicate: every check of "did the cap emit
+        what its effect promised" must go through it — never a hand-rolled
+        combination of ``infer_runtime_output_media`` with equality or
+        conformance checks, so the contract has exactly one definition.
+
+        The condition is deliberately asymmetric per effect:
+
+        - ``effect=none`` and ``effect=patch`` compute an EXACT runtime
+          output type, so the emission must be tag-equivalent to the
+          inference. A more specific emission would still be a lie: the
+          effect promises the type is fully determined by the input.
+        - ``effect=declared`` promises only the declared ``out=``, so an
+          emission that is MORE specific than the declaration is legal and
+          desirable; the emission must conform to the declared output. A
+          more generic emission breaks downstream plan refinement and fails.
+
+        Raises (rather than returning ``False``) when the inference itself
+        is impossible: the runtime input does not conform to the declared
+        input, the effect is the unconstrained request form (``?effect``),
+        or the URN state is internally inconsistent — those are upstream
+        contract breaks, not emission mismatches, and must surface as such.
+        """
+        inferred = self.infer_runtime_output_media(runtime_input)
+        effect = self.effect_kind()
+        if effect in (CapEffect.NONE, CapEffect.PATCH):
+            return runtime_output.is_equivalent(inferred)
+        if effect == CapEffect.DECLARED:
+            return runtime_output.conforms_to(inferred)
+        raise CapUrnError(
+            "Cannot audit an emission against an unconstrained effect request"
+        )
+
     # Per-axis weights for cap-URN specificity. Two orders of
     # magnitude separate each axis to keep them in distinct digit
     # slots while folding into a single comparable integer.

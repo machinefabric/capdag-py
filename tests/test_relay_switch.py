@@ -1648,11 +1648,12 @@ def test_7025_unroutable_flow_frame_is_counted_drop():
     assert stats.requests.active == []
 
 
-# TEST8114: A flow frame that CROSSED its request's terminal in flight is
-# counted post_terminal, not no_route — the ordinary teardown race of
-# credit-based flow control must not pollute the routing-anomaly alarm. A
-# frame for a RID the table never knew stays no_route (TEST7025).
-def test_8114_straggler_for_terminated_request_counts_post_terminal():
+# TEST8114: A flow frame that CROSSED its request's terminal in flight is a
+# BENIGN straggler — the ordinary teardown race of credit-based flow control
+# must not pollute the routing-anomaly alarm, nor the drop counters at all:
+# the crossing is counted as a straggler, named by frame type. A frame for a
+# RID the table never knew stays a no_route DROP (TEST7025).
+def test_8114_straggler_for_terminated_request_is_benign_not_a_drop():
     switch = _build_switch_with_n_masters(1)
 
     xid = MessageId(21)
@@ -1681,11 +1682,20 @@ def test_8114_straggler_for_terminated_request_counts_post_terminal():
     assert switch._handle_master_frame(0, dup_end) is None
 
     stats = switch.protocol_stats()
-    assert stats.drops.by_reason.get("post_terminal") == 3, (
-        f"all three stragglers classified post_terminal: {stats.drops}"
+    assert stats.stragglers.total == 3, (
+        f"all three post-terminal frames counted as benign stragglers: {stats.stragglers}"
     )
-    assert stats.drops.by_reason.get("no_route") in (None, 0), (
-        f"a terminated request's stragglers must never read as routing anomalies: {stats.drops}"
+    assert stats.stragglers.by_frame_type.get("log") == 1, (
+        "the late progress LOG is named by frame type"
+    )
+    assert stats.stragglers.by_frame_type.get("chunk") == 1, (
+        "the late request continuation CHUNK is named by frame type"
+    )
+    assert stats.stragglers.by_frame_type.get("end") == 1, (
+        "the duplicate terminal END is named by frame type"
+    )
+    assert stats.drops.total == 0, (
+        f"a terminated request's stragglers are benign — never drops: {stats.drops}"
     )
 
 
@@ -1773,17 +1783,17 @@ def test_7035_end_terminates_and_releases_all_state():
     assert summary.rid == rid.to_string()
     assert summary.frames_in == 1, "ingress recording captured the terminal frame"
 
-    # A follow-up frame for the released key is a counted drop CLASSIFIED as
-    # the teardown race: the request just terminated, so it counts
-    # post_terminal — no_route stays reserved for RIDs the table never knew
+    # A follow-up frame for the released key is a BENIGN post-terminal
+    # straggler — the expected teardown race, counted separately and never
+    # as a drop; no_route stays reserved for RIDs the table never knew
     # (TEST8114).
     late = Frame.progress(rid, 1.0, "late")
     late.routing_id = xid
     switch._handle_master_frame(0, late)
-    drops = switch.protocol_stats().drops
-    assert drops.by_reason.get("post_terminal") == 1
-    assert drops.by_reason.get("no_route") in (None, 0), \
-        "a just-terminated request's straggler is not a routing anomaly"
+    post_stats = switch.protocol_stats()
+    assert post_stats.stragglers.by_frame_type.get("log") == 1
+    assert post_stats.drops.total == 0, \
+        "a just-terminated request's straggler is benign — never a drop"
 
 
 # TEST7036: After ERR, the same total-cleanup invariant holds as after END,
@@ -1992,8 +2002,8 @@ def test_7093_dead_consumer_cancels_upstream():
 # directly via `_parse_relay_notify_payload`.)
 def test_7085_relay_notify_carries_host_protocol_stats():
     counters = DropCounters()
-    counters.record(DropReason.NO_ROUTE)
-    counters.record(DropReason.NO_ROUTE)
+    counters.record(DropReason.NO_ROUTE, FrameType.CHUNK)
+    counters.record(DropReason.NO_ROUTE, FrameType.CREDIT)
 
     manifest = {
         "installed_cartridges": [],
@@ -2048,7 +2058,8 @@ def test_7091_switch_retains_host_protocol_stats_from_relay_notify():
         # carrying host protocol stats — the periodic refresh path.
         manifest = make_manifest(CAP_GENERIC)
         manifest["host_protocol_stats"] = {
-            "drops": {"total": 3, "by_reason": {"post_terminal": 2, "no_route": 1}},
+            "drops": {"total": 1, "by_reason": {"no_route": 1}},
+            "stragglers": {"total": 2, "by_frame_type": {"credit": 2}},
             "outgoing_rids": 4,
             "incoming_rxids": 6,
             "incoming_to_peer_rids": 0,
@@ -2087,7 +2098,10 @@ def test_7091_switch_retains_host_protocol_stats_from_relay_notify():
     assert host_stats is not None, (
         "host stats must surface in protocol_stats().hosts after RelayNotify"
     )
-    assert host_stats.drops.total == 3
-    assert host_stats.drops.by_reason.get("post_terminal") == 2
+    assert host_stats.drops.total == 1
+    assert host_stats.drops.by_reason.get("no_route") == 1
+    assert host_stats.stragglers.by_frame_type.get("credit") == 2, (
+        "benign stragglers surface separately from drops"
+    )
     assert host_stats.incoming_rxids == 6
     assert host_stats.routing_gc_evicted_total == 9

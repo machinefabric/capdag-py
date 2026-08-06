@@ -86,6 +86,31 @@ class FrameType(IntEnum):
         except ValueError:
             return None
 
+    @classmethod
+    def all(cls) -> tuple:
+        """All variants, for counter arrays and snapshot serialization
+        (matches Rust FrameType::ALL)."""
+        return (
+            cls.HELLO,
+            cls.REQ,
+            cls.CHUNK,
+            cls.END,
+            cls.LOG,
+            cls.ERR,
+            cls.HEARTBEAT,
+            cls.STREAM_START,
+            cls.STREAM_END,
+            cls.RELAY_NOTIFY,
+            cls.RELAY_STATE,
+            cls.CANCEL,
+            cls.CREDIT,
+        )
+
+    def as_str(self) -> str:
+        """Stable snake_case name (the snapshot contract for mirrors and
+        traces; matches Rust FrameType::as_str)."""
+        return self.name.lower()
+
 
 class CreditDirection(str, Enum):
     """Which side's stream a CREDIT frame credits (L11 routing discriminator).
@@ -1241,11 +1266,17 @@ class DropReason(str, Enum):
     executor) increments exactly one of these counters, observable via the
     protocol stats snapshots. Frames are never dropped silently.
 
+    A DROP means something went wrong. The benign teardown crossing — a
+    flow frame that arrives after its request's terminal, which the
+    protocol expects (in-flight frames legally race END/ERR, L13) — is NOT
+    a drop and has no reason here: it is counted as a post-terminal
+    STRAGGLER (``StragglerCounters`` in stats.py), indicated as benign in
+    every stats surface.
+
     The value is the stable snake_case name — the wire/snapshot contract
     mirrored from the Rust reference.
     """
-    POST_TERMINAL = "post_terminal"  # Flow frame enqueued/received after the request's terminal (END/ERR) frame.
-    NO_ROUTE = "no_route"  # Flow frame for a request with no routing state (already released or never registered).
+    NO_ROUTE = "no_route"  # Flow frame for a request with no routing state (never registered, or released for a reason the terminated-ledger cannot vouch for).
     CHANNEL_CLOSED = "channel_closed"  # Send attempted on a closed channel (receiver gone).
     CREDIT_VIOLATION = "credit_violation"  # CHUNK received beyond the granted credit window.
     CANCELLED = "cancelled"  # Frame discarded because its request was cancelled.
@@ -1255,7 +1286,6 @@ class DropReason(str, Enum):
     def all(cls) -> tuple:
         """All variants, for counter arrays and snapshot serialization."""
         return (
-            cls.POST_TERMINAL,
             cls.NO_ROUTE,
             cls.CHANNEL_CLOSED,
             cls.CREDIT_VIOLATION,

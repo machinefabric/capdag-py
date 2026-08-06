@@ -53,7 +53,13 @@ from capdag.bifaci.request_state import (
     TerminalKind,
     TerminatedSummary,
 )
-from capdag.bifaci.stats import DropCounters, DropSnapshot, HostProtocolStats
+from capdag.bifaci.stats import (
+    DropCounters,
+    DropSnapshot,
+    HostProtocolStats,
+    StragglerCounters,
+    StragglerSnapshot,
+)
 from capdag.standard.caps import CAP_IDENTITY
 from capdag.urn.cap_urn import CapUrn
 
@@ -328,12 +334,16 @@ class RelaySwitchProtocolStats:
     """
     requests: RequestTableSnapshot
     drops: DropSnapshot
+    # Benign post-terminal stragglers — the expected teardown crossing,
+    # counted per frame type. Separate from drops: nothing went wrong.
+    stragglers: StragglerSnapshot = field(default_factory=StragglerSnapshot)
     hosts: Dict[str, "HostProtocolStats"] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "requests": self.requests.to_dict(),
             "drops": self.drops.to_dict(),
+            "stragglers": self.stragglers.to_dict(),
             "hosts": {k: v.to_dict() for k, v in self.hosts.items()},
         }
 
@@ -413,6 +423,9 @@ class RelaySwitch:
         # Dropped-frame accounting (L8): unroutable/post-terminal frames are
         # counted drops, never silent losses and never protocol errors.
         self._drops: DropCounters = DropCounters()
+        # Benign post-terminal stragglers — the expected teardown race,
+        # counted per frame type, never drops (nothing went wrong).
+        self._stragglers: StragglerCounters = StragglerCounters()
         self._aggregate_capabilities: bytes = b""
         self._aggregate_installed_cartridges: List[InstalledCartridgeRecord] = []
         self._negotiated_limits: Limits = Limits.default()
@@ -853,6 +866,7 @@ class RelaySwitch:
             return RelaySwitchProtocolStats(
                 requests=self._requests.snapshot(),
                 drops=self._drops.snapshot(),
+                stragglers=self._stragglers.snapshot(),
                 hosts=hosts,
             )
 
@@ -1216,15 +1230,18 @@ class RelaySwitch:
             # pump has no engine consumer.
             self._handle_master_frame(master_frame.master_idx, master_frame.frame)
 
-    def _classify_unroutable_locked(self, rid: MessageId) -> DropReason:
-        """Discriminate an unroutable frame's drop reason: a RID whose request
-        recently terminated is the ordinary teardown race of credit-based
-        flow control (``post_terminal`` — a grant or straggler that crossed
-        END/ERR in flight); a RID the table never knew is a genuine routing
-        anomaly (``no_route``). Caller holds ``self._lock``."""
-        if self._requests.recently_terminated_rid(rid):
-            return DropReason.POST_TERMINAL
-        return DropReason.NO_ROUTE
+    def _account_unrouted_frame_locked(self, frame: Frame) -> None:
+        """Account a flow frame that found no routing state, for the narrow
+        case it actually is: when the terminated ledger vouches the request
+        JUST terminated, the frame is a BENIGN post-terminal straggler — the
+        expected teardown crossing, counted per frame type and never a drop.
+        Otherwise the RID is one the table never knew: a genuine routing
+        anomaly, counted as a ``no_route`` drop. Caller holds ``self._lock``.
+        (matches Rust RelaySwitch::account_unrouted_frame)"""
+        if self._requests.recently_terminated_rid(frame.id):
+            self._stragglers.record(frame.frame_type)
+            return
+        self._drops.record(DropReason.NO_ROUTE, frame.frame_type)
 
     def _master_initial_credit_locked(self, dest_idx: int) -> int:
         """The destination master's negotiated initial credit — the ledger
@@ -1520,16 +1537,15 @@ class RelaySwitch:
                         state = self._requests.terminate(key, kind)
                         if state is None:
                             # Classify by the terminated ring: a frame for a
-                            # request that JUST terminated is the ordinary
-                            # teardown race (post_terminal); only a RID the
-                            # table never knew is a routing anomaly
-                            # (no_route).
-                            self._drops.record(self._classify_unroutable_locked(rid))
+                            # request that JUST terminated is a benign
+                            # straggler; only a RID the table never knew is
+                            # a routing anomaly (no_route drop).
+                            self._account_unrouted_frame_locked(frame)
                             return None
                     else:
                         state = self._requests.get(key)
                         if state is None:
-                            self._drops.record(self._classify_unroutable_locked(rid))
+                            self._account_unrouted_frame_locked(frame)
                             return None
 
                     if state.origin is None:
@@ -1540,7 +1556,7 @@ class RelaySwitch:
                             try:
                                 channel(frame)
                             except Exception:
-                                self._drops.record(DropReason.CHANNEL_CLOSED)
+                                self._drops.record(DropReason.CHANNEL_CLOSED, frame.frame_type)
                                 # A dead consumer on a LIVE request means the
                                 # caller abandoned it. Nobody can ever read this
                                 # response — cancel upstream so the cartridge
@@ -1580,13 +1596,13 @@ class RelaySwitch:
                     rid = frame.id
                     xid = self._requests.xid_for_rid(rid)
                     if xid is None:
-                        self._drops.record(self._classify_unroutable_locked(rid))
+                        self._account_unrouted_frame_locked(frame)
                         return None
                     key = (xid, rid)
                     self._requests.record_frame(key, FrameDirection.INBOUND, frame)
                     state = self._requests.get(key)
                     if state is None:
-                        self._drops.record(self._classify_unroutable_locked(rid))
+                        self._account_unrouted_frame_locked(frame)
                         return None
                     frame.routing_id = xid
                     self._masters[state.routing.destination_master_idx].socket_writer.write(frame)

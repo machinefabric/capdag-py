@@ -613,7 +613,7 @@ def test_protocol_stats_reflects_tables_drops_and_gc_totals():
     xid, rid = MessageId.new_uuid(), MessageId.new_uuid()
     _seed_incoming(runtime, xid, rid, cartridge_idx=0)
     _seed_outgoing(runtime, MessageId.new_uuid(), cartridge_idx=1)
-    runtime.drops.record(DropReason.NO_ROUTE)
+    runtime.drops.record(DropReason.NO_ROUTE, FrameType.CHUNK)
     runtime.routing_gc_runs_total = 2
     runtime.routing_gc_evicted_total = 10
 
@@ -641,7 +641,7 @@ def test_set_static_inventory_records_stores_records():
 
 
 # TEST8116: the terminal-release ring discriminates and stays bounded —
-# released rids classify as post_terminal material, unknown rids do not,
+# released rids classify as benign-straggler material, unknown rids do not,
 # duplicates collapse, and eviction past the cap ages a rid back out.
 # (Mirrors Rust host_runtime TEST8116.)
 def test_8116_released_rid_ring_discriminates_dedupes_and_ages_out():
@@ -660,15 +660,16 @@ def test_8116_released_rid_ring_discriminates_dedupes_and_ages_out():
     for n in range(100, 100 + CartridgeHostRuntime.RECENT_RELEASED_RIDS_CAP):
         runtime.note_released_rid(MessageId(n))
     assert not runtime.recently_released_rid(rid), \
-        "eviction past RECENT_RELEASED_RIDS_CAP ends post_terminal classification"
+        "eviction past RECENT_RELEASED_RIDS_CAP ends benign-straggler classification"
     assert len(runtime.recent_released_rids) == \
         CartridgeHostRuntime.RECENT_RELEASED_RIDS_CAP, "the ring is bounded"
 
 
 # TEST8117: an unroutable continuation from the relay is classified by the
-# release ring — post_terminal for a rid a terminal just released, no_route
-# for a rid this host never routed. Both are COUNTED drops (L8), never
-# silent. (Mirrors Rust host_runtime TEST8117.)
+# release ring — a rid a terminal just released is a BENIGN straggler
+# (counted per frame type, never a drop); a rid this host never routed is a
+# genuine no_route DROP. Both are counted (L8), never silent, never
+# conflated. (Mirrors Rust host_runtime TEST8117.)
 def test_8117_unroutable_continuation_classified_by_release_ring():
     runtime = CartridgeHostRuntime()
     xid = MessageId(4)
@@ -679,17 +680,18 @@ def test_8117_unroutable_continuation_classified_by_release_ring():
     ) is None
     assert runtime.drops.get(DropReason.NO_ROUTE) == 1, \
         "a rid never routed here is a routing anomaly"
-    assert runtime.drops.get(DropReason.POST_TERMINAL) == 0
+    assert runtime.stragglers.total() == 0, \
+        "a genuine anomaly is never counted as a benign straggler"
 
     # Released rid: the same lookup after a terminal released the route →
-    # post_terminal, and the no_route counter must NOT move.
+    # a benign straggler; NO drop counter moves.
     released = MessageId(42)
     runtime.note_released_rid(released)
     assert runtime.route_continuation_frame(
         xid, released, FrameType.CHUNK, None
     ) is None
-    assert runtime.drops.get(DropReason.POST_TERMINAL) == 1, \
-        "a released rid's straggler is the teardown race"
-    assert runtime.drops.get(DropReason.NO_ROUTE) == 1, \
-        "the routing-anomaly counter must not absorb teardown races"
+    assert runtime.stragglers.get(FrameType.CHUNK) == 1, \
+        "a released rid's straggler is the benign teardown race, named by frame type"
+    assert runtime.drops.total() == 1, \
+        "the drop counters must not absorb benign teardown races"
 

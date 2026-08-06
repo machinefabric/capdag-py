@@ -61,7 +61,7 @@ from capdag.bifaci.frame import (
     AttributionClass,
 )
 from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
-from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
+from capdag.bifaci.stats import DropCounters, DropSnapshot, StragglerCounters, TerminatedFlows
 from capdag.standard.caps import CAP_IDENTITY, CAP_DISCARD, CAP_ADAPTER_SELECTION
 
 # Test manifest JSON with a single cap for basic tests.
@@ -1965,6 +1965,33 @@ def test_538_input_package_error_propagation():
 # =============================================================================
 
 # TEST539: OutputStream sends STREAM_START on first write
+# TEST8126: derive_response_media — the response label is the effect
+# inference over the declared input, per effect value; an unparseable
+# cap URN fails hard instead of falling back.
+def test_8126_derive_response_media_per_effect():
+    from capdag.bifaci.cartridge_runtime import derive_response_media
+
+    assert (
+        derive_response_media('cap:extract;in="media:ext=pdf";out="media:record"')
+        == "media:record"
+    ), "effect=declared derives the declared out="
+    assert (
+        derive_response_media(
+            'cap:decimate-sequence;effect=none;in="media:ext=png;image";out="media:image"'
+        )
+        == "media:ext=png;image"
+    ), "effect=none derives the declared in="
+    assert (
+        derive_response_media(
+            'cap:convert;effect=patch;in="media:ext=jpeg;image";out="media:ext=png;image"'
+        )
+        == "media:ext=png;image"
+    ), "effect=patch derives the patched declared in="
+
+    with pytest.raises(Exception):
+        derive_response_media("not-a-cap-urn")
+
+
 def test_539_output_stream_sends_stream_start():
     mock_writer = MockFrameWriter()
     sync_writer = SyncFrameWriter(mock_writer)
@@ -2512,8 +2539,8 @@ def _decode_wire(mock_writer: "MockFrameWriter"):
     return mock_writer.frames
 
 
-# TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire.
-def test_7020_writer_gate_drops_post_terminal_flow_frames():
+# TEST7020: A flow frame reaching the writer after the flow's END has been written is suppressed as a benign counted straggler (never a drop) — END is the last flow frame on the wire.
+def test_7020_writer_gate_suppresses_post_terminal_stragglers():
     mock_writer = MockFrameWriter()
     sync_writer = SyncFrameWriter(mock_writer)
     rid = MessageId.new_uuid()
@@ -2530,8 +2557,11 @@ def test_7020_writer_gate_drops_post_terminal_flow_frames():
     # The detached-sender race: a straggler progress LOG enqueued after the
     # handler returned reaches the writer after END. Dropped+counted.
     straggler = Frame.progress(rid, 1.0, "late keepalive")
-    assert sync_writer.write(straggler) == GatedWrite.DROPPED_POST_TERMINAL
-    assert sync_writer.drops.get(DropReason.POST_TERMINAL) == 1
+    assert sync_writer.write(straggler) == GatedWrite.SUPPRESSED_STRAGGLER
+    assert sync_writer.stragglers.get(FrameType.LOG) == 1, \
+        "the suppressed straggler is counted as benign, named by frame type"
+    assert sync_writer.drops.total() == 0, \
+        "benign stragglers must never count as drops"
 
     frames = _decode_wire(mock_writer)
     assert len(frames) == 2, "straggler must not reach the wire"
@@ -2569,14 +2599,17 @@ def test_7021_writer_gate_precision():
 
     # But a flow frame for A is gated.
     late_a = Frame.log(rid_a, "info", AttributionClass.INTERNAL, "late")
-    assert sync_writer.write(late_a) == GatedWrite.DROPPED_POST_TERMINAL
+    assert sync_writer.write(late_a) == GatedWrite.SUPPRESSED_STRAGGLER
 
     frames = _decode_wire(mock_writer)
     types = [f.frame_type for f in frames]
     assert types == [
         FrameType.LOG, FrameType.END, FrameType.HEARTBEAT, FrameType.CREDIT, FrameType.LOG,
     ]
-    assert sync_writer.drops.get(DropReason.POST_TERMINAL) == 1
+    assert sync_writer.stragglers.get(FrameType.LOG) == 1, \
+        "only A's late flow frame was suppressed, as a benign straggler"
+    assert sync_writer.drops.total() == 0, \
+        "benign stragglers must never count as drops"
 
 
 # TEST7027: A frame sent through a writer whose sink is gone is a counted channel_closed drop, never a silent loss.
@@ -2602,19 +2635,23 @@ def test_7027_channel_closed_sends_are_counted():
         "every dropped frame increments exactly once (L8)"
 
 
-# TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops.
+# TEST7086: The runtime's counters keep the two categories apart — benign
+# writer-gate stragglers land in the straggler counters (named by frame
+# type), a closed-channel send is a genuine drop — each counted exactly
+# once, and neither pollutes the other (L8/L4).
 def test_7086_drop_snapshot_matches_induced_drops():
     drops = DropCounters()
+    stragglers = StragglerCounters()
     rid = MessageId.new_uuid()
 
-    # Source 1: post-terminal drops at the writer gate (two stragglers).
+    # Source 1: benign post-terminal stragglers at the writer gate (two).
     mock_writer = MockFrameWriter()
-    sync_writer = SyncFrameWriter(mock_writer, drops=drops)
+    sync_writer = SyncFrameWriter(mock_writer, drops=drops, stragglers=stragglers)
     sync_writer.write(Frame.end_ok(rid, None))
     for _ in range(2):
         sync_writer.write(Frame.progress(rid, 1.0, "straggler"))
 
-    # Source 2: closed-channel send (one drop).
+    # Source 2: closed-channel send (one genuine drop).
     dead_writer = _DeadWriter()
     dead_sync = SyncFrameWriter(dead_writer, drops=drops)
     try:
@@ -2622,10 +2659,17 @@ def test_7086_drop_snapshot_matches_induced_drops():
     except Exception:
         pass
 
+    straggler_snap = stragglers.snapshot()
+    assert straggler_snap.total == 2, "each benign straggler counted exactly once (L4)"
+    assert straggler_snap.by_frame_type.get("log") == 2
+
     snap = drops.snapshot()
-    assert snap.total == 3, "each induced drop counted exactly once (L8)"
-    assert snap.by_reason.get("post_terminal") == 2
+    assert snap.total == 1, "each genuine drop counted exactly once (L8)"
     assert snap.by_reason.get("channel_closed") == 1
+    assert snap.by_reason_frame_type.get("channel_closed", {}).get("log") == 1, \
+        "the drop is named by frame type"
+    assert "post_terminal" not in snap.by_reason, \
+        "benign stragglers never appear among drops"
 
 
 # TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel.

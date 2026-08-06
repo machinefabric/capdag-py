@@ -63,7 +63,7 @@ from capdag.bifaci.relay_switch import (
 )
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
-from capdag.bifaci.stats import DropCounters, HostProtocolStats
+from capdag.bifaci.stats import DropCounters, HostProtocolStats, StragglerCounters
 from capdag.urn.cap_urn import CapUrn, CapUrnError
 
 
@@ -1627,7 +1627,7 @@ class CartridgeHostRuntime:
         # This is the discriminator between the two ways a frame can arrive
         # with no routing entry: a hit means the frame crossed its request's
         # terminal in flight (the ordinary teardown race of credit-based flow
-        # control — counted post_terminal), a miss means the host never
+        # control — counted as a benign straggler), a miss means the host never
         # routed this RID within the ring's horizon (no_route, a genuine
         # anomaly). GC evictions are deliberately NOT recorded here: an
         # evicted entry never saw its terminal, so a frame for it is real
@@ -1664,6 +1664,9 @@ class CartridgeHostRuntime:
         # frames for dead cartridges are counted drops, never silent
         # losses.
         self.drops: DropCounters = DropCounters()
+        # Benign post-terminal stragglers — the expected teardown race,
+        # counted per frame type, never drops (nothing went wrong).
+        self.stragglers: StragglerCounters = StragglerCounters()
         # Inventory records this host does NOT manage as processes —
         # discovery outcomes like incompatible installs. Merged into every
         # capabilities advertisement so a host-originated RelayNotify can
@@ -1684,6 +1687,7 @@ class CartridgeHostRuntime:
         reference ``protocol_stats``."""
         return HostProtocolStats(
             drops=self.drops.snapshot(),
+            stragglers=self.stragglers.snapshot(),
             outgoing_rids=len(self.outgoing_rids),
             incoming_rxids=len(self.incoming_rxids),
             incoming_to_peer_rids=len(self.incoming_to_peer_rids),
@@ -1762,7 +1766,7 @@ class CartridgeHostRuntime:
             elif credit_direction == CreditDirection.REQUEST:
                 prefer_incoming = False
             else:
-                self.drops.record(DropReason.NO_ROUTE)
+                self.drops.record(DropReason.NO_ROUTE, frame_type)
                 return None
         else:
             prefer_incoming = key not in self.incoming_body_done
@@ -1787,11 +1791,12 @@ class CartridgeHostRuntime:
 
         if cartridge_idx is None:
             # Discriminate the teardown race from real routing loss: a RID
-            # released by an observed terminal is the ordinary END/Credit
-            # race (post_terminal); a RID this host never routed is a
-            # genuine anomaly (no_route). Counted either way (L6/L8), never
-            # a silent loss.
-            self.drops.record(self._classify_unroutable(rid))
+            # released by an observed terminal is a BENIGN post-terminal
+            # straggler (the ordinary END/Credit race — nothing went wrong,
+            # counted separately from drops); a RID this host never routed
+            # is a genuine anomaly (no_route drop). Counted either way
+            # (L6/L8), never a silent loss — and never conflated.
+            self._account_unrouted(rid, frame_type)
             return None
 
         is_terminal = frame_type in (FrameType.END, FrameType.ERR)
@@ -1830,16 +1835,19 @@ class CartridgeHostRuntime:
 
     def recently_released_rid(self, rid) -> bool:
         """Whether ``rid``'s routing entry was recently released by a
-        terminal — the post_terminal / no_route discriminator for unroutable
-        frames."""
+        terminal — the benign-straggler / no_route discriminator for
+        unroutable frames."""
         return rid in self.recent_released_rids
 
-    def _classify_unroutable(self, rid) -> DropReason:
-        """post_terminal for a rid a terminal just released, no_route for a
-        rid this host never routed."""
+    def _account_unrouted(self, rid, frame_type: FrameType) -> None:
+        """Account an unroutable frame for the narrow case it actually is: a
+        rid a terminal just released is a BENIGN straggler (counted per
+        frame type, never a drop); a rid this host never routed is a
+        genuine ``no_route`` drop."""
         if self.recently_released_rid(rid):
-            return DropReason.POST_TERMINAL
-        return DropReason.NO_ROUTE
+            self.stragglers.record(frame_type)
+            return
+        self.drops.record(DropReason.NO_ROUTE, frame_type)
 
     def record_response_terminal(self, xid, rid) -> None:
         """Record that the handler's RESPONSE terminal (END/ERR) has passed
@@ -1874,7 +1882,7 @@ class CartridgeHostRuntime:
         self.incoming_body_done.discard(key)
         self.incoming_response_done.discard(key)
         # A death/cancel sweep synthesizes the terminal for this request;
-        # stragglers for it are post_terminal, not routing anomalies.
+        # frames for it classify as benign stragglers, not routing anomalies.
         self.note_released_rid(key[1])
 
     # --- garbage collector ---

@@ -128,6 +128,7 @@ def trace_fingerprint(stats: RelaySwitchProtocolStats) -> str:
         "terminated_len": len(recent_terminated),
         "last_terminated": last_terminated,
         "drops": stats.drops.to_dict(),
+        "stragglers": stats.stragglers.to_dict(),
         "hosts": {k: v.to_dict() for k, v in stats.hosts.items()},
         "active": active,
     }

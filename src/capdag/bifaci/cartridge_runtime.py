@@ -65,7 +65,13 @@ from capdag.bifaci.frame import (
 )
 from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
 from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
-from capdag.bifaci.stats import DropCounters, DropSnapshot, TerminatedFlows
+from capdag.bifaci.stats import (
+    DropCounters,
+    DropSnapshot,
+    StragglerCounters,
+    StragglerSnapshot,
+    TerminatedFlows,
+)
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
 from capdag.urn.cap_urn import CapUrn
@@ -198,18 +204,23 @@ class ManifestError(RuntimeError):
 
 
 # =============================================================================
-# WRITER-THREAD TERMINAL GATE (L4) — drop post-terminal flow frames, counted
+# WRITER-THREAD TERMINAL GATE (L4) — suppress benign post-terminal stragglers
 # =============================================================================
 
 class GatedWrite(str, Enum):
     """Outcome of pushing one frame through the terminal gate + writer.
+
+    ``SUPPRESSED_STRAGGLER``: a flow frame arrived at the writer after its
+    flow's END/ERR was written — the benign detached-sender race (a
+    keepalive tick or late emitter crossing the terminal). Suppressed and
+    counted as a straggler, indicated as benign: nothing went wrong.
 
     (matches Rust cartridge_runtime::GatedWrite — WriterDead has no Python
     counterpart: a failed write raises instead, since callers in this mirror
     already handle write failures via exceptions rather than a sentinel.)
     """
     WRITTEN = "written"
-    DROPPED_POST_TERMINAL = "dropped_post_terminal"
+    SUPPRESSED_STRAGGLER = "suppressed_straggler"
 
 
 # Scalar-stream write coalescing: cap on BYTES buffered before an emission
@@ -276,13 +287,14 @@ def write_gated(
     writer: "FrameWriter",
     seq_assigner: SeqAssigner,
     terminated: TerminatedFlows,
-    drops: DropCounters,
+    stragglers: StragglerCounters,
 ) -> GatedWrite:
     """Write one frame through the terminal gate (L4).
 
-    Once a flow's END/ERR has been written, any later flow frame for the same
-    FlowKey is post-terminal: it is dropped and counted, never written. This
-    is the single point where wire order is decided, so gating here
+    Once a flow's END/ERR has been written, any later flow frame for the
+    same FlowKey is a BENIGN post-terminal straggler: it is suppressed and
+    counted as such (never a drop — nothing went wrong), never written.
+    This is the single point where wire order is decided, so gating here
     deterministically closes every detached-sender race (ProgressSender,
     keepalive tickers) — mirrors Rust's `write_gated` free function exactly,
     adapted to the mirror's synchronous single-writer-lock design (there is
@@ -295,15 +307,15 @@ def write_gated(
     """
     key = FlowKey.from_frame(frame)
     if frame.is_flow_frame() and terminated.contains(key):
-        total = drops.record(DropReason.POST_TERMINAL)
+        total = stragglers.record(frame.frame_type)
         print(
-            f"[CartridgeRuntime] writer: dropped post-terminal flow frame — "
-            f"END/ERR already written for this flow (L4) "
-            f"type={frame.frame_type} rid={frame.id.to_string()} "
-            f"post_terminal_total={total}",
+            f"[CartridgeRuntime] writer: suppressed benign post-terminal "
+            f"straggler — END/ERR already written for this flow, the frame "
+            f"is moot (L4) type={frame.frame_type} rid={frame.id.to_string()} "
+            f"straggler_total={total}",
             file=sys.stderr,
         )
-        return GatedWrite.DROPPED_POST_TERMINAL
+        return GatedWrite.SUPPRESSED_STRAGGLER
 
     seq_assigner.assign(frame)
     writer.write(frame)
@@ -327,12 +339,20 @@ class SyncFrameWriter:
     the outcome.
     """
 
-    def __init__(self, writer: FrameWriter, drops: Optional[DropCounters] = None):
+    def __init__(
+        self,
+        writer: FrameWriter,
+        drops: Optional[DropCounters] = None,
+        stragglers: Optional[StragglerCounters] = None,
+    ):
         self._writer = writer
         self._lock = threading.Lock()
         self._seq_assigner = SeqAssigner()
         self._terminated = TerminatedFlows(1024)
         self.drops = drops if drops is not None else DropCounters()
+        # Benign post-terminal stragglers suppressed by the gate (L4) —
+        # never drops, nothing went wrong.
+        self.stragglers = stragglers if stragglers is not None else StragglerCounters()
 
     def write(self, frame: Frame) -> GatedWrite:
         """Write a frame with centralized seq assignment (thread-safe),
@@ -344,9 +364,9 @@ class SyncFrameWriter:
         """
         with self._lock:
             try:
-                return write_gated(frame, self._writer, self._seq_assigner, self._terminated, self.drops)
+                return write_gated(frame, self._writer, self._seq_assigner, self._terminated, self.stragglers)
             except Exception:
-                total = self.drops.record(DropReason.CHANNEL_CLOSED)
+                total = self.drops.record(DropReason.CHANNEL_CLOSED, frame.frame_type)
                 print(
                     f"[CartridgeRuntime] frame dropped: output channel closed "
                     f"(channel_closed_total={total}) type={frame.frame_type} "
@@ -431,6 +451,45 @@ class RemoteError(StreamError):
 
     def failure_reason(self) -> str:
         return self.message
+
+
+def derive_response_media(cap_urn: str) -> str:
+    """The media URN a cap's response STREAM_START must carry, derived from
+    the cap's declared effect over its declared main input — the label every
+    engine-fed input stream carries (spec 13.2):
+
+    - effect=declared -> the declared out=
+    - effect=none     -> the declared in= (the type passes through)
+    - effect=patch    -> the declared in= with the declared delta applied
+
+    This is ``CapUrn.infer_runtime_output_media`` over the declared input —
+    the SAME inference the engine's effect audit checks emissions against
+    (``CapUrn.is_conformant_runtime_output``), so a runtime-labeled response
+    is conformant by construction. Every runtime that labels a response must
+    go through this function; a hand-picked label is how a cap lies about
+    its effect. (matches Rust derive_response_media)
+
+    Raises ``HandlerError`` when the cap URN does not parse or its effect
+    cannot be applied to its declared input — a broken cap declaration
+    fails the request, never falls back."""
+    try:
+        parsed = CapUrn.from_string(cap_urn)
+    except Exception as e:
+        raise HandlerError(
+            f"response media derivation: cap URN '{cap_urn}' does not parse: {e}"
+        )
+    try:
+        declared_in = parsed.in_media_urn()
+    except Exception as e:
+        raise HandlerError(
+            f"response media derivation: cap '{cap_urn}' declared input is not a valid media URN: {e}"
+        )
+    try:
+        return parsed.infer_runtime_output_media(declared_in).to_string()
+    except Exception as e:
+        raise HandlerError(
+            f"response media derivation: cap '{cap_urn}' effect could not be applied to its declared input: {e}"
+        )
 
 
 def _classify_handler_error(e: Exception) -> tuple:
@@ -2921,6 +2980,9 @@ class CartridgeRuntime:
         # Process-wide dropped-frame accounting (L8). Shared with the writer's
         # terminal gate, every write-failure drop, and the stats surface.
         self._drop_counters = DropCounters()
+        # Benign post-terminal stragglers suppressed by the writer's
+        # terminal gate (L4) — never drops, nothing went wrong.
+        self._straggler_counters = StragglerCounters()
 
         # Try to parse the manifest for CLI mode support
         try:
@@ -3003,6 +3065,12 @@ class CartridgeRuntime:
         under memory pressure.
         """
         return self._capacity
+
+    def protocol_stragglers(self) -> "StragglerSnapshot":
+        """Benign post-terminal straggler snapshot (L4): late frames the
+        writer's terminal gate suppressed, per frame type. Separate from
+        drops — nothing went wrong."""
+        return self._straggler_counters.snapshot()
 
     def protocol_drops(self) -> DropSnapshot:
         """Protocol observability snapshot (L8): this runtime's dropped-frame
@@ -3210,7 +3278,11 @@ class CartridgeRuntime:
         raw_writer = FrameWriter(sys.stdout.buffer)
         # Shared, process-wide drop accounting (L8): the writer's terminal
         # gate and every write-failure share this runtime's counters.
-        sync_writer = SyncFrameWriter(raw_writer, drops=self._drop_counters)
+        sync_writer = SyncFrameWriter(
+            raw_writer,
+            drops=self._drop_counters,
+            stragglers=self._straggler_counters,
+        )
 
         # Perform handshake - send our manifest in the HELLO response
         # Handshake uses raw_writer directly (HELLO is non-flow, seq doesn't matter)
@@ -3417,15 +3489,43 @@ class CartridgeRuntime:
                     max_chunk=_max_chunk,
                     routing_id=routing_id,
                     initial_credit=_initial_credit,
+                    cap_urn=cap_urn,
                 ):
                     import uuid as _uuid
                     response_stream_id = f"resp-{_uuid.uuid4().hex[:8]}"
+                    # The response label is DERIVED from the cap's declared
+                    # effect — not chosen by the op — so an honest lib-runtime
+                    # cartridge satisfies the engine's effect audit by
+                    # construction. An underivable label is a broken cap
+                    # declaration: fail the request, never fall back.
+                    try:
+                        response_media = derive_response_media(cap_urn)
+                    except Exception as derive_err:
+                        print(
+                            f"[CartridgeRuntime] response media derivation FAILED: cap={cap_urn} error={derive_err}",
+                            file=sys.stderr,
+                        )
+                        code, attribution_class, message, arg_urn = _classify_handler_error(derive_err)
+                        err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+                        err_frame.routing_id = routing_id
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception as write_err:
+                            print(
+                                f"[CartridgeRuntime] Failed to write error response: {write_err}",
+                                file=sys.stderr,
+                            )
+                        # Release credit waiters and the capacity slot exactly
+                        # like a completed handler (L13) — a failed derivation
+                        # must not leak the slot.
+                        _on_handler_done(request_id)
+                        return
                     # SyncFrameWriter assigns seq centrally for all frames.
                     # routing_id (XID) is propagated from incoming REQ to all response frames.
                     # Output is credited (L9): the receiver's consumption
                     # grants this stream's window.
                     emitter = ThreadSafeEmitter(
-                        sync_writer, request_id, response_stream_id, "media:", routing_id, max_chunk,
+                        sync_writer, request_id, response_stream_id, response_media, routing_id, max_chunk,
                         credit_router=credit_router, initial_credit=initial_credit,
                     )
                     peer_invoker = PeerInvokerImpl(
@@ -3481,9 +3581,12 @@ class CartridgeRuntime:
                 response = Frame.heartbeat(frame.id)
                 # Protocol observability (L8): this cartridge's dropped-frame
                 # total rides every heartbeat so the host can surface it
-                # without a dedicated stats round-trip.
+                # without a dedicated stats round-trip. The benign straggler
+                # total rides alongside, under its own name — stragglers are
+                # not drops.
                 response.meta = {
                     "drops_total": self._drop_counters.total(),
+                    "stragglers_total": self._straggler_counters.total(),
                     "handler_capacity": self._capacity.get(),
                 }
                 try:
