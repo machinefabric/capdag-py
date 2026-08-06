@@ -9,7 +9,7 @@ from io import BytesIO
 
 import pytest
 
-from capdag.bifaci.frame import AttributionClass, Frame, FrameType, Limits, MessageId, compute_checksum, DropReason
+from capdag.bifaci.frame import AttributionClass, CreditDirection, DEFAULT_INITIAL_CREDIT, DropReason, Frame, FrameType, Limits, MessageId, compute_checksum
 from capdag.bifaci.io import FrameReader, FrameWriter
 from capdag.bifaci.relay_switch import (
     RelaySwitch,
@@ -1615,6 +1615,7 @@ def _state(dest: int, origin, channel=None, is_peer: bool = False) -> RequestSta
         origin=origin,
         external_channel=channel,
         is_peer=is_peer,
+        initial_credit=DEFAULT_INITIAL_CREDIT,
     )
 
 
@@ -1644,6 +1645,92 @@ def test_7025_unroutable_flow_frame_is_counted_drop():
         f"both drops counted, exactly once each (L8): {stats.drops}"
     )
     assert stats.requests.active == []
+
+
+# TEST8114: A flow frame that CROSSED its request's terminal in flight is
+# counted post_terminal, not no_route — the ordinary teardown race of
+# credit-based flow control must not pollute the routing-anomaly alarm. A
+# frame for a RID the table never knew stays no_route (TEST7025).
+def test_8114_straggler_for_terminated_request_counts_post_terminal():
+    switch = _build_switch_with_n_masters(1)
+
+    xid = MessageId(21)
+    rid = MessageId.new_uuid()
+    key = (xid, rid)
+    delivered = []
+    switch._requests.register(key, _state(0, None, delivered.append))
+
+    end = Frame.end_ok_with(rid, None, 1.0, None)
+    end.routing_id = xid
+    assert switch._handle_master_frame(0, end) is None
+    assert delivered and delivered[0].frame_type == FrameType.END
+
+    # A response continuation (has XID) that raced the END.
+    late = Frame.progress(rid, 0.9, "late")
+    late.routing_id = xid
+    assert switch._handle_master_frame(0, late) is None
+
+    # A request continuation (no XID) for the same terminated RID.
+    chunk = Frame.chunk(rid, "s", 0, b"", 0, compute_checksum(b""))
+    assert switch._handle_master_frame(0, chunk) is None
+
+    # A duplicate terminal for the released request.
+    dup_end = Frame.end_ok_with(rid, None, 1.0, None)
+    dup_end.routing_id = xid
+    assert switch._handle_master_frame(0, dup_end) is None
+
+    stats = switch.protocol_stats()
+    assert stats.drops.by_reason.get("post_terminal") == 3, (
+        f"all three stragglers classified post_terminal: {stats.drops}"
+    )
+    assert stats.drops.by_reason.get("no_route") in (None, 0), (
+        f"a terminated request's stragglers must never read as routing anomalies: {stats.drops}"
+    )
+
+
+# TEST8118: the flow ledger is a WINDOW — seeded with the request's negotiated
+# initial credit, consumed by chunks, replenished by grants — and
+# engine-originated frames sent through send_to_master are recorded as its
+# outbound half. Before this, engine grants and chunks bypassed the ledger
+# entirely, so every healthy stream snapshot read as negative by exactly the
+# un-seeded initial window.
+def test_8118_send_to_master_records_outbound_flow_and_window():
+    switch = _build_switch_with_n_masters(1)
+
+    xid = MessageId(31)
+    rid = MessageId(310)
+    key = (xid, rid)
+    state = RequestState(
+        routing=RoutingEntry(source_master_idx=None, destination_master_idx=0),
+        origin=None,
+        external_channel=None,
+        is_peer=False,
+        initial_credit=5,  # negotiated window under test — odd-sized so seed arithmetic is visible
+    )
+    switch._requests.register(key, state)
+
+    # An outbound chunk and an outbound grant from the engine side. The
+    # ledger records BEFORE the write, exactly like the inbound path records
+    # before routing, so stats never depend on delivery succeeding.
+    payload = bytes(7)
+    chunk = Frame.chunk(rid, "s", 0, payload, 0, compute_checksum(payload))
+    chunk.routing_id = xid
+    switch.send_to_master(chunk)
+
+    credit = Frame.credit(rid, "s", 3, CreditDirection.RESPONSE)
+    credit.routing_id = xid
+    switch.send_to_master(credit)
+
+    stats = switch.protocol_stats()
+    req = next((r for r in stats.requests.active if r.rid == str(rid)), None)
+    assert req is not None, "request must still be active"
+    stream = next((st for st in req.streams if st.stream_id == "s"), None)
+    assert stream is not None, "stream ledger must exist for the outbound flow"
+    assert stream.stats.chunks_out == 1, "outbound chunk recorded"
+    assert stream.stats.bytes_out == 7, "outbound bytes recorded"
+    assert stream.stats.credit_outstanding == 5 - 1 + 3, (
+        "window = seed - chunks + grants, never a bare running delta"
+    )
 
 
 # TEST7035: After END, the switch holds zero state for the request — entry,
