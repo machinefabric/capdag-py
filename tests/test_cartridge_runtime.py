@@ -2249,6 +2249,88 @@ def test_8136_unknown_selector_fields_rejected():
         assert "selector" in str(err), f"{bad}: {err}"
 
 
+def _blind_live_feed_ctx(main_in: str):
+    """A TRANSPORT-BLIND cap (no explicit live arg): its main input consumes
+    ``main_in`` via stdin. Used by the main-input fallback tests."""
+    from capdag.bifaci.cartridge_runtime import LiveFeedContext
+    from capdag.bifaci.live_feed import LiveFeedProviders
+    from capdag.bifaci.manifest import CapManifest
+
+    cap_urn = f'cap:consume;in="{main_in}";out="media:fmt=json;record"'
+    manifest = CapManifest.from_dict({
+        "name": "BlindCartridge",
+        "version": "1.0.0",
+        "channel": "release",
+        "registry_url": None,
+        "description": "Transport-blind live consumer",
+        "cap_groups": [{
+            "name": "default",
+            "caps": [{
+                "urn": cap_urn,
+                "title": "Consume",
+                "aliases": ["consume"],
+                "args": [{
+                    "media_urn": main_in,
+                    "required": True,
+                    "is_sequence": True,
+                    "sources": [{"stdin": main_in}],
+                }],
+            }],
+        }],
+    })
+    providers = LiveFeedProviders()
+    handles: list = []
+    ctx = LiveFeedContext(cap_urn, manifest, providers, handles)
+    return ctx, providers, handles
+
+
+# TEST8137: main-input fallback — a cap with NO explicit reference arg
+# consumes a live source through its MAIN INPUT when the registered
+# provider's content urn conforms to it. This is what makes generic
+# machines (planned over the CONTENT type) valid live-source machines.
+def test_8137_main_input_fallback_resolves_live_reference():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, handles = _blind_live_feed_ctx("media:feed-frames")
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(
+        raw_queue, rid, '{"params":{"items":3,"interval_ms":1,"item_bytes":4}}'
+    )
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"main-input resolution must succeed: {stream}"
+    assert stream.media_urn() == "media:feed-frames", "labeled with the PROVIDER's content urn"
+    assert stream.is_unbounded()
+    count = 0
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), f"items must deliver cleanly: {item}"
+        count += 1
+    assert count == 3, "all captured items delivered through the main input"
+    assert len(handles) == 1, "the open feed registered its handle"
+
+
+# TEST8138: main-input fallback content mismatch — a provider whose content
+# does not conform to the cap's main input is a hard error at resolution,
+# never a mislabeled stream.
+def test_8138_main_input_fallback_content_mismatch_rejected():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    ctx, _providers, _handles = _blind_live_feed_ctx("media:audio-frames;pcm")
+    raw_queue = queue.Queue()
+    rid = MessageId.new_uuid()
+    _send_live_reference(raw_queue, rid, "{}")
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    err = package.recv()
+    assert isinstance(err, Exception), "a non-conforming provider content must be rejected"
+    assert "does not conform" in str(err), f"the error names the conformance failure: {err}"
+
+
 # TEST8126: derive_response_media — the response label is the effect
 # inference over the declared input, per effect value; an unparseable
 # cap URN fails hard instead of falling back.

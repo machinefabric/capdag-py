@@ -1813,11 +1813,36 @@ class LiveFeedContext:
                 return arg
         return None
 
+    def _find_main_input_arg(self):
+        """The cap's MAIN INPUT arg (the stdin-sourced arg carrying ``in=``,
+        via the encapsulated ``CapArg.is_main_input`` predicate) — the arg a
+        transport-blind cap consumes a live feed's CONTENT through."""
+        if self._manifest is None:
+            return None
+        cap_def = next(
+            (c for c in self._manifest.all_caps() if str(c.urn) == self._cap_urn),
+            None,
+        )
+        if cap_def is None:
+            return None
+        from capdag.urn.cap_urn import CapUrn
+
+        try:
+            in_spec = CapUrn.from_string(self._cap_urn).in_media_urn()
+        except Exception:
+            return None
+        return next((a for a in cap_def.args if a.is_main_input(in_spec)), None)
+
     def resolve(self, reference_urn: str, selector_bytes: bytes) -> "InputStream":
         """Resolve the live reference into an open feed and the InputStream
-        delivering it. Hard errors on: no matching arg, an arg without a
-        stdin source, an arg not declared ``is_sequence``, an unparseable
-        selector, or a provider/device failure."""
+        delivering it, by one of two arg matches (13.2 §Reference Media):
+        an EXPLICIT reference arg (urn equivalent to the reference; content
+        label = its stdin urn), else the cap's MAIN INPUT — the registered
+        provider's ``content_urn()`` must conform to it, and labels the
+        delivered stream. Hard errors on: no matching arg, no stdin source,
+        ``is_sequence=false``, non-conforming provider content, an
+        unparseable selector, or a provider/device failure.
+        (matches Rust LiveFeedContext::resolve)"""
         from capdag.bifaci.live_feed import (
             DELIVERY_QUEUE_CAP,
             LiveFeedSelector,
@@ -1826,23 +1851,45 @@ class LiveFeedContext:
 
         incoming = MediaUrn.from_string(reference_urn)
         arg = self._find_arg(incoming)
-        if arg is None:
-            raise StreamError(
-                f"cap '{self._cap_urn}' declares no arg matching live-feed "
-                f"reference '{reference_urn}'"
-            )
-        stdin_urn = None
-        for source in arg.sources:
-            stdin = getattr(source, "stdin", None)
-            if stdin is not None:
-                stdin_urn = stdin
-                break
-        if stdin_urn is None:
-            raise StreamError(
-                f"live-feed arg '{arg.media_urn}' on cap '{self._cap_urn}' declares "
-                f"no stdin source — a live reference must resolve to piped content "
-                f"(13.2 §Reference Media)"
-            )
+        if arg is not None:
+            stdin_urn = None
+            for source in arg.sources:
+                stdin = getattr(source, "stdin", None)
+                if stdin is not None:
+                    stdin_urn = stdin
+                    break
+            if stdin_urn is None:
+                raise StreamError(
+                    f"live-feed arg '{arg.media_urn}' on cap '{self._cap_urn}' declares "
+                    f"no stdin source — a live reference must resolve to piped content "
+                    f"(13.2 §Reference Media)"
+                )
+            content_urn = stdin_urn
+        else:
+            arg = self._find_main_input_arg()
+            if arg is None:
+                raise StreamError(
+                    f"cap '{self._cap_urn}' declares no arg matching live-feed "
+                    f"reference '{reference_urn}' and no stdin-sourced main input "
+                    f"to resolve it against"
+                )
+            provider_content = self._providers.content_urn_for(incoming)
+            if provider_content is None:
+                raise StreamError(
+                    f"no live-feed provider is registered for reference "
+                    f"'{reference_urn}' in this runtime — the cap's cartridge must "
+                    f"register a capture backend for that device family"
+                )
+            content = MediaUrn.from_string(provider_content)
+            main_urn = MediaUrn.from_string(arg.media_urn)
+            if not content.conforms_to(main_urn):
+                raise StreamError(
+                    f"live-feed reference '{reference_urn}' delivers "
+                    f"'{provider_content}' which does not conform to cap "
+                    f"'{self._cap_urn}' main input '{arg.media_urn}' — this machine "
+                    f"cannot consume that device"
+                )
+            content_urn = provider_content
         if not arg.is_sequence:
             raise StreamError(
                 f"live-feed arg '{arg.media_urn}' on cap '{self._cap_urn}' must "
@@ -1860,7 +1907,7 @@ class LiveFeedContext:
             raise StreamError(str(e))
         self._handles.append(opened.handle)
         return InputStream(
-            media_urn=stdin_urn,
+            media_urn=content_urn,
             stream_meta=opened.stream_meta,
             q=delivery,
             unbounded=True,
@@ -3127,6 +3174,11 @@ class CartridgeRuntime:
         # register hardware providers.
         from capdag.bifaci.live_feed import LiveFeedProviders
         self._live_feed_providers = LiveFeedProviders()
+        # Open live-feed handles by request id, so a STOP (non-force CANCEL
+        # on a feed-bearing request) can close the taps and let the run
+        # drain (15.2 §Runs Stop). Guarded by _lf_handles_lock.
+        self._live_feed_handles_by_rid = {}
+        self._lf_handles_lock = threading.Lock()
 
         # Try to parse the manifest for CLI mode support
         try:
@@ -3694,16 +3746,20 @@ class CartridgeRuntime:
                         # over-window chunks are CREDIT_VIOLATION. Delivered
                         # LIVE as frames arrive on raw_queue — never
                         # buffered to completion first.
-                        # Live-feed resolution context (13.2). Per-request
-                        # handle list; py has no Cancel-frame arm yet, so
-                        # stop-by-operator is a documented divergence — feeds
-                        # end via stop conditions or process lifecycle.
+                        # Live-feed resolution context (13.2). The
+                        # per-request handle list is registered under the
+                        # rid so a STOP (non-force CANCEL) closes the taps
+                        # and the run drains (15.2 §Runs Stop) — mirroring
+                        # the Rust/Swift Cancel arm.
                         try:
+                            lf_handles: list = []
+                            with self._lf_handles_lock:
+                                self._live_feed_handles_by_rid[str(request_id)] = lf_handles
                             lf_ctx = LiveFeedContext(
                                 cap_urn,
                                 self.manifest,
                                 self._live_feed_providers,
-                                [],
+                                lf_handles,
                             )
                         except Exception as lf_err:
                             print(
@@ -3741,6 +3797,12 @@ class CartridgeRuntime:
                             except Exception as write_err:
                                 print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
                     finally:
+                        # The request is over: its feeds are closed (a
+                        # handler that consumed them already saw their end)
+                        # and the rid leaves the stop registry.
+                        with self._lf_handles_lock:
+                            for handle in self._live_feed_handles_by_rid.pop(str(request_id), []):
+                                handle.close()
                         # Release this request's credit waiters (L13) and
                         # immediately drain one queued request into the
                         # freed capacity slot.
@@ -3748,6 +3810,36 @@ class CartridgeRuntime:
 
                 _spawn_or_queue(request_id, routing_id, handle_request)
                 continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
+
+            elif frame.frame_type == FrameType.CANCEL:
+                # STOP, not cancel (15.2 §Runs Stop): a non-force CANCEL for
+                # a request holding open live feeds CLOSES THE TAPS — capture
+                # ends, the pipeline drains, and the run completes its
+                # outputs (a stopped recording is a valid recording). The
+                # handles leave the registry, so a SECOND cancel falls
+                # through to the abort divergence below. Mirrors the
+                # Rust/Swift Cancel arm.
+                target_rid = frame.id
+                force_kill = bool(getattr(frame, "force_kill", False))
+                if not force_kill:
+                    with self._lf_handles_lock:
+                        feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
+                    if feeds:
+                        for handle in feeds:
+                            handle.close()
+                        continue
+                # Abort semantics: Python handler threads cannot be killed —
+                # the runtime cannot abort a running handler mid-flight.
+                # This is the documented py divergence (parity README,
+                # divergence at objects never morphisms): the handler runs
+                # to completion; its request state is torn down when it
+                # finishes. Announce loudly rather than pretending.
+                print(
+                    f"[CartridgeRuntime] CANCEL rid={target_rid} force={force_kill}: "
+                    f"python handlers cannot be aborted mid-flight; the handler "
+                    f"runs to completion (documented divergence)",
+                    file=sys.stderr,
+                )
 
             elif frame.frame_type == FrameType.HEARTBEAT:
                 # Respond to heartbeat immediately - never blocked by handlers

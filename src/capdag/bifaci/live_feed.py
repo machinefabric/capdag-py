@@ -263,12 +263,24 @@ class LiveFeedHandle:
             return self._shared.overruns
 
 
+#: The content urn the synthetic feed delivers: opaque test frames.
+MEDIA_FEED_FRAMES = "media:feed-frames"
+
+
 class LiveFeedProvider:
     """A live-capture backend. ``open`` starts capture pushing into
     ``sink`` from a provider-owned thread and returns the stream-level
     format actuals (dict) for STREAM_START meta, or None."""
 
     def name(self) -> str:
+        raise NotImplementedError
+
+    def content_urn(self) -> str:
+        """The CONTENT media urn this provider's feed delivers (e.g. the
+        microphone provider delivers ``media:audio-frames;pcm``). Used when
+        a live reference resolves against a cap's MAIN INPUT: the content
+        urn must conform to the main input's declared urn, and the
+        delivered stream is labeled with it."""
         raise NotImplementedError
 
     def open(self, selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
@@ -302,6 +314,13 @@ class LiveFeedProviders:
                 if pattern.accepts(reference):
                     return provider
         return None
+
+    def content_urn_for(self, reference: MediaUrn) -> Optional[str]:
+        """The CONTENT urn the provider matching ``reference`` delivers,
+        if a provider is registered for it. Used by main-input resolution:
+        the content urn must conform to the consuming arg's declared urn."""
+        provider = self.find(reference)
+        return provider.content_urn() if provider is not None else None
 
     def overruns_total(self) -> int:
         """Runtime-wide overrun total (rides heartbeat meta)."""
@@ -413,6 +432,9 @@ class SyntheticFeedProvider(LiveFeedProvider):
 
     def name(self) -> str:
         return "synthetic"
+
+    def content_urn(self) -> str:
+        return MEDIA_FEED_FRAMES
 
     def open(self, selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
         items = int(selector.params.get("items", 10))
