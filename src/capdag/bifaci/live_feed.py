@@ -2,7 +2,8 @@
 
 A live feed is an input that arrives BY REFERENCE: the wire value is a
 small selector record, and the runtime — never the op — resolves it by
-opening a capture device through a registered ``LiveFeedProvider`` and
+opening a capture device through the built-in capture dispatch
+(``capture_open`` below — the device analog of file-path reading) and
 delivering an UNBOUNDED SEQUENCE stream of items labeled with the arg's
 stdin content URN. The op is transport-blind.
 
@@ -13,8 +14,10 @@ applies the feed's declared overrun policy at the capture edge — the only
 place loss can occur, always counted, with an in-band ``gap`` marker on
 the next delivered item.
 
-Ships one built-in provider (``media:live;synthetic``): a deterministic
-clock source used by the shared test range. Hardware providers are
+Capture is transport resolution, not a capability and not a plugin
+surface: the set of backends is a closed compile-time dispatch. This
+runtime ships the deterministic synthetic clock (``media:live;synthetic``)
+used by the shared test range. Hardware backends (microphone, webcam) are
 registered by capture-capable cartridges; sandboxed platforms use
 host-mediated capture instead.
 
@@ -267,64 +270,27 @@ class LiveFeedHandle:
 MEDIA_FEED_FRAMES = "media:feed-frames"
 
 
-class LiveFeedProvider:
-    """A live-capture backend. ``open`` starts capture pushing into
-    ``sink`` from a provider-owned thread and returns the stream-level
-    format actuals (dict) for STREAM_START meta, or None."""
+#: Known device families and their content pairings — CLOSED, compile-time
+#: knowledge, the device analog of "how a file path is read". The python
+#: runtime implements only the synthetic backend; the hardware families are
+#: named so their absence is a HARD, named error, never a silent empty feed.
+MICROPHONE_REFERENCE = "media:audio;live;microphone"
+MICROPHONE_CONTENT = "media:audio-frames;pcm"
+WEBCAM_REFERENCE = "media:image;live;webcam"
+WEBCAM_CONTENT = "media:image;video-frame"
 
-    def name(self) -> str:
-        raise NotImplementedError
-
-    def content_urn(self) -> str:
-        """The CONTENT media urn this provider's feed delivers (e.g. the
-        microphone provider delivers ``media:audio-frames;pcm``). Used when
-        a live reference resolves against a cap's MAIN INPUT: the content
-        urn must conform to the main input's declared urn, and the
-        delivered stream is labeled with it."""
-        raise NotImplementedError
-
-    def open(self, selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
-        raise NotImplementedError
-
-
-class LiveFeedProviders:
-    """Registered providers: reference-URN pattern → provider. First
-    registered pattern that ACCEPTS the incoming reference URN wins."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._entries: List[Tuple[MediaUrn, LiveFeedProvider]] = []
-        self.overruns_counter = _Counter()
-        self.register(MEDIA_LIVE_SYNTHETIC, SyntheticFeedProvider())
-
-    def register(self, pattern: str, provider: LiveFeedProvider) -> None:
-        pattern_urn = MediaUrn.from_string(pattern)
-        family = MediaUrn.from_string(MEDIA_LIVE_FEED)
-        if not family.accepts(pattern_urn):
-            raise LiveFeedError(
-                f"BUG: live-feed provider pattern '{pattern}' is outside the live "
-                f"reference family '{MEDIA_LIVE_FEED}' — it would never be resolved"
-            )
-        with self._lock:
-            self._entries.append((pattern_urn, provider))
-
-    def find(self, reference: MediaUrn) -> Optional[LiveFeedProvider]:
-        with self._lock:
-            for pattern, provider in self._entries:
-                if pattern.accepts(reference):
-                    return provider
-        return None
-
-    def content_urn_for(self, reference: MediaUrn) -> Optional[str]:
-        """The CONTENT urn the provider matching ``reference`` delivers,
-        if a provider is registered for it. Used by main-input resolution:
-        the content urn must conform to the consuming arg's declared urn."""
-        provider = self.find(reference)
-        return provider.content_urn() if provider is not None else None
-
-    def overruns_total(self) -> int:
-        """Runtime-wide overrun total (rides heartbeat meta)."""
-        return self.overruns_counter.get()
+def content_urn_for(reference: MediaUrn) -> Optional[str]:
+    """The CONTENT urn a reference's resolved feed delivers, when the
+    reference belongs to a known device family. Used by main-input
+    resolution: the content urn must conform to the consuming arg's
+    declared urn."""
+    if MediaUrn.from_string(MEDIA_LIVE_SYNTHETIC).accepts(reference):
+        return MEDIA_FEED_FRAMES
+    if MediaUrn.from_string(MICROPHONE_REFERENCE).accepts(reference):
+        return MICROPHONE_CONTENT
+    if MediaUrn.from_string(WEBCAM_REFERENCE).accepts(reference):
+        return WEBCAM_CONTENT
+    return None
 
 
 @dataclass
@@ -337,14 +303,15 @@ class OpenedFeed:
     handle: LiveFeedHandle
 
 
-def open_feed(
-    providers: LiveFeedProviders,
+def capture_open(
     reference_urn: str,
     selector: LiveFeedSelector,
     deliver: Callable[[object], None],
+    overruns_counter: "_Counter",
 ) -> OpenedFeed:
-    """Resolve a live-feed reference: find the provider, open the device,
-    and bridge capture → delivery through the ring + feeder thread.
+    """Open the device a live reference names: dispatch to the family's
+    backend (closed compile-time set) and bridge capture → delivery
+    through the ring + feeder thread.
 
     ``deliver`` is called with ``(value_bytes, meta_dict)`` tuples, an
     Exception on failure, and ``None`` at feed end — the py InputStream
@@ -352,20 +319,27 @@ def open_feed(
     ``queue.Queue.put``): that blocking IS the op-side backpressure stage.
     """
     reference = MediaUrn.from_string(reference_urn)
-    provider = providers.find(reference)
-    if provider is None:
+    if MediaUrn.from_string(MEDIA_LIVE_SYNTHETIC).accepts(reference):
+        open_device = synthetic_open
+    elif content_urn_for(reference) is not None:
         raise LiveFeedError(
-            f"no live-feed provider registered for reference '{reference_urn}' — "
-            f"the runtime cannot open this feed"
+            f"the python runtime has no device capture backends — live "
+            f"reference '{reference_urn}' must be resolved by a "
+            f"capture-capable host or cartridge (Rust)"
+        )
+    else:
+        raise LiveFeedError(
+            f"no capture backend exists for live reference '{reference_urn}' — "
+            f"it is not a known device family (microphone, webcam, synthetic)"
         )
 
     ring_cap = selector.params.get("ring", DEFAULT_RING_CAP)
     if not isinstance(ring_cap, int) or ring_cap < 1:
         raise LiveFeedError(f"live-feed 'ring' param must be a positive integer, got {ring_cap!r}")
 
-    shared = _FeedShared(ring_cap, selector.on_overrun, providers.overruns_counter)
+    shared = _FeedShared(ring_cap, selector.on_overrun, overruns_counter)
     sink = LiveFeedSink(shared, selector.stop.max_items)
-    stream_meta = provider.open(selector, sink)
+    stream_meta = open_device(selector, sink)
 
     deadline = (
         time.monotonic() + selector.stop.duration_ms / 1000.0
@@ -421,7 +395,7 @@ def open_feed(
     return OpenedFeed(stream_meta=stream_meta, handle=LiveFeedHandle(shared))
 
 
-class SyntheticFeedProvider(LiveFeedProvider):
+def synthetic_open(selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
     """The built-in deterministic feed (``media:live;synthetic``): a
     logical clock emitting ``items`` payloads of ``item_bytes`` bytes every
     ``interval_ms`` (params; defaults 10 × 32B × 10ms). ``pts_us`` is the
@@ -429,35 +403,27 @@ class SyntheticFeedProvider(LiveFeedProvider):
     ``capture_ts_us`` is wall clock. ``interval_ms = 0`` floods — with a
     small ``ring`` and a slow consumer this exercises real overruns
     without hardware."""
+    items = int(selector.params.get("items", 10))
+    interval_ms = int(selector.params.get("interval_ms", 10))
+    item_bytes = max(1, int(selector.params.get("item_bytes", 32)))
 
-    def name(self) -> str:
-        return "synthetic"
-
-    def content_urn(self) -> str:
-        return MEDIA_FEED_FRAMES
-
-    def open(self, selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
-        items = int(selector.params.get("items", 10))
-        interval_ms = int(selector.params.get("interval_ms", 10))
-        item_bytes = max(1, int(selector.params.get("item_bytes", 32)))
-
-        def _capture() -> None:
-            start = int(time.time() * 1_000_000)
-            for i in range(items):
-                if sink.is_closed():
-                    break
-                pushed = sink.push(
-                    LiveFeedItem(
-                        payload=bytes([i % 256]) * item_bytes,
-                        pts_us=i * interval_ms * 1000,
-                        capture_ts_us=start + i * interval_ms * 1000,
-                    )
+    def _capture() -> None:
+        start = int(time.time() * 1_000_000)
+        for i in range(items):
+            if sink.is_closed():
+                break
+            pushed = sink.push(
+                LiveFeedItem(
+                    payload=bytes([i % 256]) * item_bytes,
+                    pts_us=i * interval_ms * 1000,
+                    capture_ts_us=start + i * interval_ms * 1000,
                 )
-                if not pushed:
-                    break
-                if interval_ms > 0:
-                    time.sleep(interval_ms / 1000.0)
-            sink.finish()
+            )
+            if not pushed:
+                break
+            if interval_ms > 0:
+                time.sleep(interval_ms / 1000.0)
+        sink.finish()
 
-        threading.Thread(target=_capture, daemon=True, name="synthetic-feed").start()
-        return {"feed": "synthetic", "interval_ms": interval_ms}
+    threading.Thread(target=_capture, daemon=True, name="synthetic-feed").start()
+    return {"feed": "synthetic", "interval_ms": interval_ms}

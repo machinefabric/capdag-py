@@ -2001,17 +2001,17 @@ def _live_feed_manifest(arg_is_sequence: bool):
 
 def _live_feed_ctx(arg_is_sequence: bool = True):
     from capdag.bifaci.cartridge_runtime import LiveFeedContext
-    from capdag.bifaci.live_feed import LiveFeedProviders
+    from capdag.bifaci.live_feed import _Counter
 
-    providers = LiveFeedProviders()
+    overruns = _Counter()
     handles: list = []
     ctx = LiveFeedContext(
         LIVE_FEED_CAP_URN,
         _live_feed_manifest(arg_is_sequence),
-        providers,
+        overruns,
         handles,
     )
-    return ctx, providers, handles
+    return ctx, overruns, handles
 
 
 def _send_live_reference(raw_queue, rid, selector: str):
@@ -2064,7 +2064,7 @@ def test_8128_live_feed_reference_resolves_to_unbounded_content_stream():
 def test_8129_overrun_drop_oldest_counts_and_marks_gaps():
     from capdag.bifaci.cartridge_runtime import demux_multi_stream
 
-    ctx, providers, _handles = _live_feed_ctx()
+    ctx, overruns, _handles = _live_feed_ctx()
     raw_queue = queue.Queue()
     rid = MessageId.new_uuid()
     _send_live_reference(
@@ -2101,7 +2101,7 @@ def test_8129_overrun_drop_oldest_counts_and_marks_gaps():
     assert dropped_via_gaps > 0, "the loss is visible in-band"
     assert delivered + dropped_via_gaps == 50, \
         "every captured item is either delivered or counted as dropped — nothing silent"
-    assert providers.overruns_total() == dropped_via_gaps, \
+    assert overruns.get() == dropped_via_gaps, \
         "the runtime-wide overrun counter matches the in-band accounting"
 
 
@@ -2253,7 +2253,7 @@ def _blind_live_feed_ctx(main_in: str):
     """A TRANSPORT-BLIND cap (no explicit live arg): its main input consumes
     ``main_in`` via stdin. Used by the main-input fallback tests."""
     from capdag.bifaci.cartridge_runtime import LiveFeedContext
-    from capdag.bifaci.live_feed import LiveFeedProviders
+    from capdag.bifaci.live_feed import _Counter
     from capdag.bifaci.manifest import CapManifest
 
     cap_urn = f'cap:consume;in="{main_in}";out="media:fmt=json;record"'
@@ -2278,10 +2278,10 @@ def _blind_live_feed_ctx(main_in: str):
             }],
         }],
     })
-    providers = LiveFeedProviders()
+    overruns = _Counter()
     handles: list = []
-    ctx = LiveFeedContext(cap_urn, manifest, providers, handles)
-    return ctx, providers, handles
+    ctx = LiveFeedContext(cap_urn, manifest, overruns, handles)
+    return ctx, overruns, handles
 
 
 # TEST8137: main-input fallback — a cap with NO explicit reference arg

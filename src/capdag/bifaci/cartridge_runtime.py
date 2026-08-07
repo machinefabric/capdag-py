@@ -1775,17 +1775,17 @@ class LiveFeedContext:
     """Runtime-side context for LIVE-FEED reference resolution (13.2
     §Reference Media, live family). An incoming stream whose media URN
     carries the ``live`` marker is a reference: the demux accumulates its
-    selector value, opens the feed through the registered providers, and
+    selector value, opens the feed through the built-in capture dispatch, and
     delivers an UNBOUNDED SEQUENCE ``InputStream`` labeled with the arg's
     stdin content URN. Opened feeds register their handles for stop.
     (matches Rust LiveFeedContext)"""
 
-    def __init__(self, cap_urn: str, manifest, providers, handles: list):
+    def __init__(self, cap_urn: str, manifest, overruns_counter, handles: list):
         # Canonical rendering so the manifest lookup compares
         # canonical-to-canonical, independent of surface spelling.
         self._cap_urn = CapUrn.from_string(cap_urn).to_string()
         self._manifest = manifest
-        self._providers = providers
+        self._overruns_counter = overruns_counter
         self._handles = handles
 
     def is_live_feed(self, media_urn_str: str) -> bool:
@@ -1840,13 +1840,14 @@ class LiveFeedContext:
         label = its stdin urn), else the cap's MAIN INPUT — the registered
         provider's ``content_urn()`` must conform to it, and labels the
         delivered stream. Hard errors on: no matching arg, no stdin source,
-        ``is_sequence=false``, non-conforming provider content, an
-        unparseable selector, or a provider/device failure.
+        ``is_sequence=false``, non-conforming backend content, an
+        unparseable selector, or a backend/device failure.
         (matches Rust LiveFeedContext::resolve)"""
         from capdag.bifaci.live_feed import (
             DELIVERY_QUEUE_CAP,
             LiveFeedSelector,
-            open_feed,
+            capture_open,
+            content_urn_for,
         )
 
         incoming = MediaUrn.from_string(reference_urn)
@@ -1873,12 +1874,12 @@ class LiveFeedContext:
                     f"reference '{reference_urn}' and no stdin-sourced main input "
                     f"to resolve it against"
                 )
-            provider_content = self._providers.content_urn_for(incoming)
+            provider_content = content_urn_for(incoming)
             if provider_content is None:
                 raise StreamError(
-                    f"no live-feed provider is registered for reference "
-                    f"'{reference_urn}' in this runtime — the cap's cartridge must "
-                    f"register a capture backend for that device family"
+                    f"live reference '{reference_urn}' is not a known device "
+                    f"family — no capture backend exists for it "
+                    f"(13.2 §Reference Media)"
                 )
             content = MediaUrn.from_string(provider_content)
             main_urn = MediaUrn.from_string(arg.media_urn)
@@ -1902,7 +1903,9 @@ class LiveFeedContext:
             raise StreamError(str(e))
         delivery: queue.Queue = queue.Queue(maxsize=DELIVERY_QUEUE_CAP)
         try:
-            opened = open_feed(self._providers, reference_urn, selector, delivery.put)
+            opened = capture_open(
+                reference_urn, selector, delivery.put, self._overruns_counter
+            )
         except Exception as e:
             raise StreamError(str(e))
         self._handles.append(opened.handle)
@@ -3169,11 +3172,12 @@ class CartridgeRuntime:
         # Benign post-terminal stragglers suppressed by the writer's
         # terminal gate (L4) — never drops, nothing went wrong.
         self._straggler_counters = StragglerCounters()
-        # Live-feed providers (13.2 §Reference Media, live family). Ships
-        # with the built-in synthetic feed; capture-capable cartridges
-        # register hardware providers.
-        from capdag.bifaci.live_feed import LiveFeedProviders
-        self._live_feed_providers = LiveFeedProviders()
+        # Runtime-wide live-feed overrun aggregate (12.5 §Overrun); rides
+        # heartbeat meta as ``overruns_total``. Capture backends are the
+        # built-in compile-time dispatch in live_feed.capture_open — nothing
+        # to register.
+        from capdag.bifaci.live_feed import _Counter
+        self._live_feed_overruns = _Counter()
         # Open live-feed handles by request id, so a STOP (non-force CANCEL
         # on a feed-bearing request) can close the taps and let the run
         # drain (15.2 §Runs Stop). Guarded by _lf_handles_lock.
@@ -3268,16 +3272,10 @@ class CartridgeRuntime:
         drops — nothing went wrong."""
         return self._straggler_counters.snapshot()
 
-    def register_live_feed_provider(self, pattern: str, provider) -> None:
-        """Register a live-feed provider (13.2 §Reference Media): a capture
-        backend for a reference-URN pattern. The built-in synthetic feed is
-        pre-registered."""
-        self._live_feed_providers.register(pattern, provider)
-
     def protocol_overruns_total(self) -> int:
         """Runtime-wide live-feed overrun total (12.5 §Overrun) — its own
         category, never counted as drops. Rides heartbeat meta."""
-        return self._live_feed_providers.overruns_total()
+        return self._live_feed_overruns.get()
 
     def protocol_drops(self) -> DropSnapshot:
         """Protocol observability snapshot (L8): this runtime's dropped-frame
@@ -3758,7 +3756,7 @@ class CartridgeRuntime:
                             lf_ctx = LiveFeedContext(
                                 cap_urn,
                                 self.manifest,
-                                self._live_feed_providers,
+                                self._live_feed_overruns,
                                 lf_handles,
                             )
                         except Exception as lf_err:
@@ -3852,7 +3850,7 @@ class CartridgeRuntime:
                 response.meta = {
                     "drops_total": self._drop_counters.total(),
                     "stragglers_total": self._straggler_counters.total(),
-                    "overruns_total": self._live_feed_providers.overruns_total(),
+                    "overruns_total": self.protocol_overruns_total(),
                     "handler_capacity": self._capacity.get(),
                 }
                 try:
