@@ -1,18 +1,18 @@
-# CapDag-Py Test Catalog
+# Python Test Catalog
 
-**Total Tests:** 1213
+**Total Tests:** 1239
 
-**Numbered Tests:** 1199
+**Numbered Tests:** 1225
 
 **Unnumbered Tests:** 14
 
-**Numbered Tests Missing Descriptions:** 0
+**Numbered Tests Missing Descriptions:** 1
 
 **Numbering Mismatches:** 89
 
 All numbered test numbers are unique.
 
-This catalog lists all tests in the CapDag-Py codebase.
+This catalog lists all tests in the Python codebase.
 
 | Test # | Function Name | Description | File |
 |--------|---------------|-------------|------|
@@ -123,16 +123,16 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test127 | `test_127_wildcard_identity_routing_isolation` | TEST127: invalid effect=none declarations fail hard | tests/test_cap_urn.py:1080 |
 | test0128 | `test_0128_effect_dispatch_requires_explicit_wildcard` | TEST128: omitted effect means declared; unconstrained effect must be explicit | tests/test_cap_urn.py:1108 |
 | test129 | `test_129_gc_evicts_oldest_entries_by_touch_sequence` | TEST129: The GC drops the OLDEST entries by touch-sequence, not arbitrary keys; the post-GC keyset is exactly what the test computes should survive. | tests/test_cartridge_host_runtime.py:340 |
-| test0131 | `test_0131_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST0131: empty→non-empty transition must run a runtime identity probe; a master that fails it ends up unhealthy with last_error and its caps are excluded from routing. | tests/test_relay_switch.py:1402 |
-| test132 | `test_132_add_master_dynamic` | TEST132: add_master dynamically connects new host to running switch | tests/test_relay_switch.py:1145 |
-| test133 | `test_133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:927 |
-| test134 | `test_134_add_master_with_duplicate_healthy_id_errors` | TEST134: Add master with duplicate healthy id errors | tests/test_relay_switch.py:996 |
-| test0135 | `test_0135_runtime_identity_probe_success_makes_caps_routable` | TEST0135: the SUCCESS path — a master that advertises caps after connecting and then passes the probe flips healthy and its caps become routable. | tests/test_relay_switch.py:1428 |
-| test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST136: All masters ready false when expected count unset | tests/test_relay_switch.py:1053 |
-| test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST137: All masters ready false when partially connected | tests/test_relay_switch.py:1095 |
+| test0131 | `test_0131_runtime_identity_probe_required_on_empty_to_nonempty_transition` | TEST0131: empty→non-empty transition must run a runtime identity probe; a master that fails it ends up unhealthy with last_error and its caps are excluded from routing. | tests/test_relay_switch.py:1403 |
+| test132 | `test_132_add_master_dynamic` | TEST132: add_master dynamically connects new host to running switch | tests/test_relay_switch.py:1146 |
+| test133 | `test_133_reattach_by_id_preserves_slot_index` | Reattach-by-id tests for the cardinality-stable slot model. When a master dies and the host reconnects, the new socket MUST attach to the same slot index — preserving routing entries keyed by index. Accumulating zombie slots on each reconnect was the bug class these tests guard against. | tests/test_relay_switch.py:928 |
+| test134 | `test_134_add_master_with_duplicate_healthy_id_errors` | TEST134: Add master with duplicate healthy id errors | tests/test_relay_switch.py:997 |
+| test0135 | `test_0135_runtime_identity_probe_success_makes_caps_routable` | TEST0135: the SUCCESS path — a master that advertises caps after connecting and then passes the probe flips healthy and its caps become routable. | tests/test_relay_switch.py:1429 |
+| test0136 | `test_0136_all_masters_ready_false_when_expected_count_unset` | TEST136: All masters ready false when expected count unset | tests/test_relay_switch.py:1054 |
+| test0137 | `test_0137_all_masters_ready_false_when_partially_connected` | TEST137: All masters ready false when partially connected | tests/test_relay_switch.py:1096 |
 | test138 | `test_138_parse_registry_json_with_stdin` | TEST138: Test parsing registry JSON with stdin args verifies stdin media URN extraction | tests/test_registry.py:99 |
-| test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1111 |
-| test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1129 |
+| test0139 | `test_0139_all_masters_ready_true_when_masters_connected_but_capless` | TEST139: All masters ready true when masters connected but capless | tests/test_relay_switch.py:1112 |
+| test0140 | `test_0140_all_masters_ready_does_not_overshoot` | TEST140: All masters ready does not overshoot | tests/test_relay_switch.py:1130 |
 | test141 | `test_141_per_cap_url_shape` | TEST141: URL has the right shape — protocol, host, /caps/ prefix, 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape and ObjC's test141_perCapURLShape; the previous Python TEST141 (`different_caps_different_hashes`) was renumbered to TEST938 to resolve a cross-mirror collision on this number. | tests/test_registry.py:193 |
 | test142 | `test_142_normalize_handles_different_tag_orders` | TEST142: Test normalize handles different tag orders producing same canonical form | tests/test_registry.py:225 |
 | test143 | `test_143_default_config` | TEST143: Default config points at https://fabric.capdag.com/ unless overridden by CDG_FABRIC_REGISTRY_URL. | tests/test_registry.py:238 |
@@ -238,29 +238,29 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test245 | `test_245_async_host_error_from_io` | TEST245: Test AsyncHostError::from converts io::Error to Io variant | tests/test_cartridge_host_runtime.py:241 |
 | test246 | `test_246_async_host_error_equality` | TEST246: Test AsyncHostError Clone implementation produces equal values | tests/test_cartridge_host_runtime.py:248 |
 | test247 | `test_247_response_chunk_copy` | TEST247: Test ResponseChunk Clone produces independent copy with same data | tests/test_cartridge_host_runtime.py:259 |
-| test248 | `test_248_register_and_find_handler` | TEST248: Test register_op and find_handler by exact cap URN | tests/test_cartridge_runtime.py:179 |
-| test249 | `test_249_raw_handler` | TEST249: Test register_op handler echoes bytes directly | tests/test_cartridge_runtime.py:193 |
-| test250 | `test_250_typed_handler_deserialization` | TEST250: Test Op handler collects input and processes it | tests/test_cartridge_runtime.py:217 |
-| test251 | `test_251_typed_handler_rejects_invalid_json` | TEST251: Test Op handler propagates errors through RuntimeError::Handler | tests/test_cartridge_runtime.py:243 |
-| test252 | `test_252_find_handler_unknown_cap` | TEST252: Test find_handler returns None for unregistered cap URNs | tests/test_cartridge_runtime.py:266 |
-| test253 | `test_253_handler_is_send_sync` | TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync) | tests/test_cartridge_runtime.py:297 |
-| test254 | `test_254_no_peer_invoker` | TEST254: Test NoPeerInvoker always returns PeerRequest error | tests/test_cartridge_runtime.py:328 |
-| test255 | `test_255_no_peer_invoker_with_arguments` | TEST255: Test NoPeerInvoker call_with_bytes also returns error | tests/test_cartridge_runtime.py:338 |
-| test256 | `test_256_with_manifest_json` | TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid | tests/test_cartridge_runtime.py:347 |
-| test257 | `test_257_new_with_invalid_json` | TEST257: Test CartridgeRuntime::new with invalid JSON still creates runtime (manifest is None) | tests/test_cartridge_runtime.py:358 |
-| test258 | `test_258_with_manifest_struct` | TEST258: Test CartridgeRuntime::with_manifest creates runtime with valid manifest data | tests/test_cartridge_runtime.py:365 |
-| test259 | `test_259_extract_effective_payload_non_cbor` | TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:374 |
-| test260 | `test_260_extract_effective_payload_no_content_type` | TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:382 |
-| test261 | `test_261_extract_effective_payload_cbor_match` | TEST261: Test extract_effective_payload with CBOR content extracts matching argument value | tests/test_cartridge_runtime.py:390 |
-| test262 | `test_262_extract_effective_payload_cbor_no_match` | TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input | tests/test_cartridge_runtime.py:402 |
-| test263 | `test_263_extract_effective_payload_invalid_cbor` | TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error | tests/test_cartridge_runtime.py:412 |
-| test264 | `test_264_extract_effective_payload_cbor_not_array` | TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error | tests/test_cartridge_runtime.py:419 |
-| test266 | `test_266_cli_stream_emitter_construction` | TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction) | tests/test_cartridge_runtime.py:427 |
-| test268 | `test_268_runtime_error_display` | TEST268: Test RuntimeError variants display correct messages | tests/test_cartridge_runtime.py:436 |
-| test270 | `test_270_multiple_handlers` | TEST270: Test registering multiple Op handlers for different caps and finding each independently | tests/test_cartridge_runtime.py:457 |
-| test271 | `test_271_handler_replacement` | TEST271: Test Op handler replacing an existing registration for the same cap URN | tests/test_cartridge_runtime.py:484 |
-| test272 | `test_272_extract_effective_payload_multiple_args` | TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one | tests/test_cartridge_runtime.py:515 |
-| test273 | `test_273_extract_effective_payload_binary_value` | TEST273: Test extract_effective_payload with binary data in CBOR value (not just text) | tests/test_cartridge_runtime.py:537 |
+| test248 | `test_248_register_and_find_handler` | TEST248: Test register_op and find_handler by exact cap URN | tests/test_cartridge_runtime.py:180 |
+| test249 | `test_249_raw_handler` | TEST249: Test register_op handler echoes bytes directly | tests/test_cartridge_runtime.py:194 |
+| test250 | `test_250_typed_handler_deserialization` | TEST250: Test Op handler collects input and processes it | tests/test_cartridge_runtime.py:218 |
+| test251 | `test_251_typed_handler_rejects_invalid_json` | TEST251: Test Op handler propagates errors through RuntimeError::Handler | tests/test_cartridge_runtime.py:244 |
+| test252 | `test_252_find_handler_unknown_cap` | TEST252: Test find_handler returns None for unregistered cap URNs | tests/test_cartridge_runtime.py:267 |
+| test253 | `test_253_handler_is_send_sync` | TEST253: Test OpFactory can be cloned via Arc and sent across tasks (Send + Sync) | tests/test_cartridge_runtime.py:298 |
+| test254 | `test_254_no_peer_invoker` | TEST254: Test NoPeerInvoker always returns PeerRequest error | tests/test_cartridge_runtime.py:329 |
+| test255 | `test_255_no_peer_invoker_with_arguments` | TEST255: Test NoPeerInvoker call_with_bytes also returns error | tests/test_cartridge_runtime.py:339 |
+| test256 | `test_256_with_manifest_json` | TEST256: Test CartridgeRuntime::with_manifest_json stores manifest data and parses when valid | tests/test_cartridge_runtime.py:348 |
+| test257 | `test_257_new_with_invalid_json` | TEST257: Test CartridgeRuntime::new with invalid JSON still creates runtime (manifest is None) | tests/test_cartridge_runtime.py:359 |
+| test258 | `test_258_with_manifest_struct` | TEST258: Test CartridgeRuntime::with_manifest creates runtime with valid manifest data | tests/test_cartridge_runtime.py:366 |
+| test259 | `test_259_extract_effective_payload_non_cbor` | TEST259: Test extract_effective_payload with non-CBOR content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:375 |
+| test260 | `test_260_extract_effective_payload_no_content_type` | TEST260: Test extract_effective_payload with None content_type returns raw payload unchanged | tests/test_cartridge_runtime.py:383 |
+| test261 | `test_261_extract_effective_payload_cbor_match` | TEST261: Test extract_effective_payload with CBOR content extracts matching argument value | tests/test_cartridge_runtime.py:391 |
+| test262 | `test_262_extract_effective_payload_cbor_no_match` | TEST262: Test extract_effective_payload with CBOR content fails when no argument matches expected input | tests/test_cartridge_runtime.py:403 |
+| test263 | `test_263_extract_effective_payload_invalid_cbor` | TEST263: Test extract_effective_payload with invalid CBOR bytes returns deserialization error | tests/test_cartridge_runtime.py:413 |
+| test264 | `test_264_extract_effective_payload_cbor_not_array` | TEST264: Test extract_effective_payload with CBOR non-array (e.g. map) returns error | tests/test_cartridge_runtime.py:420 |
+| test266 | `test_266_cli_stream_emitter_construction` | TEST266: Test CliFrameSender wraps CliStreamEmitter correctly (basic construction) | tests/test_cartridge_runtime.py:428 |
+| test268 | `test_268_runtime_error_display` | TEST268: Test RuntimeError variants display correct messages | tests/test_cartridge_runtime.py:437 |
+| test270 | `test_270_multiple_handlers` | TEST270: Test registering multiple Op handlers for different caps and finding each independently | tests/test_cartridge_runtime.py:458 |
+| test271 | `test_271_handler_replacement` | TEST271: Test Op handler replacing an existing registration for the same cap URN | tests/test_cartridge_runtime.py:485 |
+| test272 | `test_272_extract_effective_payload_multiple_args` | TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one | tests/test_cartridge_runtime.py:516 |
+| test273 | `test_273_extract_effective_payload_binary_value` | TEST273: Test extract_effective_payload with binary data in CBOR value (not just text) | tests/test_cartridge_runtime.py:538 |
 | test274 | `test_274_cap_argument_value_new` | TEST274: Test CapArgumentValue::new stores media_urn and raw byte value | tests/test_caller.py:143 |
 | test275 | `test_275_cap_argument_value_from_str` | TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes | tests/test_caller.py:154 |
 | test276 | `test_276_cap_argument_value_as_str_success` | TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data | tests/test_caller.py:166 |
@@ -280,7 +280,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test290 | `test_290_limits_negotiation` | TEST290: Limit negotiation picks minimum | tests/test_cbor_integration.py:225 |
 | test291 | `test_291_binary_payload_roundtrip` | TEST291: Binary payload roundtrip (all 256 byte values) | tests/test_cbor_integration.py:257 |
 | test292 | `test_292_message_id_uniqueness` | TEST292: Sequential requests get distinct MessageIds | tests/test_cbor_integration.py:302 |
-| test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:272 |
+| test293 | `test_293_cartridge_runtime_handler_registration` | TEST293: Test CartridgeRuntime Op registration and lookup by exact and non-existent cap URN | tests/test_cartridge_runtime.py:273 |
 | test299 | `test_299_empty_payload_roundtrip` | TEST299: Empty payload request/response roundtrip | tests/test_cbor_integration.py:343 |
 | test300 | `test_300_get_cartridge_by_id_channel_isolation` | TEST300: A cartridge with the same id can independently exist in both channels. Each lookup must return the channel-specific entry. | tests/test_cartridge_repo.py:295 |
 | test301 | `test_301_transform_walks_both_channels_release_first` | TEST301: Walking both channels produces release entries first. | tests/test_cartridge_repo.py:257 |
@@ -309,42 +309,42 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test333 | `test_333_cartridge_repo_client_get_all_caps` | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. | tests/test_cartridge_repo.py:448 |
 | test334 | `test_334_cartridge_repo_client_needs_sync` | TEST334: needs_sync returns true on an empty cache, false right after a successful update. | tests/test_cartridge_repo.py:476 |
 | test335 | `test_335_cartridge_repo_server_client_integration` | TEST335: A v4.0 nested registry round-trips through Server → CartridgeInfo → fingerprint, preserving the cap_groups structure and the signed flag. | tests/test_cartridge_repo.py:486 |
-| test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:570 |
-| test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:633 |
-| test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:661 |
-| test339 | `test_339_file_path_array_glob_expansion` | TEST339: file-path-array reads multiple files with glob pattern | tests/test_cartridge_runtime.py:690 |
-| test340 | `test_340_file_not_found_clear_error` | TEST340: File not found error provides clear message | tests/test_cartridge_runtime.py:730 |
-| test341 | `test_341_stdin_precedence_over_file_path` | TEST341: stdin takes precedence over file-path in source order | tests/test_cartridge_runtime.py:760 |
-| test342 | `test_342_file_path_position_zero_reads_first_arg` | TEST342: file-path with position 0 reads first positional arg as file | tests/test_cartridge_runtime.py:793 |
-| test343 | `test_343_non_file_path_args_unaffected` | TEST343: Non-file-path args are not affected by file reading | tests/test_cartridge_runtime.py:822 |
-| test346 | `test_346_large_file_reads_successfully` | TEST346: Large file (1MB) reads successfully | tests/test_cartridge_runtime.py:914 |
-| test347 | `test_347_empty_file_reads_as_empty_bytes` | TEST347: Empty file reads as empty bytes | tests/test_cartridge_runtime.py:947 |
-| test348 | `test_348_file_path_conversion_respects_source_order` | TEST348: file-path conversion respects source order | tests/test_cartridge_runtime.py:976 |
-| test349 | `test_349_file_path_multiple_sources_fallback` | TEST349: file-path arg with multiple sources tries all in order | tests/test_cartridge_runtime.py:1008 |
-| test350 | `test_350_full_cli_mode_with_file_path_integration` | TEST350: Integration test - full CLI mode invocation with file-path | tests/test_cartridge_runtime.py:1039 |
-| test352 | `test_352_file_permission_denied_clear_error` | TEST352: file permission denied error is clear (Unix-specific) | tests/test_cartridge_runtime.py:1135 |
-| test353 | `test_353_cbor_payload_format_consistency` | TEST353: CBOR payload format matches between CLI and CBOR mode | tests/test_cartridge_runtime.py:1174 |
-| test354 | `test_354_glob_pattern_no_matches_fails_hard` | TEST354: Glob pattern with no matches fails hard (NO FALLBACK). Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1205 |
-| test355 | `test_355_glob_pattern_skips_directories` | TEST355: Glob pattern skips directories | tests/test_cartridge_runtime.py:1236 |
-| test356 | `test_356_multiple_glob_patterns_combined` | TEST356: Multiple glob patterns combined | tests/test_cartridge_runtime.py:1275 |
-| test357 | `test_357_symlinks_followed` | TEST357: Symlinks are followed when reading files | tests/test_cartridge_runtime.py:1319 |
-| test358 | `test_358_binary_file_non_utf8` | TEST358: Binary file with non-UTF8 data reads correctly | tests/test_cartridge_runtime.py:1354 |
-| test359 | `test_359_invalid_glob_pattern_fails` | TEST359: Invalid glob pattern fails with clear error | tests/test_cartridge_runtime.py:1386 |
-| test360 | `test_360_extract_effective_payload_with_file_data` | TEST360: Extract effective payload handles file-path data correctly | tests/test_cartridge_runtime.py:1419 |
-| test361 | `test_361_cli_mode_file_path` | TEST361: CLI mode with file path - pass file path as command-line argument | tests/test_cartridge_runtime.py:1455 |
-| test362 | `test_362_cli_mode_piped_binary` | TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload | tests/test_cartridge_runtime.py:1492 |
-| test363 | `test_363_cbor_mode_chunked_content` | TEST363: CBOR mode with chunked content - send file content streaming as chunks | tests/test_cartridge_runtime.py:1539 |
-| test364 | `test_364_cbor_mode_file_path` | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) | tests/test_cartridge_runtime.py:1620 |
+| test336 | `test_336_file_path_reads_file_passes_bytes` | TEST336: Single file-path arg with stdin source reads file and passes bytes to handler | tests/test_cartridge_runtime.py:571 |
+| test337 | `test_337_file_path_without_stdin_passes_string` | TEST337: file-path arg without stdin source passes path as string (no conversion) | tests/test_cartridge_runtime.py:634 |
+| test338 | `test_338_file_path_via_cli_flag` | TEST338: file-path arg reads file via --file CLI flag | tests/test_cartridge_runtime.py:662 |
+| test339 | `test_339_file_path_array_glob_expansion` | TEST339: file-path-array reads multiple files with glob pattern | tests/test_cartridge_runtime.py:691 |
+| test340 | `test_340_file_not_found_clear_error` | TEST340: File not found error provides clear message | tests/test_cartridge_runtime.py:731 |
+| test341 | `test_341_stdin_precedence_over_file_path` | TEST341: stdin takes precedence over file-path in source order | tests/test_cartridge_runtime.py:761 |
+| test342 | `test_342_file_path_position_zero_reads_first_arg` | TEST342: file-path with position 0 reads first positional arg as file | tests/test_cartridge_runtime.py:794 |
+| test343 | `test_343_non_file_path_args_unaffected` | TEST343: Non-file-path args are not affected by file reading | tests/test_cartridge_runtime.py:823 |
+| test346 | `test_346_large_file_reads_successfully` | TEST346: Large file (1MB) reads successfully | tests/test_cartridge_runtime.py:915 |
+| test347 | `test_347_empty_file_reads_as_empty_bytes` | TEST347: Empty file reads as empty bytes | tests/test_cartridge_runtime.py:948 |
+| test348 | `test_348_file_path_conversion_respects_source_order` | TEST348: file-path conversion respects source order | tests/test_cartridge_runtime.py:977 |
+| test349 | `test_349_file_path_multiple_sources_fallback` | TEST349: file-path arg with multiple sources tries all in order | tests/test_cartridge_runtime.py:1009 |
+| test350 | `test_350_full_cli_mode_with_file_path_integration` | TEST350: Integration test - full CLI mode invocation with file-path | tests/test_cartridge_runtime.py:1040 |
+| test352 | `test_352_file_permission_denied_clear_error` | TEST352: file permission denied error is clear (Unix-specific) | tests/test_cartridge_runtime.py:1136 |
+| test353 | `test_353_cbor_payload_format_consistency` | TEST353: CBOR payload format matches between CLI and CBOR mode | tests/test_cartridge_runtime.py:1175 |
+| test354 | `test_354_glob_pattern_no_matches_fails_hard` | TEST354: Glob pattern with no matches fails hard (NO FALLBACK). Silent empty results mask real user mistakes (typo'd path, wrong directory), so the runtime surfaces them rather than returning an empty array. | tests/test_cartridge_runtime.py:1206 |
+| test355 | `test_355_glob_pattern_skips_directories` | TEST355: Glob pattern skips directories | tests/test_cartridge_runtime.py:1237 |
+| test356 | `test_356_multiple_glob_patterns_combined` | TEST356: Multiple glob patterns combined | tests/test_cartridge_runtime.py:1276 |
+| test357 | `test_357_symlinks_followed` | TEST357: Symlinks are followed when reading files | tests/test_cartridge_runtime.py:1320 |
+| test358 | `test_358_binary_file_non_utf8` | TEST358: Binary file with non-UTF8 data reads correctly | tests/test_cartridge_runtime.py:1355 |
+| test359 | `test_359_invalid_glob_pattern_fails` | TEST359: Invalid glob pattern fails with clear error | tests/test_cartridge_runtime.py:1387 |
+| test360 | `test_360_extract_effective_payload_with_file_data` | TEST360: Extract effective payload handles file-path data correctly | tests/test_cartridge_runtime.py:1420 |
+| test361 | `test_361_cli_mode_file_path` | TEST361: CLI mode with file path - pass file path as command-line argument | tests/test_cartridge_runtime.py:1456 |
+| test362 | `test_362_cli_mode_piped_binary` | TEST362: CLI mode with binary piped in - pipe binary data via stdin This test simulates real-world conditions: - Pure binary data piped to stdin (NOT CBOR) - CLI mode detected (command arg present) - Cap accepts stdin source - Binary is chunked on-the-fly and accumulated - Handler receives complete CBOR payload | tests/test_cartridge_runtime.py:1493 |
+| test363 | `test_363_cbor_mode_chunked_content` | TEST363: CBOR mode with chunked content - send file content streaming as chunks | tests/test_cartridge_runtime.py:1540 |
+| test364 | `test_364_cbor_mode_file_path` | TEST364: CBOR mode with file path - send file path in CBOR arguments (auto-conversion) | tests/test_cartridge_runtime.py:1621 |
 | test365 | `test_365_stream_start_frame` | TEST365: Frame::stream_start stores request_id, stream_id, and media_urn | tests/test_cbor_frame.py:428 |
 | test366 | `test_366_stream_end_frame` | TEST366: Frame::stream_end stores request_id and stream_id | tests/test_cbor_frame.py:443 |
 | test367 | `test_367_stream_start_with_empty_stream_id` | TEST367: StreamStart frame with empty stream_id still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:459 |
 | test368 | `test_368_stream_start_with_empty_media_urn` | TEST368: StreamStart frame with empty media_urn still constructs (validation happens elsewhere) | tests/test_cbor_frame.py:470 |
 | test389 | `test_389_stream_start_roundtrip` | TEST389: StreamStart encode/decode roundtrip preserves stream_id and media_urn | tests/test_cbor_io.py:1013 |
 | test390 | `test_390_stream_end_roundtrip` | TEST390: StreamEnd encode/decode roundtrip preserves stream_id, no media_urn | tests/test_cbor_io.py:1029 |
-| test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1655 |
-| test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1687 |
-| test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1714 |
-| test398 | `test_398_build_payload_io_error` | TEST398: IO error from reader propagates as RuntimeError::Io | tests/test_cartridge_runtime.py:1745 |
+| test395 | `test_395_build_payload_small` | TEST395: Small payload (< max_chunk) produces correct CBOR arguments | tests/test_cartridge_runtime.py:1656 |
+| test396 | `test_396_build_payload_large` | TEST396: Large payload (> max_chunk) accumulates across chunks correctly | tests/test_cartridge_runtime.py:1688 |
+| test397 | `test_397_build_payload_empty` | TEST397: Empty reader produces valid empty CBOR arguments | tests/test_cartridge_runtime.py:1715 |
+| test398 | `test_398_build_payload_io_error` | TEST398: IO error from reader propagates as RuntimeError::Io | tests/test_cartridge_runtime.py:1746 |
 | test399 | `test_399_relay_notify_discriminant_roundtrip` | TEST399: Verify RelayNotify frame type discriminant roundtrips through u8 (value 10) | tests/test_cbor_frame.py:481 |
 | test400 | `test_400_relay_state_discriminant_roundtrip` | TEST400: Verify RelayState frame type discriminant roundtrips through u8 (value 11) | tests/test_cbor_frame.py:490 |
 | test401 | `test_401_relay_notify_factory_and_accessors` | TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them | tests/test_cbor_frame.py:499 |
@@ -372,20 +372,20 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test423 | `test_423_multi_cartridge_distinct_caps` | TEST423: Multiple cartridges registered with distinct caps route independently | tests/test_cartridge_host.py:836 |
 | test424 | `test_424_concurrent_requests_same_cartridge` | TEST424: Concurrent requests to the same cartridge are handled independently | tests/test_cartridge_host.py:917 |
 | test425 | `test_425_find_cartridge_for_cap_unknown` | TEST425: find_cartridge_for_cap returns None for unregistered cap | tests/test_cartridge_host.py:984 |
-| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:163 |
-| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:217 |
-| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:303 |
-| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:338 |
-| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:520 |
-| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:598 |
-| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:661 |
-| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:669 |
-| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:737 |
-| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:782 |
+| test426 | `test_426_single_master_req_response` | TEST426: Single master REQ/response routing | tests/test_relay_switch.py:164 |
+| test427 | `test_427_multi_master_cap_routing` | TEST427: Multi-master cap routing | tests/test_relay_switch.py:218 |
+| test428 | `test_428_unknown_cap_returns_error` | TEST428: Unknown cap returns error | tests/test_relay_switch.py:304 |
+| test429 | `test_429_find_master_for_cap` | TEST429: Cap routing logic (find_master_for_cap) | tests/test_relay_switch.py:339 |
+| test430 | `test_430_tie_breaking_same_cap_multiple_masters` | TEST430: Tie-breaking (same cap on multiple masters - first match wins, routing is consistent) | tests/test_relay_switch.py:521 |
+| test431 | `test_431_continuation_frame_routing` | TEST431: Continuation frame routing (CHUNK, END follow REQ) | tests/test_relay_switch.py:599 |
+| test432 | `test_432_empty_masters_list_error` | TEST432: Empty masters list creates empty switch, add_master works | tests/test_relay_switch.py:662 |
+| test433 | `test_433_capability_aggregation_deduplicates` | TEST433: Capability aggregation deduplicates caps | tests/test_relay_switch.py:670 |
+| test434 | `test_434_limits_negotiation_minimum` | TEST434: Limits negotiation takes minimum | tests/test_relay_switch.py:738 |
+| test435 | `test_435_urn_matching_exact_and_accepts` | TEST435: URN matching (exact vs accepts()) | tests/test_relay_switch.py:783 |
 | test436 | `test_436_compute_checksum` | TEST436: Verify FNV-1a checksum function produces consistent results | tests/test_cbor_frame.py:574 |
-| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:399 |
-| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:439 |
-| test439 | `test_439_generic_candidate_can_dispatch_specific_request` | TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:479 |
+| test437 | `test_437_preferred_cap_routes_to_generic` | TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates | tests/test_relay_switch.py:400 |
+| test438 | `test_438_preferred_cap_falls_back_when_not_comparable` | TEST438: find_master_for_cap with preference falls back to closest-specificity when preferred cap is not in the comparable set | tests/test_relay_switch.py:440 |
+| test439 | `test_439_generic_candidate_can_dispatch_specific_request` | TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists. | tests/test_relay_switch.py:480 |
 | test440 | `test_440_chunk_index_checksum_roundtrip` | TEST440: CHUNK frame with chunk_index and checksum roundtrips through encode/decode | tests/test_cbor_io.py:1078 |
 | test441 | `test_441_stream_end_chunk_count_roundtrip` | TEST441: STREAM_END frame with chunk_count roundtrips through encode/decode | tests/test_cbor_io.py:1098 |
 | test442 | `test_442_seq_assigner_monotonic_same_rid` | TEST442: SeqAssigner assigns seq 0,1,2,3 for consecutive frames with same RID | tests/test_cbor_frame.py:594 |
@@ -411,18 +411,18 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test462 | `test_462_attached_cartridge_identity_from_manifest` | TEST462: An attached cartridge (pre-connected over raw streams, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest. Identity gates advertisement, so a None record means the cartridge is silently dropped from every RelayNotify and the engine can never route to it. Locks the attached-cartridge identity path (the swift mirror regressed here: attached cartridges returned nil and never reached the engine). Mirrors the reference installed_cartridge_record_from_manifest. | tests/test_cartridge_host_runtime.py:415 |
 | test472 | `test_472_handshake_negotiates_reorder_buffer` | TEST472: Handshake negotiates max_reorder_buffer (minimum of both sides) | tests/test_cbor_io.py:357 |
 | test473 | `test_473_cap_discard_parses_as_valid_urn` | TEST473: CAP_DISCARD parses as valid CapUrn with in=media: and out=media:void | tests/test_standard_caps.py:88 |
-| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:95 |
+| test474 | `test_474_cap_discard_accepts_specific_void_cap` | TEST474: CAP_DISCARD accepts specific-input/void-output caps | tests/test_standard_caps.py:102 |
 | test475 | `test_475_validate_passes_with_identity` | TEST475: validate() passes with CAP_IDENTITY in a cap group | tests/test_manifest.py:274 |
 | test476 | `test_476_validate_fails_without_identity` | TEST476: validate() fails without CAP_IDENTITY | tests/test_manifest.py:285 |
-| test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1766 |
-| test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1775 |
+| test478 | `test_478_auto_registers_identity_and_discard_handlers` | TEST478: CartridgeRuntime auto-registers identity and discard handlers on construction | tests/test_cartridge_runtime.py:1767 |
+| test479 | `test_479_custom_identity_overrides_default` | TEST479: Custom identity Op overrides auto-registered default | tests/test_cartridge_runtime.py:1776 |
 | test481 | `test_481_verify_identity_succeeds` | TEST481: verify_identity succeeds with standard identity echo handler | tests/test_cbor_io.py:525 |
 | test482 | `test_482_verify_identity_fails_on_err` | TEST482: verify_identity fails when cartridge returns ERR on identity call | tests/test_cbor_io.py:563 |
 | test483 | `test_483_verify_identity_fails_on_close` | TEST483: verify_identity fails when connection closes before response | tests/test_cbor_io.py:592 |
 | test485 | `test_485_attach_cartridge_identity_verification_succeeds` | TEST485: attach_cartridge completes identity verification with working cartridge | tests/test_cartridge_host.py:177 |
 | test486 | `test_486_attach_cartridge_identity_verification_fails` | TEST486: attach_cartridge rejects cartridge that fails identity verification | tests/test_cartridge_host.py:200 |
-| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:837 |
-| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:854 |
+| test487 | `test_487_relay_switch_identity_verification_succeeds` | TEST487: RelaySwitch construction verifies identity through relay chain | tests/test_relay_switch.py:838 |
+| test488 | `test_488_relay_switch_identity_verification_fails` | TEST488: RelaySwitch construction fails when master's identity verification fails | tests/test_relay_switch.py:855 |
 | test489 | `test_489_full_path_identity_verification` | TEST489: Full path identity verification: engine → host (attach_cartridge) → cartridge | tests/test_cartridge_host.py:227 |
 | test490 | `test_490_identity_verification_multiple_cartridges` | TEST490: Identity verification with multiple cartridges through single relay Both cartridges must pass identity verification independently before any real requests are routed. | tests/test_cartridge_host.py:278 |
 | test491 | `test_491_chunk_requires_chunk_index_and_checksum` | TEST491: Frame::chunk constructor requires and sets chunk_index and checksum | tests/test_cbor_frame.py:965 |
@@ -463,33 +463,34 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test526 | `test_526_relay_state_empty_payload` | TEST526: RelayState with empty payload is valid | tests/test_cbor_frame.py:1492 |
 | test527 | `test_527_relay_notify_large_manifest` | TEST527: RelayNotify with large manifest roundtrips correctly | tests/test_cbor_frame.py:1499 |
 | test528 | `test_528_relay_frames_use_uint_zero_id` | TEST528: RelayNotify and RelayState use MessageId::Uint(0) | tests/test_cbor_frame.py:1512 |
-| test529 | `test_529_input_stream_recv_order` | TEST529: InputStream recv yields chunks in order | tests/test_cartridge_runtime.py:1862 |
-| test530 | `test_530_input_stream_collect_bytes` | TEST530: InputStream::collect_bytes concatenates byte chunks | tests/test_cartridge_runtime.py:1876 |
-| test531 | `test_531_input_stream_collect_bytes_text` | TEST531: InputStream::collect_bytes handles text chunks | tests/test_cartridge_runtime.py:1882 |
-| test532 | `test_532_input_stream_empty` | TEST532: InputStream empty stream produces empty bytes | tests/test_cartridge_runtime.py:1888 |
-| test533 | `test_533_input_stream_error_propagation` | TEST533: InputStream propagates errors | tests/test_cartridge_runtime.py:1894 |
-| test534 | `test_534_input_stream_media_urn` | TEST534: InputStream::media_urn returns correct URN | tests/test_cartridge_runtime.py:1902 |
-| test535 | `test_535_input_package_iteration` | TEST535: InputPackage recv yields streams | tests/test_cartridge_runtime.py:1908 |
-| test536 | `test_536_input_package_collect_all_bytes` | TEST536: InputPackage::collect_all_bytes aggregates all streams | tests/test_cartridge_runtime.py:1933 |
-| test537 | `test_537_input_package_empty` | TEST537: InputPackage empty package produces empty bytes | tests/test_cartridge_runtime.py:1944 |
-| test538 | `test_538_input_package_error_propagation` | TEST538: InputPackage propagates stream errors | tests/test_cartridge_runtime.py:1950 |
-| test539 | `test_539_output_stream_sends_stream_start` | TEST539: OutputStream sends STREAM_START on first write | tests/test_cartridge_runtime.py:1967 |
-| test540 | `test_540_output_stream_close_sends_stream_end` | TEST540: OutputStream::close sends STREAM_END with correct chunk_count | tests/test_cartridge_runtime.py:1987 |
-| test541 | `test_541_output_stream_chunks_large_data` | TEST541: OutputStream chunks large data correctly | tests/test_cartridge_runtime.py:2009 |
-| test542 | `test_542_output_stream_empty` | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only | tests/test_cartridge_runtime.py:2029 |
-| test543 | `test_543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | tests/test_cartridge_runtime.py:2049 |
-| test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall::finish sends END frame | tests/test_cartridge_runtime.py:2064 |
-| test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall::finish returns PeerResponse with data | tests/test_cartridge_runtime.py:2089 |
+| test529 | `test_529_input_stream_recv_order` | TEST529: InputStream recv yields chunks in order | tests/test_cartridge_runtime.py:1863 |
+| test530 | `test_530_input_stream_collect_bytes` | TEST530: InputStream::collect_bytes concatenates byte chunks | tests/test_cartridge_runtime.py:1877 |
+| test531 | `test_531_input_stream_collect_bytes_text` | TEST531: InputStream::collect_bytes handles text chunks | tests/test_cartridge_runtime.py:1883 |
+| test532 | `test_532_input_stream_empty` | TEST532: InputStream empty stream produces empty bytes | tests/test_cartridge_runtime.py:1889 |
+| test533 | `test_533_input_stream_error_propagation` | TEST533: InputStream propagates errors | tests/test_cartridge_runtime.py:1895 |
+| test534 | `test_534_input_stream_media_urn` | TEST534: InputStream::media_urn returns correct URN | tests/test_cartridge_runtime.py:1903 |
+| test535 | `test_535_input_package_iteration` | TEST535: InputPackage recv yields streams | tests/test_cartridge_runtime.py:1909 |
+| test536 | `test_536_input_package_collect_all_bytes` | TEST536: InputPackage::collect_all_bytes aggregates all streams | tests/test_cartridge_runtime.py:1934 |
+| test537 | `test_537_input_package_empty` | TEST537: InputPackage empty package produces empty bytes | tests/test_cartridge_runtime.py:1945 |
+| test538 | `test_538_input_package_error_propagation` | TEST538: InputPackage propagates stream errors | tests/test_cartridge_runtime.py:1951 |
+| test539 | `test_539_output_stream_sends_stream_start` |  | tests/test_cartridge_runtime.py:2361 |
+| test540 | `test_540_output_stream_close_sends_stream_end` | TEST540: OutputStream::close sends STREAM_END with correct chunk_count | tests/test_cartridge_runtime.py:2384 |
+| test541 | `test_541_output_stream_chunks_large_data` | TEST541: OutputStream chunks large data correctly | tests/test_cartridge_runtime.py:2487 |
+| test542 | `test_542_output_stream_empty` | TEST542: OutputStream empty stream sends STREAM_START and STREAM_END only | tests/test_cartridge_runtime.py:2507 |
+| test543 | `test_543_peer_call_arg_creates_stream` | TEST543: PeerCall::arg creates OutputStream with correct stream_id | tests/test_cartridge_runtime.py:2527 |
+| test544 | `test_544_peer_invoker_sends_end_frame` | TEST544: PeerCall::finish sends END frame | tests/test_cartridge_runtime.py:2542 |
+| test545 | `test_545_peer_response_returns_data` | TEST545: PeerCall::finish returns PeerResponse with data | tests/test_cartridge_runtime.py:2567 |
 | test546 | `test_546_is_image` | TEST546: is_image returns true only when image marker tag is present | tests/test_media_urn.py:281 |
 | test547 | `test_547_is_audio` | TEST547: is_audio returns true only when audio marker tag is present | tests/test_media_urn.py:292 |
 | test548 | `test_548_is_video` | TEST548: is_video returns true only when video marker tag is present | tests/test_media_urn.py:303 |
 | test549 | `test_549_is_numeric` | TEST549: is_numeric returns true only when numeric marker tag is present | tests/test_media_urn.py:313 |
 | test550 | `test_550_is_bool` | TEST550: is_bool returns true only when bool marker tag is present | tests/test_media_urn.py:325 |
 | test551 | `test_551_is_file_path` | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | tests/test_media_urn.py:337 |
-| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:344 |
-| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:360 |
-| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:369 |
-| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | tests/test_media_urn.py:378 |
+| test553 | `test_553_is_live_feed` | TEST553: is_live_feed returns true for every URN carrying the `live` marker tag (the reference-media family the runtime resolves via providers), false for everything else — including content URNs a feed delivers. | tests/test_media_urn.py:347 |
+| test555 | `test_555_with_tag_and_without_tag` | TEST555: with_tag adds a tag and without_tag removes it | tests/test_media_urn.py:357 |
+| test556 | `test_556_image_media_urn_for_ext` | TEST556: image_media_urn_for_ext creates valid image media URN | tests/test_media_urn.py:373 |
+| test557 | `test_557_audio_media_urn_for_ext` | TEST557: audio_media_urn_for_ext creates valid audio media URN | tests/test_media_urn.py:382 |
+| test558 | `test_558_predicate_constant_consistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | tests/test_media_urn.py:391 |
 | test559 | `test_559_without_tag` | TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys | tests/test_cap_urn.py:741 |
 | test560 | `test_560_with_in_out_spec` | TEST560: with_in_spec and with_out_spec change direction specs | tests/test_cap_urn.py:766 |
 | test561 | `test_561_in_out_media_urn` | TEST561: in_media_urn and out_media_urn parse direction specs into MediaUrn | tests/test_cap_urn.py:787 |
@@ -526,8 +527,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test601 | `test_601_get_content_type` | TEST601: get_content_type returns correct MIME type for each variant | tests/test_response.py:91 |
 | test602 | `test_602_as_type_binary_error` | TEST602: as_type on binary response returns error (cannot deserialize binary) | tests/test_response.py:103 |
 | test603 | `test_603_as_bool_edge_cases` | TEST603: as_bool handles all accepted truthy/falsy variants and rejects garbage | tests/test_response.py:112 |
-| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:111 |
-| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:128 |
+| test605 | `test_605_all_coercion_paths_build_valid_urns` | TEST605: all_coercion_paths each entry builds a valid parseable CapUrn | tests/test_standard_caps.py:118 |
+| test606 | `test_606_coercion_urn_specs` | TEST606: coercion_urn in/out specs match the type's media URN constant | tests/test_standard_caps.py:135 |
 | test607 | `test_607_media_urns_for_extension_unknown` | TEST607: media_urns_for_extension returns error for unknown extension | tests/test_media_def.py:428 |
 | test608 | `test_608_media_urns_for_extension_populated` | TEST608: media_urns_for_extension returns URNs after adding a spec with extensions | tests/test_media_def.py:436 |
 | test609 | `test_609_get_extension_mappings` | TEST609: get_extension_mappings returns all registered extension→URN pairs. | tests/test_media_def.py:459 |
@@ -547,8 +548,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test625 | `test_625_string_array_validation` | TEST625: Verify string array schema validates string arrays and rejects mixed arrays | tests/test_media_profile.py:157 |
 | test626 | `test_626_unknown_profile_skips_validation` | TEST626: Verify unknown profile URL skips validation and returns Ok | tests/test_media_profile.py:165 |
 | test627 | `test_627_insert_schema_rejects_invalid_schema` | TEST627: insert_schema rejects malformed JSON Schemas instead of caching them. A registry that silently accepted invalid schemas would hide compilation problems until the first validation call. | tests/test_media_profile.py:171 |
-| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:486 |
-| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:494 |
+| test628 | `test_628_media_urn_constants_format` | TEST628: Verify media URN constants all start with "media:" prefix | tests/test_media_urn.py:499 |
+| test629 | `test_629_profile_constants_format` | TEST629: Verify profile URL constants all start with capdag.com schema prefix | tests/test_media_urn.py:507 |
 | test630 | `test_630_cartridge_repo_creation` | TEST630: CartridgeRepo creation starts with empty cartridge list. | tests/test_cartridge_repo.py:537 |
 | test631 | `test_631_needs_sync_empty_cache` | TEST631: needs_sync returns true with empty cache and non-empty URLs. | tests/test_cartridge_repo.py:543 |
 | test632 | `test_632_deserialize_minimal_registry_cap` | TEST632: A registry cap with only the three required fields parses. | tests/test_cartridge_repo.py:549 |
@@ -579,7 +580,7 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test663 | `test_663_hello_failed_cartridge_removed_from_capabilities` | TEST663: Cartridge with hello_failed is permanently removed from capabilities | tests/test_cartridge_host.py:1115 |
 | test664 | `test_664_running_cartridge_uses_manifest_caps` | TEST664: Running cartridge uses manifest caps; the post-HELLO cap_groups overwrite the registration-time ones. | tests/test_cartridge_host.py:1141 |
 | test665 | `test_665_cap_table_mixed_running_and_non_running` | TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view. | tests/test_cartridge_host.py:1178 |
-| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:876 |
+| test666 | `test_666_preferred_cap_routing` | TEST666: Preferred cap routing - routes to exact equivalent when multiple masters match | tests/test_relay_switch.py:877 |
 | test667 | `test_667_verify_chunk_checksum_detects_corruption` | TEST667: verify_chunk_checksum detects corrupted payload | tests/test_cbor_frame.py:545 |
 | test668 | `test_668_resolve_slot_with_populated_byte_slot_values` | TEST668: resolve_slot_with_populated_byte_slot_values | tests/test_planner_argument_binding.py:37 |
 | test669 | `test_669_resolve_slot_falls_back_to_default` | TEST669: resolve_binding falls back to cap default value when slot has no data | tests/test_planner_argument_binding.py:54 |
@@ -588,12 +589,12 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test675 | `test_675_build_request_frames_preserves_media_urn_in_stream_start` | TEST675: build_request_frames with full media URN preserves it in STREAM_START frame | tests/test_caller.py:286 |
 | test676 | `test_676_build_request_frames_round_trip_find_stream_succeeds` | TEST676: Full round-trip: build_request_frames → extract streams → find_stream succeeds | tests/test_caller.py:298 |
 | test677 | `test_677_base_urn_does_not_match_full_urn_in_find_stream` | TEST677: build_request_frames with BASE URN → find_stream with FULL URN FAILS This documents the root cause of the cartridge_client.rs bug: sender used "media:llm-generation-request" (base), receiver looked for "media:fmt=json;llm-generation-request;record" (full). is_equivalent requires exact tag set match, so base != full. | tests/test_caller.py:312 |
-| test678 | `test_678_find_stream_equivalent_urn` | TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds | tests/test_cartridge_runtime.py:2226 |
-| test679 | `test_679_find_stream_base_vs_full_fails` | TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record". | tests/test_cartridge_runtime.py:2235 |
-| test680 | `test_680_require_stream_missing_fails` | TEST680: require_stream with missing URN returns hard StreamError | tests/test_cartridge_runtime.py:2244 |
-| test681 | `test_681_find_stream_multiple` | TEST681: find_stream with multiple streams returns the correct one | tests/test_cartridge_runtime.py:2254 |
-| test682 | `test_682_require_stream_returns_data` | TEST682: require_stream_str returns UTF-8 string for text data | tests/test_cartridge_runtime.py:2266 |
-| test683 | `test_683_find_stream_invalid_urn_returns_none` | TEST683: find_stream returns None for invalid media URN string (not a parse error — just None) | tests/test_cartridge_runtime.py:2275 |
+| test678 | `test_678_find_stream_equivalent_urn` | TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds | tests/test_cartridge_runtime.py:2704 |
+| test679 | `test_679_find_stream_base_vs_full_fails` | TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record". | tests/test_cartridge_runtime.py:2713 |
+| test680 | `test_680_require_stream_missing_fails` | TEST680: require_stream with missing URN returns hard StreamError | tests/test_cartridge_runtime.py:2722 |
+| test681 | `test_681_find_stream_multiple` | TEST681: find_stream with multiple streams returns the correct one | tests/test_cartridge_runtime.py:2732 |
+| test682 | `test_682_require_stream_returns_data` | TEST682: require_stream_str returns UTF-8 string for text data | tests/test_cartridge_runtime.py:2744 |
+| test683 | `test_683_find_stream_invalid_urn_returns_none` | TEST683: find_stream returns None for invalid media URN string (not a parse error — just None) | tests/test_cartridge_runtime.py:2753 |
 | test688 | `test_688_is_multiple` | TEST688: Tests is_multiple method correctly identifies multi-value cardinalities Verifies Single returns false while Sequence and AtLeastOne return true | tests/test_cardinality.py:19 |
 | test689 | `test_689_accepts_single` | TEST689: Tests accepts_single method identifies cardinalities that accept single values Verifies Single and AtLeastOne accept singles while Sequence does not | tests/test_cardinality.py:26 |
 | test690 | `test_690_compatibility_single_to_single` | TEST690: Tests cardinality compatibility for single-to-single data flow Verifies Direct compatibility when both input and output are Single | tests/test_cardinality.py:33 |
@@ -715,48 +716,48 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test820 | `test_820_extract_json_path_with_boolean` | TEST820: Tests JSON path extraction correctly handles boolean values Verifies that true and false are extracted as proper boolean JSON values | tests/test_executor.py:120 |
 | test821 | `test_821_extract_json_path_with_nested_arrays` | TEST821: Tests JSON path extraction with multi-dimensional arrays (matrix access) Verifies that nested array structures like "matrix[1]" correctly extract inner arrays | tests/test_executor.py:127 |
 | test822 | `test_822_extract_json_path_invalid_array_index` | TEST822: Tests error handling for non-numeric array indices Verifies that invalid indices like "items[abc]" return a descriptive parse error | tests/test_executor.py:133 |
-| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable — exact match candidate dispatches request | tests/test_cap_urn.py:1117 |
-| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable — candidate with broader input handles specific request (contravariance) | tests/test_cap_urn.py:1128 |
-| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate media: on the request input axis means "unconstrained" — vacuously true | tests/test_cap_urn.py:1139 |
-| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable — candidate output must satisfy request output (covariance) | tests/test_cap_urn.py:1151 |
-| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable — candidate with generic output cannot satisfy specific request | tests/test_cap_urn.py:1163 |
-| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, candidate missing tag → reject | tests/test_cap_urn.py:1175 |
-| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept | tests/test_cap_urn.py:1187 |
-| test830 | `test_830_dispatch_candidate_extra_tags` | TEST830: is_dispatchable — candidate extra tags are refinement, always OK | tests/test_cap_urn.py:1199 |
-| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | tests/test_cap_urn.py:1211 |
-| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | tests/test_cap_urn.py:1223 |
-| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable — both directions checked | tests/test_cap_urn.py:1242 |
-| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | tests/test_cap_urn.py:1254 |
-| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent — identical caps | tests/test_cap_urn.py:1266 |
-| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | tests/test_cap_urn.py:1278 |
-| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | tests/test_cap_urn.py:1290 |
-| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any candidate output | tests/test_cap_urn.py:1301 |
-| test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | tests/test_cartridge_runtime.py:2114 |
-| test840 | `test_840_peer_response_collect_bytes_rejects_unhandled_logs` | TEST840: PeerResponse::collect_bytes rejects unhandled LOG frames. | tests/test_cartridge_runtime.py:2165 |
-| test841 | `test_841_peer_response_collect_value_rejects_unhandled_logs` | TEST841: PeerResponse::collect_value rejects unhandled LOG frames. | tests/test_cartridge_runtime.py:2195 |
-| test842 | `test_842_progress_sender_emits_frames` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames) | tests/test_cartridge_runtime.py:2288 |
-| test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2305 |
-| test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2328 |
-| test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2353 |
+| test823 | `test_823_dispatch_exact_match` | TEST823: is_dispatchable — exact match candidate dispatches request | tests/test_cap_urn.py:1180 |
+| test824 | `test_824_dispatch_contravariant_input` | TEST824: is_dispatchable — candidate with broader input handles specific request (contravariance) | tests/test_cap_urn.py:1191 |
+| test825 | `test_825_dispatch_request_unconstrained_input` | TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate media: on the request input axis means "unconstrained" — vacuously true | tests/test_cap_urn.py:1202 |
+| test826 | `test_826_dispatch_covariant_output` | TEST826: is_dispatchable — candidate output must satisfy request output (covariance) | tests/test_cap_urn.py:1214 |
+| test827 | `test_827_dispatch_generic_output_fails` | TEST827: is_dispatchable — candidate with generic output cannot satisfy specific request | tests/test_cap_urn.py:1226 |
+| test828 | `test_828_dispatch_wildcard_requires_tag_presence` | TEST828: is_dispatchable — wildcard * tag in request, candidate missing tag → reject | tests/test_cap_urn.py:1238 |
+| test829 | `test_829_dispatch_wildcard_with_tag_present` | TEST829: is_dispatchable — wildcard * tag in request, candidate has tag → accept | tests/test_cap_urn.py:1250 |
+| test830 | `test_830_dispatch_candidate_extra_tags` | TEST830: is_dispatchable — candidate extra tags are refinement, always OK | tests/test_cap_urn.py:1262 |
+| test831 | `test_831_dispatch_cross_backend_mismatch` | TEST831: is_dispatchable — cross-backend mismatch prevented | tests/test_cap_urn.py:1274 |
+| test832 | `test_832_dispatch_asymmetric` | TEST832: is_dispatchable is NOT symmetric | tests/test_cap_urn.py:1286 |
+| test833 | `test_833_comparable_symmetric` | TEST833: is_comparable — both directions checked | tests/test_cap_urn.py:1305 |
+| test834 | `test_834_comparable_unrelated` | TEST834: is_comparable — unrelated caps are NOT comparable | tests/test_cap_urn.py:1317 |
+| test835 | `test_835_equivalent_identical` | TEST835: is_equivalent — identical caps | tests/test_cap_urn.py:1329 |
+| test836 | `test_836_equivalent_non_equivalent` | TEST836: is_equivalent — non-equivalent comparable caps | tests/test_cap_urn.py:1341 |
+| test837 | `test_837_dispatch_op_mismatch` | TEST837: is_dispatchable — op tag mismatch rejects | tests/test_cap_urn.py:1353 |
+| test838 | `test_838_dispatch_request_wildcard_output` | TEST838: is_dispatchable — request with wildcard output accepts any candidate output | tests/test_cap_urn.py:1364 |
+| test839 | `test_839_peer_response_delivers_logs_before_stream_start` | TEST839: LOG frames arriving BEFORE StreamStart are delivered immediately This tests the critical fix: during a peer call, the peer (e.g., modelcartridge) sends LOG frames for minutes during model download BEFORE sending any data (StreamStart + Chunk). The handler must receive these LOGs in real-time so it can re-emit progress and keep the engine's activity timer alive. Previously, demux_single_stream blocked on awaiting StreamStart before returning PeerResponse, which meant the handler couldn't call recv() until data arrived — causing 120s activity timeouts during long downloads. | tests/test_cartridge_runtime.py:2592 |
+| test840 | `test_840_peer_response_collect_bytes_rejects_unhandled_logs` | TEST840: PeerResponse::collect_bytes rejects unhandled LOG frames. | tests/test_cartridge_runtime.py:2643 |
+| test841 | `test_841_peer_response_collect_value_rejects_unhandled_logs` | TEST841: PeerResponse::collect_value rejects unhandled LOG frames. | tests/test_cartridge_runtime.py:2673 |
+| test842 | `test_842_progress_sender_emits_frames` | TEST842: run_with_keepalive returns closure result (fast operation, no keepalive frames) | tests/test_cartridge_runtime.py:2766 |
+| test843 | `test_843_progress_sender_from_background_thread` | TEST843: run_with_keepalive returns Ok/Err from closure | tests/test_cartridge_runtime.py:2783 |
+| test844 | `test_844_progress_sender_multiple_threads` | TEST844: run_with_keepalive propagates errors from closure | tests/test_cartridge_runtime.py:2806 |
+| test845 | `test_845_progress_sender_independent_of_emitter` | TEST845: ProgressSender emits progress and log frames independently of OutputStream | tests/test_cartridge_runtime.py:2831 |
 | test846 | `test_846_progress_frame_roundtrip` | TEST846: Test progress LOG frame encode/decode roundtrip preserves progress float | tests/test_cbor_io.py:1113 |
 | test847 | `test_847_progress_double_roundtrip` | TEST847: Double roundtrip (modelcartridge → relay → candlecartridge) | tests/test_cbor_io.py:1146 |
 | test848 | `test_848_relay_notify_roundtrip` | TEST848: RelayNotify encode/decode roundtrip preserves manifest and limits | tests/test_cbor_io.py:1044 |
 | test849 | `test_849_relay_state_roundtrip` | TEST849: RelayState encode/decode roundtrip preserves resource payload | tests/test_cbor_io.py:1066 |
 | test850 | `test_850_all_format_conversion_paths_build_valid_urns` | TEST850: all_format_conversion_paths each entry builds a valid parseable CapUrn | tests/test_standard_format_conversion.py:9 |
 | test851 | `test_851_format_conversion_urn_specs` | TEST851: format_conversion_urn in/out specs match the input constants | tests/test_standard_format_conversion.py:23 |
-| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:413 |
-| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:420 |
-| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones. Two text values with differing serialization formats share their encoding but not their fmt. | tests/test_media_urn.py:431 |
-| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:441 |
-| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:451 |
-| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:458 |
-| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:465 |
-| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:476 |
+| test852 | `test_852_lub_identical` | TEST852: LUB of identical URNs returns the same URN | tests/test_media_urn.py:426 |
+| test853 | `test_853_lub_no_common_tags` | TEST853: LUB of URNs with no common tags returns media: (universal) | tests/test_media_urn.py:433 |
+| test854 | `test_854_lub_partial_overlap` | TEST854: LUB keeps common tags, drops differing ones. Two text values with differing serialization formats share their encoding but not their fmt. | tests/test_media_urn.py:444 |
+| test855 | `test_855_lub_list_vs_scalar` | TEST855: LUB of list and non-list drops list tag | tests/test_media_urn.py:454 |
+| test856 | `test_856_lub_empty` | TEST856: LUB of empty input returns universal type | tests/test_media_urn.py:464 |
+| test857 | `test_857_lub_single` | TEST857: LUB of single input returns that input | tests/test_media_urn.py:471 |
+| test858 | `test_858_lub_three_inputs` | TEST858: LUB with three+ inputs narrows correctly | tests/test_media_urn.py:478 |
+| test859 | `test_859_lub_valued_tags` | TEST859: LUB with valued tags (non-marker) that differ | tests/test_media_urn.py:489 |
 | test860 | `test_860_seq_assigner_same_rid_different_xids_independent` | TEST860: Same RID with different XIDs get independent seq counters | tests/test_cbor_frame.py:694 |
 | test880 | `test_880_no_duplicates_with_unique_caps` | TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations | tests/test_plan_builder.py:167 |
 | test886 | `test_886_optional_non_io_arg_with_default_has_default` | TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults | tests/test_plan_builder.py:294 |
-| test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic candidate matches specific request | tests/test_cap_urn.py:1313 |
-| test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1389 |
+| test890 | `test_890_direction_semantic_matching` | TEST890: Semantic direction matching - generic candidate matches specific request | tests/test_cap_urn.py:1376 |
+| test891 | `test_891_direction_semantic_specificity` | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. | tests/test_cap_urn.py:1452 |
 | test892 | `test_892_extensions_serialization` | TEST892: Test extensions serializes/deserializes correctly in MediaDef | tests/test_media_def.py:362 |
 | test893 | `test_893_extensions_with_metadata_and_validation` | TEST893: Test extensions can coexist with metadata and validation | tests/test_media_def.py:384 |
 | test894 | `test_894_multiple_extensions` | TEST894: Test multiple extensions in a media def | tests/test_media_def.py:406 |
@@ -776,10 +777,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test915 | `test_915_per_group_subdivision_monotonic_bounded` | TEST915: Per-group subdivision produces monotonic, bounded progress for N groups Uses pre-computed boundaries (same pattern as production code) to guarantee monotonicity regardless of f32 rounding. | tests/test_executor.py:233 |
 | test917 | `test_917_high_frequency_progress_bounded` | TEST917: High-frequency progress emission does not violate bounds (Regression test for the deadlock scenario — verifies computation stays bounded) | tests/test_executor.py:271 |
 | test919 | `test_919_parse_simple_testcartridge_graph` | TEST919: Parse simple machine notation graph with test-edge1 | tests/test_orchestrator_parser.py:355 |
-| test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1422 |
-| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1450 |
-| test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1461 |
-| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation | tests/test_cap_urn.py:1479 |
+| test920 | `test_920_cap_urn_total_order_basic` | TEST920: Tests creation of a simple execution plan with a single capability Verifies that single_cap() generates a valid plan with input_slot, cap node, and output node | tests/test_cap_urn.py:1485 |
+| test921 | `test_921_cap_urn_order_consistent_with_equality` | TEST921: Tests creation of a linear chain of capabilities connected in sequence Verifies that linear_chain() correctly links multiple caps with proper edges and topological order | tests/test_cap_urn.py:1513 |
+| test922 | `test_922_cap_urn_list_sortable` | TEST922: Tests creation and validation of an empty execution plan with no nodes Verifies that plans without capabilities are valid and handle zero nodes correctly | tests/test_cap_urn.py:1524 |
+| test923 | `test_923_cap_urn_order_returns_not_implemented_for_non_cap` | TEST923: Tests storing and retrieving metadata attached to an execution plan Verifies that arbitrary JSON metadata can be associated with a plan for context preservation | tests/test_cap_urn.py:1542 |
 | test924 | `test_924_validate_invalid_edge` | TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node | tests/test_plan.py:460 |
 | test925 | `test_925_topological_order_diamond` | TEST925: Tests topological sort correctly orders a diamond-shaped DAG (A->B,C->D) Verifies that nodes with multiple paths respect dependency constraints (A first, D last) | tests/test_plan.py:469 |
 | test926 | `test_926_topological_order_detects_cycle` | TEST926: Tests topological sort detects and rejects cyclic dependencies (A->B->C->A) Verifies that circular references produce a "Cycle detected" error | tests/test_plan.py:488 |
@@ -870,9 +871,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1093 | `test_1093_dir_single_file` | TEST1093: 1 dir with 1 file → is_sequence=false | tests/test_input_resolver.py:248 |
 | test1094 | `test_1094_dir_multiple_files` | TEST1094: 1 dir with 3 files → is_sequence=true | tests/test_input_resolver.py:256 |
 | test1098 | `test_1098_extension_based_pdf` | TEST1098: Extension-based detection picks up pdf tag for .pdf files | tests/test_input_resolver.py:266 |
-| test1100 | `test_1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record") | tests/test_cap_urn.py:1354 |
-| test1103 | `test_1103_is_dispatchable_uses_correct_directionality` | TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder | tests/test_cap_urn.py:1368 |
-| test1104 | `test_1104_is_dispatchable_rejects_non_dispatchable` | TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request | tests/test_cap_urn.py:1379 |
+| test1100 | `test_1100_cap_urn_normalizes_media_urn_tag_order` | TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf-8" vs "enc=utf-8;record") | tests/test_cap_urn.py:1417 |
+| test1103 | `test_1103_is_dispatchable_uses_correct_directionality` | TEST1103: Tests that is_dispatchable has correct directionality The available cap (candidate) must be dispatchable for the requested cap (request). This tests the directionality: candidate.is_dispatchable(&request) NOTE: This now tests CapUrn::is_dispatchable directly, not via MachinePlanBuilder | tests/test_cap_urn.py:1431 |
+| test1104 | `test_1104_is_dispatchable_rejects_non_dispatchable` | TEST1104: Tests that is_dispatchable rejects when candidate cannot dispatch request | tests/test_cap_urn.py:1442 |
 | test1105 | `test_1105_two_steps_same_cap_urn_different_slot_values` | TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve. | tests/test_planner_argument_binding.py:83 |
 | test1106 | `test_1106_slot_falls_through_to_cap_settings_shared` | TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value. | tests/test_planner_argument_binding.py:110 |
 | test1107 | `test_1107_slot_value_overrides_cap_settings_per_step` | TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback. | tests/test_planner_argument_binding.py:130 |
@@ -978,18 +979,18 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1267 | `test_1267_structure_match_both_record` | TEST1267: Record-shaped outputs can feed record-shaped inputs without error. | tests/test_orchestrator_parser.py:267 |
 | test1268 | `test_1268_structure_match_both_opaque` | TEST1268: Opaque outputs can feed opaque inputs without triggering structure conflicts. | tests/test_orchestrator_parser.py:286 |
 | test1269 | `test_1269_parse_multiline_machine` | TEST1269: Multi-line machine notation parses successfully with the same semantics as inline notation. | tests/test_orchestrator_parser.py:305 |
-| test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:501 |
-| test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:145 |
-| test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:152 |
-| test1275 | `test_1275_adapter_selection_dispatchable_by_specific_candidate` | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. | tests/test_standard_caps.py:165 |
+| test1271 | `test_1271_media_adapter_selection_constant` | TEST1271: MEDIA_ADAPTER_SELECTION constant parses and has expected tags | tests/test_media_urn.py:514 |
+| test1272 | `test_1272_adapter_cap_constant_parses` | TEST1272: CAP_ADAPTER_SELECTION constant parses as a valid CapUrn | tests/test_standard_caps.py:152 |
+| test1273 | `test_1273_adapter_selection_urn_builder` | TEST1273: adapter_selection_urn() returns a valid CapUrn with correct in/out specs | tests/test_standard_caps.py:159 |
+| test1275 | `test_1275_adapter_selection_dispatchable_by_specific_candidate` | TEST1275: A cap whose output is adapter-selection can dispatch adapter-selection requests; identity (wildcard output) cannot, because wildcard output cannot satisfy a specific output requirement. | tests/test_standard_caps.py:172 |
 | test1276 | `test_1276_register_non_conflicting` | TEST1276: Registration of a cap group with non-conflicting adapters succeeds | tests/test_input_resolver.py:480 |
 | test1277 | `test_1277_reject_conforming_overlap` | TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected | tests/test_input_resolver.py:487 |
 | test1278 | `test_1278_reject_entire_group` | TEST1278: Registration rejects the entire group — no partial registration | tests/test_input_resolver.py:498 |
 | test1279 | `test_1279_intra_group_conflict` | TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected | tests/test_input_resolver.py:507 |
 | test1280 | `test_1280_find_adapters_for_extension` | TEST1280: find_adapters_for_extension returns correct cartridge IDs | tests/test_input_resolver.py:514 |
 | test1281 | `test_1281_no_adapter_for_unknown` | TEST1281: has_adapter_for_extension returns false for unregistered extension | tests/test_input_resolver.py:523 |
-| test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2371 |
-| test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2378 |
+| test1282 | `test_1282_adapter_selection_auto_registered` | TEST1282: AdapterSelectionOp is auto-registered by CartridgeRuntime | tests/test_cartridge_runtime.py:2849 |
+| test1283 | `test_1283_adapter_selection_custom_override` | TEST1283: Custom adapter selection Op overrides the default | tests/test_cartridge_runtime.py:2856 |
 | test1284 | `test_1284_cap_group_with_adapter_urns` | TEST1284: Cap group with adapter URNs serializes and deserializes correctly | tests/test_manifest.py:297 |
 | test1285 | `test_1285_confirmed_no_adapters_fails` | TEST1285: detect_file_confirmed fails when no adapters are registered for the extension | tests/test_input_resolver.py:530 |
 | test1286 | `test_1286_confirmed_adapter_returns_urns` | TEST1286: detect_file_confirmed succeeds when adapter returns URNs | tests/test_input_resolver.py:540 |
@@ -1004,9 +1005,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1295 | `test_1295_rule11_non_void_input_without_stdin` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | tests/test_validation.py:313 |
 | test1296 | `test_1296_rule11_void_input_cli_flag_only` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | tests/test_validation.py:325 |
 | test1297 | `test_1297_rule11_non_void_input_with_stdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | tests/test_validation.py:335 |
-| test1300 | `test_1300_sequence_item_fragments_reassemble_into_one_item` | TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata. | tests/test_cartridge_runtime.py:2879 |
-| test1301 | `test_1301_sequence_stream_truncated_mid_item_fails_hard` | TEST1301: A sequence stream that ENDs mid-item (trailing fragment bytes that never complete a CBOR item) surfaces a hard decode error instead of silently dropping the partial item. | tests/test_cartridge_runtime.py:2930 |
-| test1302 | `test_1302_sequence_fragment_frames_are_credited_on_arrival` | TEST1302: Continuation fragments of a multi-frame sequence item are credited back by the demux on arrival — the handler grants one frame per consumed item, so without fragment grants an item spanning more frames than the credit window could never finish arriving. | tests/test_cartridge_runtime.py:2953 |
+| test1300 | `test_1300_sequence_item_fragments_reassemble_into_one_item` | TEST1300: A sequence item CBOR-encoded once and split across multiple CHUNK frames (the emit_list_item framing) reassembles into exactly one delivered item carrying the first fragment's per-item metadata. | tests/test_cartridge_runtime.py:3374 |
+| test1301 | `test_1301_sequence_stream_truncated_mid_item_fails_hard` | TEST1301: A sequence stream that ENDs mid-item (trailing fragment bytes that never complete a CBOR item) surfaces a hard decode error instead of silently dropping the partial item. | tests/test_cartridge_runtime.py:3425 |
+| test1302 | `test_1302_sequence_fragment_frames_are_credited_on_arrival` | TEST1302: Continuation fragments of a multi-frame sequence item are credited back by the demux on arrival — the handler grants one frame per consumed item, so without fragment grants an item spanning more frames than the credit window could never finish arriving. | tests/test_cartridge_runtime.py:3448 |
 | test1308 | `test_1308_cyclic_strand_fails_hard` | TEST1308: A wiring that forms a cycle raises CyclicMachineStrandError. | tests/test_machine.py:325 |
 | test1309 | `test_1309_parse_machine_single_wiring_one_strand` | TEST1309: Parsing a single-cap machine notation produces one strand with one edge. | tests/test_machine.py:381 |
 | test1310 | `test_1310_strand_equivalence_rejects_mismatched_node_urns` | TEST1310: Two strands differing only in one node's media URN are not equivalent (Python-specific coverage). | tests/test_machine.py:489 |
@@ -1016,26 +1017,26 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1314 | `test_1314_fingerprint_ignores_advancing_clocks` | TEST1314: The fingerprint EXCLUDES advancing clocks: two snapshots differing only in age_ms/idle_ms are the same transition, while a flow-counter change is a new one. If dedup keyed on the whole serialized stats, these clocks would defeat it and every sample would write. | tests/test_protocol_trace.py:140 |
 | test1315 | `test_1315_record_to_unwritable_path_is_a_hard_error` | TEST1315: Requested diagnostics fail HARD, never silently: a write to an unwritable sink raises. `/dev/full` opens fine but every write is ENOSPC -- the Linux-standard way to exercise a write failure deterministically. | tests/test_protocol_trace.py:157 |
 | test1317 | `test_1317_wrap_raw_items_empty` | TEST1317: empty item list wraps to empty bytes (mirrors the scalar/empty sink case where a chain produced no items). | tests/test_cbor_util.py:240 |
-| test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — and only explicit effect=none qualifies. | tests/test_cap_urn.py:1502 |
-| test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1527 |
-| test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1536 |
-| test1803 | `test_1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | tests/test_cap_urn.py:1545 |
-| test1804 | `test_1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | tests/test_cap_urn.py:1554 |
-| test1805 | `test_1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | tests/test_cap_urn.py:1563 |
-| test1810 | `test_1810_media_void_is_atomic` | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args. | tests/test_media_urn.py:513 |
-| test1820 | `test_1820_specificity_question_is_zero` | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. | tests/test_cap_urn.py:1605 |
-| test1821 | `test_1821_specificity_must_not_have_is_five` | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). | tests/test_cap_urn.py:1616 |
-| test1822 | `test_1822_specificity_must_have_any_is_two` | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. | tests/test_cap_urn.py:1622 |
-| test1823 | `test_1823_specificity_exact_value_is_four` | TEST1823: An exact-valued cap-tag scores 4. | tests/test_cap_urn.py:1639 |
-| test1824 | `test_1824_specificity_combined_y_axis` | TEST1824: All six forms compose additively on a single cap. This pins the truth-table sum across the y axis as a whole. | tests/test_cap_urn.py:1645 |
-| test1830 | `test_1830_canonicalize_no_constraint` | TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x. | tests/test_cap_urn.py:1663 |
-| test1831 | `test_1831_canonicalize_absent_or_not_value` | TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character. | tests/test_cap_urn.py:1673 |
-| test1832 | `test_1832_canonicalize_must_have_any` | TEST1832: x ≡ x=* both canonicalize to bare x. | tests/test_cap_urn.py:1689 |
-| test1833 | `test_1833_canonicalize_present_not_value` | TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character. | tests/test_cap_urn.py:1699 |
-| test1834 | `test_1834_canonicalize_exact_value` | TEST1834: x=v stays as x=v (the lone exact-value form). | tests/test_cap_urn.py:1715 |
-| test1835 | `test_1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | tests/test_cap_urn.py:1721 |
-| test1842 | `test_1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form. | tests/test_cap_urn.py:1731 |
-| test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out-axis, in-axis dominates over y-axis. | tests/test_cap_urn.py:1790 |
+| test1800 | `test_1800_kind_identity_only_for_bare_cap` | TEST1800: Identity classifier — and only explicit effect=none qualifies. | tests/test_cap_urn.py:1565 |
+| test1801 | `test_1801_kind_source_when_input_is_void` | TEST1801: Source classifier — in=media:void, out non-void. The y dimension may carry any tags; void on the input alone is what matters. | tests/test_cap_urn.py:1590 |
+| test1802 | `test_1802_kind_sink_when_output_is_void` | TEST1802: Sink classifier — out=media:void, in non-void. | tests/test_cap_urn.py:1599 |
+| test1803 | `test_1803_kind_effect_when_both_sides_void` | TEST1803: Effect classifier — both sides void. Reads as `() → ()`. | tests/test_cap_urn.py:1608 |
+| test1804 | `test_1804_kind_transform_for_normal_data_processors` | TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps. | tests/test_cap_urn.py:1617 |
+| test1805 | `test_1805_kind_invariant_under_canonical_spellings` | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. | tests/test_cap_urn.py:1626 |
+| test1810 | `test_1810_media_void_is_atomic` | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args. | tests/test_media_urn.py:526 |
+| test1820 | `test_1820_specificity_question_is_zero` | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. | tests/test_cap_urn.py:1668 |
+| test1821 | `test_1821_specificity_must_not_have_is_five` | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). | tests/test_cap_urn.py:1679 |
+| test1822 | `test_1822_specificity_must_have_any_is_two` | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. | tests/test_cap_urn.py:1685 |
+| test1823 | `test_1823_specificity_exact_value_is_four` | TEST1823: An exact-valued cap-tag scores 4. | tests/test_cap_urn.py:1702 |
+| test1824 | `test_1824_specificity_combined_y_axis` | TEST1824: All six forms compose additively on a single cap. This pins the truth-table sum across the y axis as a whole. | tests/test_cap_urn.py:1708 |
+| test1830 | `test_1830_canonicalize_no_constraint` | TEST1830: ?x ≡ x? ≡ x=? all canonicalize to ?x. | tests/test_cap_urn.py:1726 |
+| test1831 | `test_1831_canonicalize_absent_or_not_value` | TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character. | tests/test_cap_urn.py:1736 |
+| test1832 | `test_1832_canonicalize_must_have_any` | TEST1832: x ≡ x=* both canonicalize to bare x. | tests/test_cap_urn.py:1752 |
+| test1833 | `test_1833_canonicalize_present_not_value` | TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character. | tests/test_cap_urn.py:1762 |
+| test1834 | `test_1834_canonicalize_exact_value` | TEST1834: x=v stays as x=v (the lone exact-value form). | tests/test_cap_urn.py:1778 |
+| test1835 | `test_1835_canonicalize_must_not_have` | TEST1835: !x ≡ x! ≡ x=! all canonicalize to !x. | tests/test_cap_urn.py:1784 |
+| test1842 | `test_1842_truth_table_full_cross_product` | TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form. | tests/test_cap_urn.py:1794 |
+| test1845 | `test_1845_axis_weighting_in_dominates_y` | TEST1845: With equal out-axis, in-axis dominates over y-axis. | tests/test_cap_urn.py:1853 |
 | test1847 | `test_1847_cartridge_build_legacy_package_fallback` | TEST1847: A build from a registry manifest published BEFORE `packages[]` existed carries only the legacy singular `package` (no `format`). It must still deserialize (a missing `packages` must not fail the whole parse) and `primary_package()` must fall back to that legacy package, so a registry not yet republished with the dual-write keeps installing. When `packages[]` is present it is preferred over the legacy field. | tests/test_cartridge_repo.py:764 |
 | test1849 | `test_1849_resolve_for_host_compatible_latest` | TEST1849: latest version has a host build → Compatible, resolving to the latest version and that platform's native-format package. | tests/test_cartridge_repo.py:848 |
 | test1850 | `test_1850_resolve_for_host_compatible_outdated` | TEST1850: the latest version lacks a host build but an older version has one → CompatibleOutdated, resolving to the older version with a reason naming both the latest and the resolved version. | tests/test_cartridge_repo.py:866 |
@@ -1067,12 +1068,12 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test1894 | `test_1894_select_display_alias_ordering` | TEST1894: select_display_alias picks the SHORTEST name, ties broken alphabetically. This is the deterministic ordering every aliased-display surface relies on; a regression here silently changes which alias the whole UI renders. | tests/test_fabric_alias.py:267 |
 | test1895 | `test_1895_display_alias_for_urn` | TEST1895: display_alias_for_urn reverse-resolves a URN to its display alias. Proves: (1) the shortest-then-alphabetical winner among multiple aliases on the same target, (2) a NON-canonical query URN (different tag order) still resolves because the query is canonicalised before matching, (3) a URN with no alias returns None, (4) a non-URN string returns None. | tests/test_fabric_alias.py:279 |
 | test1896 | `test_1896_cached_cap_aliases_filters_to_cap_targets` | TEST1896: cached_cap_aliases returns only CAP-targeted aliases as (name, target) pairs — media aliases are excluded. Drives the notation editor's registered-alias completions. | tests/test_fabric_alias.py:319 |
-| test1897 | `test_1897_unhealthy_master_inventory_retained_but_not_routable` | TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing. | tests/test_relay_switch.py:1451 |
-| test1898 | `test_1898_subscribe_capabilities_delivers_routable_set` | TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs. | tests/test_relay_switch.py:1485 |
+| test1897 | `test_1897_unhealthy_master_inventory_retained_but_not_routable` | TEST1897: the installed-cartridge INVENTORY is NOT health-filtered. A master held unhealthy by a failed probe still has its cartridges visible in the inventory aggregate, even though its caps are excluded from routing. | tests/test_relay_switch.py:1452 |
+| test1898 | `test_1898_subscribe_capabilities_delivers_routable_set` | TEST1898: the routable-capability watch (subscribe_capabilities). A subscriber must receive the CURRENT routable cap set on subscribe even though it was rebuilt during construction — BEFORE any receiver existed (the watch must persist the value, i.e. send_replace, not a plain broadcast that drops it with zero receivers). The delivered set is the health-filtered routable cap URNs. | tests/test_relay_switch.py:1486 |
 | test1899 | `test_1899_media_def_resolves_to_versioned_object_path_under_manifest` | TEST0144: a media def published under a manifest (v>=1) resolves to the VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a registry that silently runs in v0 mode fetches it and 404s every lookup against a versioned registry — the exact regression where a fabric-registry mirror defaulted its manifest version to 0. This pins both the URL rule and the manifest-driven defver resolution. | tests/test_registry.py:326 |
 | test1900 | `test_1900_err_frame_attribution_class_wire_contract` | TEST1900: ERR attribution is mandatory and strict. Missing and unknown tokens are protocol violations rather than compatibility defaults. | tests/test_cbor_frame.py:1741 |
-| test1904 | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1539 |
-| test1943 | `test_1943_outage_outliving_the_grace_window_fails_queued_work` | TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever. | tests/test_request_state.py:386 |
+| test1904 | `test_1904_add_master_probe_failure_registers_unhealthy_not_raises` | Gap-5 lock: an add_master identity-probe FAILURE registers the master as UNHEALTHY (inventory visible) rather than RAISING — matching the reference add_master (and unlike the constructor, which raises; see test_488). | tests/test_relay_switch.py:1540 |
+| test1943 | `test_1943_outage_outliving_the_grace_window_fails_queued_work` | TEST1943: the grace window is a BOUND, not a hang. A target that stays gone fails its queued work once the window expires, so a cartridge that is genuinely retired surfaces as a failure instead of stalling the run forever. | tests/test_request_state.py:424 |
 | test1945 | `test_1945_roster_retire_drains_a_busy_cartridge_before_killing_it` | TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means "no NEW work" — the process must survive until the requests it is already handling terminate. | tests/test_cartridge_host.py:1493 |
 | test1946 | `test_1946_roster_retire_kills_an_idle_cartridge_as_retired` | TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to). | tests/test_cartridge_host.py:1530 |
 | test1947 | `test_1947_roster_flap_cancels_retirement_instead_of_respawning` | TEST1947: a roster that flaps — retire then restore the same identity — keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it. | tests/test_cartridge_host.py:1542 |
@@ -1081,8 +1082,8 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6211 | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
 | test6215 | `test_6215_cap_version_nonzero_round_trip` | TEST6215: Cap.version nonzero round-trip — emitted in dict and restored on deserialization | tests/test_cap.py:420 |
 | test6231 | `test_6231_wildcard_empty_cap_defaults` | TEST6231: cap: (empty) is the illegal bare top form | tests/test_cap_urn.py:935 |
-| test6235 | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:181 |
-| test6239 | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:206 |
+| test6235 | `test_6235_lookup_cap_fabric_has_defver_arg` | TEST6235: lookup_cap_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:188 |
+| test6239 | `test_6239_lookup_media_def_fabric_has_defver_arg` | TEST6239: lookup_media_def_fabric_cap has a --defver arg with MEDIA_FABRIC_DEFVER and required==False | tests/test_standard_caps.py:213 |
 | test6264 | `test_6264_cartridge_json_fabric_manifest_version_zero_round_trip` | TEST6264: CartridgeJson fabric_manifest_version=0 is the default and absent from wire dict | tests/test_cartridge_repo.py:953 |
 | test6268 | `test_6268_cartridge_json_fabric_manifest_version_nonzero_round_trip` | TEST6268: CartridgeJson fabric_manifest_version nonzero is emitted and restored | tests/test_cartridge_repo.py:973 |
 | test6282 | `test_6282_resolve_custom_media_def` | TEST6282: Test resolving a custom media URN from a registry-seeded media def | tests/test_media_def.py:622 |
@@ -1109,9 +1110,9 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6396 | `test_6396_malformed_cap_urn_fails_hard` | TEST6396: A malformed cap URN must FAIL HARD with a ParseError, not be passed through raw (the old fallback) and surface later as a misleading NotFound. The `out` value below contains an unquoted `=`, which the cap grammar rejects. Against the old `except Exception: return urn` fallback, normalize_cap_urn returned the raw string and _cap_defver then reported "not part of manifest" (a NotFoundError); this test asserts the truthful error type on both the direct and the public (get_cap) paths. | tests/test_registry.py:408 |
 | test6525 | `test_6525_body_outcome_serialization_preserves_attribution_shape` | TEST6525: Body outcomes preserve explicit null attribution coordinates and preview fields in JSON. | tests/test_plan.py:24 |
 | test6544 | `test_6544_builder_rejects_structural_keys` | TEST6544: Builder rejects reserved structural keys on tag/marker helpers | tests/test_cap_urn.py:403 |
-| test6586 | `test_6586_file_path_array_invalid_json_fails` | TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:852 |
-| test6587 | `test_6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | tests/test_cartridge_runtime.py:882 |
-| test6588 | `test_6588_file_path_array_empty_array` | TEST6588: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array. | tests/test_cartridge_runtime.py:1106 |
+| test6586 | `test_6586_file_path_array_invalid_json_fails` | TEST6586: A scalar file-path arg receiving a nonexistent path fails hard with a clear error that names the path. The runtime refuses to silently swallow user mistakes like typos or wrong directories. | tests/test_cartridge_runtime.py:853 |
+| test6587 | `test_6587_file_path_array_one_file_missing_fails_hard` | TEST6587: file-path-array with literal nonexistent path fails hard | tests/test_cartridge_runtime.py:883 |
+| test6588 | `test_6588_file_path_array_empty_array` | TEST6588: file-path arg in CBOR mode with empty Array returns empty. CBOR Array (not JSON-encoded) is the multi-input wire form for sequence args. Mirrors Rust test351_file_path_array_empty_array. | tests/test_cartridge_runtime.py:1107 |
 | test6594 | `test_6594_capabilities_empty_initially` | TEST6594: capabilities() with registered cartridge advertises after a rebuild. Mirrors Rust: registration populates cap_groups, then a call to `_rebuild_capabilities` materialises the inventory snapshot. The run loop normally drives rebuild as cartridges attach/die; for a unit test that drives registration directly we trigger it explicitly. | tests/test_cartridge_host.py:422 |
 | test6600 | `test_6600_parse_cap_groups_rejects_manifest_without_identity` | TEST6600: parse_cap_groups_from_manifest rejects manifest without CAP_IDENTITY | tests/test_cartridge_host.py:167 |
 | test6601 | `test_6601_attached_cartridge_identity_derived_from_manifest` | TEST6601: An attached cartridge (raw-stream, no on-disk anchor) gets a resolvable install identity derived from its HELLO manifest. Advertisement is identity-gated, so without this the attached cartridge would be silently excluded from every RelayNotify and the engine could never route to it — the deadlock that hung the rust-rust-rust interop echo test. Mirrors the reference test6601. | tests/test_cartridge_host.py:363 |
@@ -1132,10 +1133,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test6709 | `test_6709_two_step_chain_shares_intermediate_node` | TEST6709: Resolving a strand with two chained caps shares the intermediate node. | tests/test_machine.py:166 |
 | test6710 | `test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap` | TEST6710: A cap step fed by a sequence-producing predecessor maps per item (is_loop=True), derived purely from cardinality — the retired `LOOP` keyword and bare ForEach steps carry no wiring effect any more. | tests/test_machine.py:517 |
 | test6713 | `test_6713_binding_slot_identity_is_outer_media_urn` | TEST6713: EdgeAssignmentBinding.cap_arg_media_urn is the slot identity (outer media_urn), not the stdin inner URN. | tests/test_machine.py:448 |
-| test6734 | `test_6734_reject_invalid_combinations` | TEST6734: Invalid qualifier combinations must be rejected. | tests/test_cap_urn.py:1757 |
-| test6735 | `test_6735_axis_weighting_out_dominates` | TEST6735: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1778 |
-| test6736 | `test_6736_axis_weighting_decoded_layout` | TEST6736: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1802 |
-| test6745 | `test_6745_relay_switch_init_rejects_duplicate_ids` | TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list. | tests/test_relay_switch.py:1036 |
+| test6734 | `test_6734_reject_invalid_combinations` | TEST6734: Invalid qualifier combinations must be rejected. | tests/test_cap_urn.py:1820 |
+| test6735 | `test_6735_axis_weighting_out_dominates` | TEST6735: out-axis difference dominates combined in+y differences. | tests/test_cap_urn.py:1841 |
+| test6736 | `test_6736_axis_weighting_decoded_layout` | TEST6736: Decoded layout — 10000*out + 100*in + y. | tests/test_cap_urn.py:1865 |
+| test6745 | `test_6745_relay_switch_init_rejects_duplicate_ids` | TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list. | tests/test_relay_switch.py:1037 |
 | test6748 | `test_6748_routes_req_to_handler` | TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response | tests/test_in_process_host.py:96 |
 | test6749 | `test_6749_identity_verification` | TEST6749: InProcessCartridgeHost handles identity verification (echo nonce) | tests/test_in_process_host.py:160 |
 | test6750 | `test_6750_no_handler_returns_err` | TEST6750: InProcessCartridgeHost returns NO_HANDLER for unregistered cap | tests/test_in_process_host.py:206 |
@@ -1155,37 +1156,37 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test7016 | `test_7016_credit_gate_close_releases_waiters` | TEST7016: CreditGate close releases blocked waiters with CreditClosed and fails all future acquires. | tests/test_credit.py:48 |
 | test7017 | `test_7017_credit_router_routing` | TEST7017: CreditRouter routes grants by (rid, stream_id), falls back to a request's sole gate for stream-less grants, and reports unmatched grants. | tests/test_credit.py:79 |
 | test7018 | `test_7018_credit_router_close_request` | TEST7018: CreditRouter close_request closes and removes every gate of the request, releasing their waiters. | tests/test_credit.py:107 |
-| test7019 | `test_7019_drop_counters_record_and_snapshot` | TEST7019: Drop counters record per-reason exactly once per drop, and the snapshot omits zero-count reasons while totalling all of them. | tests/test_stats.py:12 |
-| test7020 | `test_7020_writer_gate_drops_post_terminal_flow_frames` | TEST7020: A flow frame reaching the writer after the flow's END has been written is dropped with a counted post_terminal drop — END is the last flow frame on the wire. | tests/test_cartridge_runtime.py:2431 |
-| test7021 | `test_7021_writer_gate_precision` | TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated. | tests/test_cartridge_runtime.py:2462 |
-| test7025 | `test_7025_unroutable_flow_frame_is_counted_drop` | TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot. (The reference builds a switch with ZERO masters; this mirror's constructor requires at least one — see TEST432 — so this uses a single connected, healthy master instead. The drop-counting behavior under test is unaffected by that setup difference.) | tests/test_relay_switch.py:1627 |
+| test7019 | `test_7019_drop_counters_record_and_snapshot` | TEST7019: Drop counters record per-reason × per-frame-type exactly once per drop; the snapshot totals all of them, breaks each reason down by frame type, and omits zero-count entries. | tests/test_stats.py:19 |
+| test7020 | `test_7020_writer_gate_suppresses_post_terminal_stragglers` | TEST7020: A flow frame reaching the writer after the flow's END has been written is suppressed as a benign counted straggler (never a drop) — END is the last flow frame on the wire. | tests/test_cartridge_runtime.py:2909 |
+| test7021 | `test_7021_writer_gate_precision` | TEST7021: The writer gate is precise — flow frames before END are written, non-flow frames (heartbeat, credit) still pass after a flow's terminal, and only that flow is gated. | tests/test_cartridge_runtime.py:2943 |
+| test7025 | `test_7025_unroutable_flow_frame_is_counted_drop` | TEST7025: A flow frame for a request with no routing state is a counted no_route drop — not a protocol error and not a silent loss — observable in the protocol stats snapshot. (The reference builds a switch with ZERO masters; this mirror's constructor requires at least one — see TEST432 — so this uses a single connected, healthy master instead. The drop-counting behavior under test is unaffected by that setup difference.) | tests/test_relay_switch.py:1629 |
 | test7026 | `test_7026_reorder_flushes_pre_terminal_before_cleanup` | TEST7026: An out-of-order terminal is buffered until the gap fills; buffered pre-terminal frames flush ahead of it in seq order, and only then may the flow be cleaned up | tests/test_cbor_frame.py:1657 |
-| test7027 | `test_7027_channel_closed_sends_are_counted` | TEST7027: A frame sent through a writer whose sink is gone is a counted channel_closed drop, never a silent loss. | tests/test_cartridge_runtime.py:2498 |
-| test7029 | `test_7029_terminated_flows_capacity_and_eviction` | TEST7029: TerminatedFlows membership is exact up to capacity and evicts strictly oldest-first beyond it. | tests/test_stats.py:37 |
-| test7030 | `test_7030_register_once_terminate_once` | TEST7030: A request registers exactly once and terminates exactly once — duplicate registration and double termination are rejected, and after terminate zero state remains for the key. | tests/test_request_state.py:159 |
-| test7031 | `test_7031_rid_index_consistency` | TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable. | tests/test_request_state.py:187 |
-| test7032 | `test_7032_record_frame_stats_and_phase` | TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created->Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers. | tests/test_request_state.py:208 |
-| test7033 | `test_7033_terminated_summaries_ring` | TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity. | tests/test_request_state.py:247 |
-| test7035 | `test_7035_end_terminates_and_releases_all_state` | TEST7035: After END, the switch holds zero state for the request — entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded. | tests/test_relay_switch.py:1652 |
-| test7036 | `test_7036_err_terminates_and_releases_all_state` | TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err. | tests/test_relay_switch.py:1689 |
-| test7037 | `test_7037_cancel_cascades_to_children_and_cleans_all_state` | TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child. | tests/test_relay_switch.py:1713 |
-| test7038 | `test_7038_master_death_terminates_pending_requests` | TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state. | tests/test_relay_switch.py:1775 |
-| test7050 | `test_7050_sender_stalls_at_window_and_resumes_on_grant` | TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel. | tests/test_cartridge_runtime.py:2547 |
-| test7052 | `test_7052_input_grants_are_batched` | TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk. | tests/test_cartridge_runtime.py:2637 |
-| test7053 | `test_7053_over_window_chunk_is_credit_violation` | TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12). | tests/test_cartridge_runtime.py:2726 |
-| test7062 | `test_7062_log_flows_while_window_exhausted` | TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited. | tests/test_cartridge_runtime.py:2599 |
-| test7063 | `test_7063_pending_grants_flush_before_blocking` | TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold. | tests/test_cartridge_runtime.py:2682 |
-| test7070 | `test_7070_unbounded_input_consumed_live` | TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded. | tests/test_cartridge_runtime.py:2821 |
-| test7073 | `test_7073_collect_refuses_unbounded_streams` | TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound. | tests/test_cartridge_runtime.py:2854 |
-| test7085 | `test_7085_relay_notify_carries_host_protocol_stats` | TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip. (Adapted: this mirror has no typed RelayNotifyCapabilitiesPayload — it builds/parses the manifest dict directly via `_parse_relay_notify_payload`.) | tests/test_relay_switch.py:1891 |
-| test7086 | `test_7086_drop_snapshot_matches_induced_drops` | TEST7086: One runtime's drop counters aggregate every drop source — post-terminal writer drops and closed-channel sends — each counted exactly once, and the snapshot totals match the induced drops. | tests/test_cartridge_runtime.py:2521 |
-| test7087 | `test_7087_snapshot_field_names_are_stable` | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. | tests/test_request_state.py:67 |
-| test7088 | `test_7088_last_activity_monotonic` | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. | tests/test_request_state.py:128 |
+| test7027 | `test_7027_channel_closed_sends_are_counted` | TEST7027: A frame sent through a writer whose sink is gone is a counted channel_closed drop, never a silent loss. | tests/test_cartridge_runtime.py:2982 |
+| test7029 | `test_7029_terminated_flows_capacity_and_eviction` | TEST7029: TerminatedFlows membership is exact up to capacity and evicts strictly oldest-first beyond it. | tests/test_stats.py:79 |
+| test7030 | `test_7030_register_once_terminate_once` | TEST7030: A request registers exactly once and terminates exactly once — duplicate registration and double termination are rejected, and after terminate zero state remains for the key. | tests/test_request_state.py:165 |
+| test7031 | `test_7031_rid_index_consistency` | TEST7031: The rid index and the entry table never disagree across register/terminate cycles, and a terminated rid is immediately reusable. | tests/test_request_state.py:193 |
+| test7032 | `test_7032_record_frame_stats_and_phase` | TEST7032: record_frame accumulates per-stream frame/byte/chunk counters by direction, flips phase Created->Streaming on the first flow frame, and tracks unbounded/ended/credit stream markers. | tests/test_request_state.py:214 |
+| test7033 | `test_7033_terminated_summaries_ring` | TEST7033: Terminated requests leave a bounded ring of summaries carrying kind, lifetime, and flow totals, and the ring evicts oldest-first at capacity. | tests/test_request_state.py:285 |
+| test7035 | `test_7035_end_terminates_and_releases_all_state` | TEST7035: After END, the switch holds zero state for the request — entry, rid index, and response channel all released atomically, with the terminal delivered and a terminated summary recorded. | tests/test_relay_switch.py:1758 |
+| test7036 | `test_7036_err_terminates_and_releases_all_state` | TEST7036: After ERR, the same total-cleanup invariant holds as after END, with kind err. | tests/test_relay_switch.py:1801 |
+| test7037 | `test_7037_cancel_cascades_to_children_and_cleans_all_state` | TEST7037: Cancelling a request terminates it AND its recursively-linked peer children — Cancel frames reach the destination, waiting channels get ERR CANCELLED, and zero state remains for parent or child. | tests/test_relay_switch.py:1825 |
+| test7038 | `test_7038_master_death_terminates_pending_requests` | TEST7038: Master death terminates every request routed to it with kind master_died, delivering synthetic MASTER_DIED ERRs to waiting channels and leaving zero state. | tests/test_relay_switch.py:1887 |
+| test7050 | `test_7050_sender_stalls_at_window_and_resumes_on_grant` | TEST7050: A credited sender emits exactly its window of chunks then stalls until a CREDIT grant arrives — observed on the frame channel. | tests/test_cartridge_runtime.py:3042 |
+| test7052 | `test_7052_input_grants_are_batched` | TEST7052: Input consumption emits batched CREDIT grants — roughly one grant per half-window consumed, not one per chunk. | tests/test_cartridge_runtime.py:3132 |
+| test7053 | `test_7053_over_window_chunk_is_credit_violation` | TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12). | tests/test_cartridge_runtime.py:3221 |
+| test7062 | `test_7062_log_flows_while_window_exhausted` | TEST7062: LOG/progress frames flow while the data window is exhausted — control frames are never credited. | tests/test_cartridge_runtime.py:3094 |
+| test7063 | `test_7063_pending_grants_flush_before_blocking` | TEST7063: A receiver flushes pending sub-batch grants before blocking on an empty input — progress is guaranteed even when the sender's window is smaller than the receiver's grant batch threshold. | tests/test_cartridge_runtime.py:3177 |
+| test7070 | `test_7070_unbounded_input_consumed_live` | TEST7070: An unbounded input stream is consumed live — the handler observes early items while the producer is still emitting, and the stream reports itself unbounded. | tests/test_cartridge_runtime.py:3316 |
+| test7073 | `test_7073_collect_refuses_unbounded_streams` | TEST7073: Buffering collectors refuse unbounded streams with a hard error instead of buffering without bound. | tests/test_cartridge_runtime.py:3349 |
+| test7085 | `test_7085_relay_notify_carries_host_protocol_stats` | TEST7085: The RelayNotify capabilities payload carries the host's protocol stats snapshot, surviving the wire round-trip. (Adapted: this mirror has no typed RelayNotifyCapabilitiesPayload — it builds/parses the manifest dict directly via `_parse_relay_notify_payload`.) | tests/test_relay_switch.py:2003 |
+| test7086 | `test_7086_drop_snapshot_matches_induced_drops` | TEST7086: The runtime's counters keep the two categories apart — benign writer-gate stragglers land in the straggler counters (named by frame type), a closed-channel send is a genuine drop — each counted exactly once, and neither pollutes the other (L8/L4). | tests/test_cartridge_runtime.py:3008 |
+| test7087 | `test_7087_snapshot_field_names_are_stable` | TEST7087: Protocol stats snapshots serialize with stable field names — the snapshot shape is the mirror contract. | tests/test_request_state.py:73 |
+| test7088 | `test_7088_last_activity_monotonic` | TEST7088: last_activity is monotonic non-decreasing across a long-lived streaming request — idle time resets on every recorded frame and never runs backwards. | tests/test_request_state.py:134 |
 | test7089 | `test_7089_hello_failed_stays_in_inventory_with_error` | TEST7089: A cartridge whose HELLO permanently failed stays IN the inventory advertisement carrying a handshake_failed attachment error and no cap groups — failure is named, never silently absent; a roster-retired cartridge disappears entirely. | tests/test_cartridge_host.py:1309 |
 | test7090 | `test_7090_heartbeat_drops_total_reaches_inventory_stats` | TEST7090: The cartridge's cumulative protocol drop counter (`drops_total` heartbeat meta, L8) is ingested by the host and surfaces on the cartridge's inventory runtime stats as `protocol_drops_total` — absent until the first reading, then tracking the running total as-is. | tests/test_cartridge_host.py:1396 |
-| test7091 | `test_7091_switch_retains_host_protocol_stats_from_relay_notify` | TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map — never a zeroed placeholder. | tests/test_relay_switch.py:1926 |
-| test7092 | `test_7092_cap_urn_attribution_survives_lifecycle` | TEST7092: A request registered with its originating REQ's cap URN carries that identity through the ACTIVE snapshot and into the terminated ring — observability surfaces can always NAME a request (background chatter vs run traffic), never just show a bare rid. A request registered without one (pre-attribution mirror, unknown origin) snapshots with cap_urn null — absent, never invented. | tests/test_request_state.py:46 |
-| test7093 | `test_7093_dead_consumer_cancels_upstream` | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller callback) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. | tests/test_relay_switch.py:1799 |
+| test7091 | `test_7091_switch_retains_host_protocol_stats_from_relay_notify` | TEST7091: Host protocol stats carried by a master's RelayNotify are RETAINED by the switch (not parsed-and-discarded) and surface in `protocol_stats().hosts` keyed by master id; a master that has not yet advertised stats is absent from the map — never a zeroed placeholder. | tests/test_relay_switch.py:2038 |
+| test7092 | `test_7092_cap_urn_attribution_survives_lifecycle` | TEST7092: A request registered with its originating REQ's cap URN carries that identity through the ACTIVE snapshot and into the terminated ring — observability surfaces can always NAME a request (background chatter vs run traffic), never just show a bare rid. A request registered without one (pre-attribution mirror, unknown origin) snapshots with cap_urn null — absent, never invented. | tests/test_request_state.py:52 |
+| test7093 | `test_7093_dead_consumer_cancels_upstream` | TEST7093: A response frame for a LIVE request whose external consumer is gone (dropped/timed-out caller callback) is a counted channel_closed drop AND cancels the request upstream — the destination receives Cancel, the entry terminates as cancelled, and the cartridge stops producing for a dead channel instead of running to completion against it. | tests/test_relay_switch.py:1911 |
 | test7094 | `test_7094_decode_frame_rejects_missing_id` | TEST7094: decode_frame rejects a CBOR map missing the required id field (key 2) — matches Rust test228_decode_missing_id | tests/test_cbor_io.py:1181 |
 | test7097 | `test_7097_decode_frame_accepts_valid_id_variants` | TEST7097: A well-formed id (16-byte UUID or non-negative uint) still decodes correctly after the strict-decode change — the fix rejects only malformed input, not valid frames | tests/test_cbor_io.py:1278 |
 | test7098 | `test_7098_decode_frame_rejects_negative_int_id` | TEST7098: decode_frame rejects a negative-integer id — the uint variant is unsigned on the wire (Go's `case uint64`); a negative id is a hard InvalidFrameError, never a wrapped/fabricated value, and must not leak a raw ValueError outside the CborError family | tests/test_cbor_io.py:1264 |
@@ -1196,10 +1197,10 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test7104 | `test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest` | TEST7104: A realistic multi-arg cap (one stdin main input; one required, defaultless cli_flag arg; several defaulted cli_flag args): exactly one arg is the main input, and partitioning the remaining args by required-without-default vs has-default yields the expected sets. | tests/test_cap.py:671 |
 | test7105 | `test_7105_err_frame_arg_urn_roundtrip` | TEST7105: an ERR frame built WITH an argument attribution round-trips its full declared identity through encode/decode — the meta map carries the `arg_urn` key, attribution_arg_urn() returns the URN, and code/class/message stay intact (docs/failure-taxonomy.md). | tests/test_cbor_frame.py:1781 |
 | test7106 | `test_7106_err_frame_without_attribution_has_no_arg_urn` | TEST7106: an ERR frame built WITHOUT attribution has NO `arg_urn` key in the encoded meta — absent, never an empty string — and attribution_arg_urn() returns None (docs/failure-taxonomy.md). | tests/test_cbor_frame.py:1824 |
-| test7110 | `test_7110_admission_fifo_releases_one_waiter` | TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter. | tests/test_request_state.py:308 |
-| test7111 | `test_7111_cancelled_admission_waiter_cannot_block_queue` | TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head. | tests/test_request_state.py:412 |
-| test7112 | `test_7112_capacity_reconfiguration_wakes_existing_waiters` | TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end. | tests/test_request_state.py:339 |
-| test7114 | `test_7114_transient_unavailability_does_not_fail_queued_work` | TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed. | tests/test_request_state.py:360 |
+| test7110 | `test_7110_admission_fifo_releases_one_waiter` | TEST7110: admission is strict FIFO and a terminal request releases exactly one waiter. | tests/test_request_state.py:346 |
+| test7111 | `test_7111_cancelled_admission_waiter_cannot_block_queue` | TEST7111: cancelling a queued body removes its ticket; it cannot strand later ForEach bodies behind a dead queue head. | tests/test_request_state.py:450 |
+| test7112 | `test_7112_capacity_reconfiguration_wakes_existing_waiters` | TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end. | tests/test_request_state.py:377 |
+| test7114 | `test_7114_transient_unavailability_does_not_fail_queued_work` | TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed. | tests/test_request_state.py:398 |
 | test7117 | `test_7117_log_frame_arg_urn_roundtrip` | TEST7117: non-progress LOG carries the same source attribution tuple as ERR, including an optional argument URN, through the actual wire codec. | tests/test_cbor_frame.py:1803 |
 | test8064 | `test_8064_sequence_consumer_never_follows_foreach_directly` | TEST8064: a sequence-consuming cap is reached directly from sequence data, never through a dangling ForEach boundary. A ForEach followed by a SCALAR cap stays legal — that is the map half of the ordinary map-then-fold plan — so the invariant is about what may follow the boundary, not about ForEach appearing. | tests/test_live_cap_fab.py:221 |
 | test8065 | `test_8065_sequence_shape_uses_main_input_identity_not_argument_order` | TEST8065: cardinality follows the declared main input even when another stdin-capable argument appears first. | tests/test_cap.py:726 |
@@ -1215,13 +1216,38 @@ This catalog lists all tests in the CapDag-Py codebase.
 | test8108 | `test_8108_realize_strand_inserts_foreach_for_loop_edge` | TEST8108: (py-specific) realize_strand inserts a ForEach step before the cap edge the resolver marked is_loop, reading the resolver's cardinality decision rather than recomputing it. | tests/test_machine.py:1286 |
 | test8109 | `test_8109_realize_strand_non_producer_secondary_arg_fails_hard` | TEST8109: (py-specific) realize_strand fails hard when a non-primary (convergence) argument is fed by a raw input anchor rather than another cap's output — a raw value feeding a non-main arg must be delivered as an argument value, never wired. | tests/test_machine.py:1315 |
 | test8110 | `test_8110_realize_strand_disconnected_strand_fails_hard` | TEST8110: (py-specific) realize_strand fails hard when an edge's source never becomes available (a structurally disconnected strand) rather than silently skipping it. | tests/test_machine.py:1353 |
+| test8111 | `test_8111_decode_frame_normalizes_narrow_float_widths` | TEST8111: decode_frame reads narrow-width wire floats into the single in-memory float representation, matching the reference decoder (ciborium yields f64 for every CBOR float width). The reference ENCODER shrinks lossless floats to half-precision on the wire (0.5 travels as 0xf9), so a mirror must read a half- or single-precision progress and still expose it numerically. | tests/test_cbor_frame.py:1846 |
+| test8112 | `test_8112_half_precision_progress_survives_decode_encode_relay_hop` | TEST8112: the relay forwarding hop — decode a cartridge frame whose progress rode the wire as half-precision, re-encode it, and decode again: the value must survive as a number and the re-encoded bytes must never contain CBOR undefined (0xf7). In the Swift mirror this exact hop corrupted progress to undefined (read as null by the engine), failing every ForEach body on macOS. | tests/test_cbor_frame.py:1868 |
+| test8113 | `test_8113_array_split_assemble_normalize_half_precision_floats` | TEST8113: split_cbor_array / assemble_cbor_array decode-then-re-encode arbitrary CBOR values. The reference encoder shrinks lossless floats to half-precision on the wire, so a ciborium-authored array holding 0.5 arrives as 0xf9 — both directions must carry the value through as a number, never CBOR undefined (the corruption the Swift mirror hit when its CBOR library could not re-encode half-precision). | tests/test_cbor_util.py:251 |
+| test8114 | `test_8114_straggler_for_terminated_request_is_benign_not_a_drop` | TEST8114: A flow frame that CROSSED its request's terminal in flight is a BENIGN straggler — the ordinary teardown race of credit-based flow control must not pollute the routing-anomaly alarm, nor the drop counters at all: the crossing is counted as a straggler, named by frame type. A frame for a RID the table never knew stays a no_route DROP (TEST7025). | tests/test_relay_switch.py:1656 |
+| test8115 | `test_8115_recently_terminated_rid_discriminates_and_ages_out` | TEST8115: recently_terminated_rid discriminates the teardown race from genuine routing loss: true for a rid whose request just terminated, false for a rid the table never knew, false again once the summary is evicted past the ring's horizon — a pathologically late frame ages back into no_route, where something that stale belongs. | tests/test_request_state.py:259 |
+| test8116 | `test_8116_released_rid_ring_discriminates_dedupes_and_ages_out` | TEST8116: the terminal-release ring discriminates and stays bounded — released rids classify as benign-straggler material, unknown rids do not, duplicates collapse, and eviction past the cap ages a rid back out. (Mirrors Rust host_runtime TEST8116.) | tests/test_cartridge_host_runtime.py:647 |
+| test8117 | `test_8117_unroutable_continuation_classified_by_release_ring` | TEST8117: an unroutable continuation from the relay is classified by the release ring — a rid a terminal just released is a BENIGN straggler (counted per frame type, never a drop); a rid this host never routed is a genuine no_route DROP. Both are counted (L8), never silent, never conflated. (Mirrors Rust host_runtime TEST8117.) | tests/test_cartridge_host_runtime.py:673 |
+| test8118 | `test_8118_send_to_master_records_outbound_flow_and_window` | TEST8118: the flow ledger is a WINDOW — seeded with the request's negotiated initial credit, consumed by chunks, replenished by grants — and engine-originated frames sent through send_to_master are recorded as its outbound half. Before this, engine grants and chunks bypassed the ledger entirely, so every healthy stream snapshot read as negative by exactly the un-seeded initial window. | tests/test_relay_switch.py:1708 |
+| test8119 | `test_8119_coalesce_age_bound_flushes_on_next_write` | TEST8119: the coalescing AGE bound — an emission arriving after the buffer's oldest byte crossed COALESCE_MAX_AGE flushes the accumulated batch, so steady token emission lags the wire by at most one write-gap; the tail emitted after that flush ships with close(). Nothing is lost, order is preserved, and the frame count is the batch count, not the emission count. | tests/test_cartridge_runtime.py:2423 |
+| test8120 | `test_8120_non_bytes_emission_barriers_coalesced_bytes` | TEST8120: a non-bytes emission is an ordering BARRIER — buffered bytes ship first, then the barrier value, and close() flushes the tail. STREAM_END promises the coalesced count. | tests/test_cartridge_runtime.py:2455 |
+| test8121 | `test_8121_effect_conformance_declared_asymmetry` | TEST8121: is_conformant_runtime_output — effect=declared accepts a more specific emission, rejects a more generic one | tests/test_cap_urn.py:1118 |
+| test8122 | `test_8122_effect_conformance_none_requires_equivalence` | TEST8122: is_conformant_runtime_output — effect=none requires the emission to be tag-equivalent to the runtime input; MORE specific is still a lie | tests/test_cap_urn.py:1138 |
+| test8123 | `test_8123_effect_conformance_patch_requires_patched_input` | TEST8123: is_conformant_runtime_output — effect=patch requires exactly the delta-patched input type | tests/test_cap_urn.py:1161 |
+| test8126 | `test_8126_derive_response_media_per_effect` | TEST8126: derive_response_media — the response label is the effect inference over the declared input, per effect value; an unparseable cap URN fails hard instead of falling back. | tests/test_cartridge_runtime.py:2337 |
+| test8127 | `test_8127_straggler_counters_record_and_snapshot` | TEST8127: Straggler counters — the benign post-terminal category is separate from drops, counted per frame type, and its snapshot names what crossed the terminal (late credit vs late chunk) while omitting zero-count types. | tests/test_stats.py:55 |
+| test8128 | `test_8128_live_feed_reference_resolves_to_unbounded_content_stream` | TEST8128: a live-feed reference resolves through the demux exactly like a file path — the handler receives an UNBOUNDED SEQUENCE InputStream labeled with the arg's stdin CONTENT urn, delivering the captured items with seq/pts_us/capture_ts_us metadata, and the op is none the wiser. | tests/test_cartridge_runtime.py:2029 |
+| test8129 | `test_8129_overrun_drop_oldest_counts_and_marks_gaps` | TEST8129: overrun under drop-oldest — a flooding feed with a lagging consumer loses items ONLY at the capture edge, counts every loss, and stamps the next delivered item with a gap marker. delivered + dropped always equals captured. | tests/test_cartridge_runtime.py:2064 |
+| test8130 | `test_8130_overrun_fail_ends_feed_with_classified_error` | TEST8130: on_overrun=fail — a pipeline that declares it needs every frame gets a classified FEED_OVERRUN stream error instead of loss. | tests/test_cartridge_runtime.py:2110 |
+| test8131 | `test_8131_max_items_stop_condition_ends_feed` | TEST8131: max_items stop condition — the feed ends itself after exactly N captured items; the stream ends cleanly (a run stops on its own when its input ends, 15.2 §Runs Stop). | tests/test_cartridge_runtime.py:2141 |
+| test8132 | `test_8132_handle_close_stops_feed_and_drains` | TEST8132: stop = close the tap — closing the feed's handle ends the stream cleanly mid-capture; what was already captured drains, then the stream ends without error (the drain path of a stopped run). | tests/test_cartridge_runtime.py:2169 |
+| test8133 | `test_8133_scalar_live_feed_arg_rejected` | TEST8133: a live-feed arg declared is_sequence=false is a contract violation — a feed is an unbounded SEQUENCE — and fails hard at resolution, never delivering a mislabeled stream. | tests/test_cartridge_runtime.py:2200 |
+| test8134 | `test_8134_invalid_selector_rejected` | TEST8134: an unparseable selector is a hard error — never a silent all-defaults feed. | tests/test_cartridge_runtime.py:2216 |
+| test8136 | `test_8136_unknown_selector_fields_rejected` | TEST8136: unknown selector fields are rejected at every nesting level — a misspelled stop condition (`duration` for `duration_ms`) silently ignored would run an unbounded feed the caller meant to bound. | tests/test_cartridge_runtime.py:2233 |
+| test8137 | `test_8137_main_input_fallback_resolves_live_reference` | TEST8137: main-input fallback — a cap with NO explicit reference arg consumes a live source through its MAIN INPUT when the registered provider's content urn conforms to it. This is what makes generic machines (planned over the CONTENT type) valid live-source machines. | tests/test_cartridge_runtime.py:2291 |
+| test8138 | `test_8138_main_input_fallback_content_mismatch_rejected` | TEST8138: main-input fallback content mismatch — a provider whose content does not conform to the cap's main input is a hard error at resolution, never a mislabeled stream. | tests/test_cartridge_runtime.py:2320 |
 | | | | |
-| unnumbered | `test_capacity_handle_get_set` | CapacityHandle (set_capacity/queue) — no dedicated numbered Rust unit test in this diff (capacity queueing is exercised at the E2E/interop level); covered here at the unit level. | tests/test_cartridge_runtime.py:2784 |
-| unnumbered | `test_cartridge_runtime_set_capacity_and_handle_share_state` |  | tests/test_cartridge_runtime.py:2791 |
+| unnumbered | `test_capacity_handle_get_set` | CapacityHandle (set_capacity/queue) — no dedicated numbered Rust unit test in this diff (capacity queueing is exercised at the E2E/interop level); covered here at the unit level. | tests/test_cartridge_runtime.py:3279 |
+| unnumbered | `test_cartridge_runtime_set_capacity_and_handle_share_state` |  | tests/test_cartridge_runtime.py:3286 |
 | unnumbered | `test_death_cleanup_helper_clears_v4_terminal_markers` |  | tests/test_cartridge_host_runtime.py:591 |
-| unnumbered | `test_end_carries_handler_declared_final_progress` | END-carries-final-progress (L3/L5) — not individually numbered in the Rust diff (covered there at the E2E/interop level), exercised here at the unit level since `ThreadSafeEmitter.finalize()` is the mirror's direct equivalent of the Rust reference's spawn_handler END construction. | tests/test_cartridge_runtime.py:2759 |
-| unnumbered | `test_end_defaults_to_progress_one_without_finish` |  | tests/test_cartridge_runtime.py:2769 |
-| unnumbered | `test_protocol_drops_snapshot_starts_empty` |  | tests/test_cartridge_runtime.py:2799 |
+| unnumbered | `test_end_carries_handler_declared_final_progress` | END-carries-final-progress (L3/L5) — not individually numbered in the Rust diff (covered there at the E2E/interop level), exercised here at the unit level since `ThreadSafeEmitter.finalize()` is the mirror's direct equivalent of the Rust reference's spawn_handler END construction. | tests/test_cartridge_runtime.py:3254 |
+| unnumbered | `test_end_defaults_to_progress_one_without_finish` |  | tests/test_cartridge_runtime.py:3264 |
+| unnumbered | `test_protocol_drops_snapshot_starts_empty` |  | tests/test_cartridge_runtime.py:3294 |
 | unnumbered | `test_protocol_stats_reflects_tables_drops_and_gc_totals` |  | tests/test_cartridge_host_runtime.py:609 |
 | unnumbered | `test_route_continuation_frame_credit_direction_selects_side` |  | tests/test_cartridge_host_runtime.py:545 |
 | unnumbered | `test_route_continuation_frame_credit_without_direction_is_counted_drop` |  | tests/test_cartridge_host_runtime.py:566 |
@@ -1236,12 +1262,12 @@ This catalog lists all tests in the CapDag-Py codebase.
 
 The following tests are cataloged but do not currently participate in numeric test indexing.
 
-- `test_capacity_handle_get_set` — tests/test_cartridge_runtime.py:2784
-- `test_cartridge_runtime_set_capacity_and_handle_share_state` — tests/test_cartridge_runtime.py:2791
+- `test_capacity_handle_get_set` — tests/test_cartridge_runtime.py:3279
+- `test_cartridge_runtime_set_capacity_and_handle_share_state` — tests/test_cartridge_runtime.py:3286
 - `test_death_cleanup_helper_clears_v4_terminal_markers` — tests/test_cartridge_host_runtime.py:591
-- `test_end_carries_handler_declared_final_progress` — tests/test_cartridge_runtime.py:2759
-- `test_end_defaults_to_progress_one_without_finish` — tests/test_cartridge_runtime.py:2769
-- `test_protocol_drops_snapshot_starts_empty` — tests/test_cartridge_runtime.py:2799
+- `test_end_carries_handler_declared_final_progress` — tests/test_cartridge_runtime.py:3254
+- `test_end_defaults_to_progress_one_without_finish` — tests/test_cartridge_runtime.py:3264
+- `test_protocol_drops_snapshot_starts_empty` — tests/test_cartridge_runtime.py:3294
 - `test_protocol_stats_reflects_tables_drops_and_gc_totals` — tests/test_cartridge_host_runtime.py:609
 - `test_route_continuation_frame_credit_direction_selects_side` — tests/test_cartridge_host_runtime.py:545
 - `test_route_continuation_frame_credit_without_direction_is_counted_drop` — tests/test_cartridge_host_runtime.py:566
@@ -1250,6 +1276,14 @@ The following tests are cataloged but do not currently participate in numeric te
 - `test_route_continuation_frame_response_first_race_releases_on_body_end` — tests/test_cartridge_host_runtime.py:494
 - `test_route_continuation_frame_self_loop_peer_response_after_body_done` — tests/test_cartridge_host_runtime.py:516
 - `test_set_static_inventory_records_stores_records` — tests/test_cartridge_host_runtime.py:631
+
+---
+
+## Numbered Tests Missing Descriptions
+
+These tests still participate in numeric indexing, but the cataloger did not find an authoritative immediate comment/docstring description for them. This is reported explicitly so intentional blank-description parity and accidental comment drift are both visible.
+
+- `test539` / `test_539_output_stream_sends_stream_start` — tests/test_cartridge_runtime.py:2361
 
 ---
 
@@ -1340,18 +1374,18 @@ These tests have a numbering disagreement between the function name and the auth
 - `test0125` / `test125` / `test_0125_effect_none_preserves_runtime_media` — tests/test_cap_urn.py:1092
 - `test0126` / `test126` / `test_0126_effect_declared_uses_declared_output` — tests/test_cap_urn.py:1101
 - `test0128` / `test128` / `test_0128_effect_dispatch_requires_explicit_wildcard` — tests/test_cap_urn.py:1108
-- `test0136` / `test136` / `test_0136_all_masters_ready_false_when_expected_count_unset` — tests/test_relay_switch.py:1053
-- `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1095
-- `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1111
-- `test0140` / `test140` / `test_0140_all_masters_ready_does_not_overshoot` — tests/test_relay_switch.py:1129
+- `test0136` / `test136` / `test_0136_all_masters_ready_false_when_expected_count_unset` — tests/test_relay_switch.py:1054
+- `test0137` / `test137` / `test_0137_all_masters_ready_false_when_partially_connected` — tests/test_relay_switch.py:1096
+- `test0139` / `test139` / `test_0139_all_masters_ready_true_when_masters_connected_but_capless` — tests/test_relay_switch.py:1112
+- `test0140` / `test140` / `test_0140_all_masters_ready_does_not_overshoot` — tests/test_relay_switch.py:1130
 - `test144` / `test1899` / `test_144_custom_registry_url` — tests/test_registry.py:252
 - `test1899` / `test0144` / `test_1899_media_def_resolves_to_versioned_object_path_under_manifest` — tests/test_registry.py:326
 
 ---
 
-*Generated from CapDag-Py source tree*
-*Total tests: 1213*
-*Total numbered tests: 1199*
+*Generated from Python source tree*
+*Total tests: 1239*
+*Total numbered tests: 1225*
 *Total unnumbered tests: 14*
-*Total numbered tests missing descriptions: 0*
+*Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 89*
