@@ -170,5 +170,5 @@ MIT
 ## Reference
 
 - Rust reference implementation: [capdag](../capdag)
-- Tagged URN Python: [tagged-urn-py](../tagged-urn-py)
-- Tagged URN Rust: [tagged-urn-rs](https://github.com/tagged-urn-rs)
+- Tagged URN Python: [tagged-urn-py](https://github.com/machinefabric/tagged-urn-py)
+- Tagged URN Rust: [tagged-urn-rs](https://github.com/machinefabric/tagged-urn-rs)
