@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "1.264.2561"
+version = "1.265.2576"
 description = "Core cap URN and definition system for MACHFAB cartridges"
 authors = [{name = "https://github.com/machinefabric"}]
 license = {text = "MIT"}
@@ -14,7 +14,15 @@ dependencies = [
     "tagged-urn>=1.27.122",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
+    # The fabric registry is an HTTP client; the CLI has no offline-only mode.
+    "httpx>=0.24",
 ]
+
+[project.scripts]
+# The Python mirror's CLI. `capdag new` is how a cartridge project comes into
+# existence, and every mirror creates the same project — so every mirror ships
+# the command.
+capdag = "capdag.cli:main"
 
 [project.optional-dependencies]
 dev = [
