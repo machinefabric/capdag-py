@@ -6,10 +6,10 @@ Tests use TEST###: comments matching the Rust implementation for cross-tracking.
 from capdag.bifaci.cartridge_json import format_rfc3339_utc, install_timestamp_now
 
 
-# TEST7153: ``installed_at`` is a real RFC3339 UTC timestamp, at known epoch
+# TEST7153: `installed_at` is a real RFC3339 UTC timestamp, at known epoch
 # instants and at the instants that break naive date arithmetic — a leap day,
 # the day after one, and a century year that is NOT a leap year. Emitting a bare
-# epoch count with a ``Z`` appended would satisfy "some string ending in Z" and
+# epoch count with a `Z` appended would satisfy "some string ending in Z" and
 # satisfy nothing else; every reader and every fixture in the tree treats this
 # field as a parseable timestamp.
 def test_7153_install_timestamp_is_rfc3339_utc():
