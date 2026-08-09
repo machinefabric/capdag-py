@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "1.269.2591"
+version = "1.270.2597"
 description = "Core cap URN and definition system for MACHFAB cartridges"
+readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.20.114",
