@@ -1,8 +1,8 @@
 # Python Test Catalog
 
-**Total Tests:** 1239
+**Total Tests:** 1252
 
-**Numbered Tests:** 1225
+**Numbered Tests:** 1238
 
 **Unnumbered Tests:** 14
 
@@ -1077,6 +1077,7 @@ This catalog lists all tests in the Python codebase.
 | test1945 | `test_1945_roster_retire_drains_a_busy_cartridge_before_killing_it` | TEST1945: a roster retire DRAINS a busy cartridge instead of killing it. The incident this pins: a transient registry outage shrank the roster and the host killed three cartridges outright, ERRing every request they were serving. Retirement means "no NEW work" — the process must survive until the requests it is already handling terminate. | tests/test_cartridge_host.py:1493 |
 | test1946 | `test_1946_roster_retire_kills_an_idle_cartridge_as_retired` | TEST1946: an IDLE cartridge is retired immediately (no reason to keep a process nothing routes to). | tests/test_cartridge_host.py:1530 |
 | test1947 | `test_1947_roster_flap_cancels_retirement_instead_of_respawning` | TEST1947: a roster that flaps — retire then restore the same identity — keeps the SAME live process. This is the incident's shape end to end: the registry became unreachable, the roster shrank, and 26 seconds later it came back. Nothing about that sequence should cost a running cartridge, its warm model, or the work queued on it. | tests/test_cartridge_host.py:1542 |
+| test1949 | `test_1949_peer_progress_without_numeric_value_fails_hard` | TEST1949: a peer progress LOG with no numeric value FAILS HARD. Forwarding must not silently drop it or substitute a value — a malformed frame is an emitter defect and must surface as one, which is exactly the failure the engine raises for the same frame. | tests/test_cartridge_runtime.py:3566 |
 | test6189 | `test_6189_same_cap_different_spellings_same_hash` | TEST6189: Different URN spellings of the same cap (different tag order, whitespace, quoting) MUST produce the same SHA-256 hash, because the canonicaliser reduces them to the same string before hashing. This is the property that makes cross-language lookups land at the same registry key regardless of which capdag implementation issued the request. | tests/test_registry.py:152 |
 | test6203 | `test_6203_matching_semantics_wildcard_direction` | TEST6203: Matching semantics - generic legal wildcard cap matches specific caps | tests/test_cap_urn.py:701 |
 | test6211 | `test_6211_cap_version_zero_round_trip` | TEST6211: Cap.version=0 round-trip — zero is the default and must NOT appear in the serialized dict | tests/test_cap.py:403 |
@@ -1202,6 +1203,18 @@ This catalog lists all tests in the Python codebase.
 | test7112 | `test_7112_capacity_reconfiguration_wakes_existing_waiters` | TEST7112: the post-HELLO capacity update wakes already queued work. This is what changes an unstarted cartridge's one bootstrap slot to its authoritative runtime capacity without waiting for the first body to end. | tests/test_request_state.py:377 |
 | test7114 | `test_7114_transient_unavailability_does_not_fail_queued_work` | TEST7114: a cartridge that disappears and comes back does NOT terminally fail the work queued behind it. This is 17.2's "queued bodies are not assigned terminal failure from another body's process loss; once a replacement instance advertises capacity, subsequent queued work is admitted to that live instance". The regression this pins: a single failed registry-manifest fetch retired three live cartridges for ~24s, and every queued ForEach body was failed with "became unavailable while waiting for capacity" — 195 bodies lost to an outage that had already healed. | tests/test_request_state.py:398 |
 | test7117 | `test_7117_log_frame_arg_urn_roundtrip` | TEST7117: non-progress LOG carries the same source attribution tuple as ERR, including an optional argument URN, through the actual wire codec. | tests/test_cbor_frame.py:1803 |
+| test7118 | `test_7118_collect_bytes_forwarding_preserves_peer_side_channels` | TEST7118: finite peer collection preserves source diagnostics instead of consuming them as data or dropping them. Progress is mapped into the caller's range and argument attribution survives byte-for-byte. | tests/test_cartridge_runtime.py:3528 |
+| test7150 | `test_7150_cap_output_survives_serialization_roundtrip` | TEST7150: a cap's OUTPUT survives a manifest round-trip, under the wire key names the other implementations read. | tests/test_cap.py:764 |
+| test7151 | `test_7151_is_sequence_is_serialized_even_when_false` | TEST7151: `is_sequence` is serialized even when false, on both CapArg and CapOutput. It is not a `skip_serializing_if` field. Mirrors that omitted it produced a manifest for the identical cap that differed from this one's bytes, which is how a cross-language manifest comparison finds drift that every per-mirror test passes through. | tests/test_cap.py:797 |
+| test7152 | `test_7152_empty_adapter_urns_is_omitted` | TEST7152: an empty `adapter_urns` is omitted from a serialized cap group. Most cartridges claim no adapters, so a mirror that wrote `[]` put an extra key in nearly every manifest it produced — invisible to that mirror's own tests, and a difference the moment two languages' manifests for the same cartridge are compared. | tests/test_manifest.py:391 |
+| test7153 | `test_7153_install_timestamp_is_rfc3339_utc` | TEST7153: `installed_at` is a real RFC3339 UTC timestamp, at known epoch instants and at the instants that break naive date arithmetic — a leap day, the day after one, and a century year that is NOT a leap year. Emitting a bare epoch count with a `Z` appended would satisfy "some string ending in Z" and satisfy nothing else; every reader and every fixture in the tree treats this field as a parseable timestamp. | tests/test_cartridge_json.py:15 |
+| test7154 | `test_7154_scaffold_writes_a_runnable_project_in_every_language` | TEST7154: EVERY vendored language scaffolds a runnable-shaped project — every declared file exists, no placeholder survives anywhere (contents or paths), the manifest/alias/media URNs are seeded from the project name, and the interpreted languages' entries are executable. Iterating the contract rather than testing one language is the point: a newly vendored language is covered the moment it appears, instead of whenever someone remembers to add a test for it. | tests/test_dev.py:46 |
+| test7155 | `test_7155_scaffold_guards` | TEST7155: scaffolding rejects a bad name and refuses to overwrite. | tests/test_dev.py:80 |
+| test7156 | `test_7156_dev_install_and_find_by_alias` | TEST7156: read_entry_manifest + stage_dev_cartridge + find_dev_cap_by_alias round-trip: a stub project installs under dev/v{N}/nightly/<name>/<ver>/, writes a cartridge.json, and its custom cap is resolvable by alias. | tests/test_dev.py:118 |
+| test7157 | `test_7157_dev_install_rejects_published_manifest` | TEST7157: dev-install refuses a PUBLISHED manifest. `registry_url` non-null means the cartridge belongs to a registry, and staging it under the dev slug would put a published identity in a slot reserved for local work. | tests/test_dev.py:145 |
+| test7158 | `test_7158_fabric_conflict_guard` | TEST7158: the fabric-conflict guard — a dev cap whose alias the fabric maps to a DIFFERENT cap is rejected; a brand-new alias, and a dev cap that matches an existing fabric cap exactly, are both accepted. | tests/test_dev.py:227 |
+| test7159 | `test_7159_two_entries_is_ambiguous_not_a_coin_flip` | TEST7159: a project with two languages' entries is REFUSED, not silently resolved. A project is one cartridge; installing whichever entry sorted first would be a coin flip the developer never sees. | tests/test_dev.py:163 |
+| test7160 | `test_7160_vendored_stub_contract_matches_the_canonical_source` | TEST7160: the vendored stub contract is IDENTICAL to the canonical source. This is the whole promise of `capdag new`: the same command from any capdag binary writes the same project. Every mirror's copy is generated from this one source, so a difference here means the reference itself was vendored from a different commit than the stub repo currently holds — which would ship capdags that disagree about what a cartridge looks like, silently. | tests/test_dev.py:189 |
 | test8064 | `test_8064_sequence_consumer_never_follows_foreach_directly` | TEST8064: a sequence-consuming cap is reached directly from sequence data, never through a dangling ForEach boundary. A ForEach followed by a SCALAR cap stays legal — that is the map half of the ordinary map-then-fold plan — so the invariant is about what may follow the boundary, not about ForEach appearing. | tests/test_live_cap_fab.py:221 |
 | test8065 | `test_8065_sequence_shape_uses_main_input_identity_not_argument_order` | TEST8065: cardinality follows the declared main input even when another stdin-capable argument appears first. | tests/test_cap.py:726 |
 | test8066 | `test_8066_void_input_sequence_shape_is_scalar_without_arguments` | TEST8066: a void-input cap has scalar input cardinality without inventing an arg. | tests/test_cap.py:752 |
@@ -1384,8 +1397,8 @@ These tests have a numbering disagreement between the function name and the auth
 ---
 
 *Generated from Python source tree*
-*Total tests: 1239*
-*Total numbered tests: 1225*
+*Total tests: 1252*
+*Total numbered tests: 1238*
 *Total unnumbered tests: 14*
 *Total numbered tests missing descriptions: 1*
 *Total numbering mismatches: 89*
