@@ -825,6 +825,69 @@ class PeerResponse:
             self._grants.consumed()
         return item
 
+    def collect_bytes_forwarding(
+        self, output, progress_base: float, progress_weight: float
+    ) -> bytes:
+        """Collect finite peer data while PRESERVING every peer side-channel frame.
+
+        Progress is mapped into the caller's declared range: a peer reporting
+        0..1 becomes progress_base..progress_base+progress_weight in this
+        cartridge's own output, so a caller that delegates part of its work
+        reports one continuous progression rather than restarting at zero.
+        Non-progress LOG frames keep the SOURCE's level, attribution class and
+        optional argument attribution — a diagnostic is never re-attributed to
+        the forwarder.
+
+        Use this whenever the peer may emit progress or diagnostics;
+        `collect_bytes` REJECTS LOG frames rather than discarding them, because
+        silently dropping a callee's diagnostics loses the only record of what
+        it said.
+
+        Mirrors the reference's `PeerResponse::collect_bytes_forwarding`.
+        """
+        result = bytearray()
+        while True:
+            item = self.recv()
+            if item is None:
+                break
+            if item.is_log:
+                frame = item.log
+                level = frame.log_level()
+                if not level:
+                    raise PeerResponseError("peer LOG missing required text level")
+                message = frame.log_message()
+                if not message:
+                    raise PeerResponseError("peer LOG missing required text message")
+                if level == "progress":
+                    progress = frame.log_progress()
+                    if progress is None:
+                        raise PeerResponseError(
+                            "peer progress LOG has no numeric progress — the `progress` "
+                            f"slot is {frame.log_progress_slot_description()} "
+                            '(level is "progress", so a number is required)'
+                        )
+                    clamped = min(1.0, max(0.0, progress))
+                    output.progress(progress_base + clamped * progress_weight, message)
+                else:
+                    output.emit_log(
+                        level,
+                        frame.attribution_class(),
+                        message,
+                        frame.attribution_arg_urn(),
+                    )
+                continue
+            err = item.data_error
+            if err is not None:
+                raise err
+            value = item.data_value
+            if isinstance(value, bytes):
+                result.extend(value)
+            elif isinstance(value, str):
+                result.extend(value.encode("utf-8"))
+            else:
+                result.extend(cbor2.dumps(value))
+        return bytes(result)
+
     def collect_bytes(self) -> bytes:
         """Collect all data chunks into a single byte vector.
 

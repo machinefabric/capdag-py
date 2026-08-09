@@ -982,6 +982,38 @@ class Frame:
         message = self.meta.get("message")
         return message if isinstance(message, str) else None
 
+    def log_progress_slot_description(self) -> str:
+        """Describe what the frame's `progress` meta slot actually holds, for an
+        error message that has to explain why `log_progress` could not read it.
+
+        "Absent" and "a text value" are different defects in the PEER, and an
+        error that cannot tell them apart forces whoever reads it to reproduce
+        the failure to learn which. Mirrors the reference's
+        `Frame::log_progress_slot_description`.
+        """
+        if self.meta is None:
+            return "absent (frame carries no meta)"
+        if "progress" not in self.meta:
+            return "absent"
+        value = self.meta["progress"]
+        if isinstance(value, bool):
+            return "a boolean"
+        if isinstance(value, str):
+            return "a text value"
+        if isinstance(value, (bytes, bytearray)):
+            return "a byte string"
+        if value is None:
+            return "null"
+        if isinstance(value, (list, tuple)):
+            return "an array"
+        if isinstance(value, dict):
+            return "a map"
+        if isinstance(value, float):
+            return "a float (readable — not this error)"
+        if isinstance(value, int):
+            return "an integer (readable — not this error)"
+        return "an unrecognized CBOR type"
+
     def log_progress(self) -> Optional[float]:
         """Get progress value (0.0-1.0) if this is a LOG frame with level="progress"."""
         if self.frame_type != FrameType.LOG:

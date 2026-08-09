@@ -16,10 +16,31 @@ import hashlib
 import json
 import os
 import stat
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+
+def install_timestamp_now() -> str:
+    """Render ``installed_at`` for a cartridge being installed right now.
+
+    The field is declared RFC3339 and every reader (and every fixture) treats
+    it as one, so every producer goes through this one function — a bare epoch
+    count with a ``Z`` stuck on the end parses as neither a number nor a
+    timestamp, and would leave the field readable only by a human who already
+    knew what it was.
+
+    Mirrors ``capdag::bifaci::cartridge_json::install_timestamp_now``.
+    """
+    return format_rfc3339_utc(int(time.time()))
+
+
+def format_rfc3339_utc(secs: int) -> str:
+    """Format Unix seconds as ``YYYY-MM-DDTHH:MM:SSZ``."""
+    return datetime.fromtimestamp(secs, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class CartridgeInstallSource(str, Enum):

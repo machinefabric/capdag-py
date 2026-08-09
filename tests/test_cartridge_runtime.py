@@ -3485,3 +3485,100 @@ def test_1302_sequence_fragment_frames_are_credited_on_arrival():
     assert demux_granted >= n_fragments - 1, (
         f"expected at least {n_fragments - 1} fragment credits, saw {demux_granted}"
     )
+
+
+class _RecordingEmitter:
+    """Captures the side-channel calls a forwarding collector makes, so a test
+    can assert WHAT was forwarded rather than merely that nothing blew up.
+
+    The data-path methods are unused by forwarding and fail loudly if called,
+    because a forwarding collector writing to the output stream would be a
+    defect.
+    """
+
+    def __init__(self):
+        self.progress_calls = []
+        self.log_calls = []
+
+    def start_unbounded(self, is_sequence):  # pragma: no cover - must not run
+        raise AssertionError("not used by forwarding")
+
+    def emit_cbor(self, value):  # pragma: no cover - must not run
+        raise AssertionError("not used by forwarding")
+
+    def write(self, data):  # pragma: no cover - must not run
+        raise AssertionError("not used by forwarding")
+
+    def emit_list_item(self, value):  # pragma: no cover - must not run
+        raise AssertionError("not used by forwarding")
+
+    def finish(self, progress, message):  # pragma: no cover - must not run
+        raise AssertionError("not used by forwarding")
+
+    def emit_log(self, level, attribution_class, message, arg_urn=None):
+        self.log_calls.append((level, attribution_class, message, arg_urn))
+
+    def progress(self, progress, message):
+        self.progress_calls.append((progress, message))
+
+
+# TEST7118: finite peer collection preserves source diagnostics instead of
+# consuming them as data or dropping them. Progress is mapped into the caller's
+# range and argument attribution survives byte-for-byte.
+def test_7118_collect_bytes_forwarding_preserves_peer_side_channels():
+    from capdag.bifaci.frame import compute_checksum
+
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    raw_queue.put(Frame.progress(req_id, 0.5, "halfway"))
+    raw_queue.put(
+        Frame.log(req_id, "warn", AttributionClass.RESOURCE, "cache pressure", "media:model-spec")
+    )
+
+    raw_queue.put(Frame.stream_start(req_id, "s1", "media:test"))
+    payload = cbor2.dumps("payload")
+    raw_queue.put(Frame.chunk(req_id, "s1", 0, payload, 0, compute_checksum(payload)))
+    raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(None)
+
+    emitter = _RecordingEmitter()
+    result = demux_peer_response(raw_queue).collect_bytes_forwarding(emitter, 0.2, 0.4)
+    assert result == b"payload"
+
+    assert len(emitter.progress_calls) == 1, "expected exactly one forwarded progress"
+    value, message = emitter.progress_calls[0]
+    # 0.2 + 0.5*0.4 = 0.4 — the peer's midpoint mapped into the caller's slice.
+    assert abs(value - 0.4) < 0.001, f"expected progress 0.4, got {value}"
+    assert message == "halfway"
+
+    assert len(emitter.log_calls) == 1, "expected exactly one forwarded diagnostic"
+    level, attribution_class, log_message, arg_urn = emitter.log_calls[0]
+    assert level == "warn"
+    assert attribution_class == AttributionClass.RESOURCE, "the SOURCE's class must survive"
+    assert arg_urn == "media:model-spec", "argument attribution must survive"
+
+
+# TEST1949: a peer progress LOG with no numeric value FAILS HARD. Forwarding
+# must not silently drop it or substitute a value — a malformed frame is an
+# emitter defect and must surface as one, which is exactly the failure the
+# engine raises for the same frame.
+def test_1949_peer_progress_without_numeric_value_fails_hard():
+    req_id = MessageId.new_uuid()
+    raw_queue = queue.Queue()
+
+    # level="progress" with no `progress` key — malformed at the emitter.
+    malformed = Frame(FrameType.LOG, req_id)
+    malformed.meta = {"level": "progress", "message": "no number here"}
+    raw_queue.put(malformed)
+    raw_queue.put(None)
+
+    emitter = _RecordingEmitter()
+    with pytest.raises(Exception) as excinfo:
+        demux_peer_response(raw_queue).collect_bytes_forwarding(emitter, 0.0, 1.0)
+    assert "progress" in str(excinfo.value), (
+        f"the failure must name the missing progress value: {excinfo.value}"
+    )
+    assert not emitter.progress_calls and not emitter.log_calls, (
+        "no frame may be emitted from a malformed peer frame"
+    )
