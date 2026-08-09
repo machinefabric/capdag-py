@@ -757,3 +757,54 @@ def test_8066_void_input_sequence_shape_is_scalar_without_arguments():
     )
 
     assert cap.sequence_shape() == (False, False)
+
+
+# TEST7150: a cap's OUTPUT survives a manifest round-trip, under the wire
+# key names the other implementations read.
+def test_7150_cap_output_survives_serialization_roundtrip():
+    cap = Cap(
+        CapUrn.from_string('cap:in="media:enc=utf-8;in";out="media:enc=utf-8;tag";tag'),
+        "tag",
+        ["tag"],
+    )
+    cap.output = CapOutput(
+        media_urn="media:enc=utf-8;tag",
+        output_description="One of 'positive', 'neutral', or 'negative'.",
+    )
+
+    encoded = cap.to_dict()
+    assert "output" in encoded, "a cap that declares an output must serialize one"
+    assert encoded["output"]["media_urn"] == "media:enc=utf-8;tag"
+    assert encoded["output"]["output_description"] == "One of 'positive', 'neutral', or 'negative'."
+
+    back = Cap.from_dict(json.loads(json.dumps(encoded)))
+    assert back.output is not None, "output survives the round-trip"
+    assert back.output.media_urn == "media:enc=utf-8;tag"
+    assert back.output.is_sequence is False
+
+    # A cap with no output must not carry the key at all.
+    bare = Cap(CapUrn.from_string("cap:effect=none"), "Identity", ["identity"])
+    assert "output" not in bare.to_dict(), "a cap without an output must omit the key"
+
+
+# TEST7151: `is_sequence` is serialized even when false, on both CapArg and
+# CapOutput.
+#
+# It is not a `skip_serializing_if` field. Mirrors that omitted it produced a
+# manifest for the identical cap that differed from this one's bytes, which is
+# how a cross-language manifest comparison finds drift that every per-mirror
+# test passes through.
+def test_7151_is_sequence_is_serialized_even_when_false():
+    arg = CapArg(
+        media_urn="media:enc=utf-8;in",
+        required=True,
+        sources=[StdinSource("media:enc=utf-8;in")],
+    )
+    arg_encoded = arg.to_dict()
+    assert "is_sequence" in arg_encoded, "CapArg must write is_sequence even when false"
+    assert arg_encoded["is_sequence"] is False
+
+    output = CapOutput(media_urn="media:enc=utf-8;tag", output_description="a tag")
+    output_encoded = output.to_dict()
+    assert "is_sequence" in output_encoded, "CapOutput must write is_sequence even when false"
+    assert output_encoded["is_sequence"] is False

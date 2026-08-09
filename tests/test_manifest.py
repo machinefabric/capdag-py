@@ -380,3 +380,22 @@ def test_1874_registry_url_from_build_env_rejects_empty_string():
     with pytest.raises(ValueError) as exc_info:
         registry_url_from_build_env("")
     assert "MFR_CARTRIDGE_REGISTRY_URL must be unset" in str(exc_info.value)
+
+
+# TEST7152: an empty `adapter_urns` is omitted from a serialized cap group.
+#
+# Most cartridges claim no adapters, so a mirror that wrote `[]` put an extra
+# key in nearly every manifest it produced — invisible to that mirror's own
+# tests, and a difference the moment two languages' manifests for the same
+# cartridge are compared.
+def test_7152_empty_adapter_urns_is_omitted():
+    group = CapGroup(name="default", caps=[])
+    assert "adapter_urns" not in group.to_dict(), (
+        "an empty adapter_urns must be omitted, not written as []"
+    )
+
+    # A group that DOES claim adapters still writes them.
+    claiming = CapGroup(name="default", caps=[], adapter_urns=["media:ext=pdf"])
+    assert claiming.to_dict()["adapter_urns"] == ["media:ext=pdf"], (
+        "a non-empty adapter_urns must be written"
+    )

@@ -198,8 +198,10 @@ class CapArg:
             result["default_value"] = self.default_value
         if self.metadata is not None:
             result["metadata"] = self.metadata
-        if self.is_sequence:
-            result["is_sequence"] = self.is_sequence
+        # Emitted even when False, as the reference does: the manifest is
+        # compared across implementations and omitting it made Python's bytes
+        # differ from Rust's for the identical cap.
+        result["is_sequence"] = self.is_sequence
         return result
 
     @classmethod
@@ -265,8 +267,8 @@ class CapOutput:
         }
         if self.metadata is not None:
             result["metadata"] = self.metadata
-        if self.is_sequence:
-            result["is_sequence"] = self.is_sequence
+        # Emitted even when False — see CapArg.to_dict.
+        result["is_sequence"] = self.is_sequence
         return result
 
     @classmethod
