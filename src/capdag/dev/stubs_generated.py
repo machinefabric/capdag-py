@@ -82,7 +82,7 @@ STUB_LANGUAGES = [
         entry='target/release/__CARTRIDGE_NAME__',
         build=['cargo build --release'],
         runtime_package='capdag',
-        runtime_registry='crates.io',
+        runtime_registry='git tag',
         runtime_install='cargo build (the dependency is declared in Cargo.toml)',
         files=[
             StubFile(
@@ -92,7 +92,7 @@ STUB_LANGUAGES = [
             ),
             StubFile(
                 dest='Cargo.toml',
-                contents='[package]\nname = "__CARTRIDGE_NAME__"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nanyhow = "1.0"\ncapdag = "1.639.6434"\nciborium = "0.2"\nserde_json = "1.0"\ntokio = { version = "1.0", features = ["full"] }\n',
+                contents='[package]\nname = "__CARTRIDGE_NAME__"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nanyhow = "1.0"\ncapdag = { git = "https://github.com/machinefabric/capdag", tag = "v1.644.6474" }\nciborium = "0.2"\nserde_json = "1.0"\ntokio = { version = "1.0", features = ["full"] }\n',
                 executable=False,
             ),
             StubFile(
