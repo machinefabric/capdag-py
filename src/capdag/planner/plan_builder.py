@@ -96,20 +96,28 @@ class ArgumentInfo:
 
 
 class StepArgumentRequirements:
-    """Argument requirements for one step in a path."""
+    """Argument requirements for one step in a path.
 
-    __slots__ = ("cap_urn", "step_index", "title", "arguments", "slots")
+    ``token_id`` is the planner-minted ``StrandStep.token_id`` of the step these
+    requirements describe — the ONLY address an argument value is ever bound to.
+    A token exists because a plan exists; it is never derived from a position, a
+    notation string, or anything else. Positions cannot address a step because a
+    strand is a DAG: parallel branches merging downstream have no ordinal, and
+    two identical caps on separate branches differ only by token.
+    """
+
+    __slots__ = ("cap_urn", "token_id", "title", "arguments", "slots")
 
     def __init__(
         self,
         cap_urn: str,
-        step_index: int,
+        token_id: str,
         title: str,
         arguments: List[ArgumentInfo],
         slots: List[ArgumentInfo],
     ) -> None:
         self.cap_urn = cap_urn
-        self.step_index = step_index
+        self.token_id = token_id
         self.title = title
         self.arguments = arguments
         self.slots = slots
@@ -117,7 +125,7 @@ class StepArgumentRequirements:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "cap_urn": self.cap_urn,
-            "step_index": self.step_index,
+            "token_id": self.token_id,
             "title": self.title,
             "arguments": [a.to_dict() for a in self.arguments],
             "slots": [s.to_dict() for s in self.slots],
@@ -435,12 +443,24 @@ class MachinePlanBuilder:
         step_requirements: List[StepArgumentRequirements] = []
         cap_step_index = 0
 
-        for i, step in enumerate(path.steps):
+        for step in path.steps:
             cap_urn = step.get_cap_urn()
             if cap_urn is None:
                 continue
 
             cap_urn_str = str(cap_urn)
+            # A cap step without a token is not addressable, so no argument
+            # could ever be delivered to it. Every step a planner creates is
+            # minted with one, which means an empty token here can only come
+            # from deserializing something that was never a plan. Refuse it at
+            # the boundary rather than emitting requirements the caller cannot
+            # bind a value to.
+            if not step.token_id:
+                raise InvalidPathError(
+                    f"strand step for cap '{cap_urn_str}' carries no token_id; "
+                    "argument requirements are addressed by token and cannot be "
+                    "built for an unidentified step"
+                )
             cap = next((c for c in caps if str(c.urn) == cap_urn_str), None)
             if cap is None:
                 raise NotFoundError(f"Cap not found: {cap_urn_str}")
@@ -500,7 +520,7 @@ class MachinePlanBuilder:
 
             step_requirements.append(StepArgumentRequirements(
                 cap_urn=cap_urn_str,
-                step_index=i,
+                token_id=step.token_id,
                 title=step.title(),
                 arguments=arguments,
                 slots=slots,

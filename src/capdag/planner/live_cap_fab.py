@@ -26,6 +26,57 @@ from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
 
+class StepTokenError(ValueError):
+    """The only way a :class:`StepToken` can fail to exist."""
+
+
+class StepToken(str):
+    """The stable identity of one step of a resolved strand — the ONLY address by
+    which a step, or an argument value destined for it, is ever named.
+
+    This is a distinct type rather than a bare ``str`` so that an unidentified
+    step is not a state the program can be in. There is exactly one way to make a
+    token (:meth:`mint`) and exactly one way to recover one that was already
+    minted (:meth:`parse`, which refuses an empty id). Decoding a persisted
+    strand goes through ``parse``, so a stored ``""`` fails to load rather than
+    loading into a strand whose steps cannot be addressed.
+
+    Nothing derives a token. Not from a position — a strand is a DAG, and
+    parallel branches merging downstream have no ordinal, so two identical caps
+    on separate branches differ only by token. Not from notation — a plan holds
+    strictly more than the notation it was planned from, and reducing one back to
+    the other discards exactly the identities this type exists to carry. A token
+    comes from the plan that minted it or it does not exist.
+
+    Subclassing ``str`` keeps a token usable everywhere the wire needs its text
+    (dict keys, JSON, format strings) without a second representation to keep in
+    step; the construction rules above are what make it a type rather than an
+    alias.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, raw: str) -> "StepToken":
+        if not raw:
+            raise StepTokenError(
+                "a strand step token_id is empty; a step without a token came "
+                "from no plan and cannot be addressed"
+            )
+        return super().__new__(cls, raw)
+
+    @staticmethod
+    def mint() -> "StepToken":
+        """Mint a fresh identity. This is how every step in production is born."""
+        return StepToken(str(uuid.uuid4()))
+
+    @staticmethod
+    def parse(raw: str) -> "StepToken":
+        """Recover an already-minted token — from decoding, from a protocol
+        message, from a persisted run. An empty id is not a token: it names no
+        step, so a value bound to it could never be delivered."""
+        return StepToken(raw)
+
+
 class LiveMachinePlanEdgeType(Enum):
     """Type of edge in the capability graph."""
     CAP = "cap"
@@ -111,8 +162,8 @@ class ArgSourceRef:
 
     @staticmethod
     def step(token_id: str) -> "ArgSourceRef":
-        """Fed by another cap step's output, identified by that step's stable `token_id`."""
-        return ArgSourceRef(ArgSourceRef.STEP, token_id)
+        """Fed by another cap step's output, identified by that step's stable token."""
+        return ArgSourceRef(ArgSourceRef.STEP, StepToken.parse(token_id))
 
     def is_strand_input(self) -> bool:
         return self.kind == ArgSourceRef.STRAND_INPUT
@@ -187,7 +238,9 @@ class StrandStep:
         # this element of the realized graph to every live update the run
         # emits for it, so a repeated cap URN in one strand is never
         # ambiguous.
-        self.token_id = token_id if token_id is not None else str(uuid.uuid4())
+        self.token_id = (
+            StepToken.parse(token_id) if token_id is not None else StepToken.mint()
+        )
         self.step_type = step_type
         self.from_spec = from_spec
         self.to_spec = to_spec

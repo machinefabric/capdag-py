@@ -1,11 +1,23 @@
 """Tests for plan builder argument requirement models."""
 
+import asyncio
 import json
 
+import pytest
+
 from capdag import MEDIA_FILE_PATH
-from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
+from capdag.cap.definition import Cap, CapArg, CapOutput, CliFlagSource, StdinSource
 from capdag.fabric.registry import FabricRegistry
 from capdag.media.spec import MediaValidation
+from capdag.planner.live_cap_fab import (
+    ArgSourceRef,
+    CapInput,
+    StepToken,
+    StepTokenError,
+    Strand,
+    StrandStep,
+    StrandStepType,
+)
 from capdag.planner.plan_builder import (
     ArgumentInfo,
     ArgumentResolution,
@@ -14,6 +26,7 @@ from capdag.planner.plan_builder import (
     StepArgumentRequirements,
 )
 from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MediaUrn
 
 
 def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
@@ -76,7 +89,7 @@ def test_768_path_argument_requirements_structure():
         steps=[
             StepArgumentRequirements(
                 cap_urn="cap:generate-thumbnail;in=pdf;out=png",
-                step_index=0,
+                token_id="tok-thumbnail",
                 title="Generate Thumbnail",
                 arguments=[
                     ArgumentInfo(
@@ -120,7 +133,7 @@ def test_769_path_with_required_slot():
         steps=[
             StepArgumentRequirements(
                 cap_urn="cap:translate;in=text;out=translated",
-                step_index=0,
+                token_id="tok-translate",
                 title="Translate",
                 arguments=[
                     ArgumentInfo(
@@ -335,3 +348,107 @@ def test_1015_optional_non_io_arg_without_default_requires_user_input():
 # TEST1019: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None
 def test_1019_validation_to_json_none():
     assert MachinePlanBuilder.validation_to_json(None) is None
+
+
+def _rewrite_cap() -> Cap:
+    """A cap with one stdin main input and one defaulted option."""
+    urn = CapUrn.from_string('cap:rewrite;in="media:ext=txt;text";out="media:ext=txt;text"')
+    cap = Cap.with_description(urn, "Rewrite", "rewrite", "Rewrite text")
+    cap.add_arg(
+        CapArg(
+            media_urn="media:enc=utf-8;file-path",
+            required=True,
+            sources=[StdinSource("media:ext=txt;text")],
+            arg_description="Text to rewrite",
+        )
+    )
+    cap.add_arg(
+        CapArg(
+            media_urn="media:numeric;temperature",
+            required=False,
+            sources=[CliFlagSource("--temperature")],
+            arg_description="Sampling temperature",
+            default_value=0.7,
+        )
+    )
+    cap.set_output(CapOutput("media:ext=txt;text", "Rewritten text"))
+    return cap
+
+
+def _repeated_cap_strand(cap: Cap) -> Strand:
+    """Two steps running the SAME cap — the shape where positional identity is
+    indistinguishable from token identity unless the tokens are carried."""
+    media = MediaUrn.from_string("media:ext=txt;text")
+
+    def step() -> StrandStep:
+        return StrandStep(
+            step_type=StrandStepType.CAP,
+            from_spec=media,
+            to_spec=media,
+            cap_urn=cap.urn,
+            step_title="Rewrite",
+            specificity_val=1,
+            inputs=[
+                CapInput(
+                    arg_urn=MediaUrn.from_string("media:enc=utf-8;file-path"),
+                    source=ArgSourceRef.strand_input(),
+                )
+            ],
+        )
+
+    return Strand(
+        steps=[step(), step()],
+        source_media_urn=media,
+        target_media_urn=media,
+        total_steps=2,
+        cap_step_count=2,
+        description="Rewrite twice",
+    )
+
+
+def _builder_with(cap: Cap) -> MachinePlanBuilder:
+    registry = FabricRegistry.new_for_test()
+    registry.add_caps_to_cache([cap])
+    return MachinePlanBuilder.new_for_test(registry)
+
+
+# TEST1461: Step requirements are addressed by the plan's own token. Two steps of the SAME cap must yield the two DISTINCT StrandStep.token_id values the planner minted, in correspondence with the steps they describe
+def test_1461_step_requirements_carry_the_plans_own_tokens():
+    cap = _rewrite_cap()
+    strand = _repeated_cap_strand(cap)
+    strand_tokens = [s.token_id for s in strand.steps]
+    assert strand_tokens[0] != strand_tokens[1], (
+        "the planner mints a distinct token per step even for a repeated cap"
+    )
+
+    requirements = asyncio.run(_builder_with(cap).analyze_path_arguments(strand))
+
+    assert len(requirements.steps) == 2
+    assert [s.token_id for s in requirements.steps] == strand_tokens, (
+        "each requirement carries the token of the step it describes — the "
+        "address a value is bound to, not a position to be counted"
+    )
+    for step in requirements.steps:
+        assert step.token_id, (
+            "a requirement without a token cannot be bound to and must never be emitted"
+        )
+
+
+# TEST1462: An unidentified step is not a state the program can hold. StepToken is the type that makes it so - minting is the only way to create one and parse, the sole path back from text, refuses an empty id
+def test_1462_a_step_token_cannot_be_empty():
+    with pytest.raises(StepTokenError):
+        StepToken.parse("")
+
+    # Decoding is the one boundary where a strand arrives as data rather than
+    # being constructed, so it is the one place the illegal state could enter.
+    with pytest.raises(StepTokenError):
+        StrandStep(
+            step_type=StrandStepType.FOR_EACH,
+            from_spec=MediaUrn.from_string("media:ext=txt;text"),
+            to_spec=MediaUrn.from_string("media:ext=txt;text"),
+            token_id="",
+        )
+
+    # A minted token survives the round trip through its text unchanged.
+    minted = StepToken.mint()
+    assert StepToken.parse(str(minted)) == minted
