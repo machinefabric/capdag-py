@@ -161,7 +161,7 @@ STUB_LANGUAGES = [
             ),
             StubFile(
                 dest='Package.swift',
-                contents='// swift-tools-version: 5.9\nimport PackageDescription\n\nlet package = Package(\n    name: "__CARTRIDGE_NAME__",\n    platforms: [\n        .macOS(.v13)\n    ],\n    dependencies: [\n        .package(url: "https://github.com/machinefabric/capdag-objc.git", from: "1.405.10"),\n        .package(url: "https://github.com/jowharshamshiri/ops-objc.git", from: "1.18.132"),\n    ],\n    targets: [\n        .executableTarget(\n            name: "__CARTRIDGE_NAME__",\n            dependencies: [\n                .product(name: "Bifaci", package: "capdag-objc"),\n                .product(name: "CapDAG", package: "capdag-objc"),\n                .product(name: "Ops", package: "ops-objc"),\n            ],\n            path: "Sources"\n        )\n    ]\n)\n',
+                contents='// swift-tools-version: 5.9\nimport PackageDescription\n\nlet package = Package(\n    name: "__CARTRIDGE_NAME__",\n    platforms: [\n        .macOS(.v13)\n    ],\n    dependencies: [\n        .package(url: "https://github.com/machinefabric/capdag-objc.git", from: "1.409.3999"),\n        .package(url: "https://github.com/jowharshamshiri/ops-objc.git", from: "1.18.132"),\n    ],\n    targets: [\n        .executableTarget(\n            name: "__CARTRIDGE_NAME__",\n            dependencies: [\n                .product(name: "Bifaci", package: "capdag-objc"),\n                .product(name: "CapDAG", package: "capdag-objc"),\n                .product(name: "Ops", package: "ops-objc"),\n            ],\n            path: "Sources"\n        )\n    ]\n)\n',
                 executable=False,
             ),
             StubFile(
