@@ -186,6 +186,81 @@ def test_7159_two_entries_is_ambiguous_not_a_coin_flip(tmp_path):
 # one source, so a difference here means the reference itself was vendored from
 # a different commit than the stub repo currently holds — which would ship
 # capdags that disagree about what a cartridge looks like, silently.
+
+def _first_triple(line: str) -> tuple[tuple[int, ...], int, int] | None:
+    """The first `N.N.N` in a line, with the span it occupies."""
+    index = 0
+    while index < len(line):
+        if not line[index].isdigit():
+            index += 1
+            continue
+        start = index
+        while index < len(line) and (line[index].isdigit() or line[index] == "."):
+            index += 1
+        parts = line[start:index].split(".")
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            return tuple(int(part) for part in parts), start, index
+    return None
+
+
+def _split_pin(text: str) -> tuple[tuple[int, ...] | None, str]:
+    """Split a stub file into its capdag version pin and everything else.
+
+    The pin appears once per stub, in the language's own dependency syntax:
+    `tag = "v1.2.3"` (Cargo), `capdag-go v1.2.3` (go.mod), `from: "1.2.3"`
+    (SwiftPM). Rather than teach this three grammars, the first dotted-triple on
+    a line that mentions capdag IS the pin.
+    """
+    pin = None
+    kept_lines = []
+    for line in text.split("\n"):
+        kept = line
+        if pin is None and "capdag" in line:
+            found = _first_triple(line)
+            if found is not None:
+                pin, start, end = found
+                kept = line[:start] + "<pin>" + line[end:]
+        kept_lines.append(kept)
+    return pin, "\n".join(kept_lines)
+
+
+def _assert_stub_matches(language: str, dest: str, vendored: str, canonical: str) -> None:
+    """A vendored stub file against the canonical bytes.
+
+    Byte equality, with ONE allowance: the capdag version the stub pins may be
+    OLDER in the vendored copy than in the canonical one. The canonical stub is
+    rendered from a template that stamps capdag's current version, and the
+    vendored copies are snapshots taken when someone last vendored them — so the
+    two disagree from the moment capdag's version moves, which is every time it
+    is bumped, and the disagreement says nothing about the stub CONTRACT.
+
+    An older pin is harmless: it names a release that exists, so a cartridge
+    scaffolded from it resolves. A NEWER pin is not, because it would name a
+    version this capdag has not reached, so the comparison is an ordering and
+    not "ignore the version".
+
+    Every other byte still has to match.
+    """
+    if vendored == canonical:
+        return
+    vendored_pin, vendored_rest = _split_pin(vendored)
+    canonical_pin, canonical_rest = _split_pin(canonical)
+    assert vendored_rest == canonical_rest, (
+        f"{language}: vendored {dest} differs from the canonical bytes in more than the "
+        "pinned capdag version — re-vendor the stubs"
+    )
+    assert vendored_pin is not None and canonical_pin is not None, (
+        f"{language}: vendored {dest} differs from the canonical bytes and neither carries "
+        "a version pin to explain it — re-vendor the stubs"
+    )
+    assert vendored_pin <= canonical_pin, (
+        f"{language}: vendored {dest} pins capdag "
+        f"{'.'.join(str(part) for part in vendored_pin)} but capdag is "
+        f"{'.'.join(str(part) for part in canonical_pin)} — a stub may lag a release, "
+        "never precede one"
+    )
+
+
 def test_7160_vendored_stub_contract_matches_the_canonical_source():
     # Locate the canonical stubs relative to this mirror inside the workspace.
     # Absent (a standalone checkout of capdag-py), there is nothing to compare
@@ -198,11 +273,11 @@ def test_7160_vendored_stub_contract_matches_the_canonical_source():
 
     contract = json.loads(canonical.read_text(encoding="utf-8"))
     assert contract["contract_version"] == STUB_CONTRACT_VERSION, (
-        "vendored contract version differs from canonical — re-run dx stubs vendor"
+        "vendored contract version differs from canonical — re-vendor the stubs"
     )
     assert contract["placeholder"] == STUB_PLACEHOLDER
     assert len(contract["languages"]) == len(STUB_LANGUAGES), (
-        "vendored language count differs from canonical — re-run dx stubs vendor"
+        "vendored language count differs from canonical — re-vendor the stubs"
     )
 
     for vendored in STUB_LANGUAGES:
@@ -215,10 +290,7 @@ def test_7160_vendored_stub_contract_matches_the_canonical_source():
             want = (stub_root / declared["source"]).read_text(encoding="utf-8")
             assert got.dest == declared["dest"]
             assert got.executable == declared["executable"]
-            assert got.contents == want, (
-                f"{vendored.id}: vendored {got.dest} differs from the canonical bytes "
-                "— re-run dx stubs vendor"
-            )
+            _assert_stub_matches(vendored.id, got.dest, got.contents, want)
 
 
 # TEST7158: the fabric-conflict guard — a dev cap whose alias the fabric maps to
