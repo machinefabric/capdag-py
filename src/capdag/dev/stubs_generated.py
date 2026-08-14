@@ -92,7 +92,7 @@ STUB_LANGUAGES = [
             ),
             StubFile(
                 dest='Cargo.toml',
-                contents='[package]\nname = "__CARTRIDGE_NAME__"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nanyhow = "1.0"\n# capdag is resolved from a git TAG, not crates.io: it depends on ffmpeg-bundle,\n# which is unpublishable, and cargo requires a version requirement on every\n# dependency. The tag is stamped from capdag\'s own version.txt, so it tracks\n# what capdag\'s next release tags instead of drifting until someone notices.\ncapdag = { git = "https://github.com/machinefabric/capdag-rs", tag = "v1.667.0" }\nciborium = "0.2"\nserde_json = "1.0"\ntokio = { version = "1.0", features = ["full"] }\n',
+                contents='[package]\nname = "__CARTRIDGE_NAME__"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nanyhow = "1.0"\n# capdag is resolved from a git TAG, not crates.io: it depends on ffmpeg-bundle,\n# which is unpublishable, and cargo requires a version requirement on every\n# dependency. The tag is stamped from capdag\'s own version.txt, so it tracks\n# what capdag\'s next release tags instead of drifting until someone notices.\ncapdag = { git = "https://github.com/machinefabric/capdag-rs", tag = "v1.668.2" }\nciborium = "0.2"\nserde_json = "1.0"\ntokio = { version = "1.0", features = ["full"] }\n',
                 executable=False,
             ),
             StubFile(
@@ -129,7 +129,7 @@ STUB_LANGUAGES = [
             ),
             StubFile(
                 dest='go.mod',
-                contents="module __CARTRIDGE_NAME__\n\ngo 1.21\n\n// Stamped from capdag-go's own version.txt, so the required version tracks what\n// capdag-go's next release tags rather than drifting until someone notices.\nrequire github.com/machinefabric/capdag-go v1.353.4\n",
+                contents="module __CARTRIDGE_NAME__\n\ngo 1.21\n\n// Stamped from capdag-go's own version.txt, so the required version tracks what\n// capdag-go's next release tags rather than drifting until someone notices.\nrequire github.com/machinefabric/capdag-go v1.354.6\n",
                 executable=False,
             ),
             StubFile(
@@ -161,7 +161,7 @@ STUB_LANGUAGES = [
             ),
             StubFile(
                 dest='Package.swift',
-                contents='// swift-tools-version: 5.9\nimport PackageDescription\n\nlet package = Package(\n    name: "__CARTRIDGE_NAME__",\n    platforms: [\n        .macOS(.v13)\n    ],\n    dependencies: [\n        .package(url: "https://github.com/machinefabric/capdag-objc.git", from: "1.413.5"),\n        .package(url: "https://github.com/jowharshamshiri/ops-objc.git", from: "1.18.132"),\n    ],\n    targets: [\n        .executableTarget(\n            name: "__CARTRIDGE_NAME__",\n            dependencies: [\n                .product(name: "Bifaci", package: "capdag-objc"),\n                .product(name: "CapDAG", package: "capdag-objc"),\n                .product(name: "Ops", package: "ops-objc"),\n            ],\n            path: "Sources"\n        )\n    ]\n)\n',
+                contents='// swift-tools-version: 5.9\nimport PackageDescription\n\nlet package = Package(\n    name: "__CARTRIDGE_NAME__",\n    platforms: [\n        .macOS(.v13)\n    ],\n    dependencies: [\n        .package(url: "https://github.com/machinefabric/capdag-objc.git", from: "1.414.8"),\n        .package(url: "https://github.com/jowharshamshiri/ops-objc.git", from: "1.18.132"),\n    ],\n    targets: [\n        .executableTarget(\n            name: "__CARTRIDGE_NAME__",\n            dependencies: [\n                .product(name: "Bifaci", package: "capdag-objc"),\n                .product(name: "CapDAG", package: "capdag-objc"),\n                .product(name: "Ops", package: "ops-objc"),\n            ],\n            path: "Sources"\n        )\n    ]\n)\n',
                 executable=False,
             ),
             StubFile(
