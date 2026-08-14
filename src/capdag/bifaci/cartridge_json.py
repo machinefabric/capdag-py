@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 
 def install_timestamp_now() -> str:
@@ -44,13 +44,17 @@ def format_rfc3339_utc(secs: int) -> str:
 
 
 class CartridgeInstallSource(str, Enum):
-    """Opaque optional install-provenance metadata.
+    """Install-provenance metadata with exactly ONE semantic value.
 
-    **Not consulted for any host or engine routing decision** — kept
-    around so downstream telemetry / audit tooling can record install
-    provenance without growing a parallel data structure. Within the
-    codebase nothing should branch on the variant; the dev-vs-not-dev
-    signal the host actually uses is ``registry_url`` (``None`` ⇔ dev).
+    ``BUNDLE`` selects the bundled-cartridge integrity path at
+    discovery. Every other value is provenance telemetry, and the
+    vocabulary GROWS as installers do — so an unrecognized spelling is
+    preserved verbatim as a plain ``str`` on the record and round-trips,
+    never failing the cartridge.json parse. A telemetry hint that could
+    invalidate an otherwise-sound install would make every vocabulary
+    addition brick older hosts against newer installers' records.
+    The dev-vs-not-dev signal the host actually uses is
+    ``registry_url`` (``None`` ⇔ dev).
     """
     REGISTRY = "registry"
     DEV = "dev"
@@ -92,7 +96,7 @@ class CartridgeJson:
     #: routing or attachment decision; kept around as opaque
     #: telemetry / audit hint. ``None`` (and absence in the on-disk
     #: JSON) is acceptable.
-    installed_from: Optional[CartridgeInstallSource] = field(default=None)
+    installed_from: Optional[Union[CartridgeInstallSource, str]] = field(default=None)
     #: URL the package was downloaded from (empty for dev/bundle installs).
     source_url: str = field(default="")
     #: SHA256 hash of the original package (tarball or binary).
@@ -131,7 +135,7 @@ class CartridgeJson:
         # absent and null as the same is exactly the regime we
         # want.
         if self.installed_from is not None:
-            d["installed_from"] = self.installed_from.value
+            d["installed_from"] = getattr(self.installed_from, "value", self.installed_from)
         if self.source_url:
             d["source_url"] = self.source_url
         if self.package_sha256:
@@ -155,16 +159,20 @@ class CartridgeJson:
                 "a URL string for registry installs."
             )
         # ``installed_from`` is optional metadata. Missing key or
-        # explicit null both deserialize to ``None``; an unknown
-        # variant string still raises (Enum constructor) so a typo
-        # in the on-disk file surfaces immediately rather than
-        # being silently coerced.
+        # explicit null both deserialize to ``None``. An unknown
+        # spelling is preserved VERBATIM (a plain str — the vocabulary
+        # grows as installers do) so it round-trips and can never fail
+        # the parse; only ``bundle`` carries semantics, and the str-Enum
+        # keeps ``x == CartridgeInstallSource.BUNDLE`` comparisons exact.
         raw_installed_from = d.get("installed_from")
-        installed_from = (
-            CartridgeInstallSource(raw_installed_from)
-            if raw_installed_from is not None
-            else None
-        )
+        installed_from: Optional[Union[CartridgeInstallSource, str]]
+        if raw_installed_from is None:
+            installed_from = None
+        else:
+            try:
+                installed_from = CartridgeInstallSource(raw_installed_from)
+            except ValueError:
+                installed_from = raw_installed_from
         return cls(
             name=d["name"],
             version=d["version"],

@@ -35,3 +35,34 @@ def test_7153_install_timestamp_is_rfc3339_utc():
     assert now.endswith("Z"), f"not UTC-marked: {now}"
     year = int(now[:4])
     assert 2020 <= year < 2200, f"the current year came out as {year}: {now}"
+
+
+# TEST1514: the provenance vocabulary grows with installers. A workspace
+# build install parses to its named variant; a spelling this build does not
+# know parses, is preserved VERBATIM, round-trips, and is not BUNDLE (the one
+# semantic value) — an unknown telemetry hint can never fail the
+# cartridge.json parse and take the cartridge down with it.
+def test_1514_install_source_vocabulary_tolerance():
+    from capdag.bifaci.cartridge_json import CartridgeInstallSource, CartridgeJson
+
+    base = {
+        "name": "candlecartridge",
+        "version": "1.227.800",
+        "channel": "nightly",
+        "registry_url": "https://cartridges-staging.machinefabric.com/v1/manifest",
+        "entry": "candlecartridge",
+        "installed_at": "2026-08-14T22:26:59Z",
+        "fabric_manifest_version": 4,
+    }
+
+    # A drifted installer's spelling is tolerated but NOT blessed: the
+    # protocol's vocabulary is registry/dev/bundle/app_installer, and a
+    # writer's mistake never becomes an enum member.
+    built = CartridgeJson.from_dict({**base, "installed_from": "build"})
+    assert built.installed_from == "build"
+    assert "build" not in [m.value for m in CartridgeInstallSource]
+
+    unknown = CartridgeJson.from_dict({**base, "installed_from": "quantum_courier"})
+    assert unknown.installed_from == "quantum_courier"
+    assert unknown.installed_from != CartridgeInstallSource.BUNDLE
+    assert unknown.to_dict()["installed_from"] == "quantum_courier"
