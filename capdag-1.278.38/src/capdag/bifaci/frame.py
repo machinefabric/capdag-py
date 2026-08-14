@@ -1,0 +1,1330 @@
+"""CBOR Frame Types for Cartridge Communication
+
+This module defines the binary CBOR frame format for cartridge communication.
+Frames use integer keys for compact encoding and support native binary payloads.
+
+## Frame Format
+
+Each frame is a CBOR map with integer keys:
+{
+  0: version (u8, always 4)
+  1: frame_type (u8)
+  2: id (bytes[16] or uint)
+  3: seq (u64)
+  4: content_type (tstr, optional)
+  5: meta (map, optional)
+  6: payload (bstr, optional)
+  7: len (u64, optional - total payload length for chunked)
+  8: offset (u64, optional - byte offset in chunked stream)
+  9: eof (bool, optional - true on final chunk)
+  10: cap (tstr, optional - cap URN for requests)
+}
+
+## Frame Types
+
+- HELLO (0): Handshake to negotiate limits
+- REQ (1): Request to invoke a cap
+- CHUNK (3): Streaming data chunk
+- END (4): Stream complete marker
+- LOG (5): Log/progress message
+- ERR (6): Error message
+- HEARTBEAT (7): Health monitoring ping/pong
+- STREAM_START (8): Announce new stream for request
+- STREAM_END (9): End a specific stream
+- RELAY_NOTIFY (10): Relay capability advertisement (slave → master)
+- RELAY_STATE (11): Relay host system resources + cap demands (master → slave)
+- CANCEL (12): Cancel a specific in-flight request by RID
+- CREDIT (13): Grant per-stream flow-control credit, in CHUNK units (protocol v4)
+
+Protocol v4 adds two integer keys: 19 (credit grant, CREDIT frames) and
+20 (unbounded flag, STREAM_START frames).
+"""
+
+import uuid as uuid_module
+from typing import Optional, Dict, Any
+from enum import Enum, IntEnum
+from dataclasses import dataclass
+
+
+# Protocol version 4 requires explicit handler capacity and strict diagnostic
+# attribution in addition to credit-based flow control and terminal metadata.
+# Every other version is rejected during handshake.
+PROTOCOL_VERSION = 4
+
+# Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
+# Larger payloads automatically use CHUNK frames
+DEFAULT_MAX_FRAME = 3_670_016
+
+# Default maximum chunk size (256 KB)
+DEFAULT_MAX_CHUNK = 262_144
+
+
+class FrameType(IntEnum):
+    """Frame type discriminator"""
+    HELLO = 0  # Handshake frame for negotiating limits
+    REQ = 1  # Request to invoke a cap
+    # RES (2) removed in Protocol v2 — use STREAM_START/CHUNK/STREAM_END/END
+    CHUNK = 3  # Streaming data chunk
+    END = 4  # Stream complete marker
+    LOG = 5  # Log/progress message
+    ERR = 6  # Error message
+    HEARTBEAT = 7  # Health monitoring ping/pong
+    STREAM_START = 8  # Announce new stream for request (multiplexed streaming)
+    STREAM_END = 9  # End a specific stream (multiplexed streaming)
+    RELAY_NOTIFY = 10  # Relay capability advertisement (slave → master)
+    RELAY_STATE = 11   # Relay host system resources + cap demands (master → slave)
+    CANCEL = 12        # Cancel a specific in-flight request by RID
+    CREDIT = 13        # Grant per-stream flow-control credit, in CHUNK units (protocol v4).
+                       # Non-flow: bypasses seq assignment and reorder buffers, and is
+                       # forwarded end-to-end by intermediaries (never originated or absorbed).
+
+    @classmethod
+    def from_u8(cls, v: int) -> Optional["FrameType"]:
+        """Convert u8 to FrameType, returns None if invalid"""
+        try:
+            return cls(v)
+        except ValueError:
+            return None
+
+    @classmethod
+    def all(cls) -> tuple:
+        """All variants, for counter arrays and snapshot serialization
+        (matches Rust FrameType::ALL)."""
+        return (
+            cls.HELLO,
+            cls.REQ,
+            cls.CHUNK,
+            cls.END,
+            cls.LOG,
+            cls.ERR,
+            cls.HEARTBEAT,
+            cls.STREAM_START,
+            cls.STREAM_END,
+            cls.RELAY_NOTIFY,
+            cls.RELAY_STATE,
+            cls.CANCEL,
+            cls.CREDIT,
+        )
+
+    def as_str(self) -> str:
+        """Stable snake_case name (the snapshot contract for mirrors and
+        traces; matches Rust FrameType::as_str)."""
+        return self.name.lower()
+
+
+class CreditDirection(str, Enum):
+    """Which side's stream a CREDIT frame credits (L11 routing discriminator).
+
+    ``REQUEST`` credits a request-direction stream (arguments flowing toward
+    the handler): the grant travels toward the REQUESTER. ``RESPONSE``
+    credits a response-direction stream (handler output): the grant travels
+    toward the HANDLER. Required on every CREDIT frame — (xid, rid) alone
+    cannot disambiguate grant direction for self-loop peer calls.
+
+    The value is the stable snake_case wire form (matches Rust
+    ``CreditDirection::as_str`` / ``from_str_name``).
+    """
+    REQUEST = "request"
+    RESPONSE = "response"
+
+    def as_str(self) -> str:
+        """Stable snake_case wire form."""
+        return self.value
+
+    @classmethod
+    def from_str_name(cls, s: str) -> Optional["CreditDirection"]:
+        """Parse the wire form, returning None for anything else (matches
+        Rust CreditDirection::from_str_name — no fallback, no default)."""
+        try:
+            return cls(s)
+        except ValueError:
+            return None
+
+
+class AttributionClass(str, Enum):
+    """The source-declared diagnostic domain.
+
+    ERR and non-progress LOG frames carry the stable token under the mandatory
+    ``attribution_class`` metadata key. Receivers reject missing or unknown
+    values instead of inferring from prose or substituting INTERNAL.
+    """
+    INPUT = "input"  # Deterministic on the INPUT (context overflow, invalid request). Never retryable.
+    RESOURCE = "resource"  # A compute resource was exhausted (GPU VRAM, host memory). Retryable.
+    ENVIRONMENT = "environment"  # The environment failed (network, download, process death). Retryable.
+    INTERNAL = "internal"  # Everything else: a defect in the engine or a cartridge. Ours.
+
+    def as_str(self) -> str:
+        """Stable lowercase wire token for ERR and non-progress LOG frames."""
+        return self.value
+
+    @classmethod
+    def from_wire(cls, token: str) -> Optional["AttributionClass"]:
+        """Parse a wire token, returning None for anything else (matches
+        Rust AttributionClass::from_wire). Unknown tokens are a protocol error."""
+        try:
+            return cls(token)
+        except ValueError:
+            return None
+
+    def is_permanent(self) -> bool:
+        """Whether retrying can NEVER succeed: the failure is a deterministic
+        function of the input. Resource/environment/internal stay retryable
+        (memory frees up, networks recover, races un-race)."""
+        return self is AttributionClass.INPUT
+
+
+class MessageId:
+    """Message ID - either a 16-byte UUID or a simple integer"""
+
+    def __init__(self, value):
+        """Create MessageId from UUID bytes or integer
+
+        Args:
+            value: Either bytes (16-byte UUID) or int (uint64)
+        """
+        if isinstance(value, bytes):
+            if len(value) != 16:
+                raise ValueError("UUID must be exactly 16 bytes")
+            self.uuid_bytes = value
+            self.uint_value = None
+        elif isinstance(value, int):
+            if value < 0:
+                raise ValueError("Uint must be non-negative")
+            self.uuid_bytes = None
+            self.uint_value = value
+        else:
+            raise TypeError(f"MessageId must be bytes or int, got {type(value)}")
+
+    @classmethod
+    def new_uuid(cls) -> "MessageId":
+        """Create a new random UUID message ID"""
+        return cls(uuid_module.uuid4().bytes)
+
+    @classmethod
+    def random(cls) -> "MessageId":
+        """Alias for new_uuid() — create a new random UUID message ID."""
+        return cls.new_uuid()
+
+    @classmethod
+    def from_uuid_str(cls, s: str) -> Optional["MessageId"]:
+        """Create from a UUID string"""
+        try:
+            u = uuid_module.UUID(s)
+            return cls(u.bytes)
+        except ValueError:
+            return None
+
+    @classmethod
+    def from_cbor(cls, value) -> "MessageId":
+        """Create MessageId from CBOR value (bytes for UUID, int for Uint)"""
+        if isinstance(value, bytes):
+            return cls(value)
+        elif isinstance(value, int):
+            return cls(value)
+        else:
+            raise TypeError(f"CBOR value must be bytes or int for MessageId, got {type(value)}")
+
+    def to_uuid_string(self) -> Optional[str]:
+        """Convert to UUID string if this is a UUID"""
+        if self.uuid_bytes is not None:
+            return str(uuid_module.UUID(bytes=self.uuid_bytes))
+        return None
+
+    def to_string(self) -> str:
+        """Convert to string representation (works for both UUID and uint)"""
+        if self.uuid_bytes is not None:
+            return str(uuid_module.UUID(bytes=self.uuid_bytes))
+        else:
+            return str(self.uint_value)
+
+    def as_bytes(self) -> bytes:
+        """Get as bytes for comparison"""
+        if self.uuid_bytes is not None:
+            return self.uuid_bytes
+        else:
+            # Convert uint to 8-byte big-endian
+            return self.uint_value.to_bytes(8, byteorder='big')
+
+    def is_uuid(self) -> bool:
+        """Check if this is a UUID variant"""
+        return self.uuid_bytes is not None
+
+    def to_cbor(self):
+        """Convert to CBOR-encodable value (bytes for UUID, int for Uint)."""
+        if self.uuid_bytes is not None:
+            return self.uuid_bytes
+        else:
+            return self.uint_value
+
+    def is_uint(self) -> bool:
+        """Check if this is a Uint variant"""
+        return self.uint_value is not None
+
+    def __eq__(self, other):
+        if not isinstance(other, MessageId):
+            return False
+        # Different variants are never equal
+        if self.is_uuid() != other.is_uuid():
+            return False
+        if self.is_uuid():
+            return self.uuid_bytes == other.uuid_bytes
+        else:
+            return self.uint_value == other.uint_value
+
+    def __hash__(self):
+        if self.uuid_bytes is not None:
+            return hash(('uuid', self.uuid_bytes))
+        else:
+            return hash(('uint', self.uint_value))
+
+    def __str__(self):
+        return self.to_string()
+
+    def __repr__(self):
+        if self.uuid_bytes is not None:
+            return f"MessageId::Uuid({self.to_string()})"
+        else:
+            return f"MessageId::Uint({self.to_string()})"
+
+    @classmethod
+    def default(cls) -> "MessageId":
+        """Create default MessageId (UUID)"""
+        return cls.new_uuid()
+
+
+DEFAULT_MAX_REORDER_BUFFER = 64
+
+# Default initial credit window per stream, in CHUNK frames.
+# A sender may emit this many CHUNKs per stream before it must wait for a
+# CREDIT grant. 32 chunks ~ 8 MiB at the default max_chunk (256 KiB).
+DEFAULT_INITIAL_CREDIT = 32
+
+@dataclass
+class Limits:
+    """Negotiated protocol limits"""
+    max_frame: int  # Maximum frame size in bytes
+    max_chunk: int  # Maximum chunk payload size in bytes
+    max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER  # Maximum reorder buffer slots
+    initial_credit: int = DEFAULT_INITIAL_CREDIT  # Initial per-stream credit window in CHUNK frames
+
+    @classmethod
+    def default(cls) -> "Limits":
+        """Create default limits"""
+        return cls(
+            max_frame=DEFAULT_MAX_FRAME,
+            max_chunk=DEFAULT_MAX_CHUNK,
+            max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
+            initial_credit=DEFAULT_INITIAL_CREDIT,
+        )
+
+
+def compute_checksum(data: bytes) -> int:
+    """Compute FNV-1a 64-bit checksum of bytes.
+
+    This is a simple, fast hash function suitable for detecting transmission errors.
+    """
+    FNV_OFFSET_BASIS = 0xcbf29ce484222325
+    FNV_PRIME = 0x100000001b3
+
+    hash_value = FNV_OFFSET_BASIS
+    for byte in data:
+        hash_value ^= byte
+        hash_value = (hash_value * FNV_PRIME) & 0xFFFFFFFFFFFFFFFF  # Keep 64-bit
+    return hash_value
+
+
+def verify_chunk_checksum(frame: "Frame") -> None:
+    """Verify a CHUNK frame's checksum matches its payload.
+
+    Raises:
+        ValueError: If checksum is missing or mismatched.
+    """
+    if frame.checksum is None:
+        raise ValueError("CHUNK frame missing required checksum field")
+    payload = frame.payload if frame.payload is not None else b""
+    expected = compute_checksum(payload)
+    if frame.checksum != expected:
+        raise ValueError(
+            f"CHUNK checksum mismatch: expected {expected}, got {frame.checksum} "
+            f"(payload {len(payload)} bytes)"
+        )
+
+
+class Frame:
+    """A CBOR protocol frame"""
+
+    def __init__(
+        self,
+        frame_type: FrameType,
+        id: MessageId,
+        version: int = PROTOCOL_VERSION,
+        seq: int = 0,
+        content_type: Optional[str] = None,
+        meta: Optional[Dict[str, Any]] = None,
+        payload: Optional[bytes] = None,
+        len: Optional[int] = None,
+        offset: Optional[int] = None,
+        eof: Optional[bool] = None,
+        cap: Optional[str] = None,
+        stream_id: Optional[str] = None,
+        media_urn: Optional[str] = None,
+        routing_id: Optional[MessageId] = None,
+        chunk_index: Optional[int] = None,
+        chunk_count: Optional[int] = None,
+        checksum: Optional[int] = None,
+        is_sequence: Optional[bool] = None,
+        force_kill: Optional[bool] = None,
+        credit: Optional[int] = None,
+        unbounded: Optional[bool] = None,
+    ):
+        """Create a new frame
+
+        Args:
+            frame_type: Type of frame
+            id: Message ID for correlation
+            version: Protocol version (always PROTOCOL_VERSION)
+            seq: Sequence number within a stream
+            content_type: Content type of payload (MIME-like)
+            meta: Metadata map
+            payload: Binary payload
+            len: Total length for chunked transfers (first chunk only)
+            offset: Byte offset in chunked stream
+            eof: End of stream marker
+            cap: Cap URN (for requests)
+            stream_id: Stream identifier for multiplexing
+            media_urn: Media URN for stream typing
+            routing_id: Routing ID assigned by RelaySwitch (separates logical ID from routing)
+            chunk_index: Chunk sequence index within stream (CHUNK frames only, starts at 0)
+            chunk_count: Total chunk count (STREAM_END frames only, by source's reckoning).
+                         Optional — unbounded streams make no length promise.
+            checksum: FNV-1a checksum of payload (CHUNK frames only)
+            is_sequence: Whether producer used emit_list_item (True) or write (False).
+                         Present on STREAM_START frames only. None means unknown (empty stream).
+            force_kill: Whether Cancel should force-kill the cartridge process (True) or
+                        cooperatively cancel (False). Present on CANCEL frames only.
+            credit: Flow-control credit grant in CHUNK units. Present on CREDIT frames only.
+            unbounded: Whether the stream makes no length promise (no chunk_count on
+                       STREAM_END, receivers must consume incrementally). Present on
+                       STREAM_START frames only.
+        """
+        self.version = version
+        self.frame_type = frame_type
+        self.id = id
+        self.seq = seq
+        self.content_type = content_type
+        self.meta = meta
+        self.payload = payload
+        self.len = len
+        self.offset = offset
+        self.eof = eof
+        self.cap = cap
+        self.stream_id = stream_id
+        self.media_urn = media_urn
+        self.routing_id = routing_id
+        self.chunk_index = chunk_index
+        self.chunk_count = chunk_count
+        self.checksum = checksum
+        self.is_sequence = is_sequence
+        self.force_kill = force_kill
+        self.credit = credit
+        self.unbounded = unbounded
+
+    @classmethod
+    def new(cls, frame_type: FrameType, id: MessageId) -> "Frame":
+        """Create a new frame with required fields"""
+        return cls(frame_type=frame_type, id=id)
+
+    @classmethod
+    def hello(
+        cls,
+        max_frame: int,
+        max_chunk: int,
+        max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
+    ) -> "Frame":
+        """Create a HELLO frame for handshake (host side - no manifest)"""
+        meta = {
+            "max_frame": max_frame,
+            "max_chunk": max_chunk,
+            "max_reorder_buffer": max_reorder_buffer,
+            "initial_credit": initial_credit,
+            "version": PROTOCOL_VERSION,
+            "handler_capacity": 0,
+        }
+        frame = cls.new(FrameType.HELLO, MessageId(0))
+        frame.meta = meta
+        return frame
+
+    @classmethod
+    def hello_with_manifest(
+        cls,
+        max_frame: int,
+        max_chunk: int,
+        manifest: bytes,
+        handler_capacity: int,
+        max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
+    ) -> "Frame":
+        """Create a HELLO frame for handshake with manifest (cartridge side)
+
+        The manifest is JSON-encoded cartridge metadata including name, version, and caps.
+        This is the ONLY way for cartridges to communicate their capabilities.
+        """
+        if not isinstance(handler_capacity, int) or isinstance(handler_capacity, bool) \
+                or handler_capacity < 0:
+            raise ValueError("handler_capacity must be a non-negative integer")
+        meta = {
+            "max_frame": max_frame,
+            "max_chunk": max_chunk,
+            "max_reorder_buffer": max_reorder_buffer,
+            "initial_credit": initial_credit,
+            "version": PROTOCOL_VERSION,
+            "manifest": manifest,
+            "handler_capacity": handler_capacity,
+        }
+        frame = cls.new(FrameType.HELLO, MessageId(0))
+        frame.meta = meta
+        return frame
+
+    @classmethod
+    def req(cls, id: MessageId, cap_urn: str, payload: bytes, content_type: str) -> "Frame":
+        """Create a REQ frame for invoking a cap"""
+        frame = cls.new(FrameType.REQ, id)
+        frame.cap = cap_urn
+        frame.payload = payload
+        frame.content_type = content_type
+        return frame
+
+    @classmethod
+    def chunk(cls, req_id: MessageId, stream_id: str, seq: int, payload: bytes, chunk_index: int, checksum: int) -> "Frame":
+        """Create a CHUNK frame for streaming (Protocol v2: stream_id required)"""
+        frame = cls.new(FrameType.CHUNK, req_id)
+        frame.stream_id = stream_id
+        frame.seq = seq
+        frame.payload = payload
+        frame.chunk_index = chunk_index
+        frame.checksum = checksum
+        return frame
+
+    @classmethod
+    def chunk_with_offset(
+        cls,
+        req_id: MessageId,
+        stream_id: str,
+        seq: int,
+        payload: bytes,
+        offset: int,
+        total_len: Optional[int],
+        is_last: bool,
+        chunk_index: int,
+        checksum: int,
+    ) -> "Frame":
+        """Create a CHUNK frame with offset info (Protocol v2: stream_id required).
+        Matches Rust Frame::chunk_with_offset signature exactly.
+        """
+        frame = cls.new(FrameType.CHUNK, req_id)
+        frame.stream_id = stream_id
+        frame.seq = seq
+        frame.payload = payload
+        frame.offset = offset
+        frame.chunk_index = chunk_index
+        frame.checksum = checksum
+        if chunk_index == 0:
+            frame.len = total_len
+        if is_last:
+            frame.eof = True
+        return frame
+
+    @classmethod
+    def end(cls, id: MessageId, final_payload: Optional[bytes] = None) -> "Frame":
+        """Create an END frame to mark stream completion.
+        Does NOT set exit_code — absence of exit_code in meta means failure.
+        Use end_ok for successful completion (exit_code=0).
+        """
+        frame = cls.new(FrameType.END, id)
+        frame.payload = final_payload
+        frame.eof = True
+        return frame
+
+    @classmethod
+    def end_ok(cls, id: MessageId, final_payload: Optional[bytes] = None) -> "Frame":
+        """Create an END frame with exit_code=0 (success).
+        Only exit_code=0 means success. Absence of exit_code or any non-zero value means failure.
+        """
+        frame = cls.new(FrameType.END, id)
+        frame.payload = final_payload
+        frame.eof = True
+        frame.meta = {"exit_code": 0}
+        return frame
+
+    def exit_code(self) -> Optional[int]:
+        """Read exit_code from an END frame's meta. Returns None if absent."""
+        if self.meta is None:
+            return None
+        val = self.meta.get("exit_code")
+        if isinstance(val, int):
+            return val
+        return None
+
+    @classmethod
+    def end_ok_with(
+        cls,
+        id: MessageId,
+        final_payload: Optional[bytes] = None,
+        progress: Optional[float] = None,
+        message: Optional[str] = None,
+    ) -> "Frame":
+        """Create an END frame with exit_code=0 (success) carrying terminal metadata.
+
+        `progress` is the authoritative final progress value delivered with the
+        terminal frame itself (so it can never race it); `message` is an optional
+        final status message. A successful END without an explicit progress reads
+        as 1.0 via `final_progress()`.
+        """
+        frame = cls.end_ok(id, final_payload)
+        meta = frame.meta if frame.meta is not None else {}
+        if progress is not None:
+            meta["progress"] = progress
+        if message is not None:
+            meta["message"] = message
+        frame.meta = meta
+        return frame
+
+    def final_progress(self) -> Optional[float]:
+        """Read the final progress from an END frame's terminal metadata.
+
+        Returns the explicit `progress` meta value when present; a successful END
+        (exit_code=0) without an explicit value reads as 1.0. Non-END frames and
+        unsuccessful ENDs without a value return None.
+        """
+        if self.frame_type != FrameType.END:
+            return None
+        explicit = None
+        if self.meta is not None:
+            val = self.meta.get("progress")
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                explicit = float(val)
+        if explicit is not None:
+            return explicit
+        if self.exit_code() == 0:
+            return 1.0
+        return None
+
+    def final_message(self) -> Optional[str]:
+        """Read the final status message from an END frame's terminal metadata."""
+        if self.frame_type != FrameType.END:
+            return None
+        if self.meta is None:
+            return None
+        message = self.meta.get("message")
+        return message if isinstance(message, str) else None
+
+    @classmethod
+    def cancel(cls, target_rid: MessageId, force_kill: bool) -> "Frame":
+        """Create a CANCEL frame targeting a specific request by RID.
+
+        Args:
+            target_rid: The request ID to cancel
+            force_kill: If True, force-kill the cartridge process. If False, cooperative cancel.
+        """
+        frame = cls.new(FrameType.CANCEL, target_rid)
+        frame.force_kill = force_kill
+        return frame
+
+    @classmethod
+    def log(
+        cls, id: MessageId, level: str, attribution_class: AttributionClass,
+        message: str, arg_urn: Optional[str] = None,
+    ) -> "Frame":
+        """Create an attributed non-progress LOG frame."""
+        if not isinstance(level, str) or not level.strip():
+            raise ValueError("Frame.log requires a non-empty level")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("Frame.log requires a non-empty message")
+        if level == "progress":
+            raise ValueError("Frame.log cannot create progress frames; use Frame.progress")
+        if arg_urn is not None and (not isinstance(arg_urn, str) or not arg_urn):
+            raise ValueError("Frame.log arg_urn must be non-empty when present")
+        meta = {
+            "level": level,
+            "attribution_class": attribution_class.as_str(),
+            "message": message,
+        }
+        if arg_urn is not None:
+            meta["arg_urn"] = arg_urn
+        frame = cls.new(FrameType.LOG, id)
+        frame.meta = meta
+        return frame
+
+    @classmethod
+    def progress(cls, id: MessageId, progress: float, message: str) -> "Frame":
+        """Create a LOG frame with progress (0.0-1.0) and a human-readable status message.
+
+        Uses level="progress" with an additional "progress" key in metadata.
+        """
+        meta = {
+            "level": "progress",
+            "message": message,
+            "progress": progress,
+        }
+        frame = cls.new(FrameType.LOG, id)
+        frame.meta = meta
+        return frame
+
+    @classmethod
+    def err(
+        cls, id: MessageId, code: str, attribution_class: AttributionClass, message: str,
+        arg_urn: Optional[str] = None,
+    ) -> "Frame":
+        """Create an ERR frame carrying the full failure identity: the
+        emitter's machine-readable `code` (e.g. `CONTEXT_OVERFLOW`), the
+        failure CLASS (whose problem it is — declared at the error's
+        definition site, see `AttributionClass`), the human message, and — when
+        the failure is attributed to a specific argument at the emit source —
+        the media URN of that argument. ERR meta contract (docs/12.2 +
+        docs/failure-taxonomy.md): `code` + `attribution_class` + `message`, all text,
+        plus an OPTIONAL `arg_urn` entry that is ABSENT when there is no
+        attribution (never an empty string)."""
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError("Frame.err requires a non-empty code")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("Frame.err requires a non-empty message")
+        if arg_urn is not None and (not isinstance(arg_urn, str) or not arg_urn):
+            raise ValueError("Frame.err arg_urn must be non-empty when present")
+        meta = {
+            "code": code,
+            "attribution_class": attribution_class.as_str(),
+            "message": message,
+        }
+        if arg_urn is not None:
+            meta["arg_urn"] = arg_urn
+        frame = cls.new(FrameType.ERR, id)
+        frame.meta = meta
+        return frame
+
+    @classmethod
+    def heartbeat(cls, id: MessageId) -> "Frame":
+        """Create a HEARTBEAT frame for health monitoring
+
+        Either side can send; receiver must respond with HEARTBEAT using the same ID.
+        """
+        return cls.new(FrameType.HEARTBEAT, id)
+
+    @classmethod
+    def stream_start(cls, req_id: MessageId, stream_id: str, media_urn: str, is_sequence: Optional[bool] = None) -> "Frame":
+        """Create a STREAM_START frame to announce a new stream within a request.
+        Used for multiplexed streaming - multiple streams can exist per request.
+
+        Args:
+            req_id: Request message ID this stream belongs to
+            stream_id: Unique identifier for this stream within the request
+            media_urn: Media URN describing the stream's content type
+            is_sequence: Whether the producer uses emit_list_item (True) or write (False);
+                         None if unknown (e.g. empty stream).
+        """
+        frame = cls.new(FrameType.STREAM_START, req_id)
+        frame.stream_id = stream_id
+        frame.media_urn = media_urn
+        frame.is_sequence = is_sequence
+        return frame
+
+    @classmethod
+    def stream_start_unbounded(
+        cls,
+        req_id: MessageId,
+        stream_id: str,
+        media_urn: str,
+        is_sequence: Optional[bool] = None,
+    ) -> "Frame":
+        """Create a STREAM_START frame for an UNBOUNDED stream — one that makes no
+        length promise. Its STREAM_END may omit chunk_count, and receivers must
+        consume it incrementally (never buffer to completion).
+        """
+        frame = cls.stream_start(req_id, stream_id, media_urn, is_sequence)
+        frame.unbounded = True
+        return frame
+
+    def is_unbounded(self) -> bool:
+        """Whether this STREAM_START announces an unbounded stream.
+        Absent flag means bounded.
+        """
+        return self.unbounded is True
+
+    @classmethod
+    def stream_end(cls, req_id: MessageId, stream_id: str, chunk_count: int) -> "Frame":
+        """Create a STREAM_END frame to mark completion of a specific stream.
+        After this, any CHUNK for this stream_id is a fatal protocol error.
+
+        Args:
+            req_id: Request message ID this stream belongs to
+            stream_id: Identifier of the stream that is ending
+            chunk_count: Total number of chunks sent in this stream (by source's reckoning)
+        """
+        frame = cls.new(FrameType.STREAM_END, req_id)
+        frame.stream_id = stream_id
+        frame.chunk_count = chunk_count
+        return frame
+
+    @classmethod
+    def stream_end_unbounded(cls, req_id: MessageId, stream_id: str) -> "Frame":
+        """Create a STREAM_END frame for an unbounded stream — no chunk_count promise.
+        Valid only for streams announced with `stream_start_unbounded`.
+        """
+        frame = cls.new(FrameType.STREAM_END, req_id)
+        frame.stream_id = stream_id
+        return frame
+
+    @classmethod
+    def relay_notify(
+        cls,
+        manifest: bytes,
+        max_frame: int,
+        max_chunk: int,
+        max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER,
+        initial_credit: int = DEFAULT_INITIAL_CREDIT,
+    ) -> "Frame":
+        """Create a RELAY_NOTIFY frame for capability advertisement (slave → master).
+
+        Args:
+            manifest: Aggregate manifest bytes (JSON-encoded list of all cartridge caps)
+            max_frame: Maximum frame size for the relay connection
+            max_chunk: Maximum chunk size for the relay connection
+            max_reorder_buffer: Maximum reorder buffer slots
+            initial_credit: Initial per-stream credit window in CHUNK frames
+        """
+        frame = cls.new(FrameType.RELAY_NOTIFY, MessageId(0))
+        frame.meta = {
+            "manifest": manifest,
+            "max_frame": max_frame,
+            "max_chunk": max_chunk,
+            "max_reorder_buffer": max_reorder_buffer,
+            "initial_credit": initial_credit,
+        }
+        return frame
+
+    @classmethod
+    def relay_state(cls, resources: bytes) -> "Frame":
+        """Create a RELAY_STATE frame for host system resources + cap demands (master → slave).
+
+        Args:
+            resources: Opaque resource payload (CBOR or JSON encoded by the host)
+        """
+        frame = cls.new(FrameType.RELAY_STATE, MessageId(0))
+        frame.payload = resources
+        return frame
+
+    @classmethod
+    def credit(
+        cls,
+        target_rid: MessageId,
+        stream_id: Optional[str],
+        credits: int,
+        direction: "CreditDirection",
+    ) -> "Frame":
+        """Create a CREDIT frame granting per-stream flow-control credit to the
+        sender of a stream.
+
+        Args:
+            target_rid: The request whose stream is being credited
+            stream_id: The stream being credited (None credits the request's
+                       sole/default stream)
+            credits: Number of additional CHUNK frames the sender may emit
+            direction: Which side's stream is being credited. Hosts route
+                       grants by this: a REQUEST grant travels toward the
+                       requester (the sender of argument streams), a RESPONSE
+                       grant toward the handler (the sender of output streams).
+                       Required — the (xid, rid) key alone is ambiguous for
+                       self-loop peer calls.
+        """
+        frame = cls.new(FrameType.CREDIT, target_rid)
+        frame.stream_id = stream_id
+        frame.credit = credits
+        frame.meta = {"credit_dir": direction.as_str()}
+        return frame
+
+    def credit_count(self) -> Optional[int]:
+        """Read the credit grant from a CREDIT frame. None for other frame types."""
+        if self.frame_type != FrameType.CREDIT:
+            return None
+        return self.credit
+
+    def credit_direction(self) -> Optional["CreditDirection"]:
+        """Read the direction of a CREDIT frame's grant. None for other frame
+        types or a CREDIT frame without the mandatory direction (a protocol
+        violation the receiving router treats as unroutable)."""
+        if self.frame_type != FrameType.CREDIT:
+            return None
+        if self.meta is None:
+            return None
+        raw = self.meta.get("credit_dir")
+        if not isinstance(raw, str):
+            return None
+        return CreditDirection.from_str_name(raw)
+
+    def relay_notify_manifest(self) -> Optional[bytes]:
+        """Extract manifest from RelayNotify metadata.
+        Returns None if not a RelayNotify frame or no manifest present."""
+        if self.frame_type != FrameType.RELAY_NOTIFY:
+            return None
+        if self.meta is None:
+            return None
+        manifest = self.meta.get("manifest")
+        if isinstance(manifest, bytes):
+            return manifest
+        return None
+
+    def relay_notify_limits(self) -> Optional["Limits"]:
+        """Extract limits from RelayNotify metadata.
+        Returns None if not a RelayNotify frame or limits are missing."""
+        if self.frame_type != FrameType.RELAY_NOTIFY:
+            return None
+        if self.meta is None:
+            return None
+        max_frame = self.meta.get("max_frame")
+        max_chunk = self.meta.get("max_chunk")
+        if not isinstance(max_frame, int) or not isinstance(max_chunk, int):
+            return None
+        if max_frame <= 0 or max_chunk <= 0:
+            return None
+        max_reorder_buffer = self.meta.get("max_reorder_buffer")
+        if not isinstance(max_reorder_buffer, int) or max_reorder_buffer <= 0:
+            max_reorder_buffer = DEFAULT_MAX_REORDER_BUFFER
+        initial_credit = self.meta.get("initial_credit")
+        if not isinstance(initial_credit, int) or initial_credit <= 0:
+            initial_credit = DEFAULT_INITIAL_CREDIT
+        return Limits(
+            max_frame=max_frame,
+            max_chunk=max_chunk,
+            max_reorder_buffer=max_reorder_buffer,
+            initial_credit=initial_credit,
+        )
+
+    def is_eof(self) -> bool:
+        """Check if this is the final frame in a stream"""
+        return self.eof is True
+
+    def is_flow_frame(self) -> bool:
+        """Return True if this frame type participates in flow ordering (seq tracking).
+        Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState, Cancel, Credit) bypass
+        seq assignment and reorder buffers entirely — Credit in particular must never queue
+        behind the data it is flow-controlling.
+        (matches Rust Frame::is_flow_frame and Go Frame.IsFlowFrame)
+        """
+        return self.frame_type not in (
+            FrameType.HELLO,
+            FrameType.HEARTBEAT,
+            FrameType.RELAY_NOTIFY,
+            FrameType.RELAY_STATE,
+            FrameType.CANCEL,
+            FrameType.CREDIT,
+        )
+
+    def error_code(self) -> Optional[str]:
+        """Get error code if this is an ERR frame"""
+        if self.frame_type != FrameType.ERR:
+            return None
+        if self.meta is None:
+            return None
+        code = self.meta.get("code")
+        return code if isinstance(code, str) else None
+
+    def attribution_class(self) -> "AttributionClass":
+        """Parse mandatory attribution on ERR and non-progress LOG frames."""
+        attributed_log = self.frame_type == FrameType.LOG and self.log_level() != "progress"
+        if self.frame_type != FrameType.ERR and not attributed_log:
+            raise ValueError(f"{self.frame_type.name} frames do not carry attribution")
+        raw = self.meta.get("attribution_class") if self.meta is not None else None
+        if not isinstance(raw, str):
+            raise ValueError("frame missing required text attribution_class")
+        parsed = AttributionClass.from_wire(raw)
+        if parsed is None:
+            raise ValueError(f"unknown attribution_class '{raw}'")
+        return parsed
+
+    def attribution_arg_urn(self) -> Optional[str]:
+        """Return strict source-declared argument attribution for a diagnostic."""
+        attributed_log = self.frame_type == FrameType.LOG and self.log_level() != "progress"
+        if self.frame_type != FrameType.ERR and not attributed_log:
+            raise ValueError(f"{self.frame_type.name} frames do not carry diagnostic argument attribution")
+        if self.meta is None or "arg_urn" not in self.meta:
+            return None
+        urn = self.meta.get("arg_urn")
+        if not isinstance(urn, str):
+            raise ValueError("diagnostic arg_urn must be text when present")
+        if not urn.strip():
+            raise ValueError("diagnostic arg_urn must not be empty")
+        return urn
+
+    def error_message(self) -> Optional[str]:
+        """Get error message if this is an ERR frame"""
+        if self.frame_type != FrameType.ERR:
+            return None
+        if self.meta is None:
+            return None
+        message = self.meta.get("message")
+        return message if isinstance(message, str) else None
+
+    def log_level(self) -> Optional[str]:
+        """Get log level if this is a LOG frame"""
+        if self.frame_type != FrameType.LOG:
+            return None
+        if self.meta is None:
+            return None
+        level = self.meta.get("level")
+        return level if isinstance(level, str) else None
+
+    def log_message(self) -> Optional[str]:
+        """Get log message if this is a LOG frame"""
+        if self.frame_type != FrameType.LOG:
+            return None
+        if self.meta is None:
+            return None
+        message = self.meta.get("message")
+        return message if isinstance(message, str) else None
+
+    def log_progress_slot_description(self) -> str:
+        """Describe what the frame's `progress` meta slot actually holds, for an
+        error message that has to explain why `log_progress` could not read it.
+
+        "Absent" and "a text value" are different defects in the PEER, and an
+        error that cannot tell them apart forces whoever reads it to reproduce
+        the failure to learn which. Mirrors the reference's
+        `Frame::log_progress_slot_description`.
+        """
+        if self.meta is None:
+            return "absent (frame carries no meta)"
+        if "progress" not in self.meta:
+            return "absent"
+        value = self.meta["progress"]
+        if isinstance(value, bool):
+            return "a boolean"
+        if isinstance(value, str):
+            return "a text value"
+        if isinstance(value, (bytes, bytearray)):
+            return "a byte string"
+        if value is None:
+            return "null"
+        if isinstance(value, (list, tuple)):
+            return "an array"
+        if isinstance(value, dict):
+            return "a map"
+        if isinstance(value, float):
+            return "a float (readable — not this error)"
+        if isinstance(value, int):
+            return "an integer (readable — not this error)"
+        return "an unrecognized CBOR type"
+
+    def log_progress(self) -> Optional[float]:
+        """Get progress value (0.0-1.0) if this is a LOG frame with level="progress"."""
+        if self.frame_type != FrameType.LOG:
+            return None
+        if self.meta is None:
+            return None
+        level = self.meta.get("level")
+        if level != "progress":
+            return None
+        progress = self.meta.get("progress")
+        if isinstance(progress, (int, float)):
+            return float(progress)
+        return None
+
+    def hello_max_frame(self) -> Optional[int]:
+        """Extract max_frame from HELLO metadata"""
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        max_frame = self.meta.get("max_frame")
+        if isinstance(max_frame, int) and max_frame > 0:
+            return max_frame
+        return None
+
+    def hello_max_chunk(self) -> Optional[int]:
+        """Extract max_chunk from HELLO metadata"""
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        max_chunk = self.meta.get("max_chunk")
+        if isinstance(max_chunk, int) and max_chunk > 0:
+            return max_chunk
+        return None
+
+    def hello_max_reorder_buffer(self) -> Optional[int]:
+        """Extract max_reorder_buffer from HELLO metadata"""
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        val = self.meta.get("max_reorder_buffer")
+        if isinstance(val, int) and val > 0:
+            return val
+        return None
+
+    def hello_initial_credit(self) -> Optional[int]:
+        """Extract initial_credit from HELLO metadata"""
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        val = self.meta.get("initial_credit")
+        if isinstance(val, int) and val > 0:
+            return val
+        return None
+
+    def hello_handler_capacity(self) -> Optional[int]:
+        """Extract the required non-negative handler capacity."""
+        if self.frame_type != FrameType.HELLO or self.meta is None:
+            return None
+        val = self.meta.get("handler_capacity")
+        if isinstance(val, int) and val >= 0:
+            return val
+        return None
+
+    def hello_version(self) -> Optional[int]:
+        """Extract the protocol version declared in HELLO metadata."""
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        val = self.meta.get("version")
+        if isinstance(val, int):
+            return val
+        return None
+
+    def hello_manifest(self) -> Optional[bytes]:
+        """Extract manifest from HELLO metadata (cartridge side sends this)
+
+        Returns None if no manifest present (host HELLO) or not a HELLO frame.
+        The manifest is JSON-encoded cartridge metadata.
+        """
+        if self.frame_type != FrameType.HELLO:
+            return None
+        if self.meta is None:
+            return None
+        manifest = self.meta.get("manifest")
+        if isinstance(manifest, bytes):
+            return manifest
+        return None
+
+    @classmethod
+    def default(cls) -> "Frame":
+        """Create default frame (REQ with UUID)"""
+        return cls.new(FrameType.REQ, MessageId.default())
+
+
+# Integer keys for CBOR map fields
+class Keys:
+    """Integer keys for CBOR map fields"""
+    VERSION = 0
+    FRAME_TYPE = 1
+    ID = 2
+    SEQ = 3
+    CONTENT_TYPE = 4
+    META = 5
+    PAYLOAD = 6
+    LEN = 7
+    OFFSET = 8
+    EOF = 9
+    CAP = 10
+    STREAM_ID = 11
+    MEDIA_URN = 12
+    ROUTING_ID = 13
+    INDEX = 14
+    CHUNK_COUNT = 15
+    CHECKSUM = 16
+    IS_SEQUENCE = 17    # Whether producer used emit_list_item (True) or write (False)
+    FORCE_KILL = 18     # Whether Cancel should force-kill the cartridge process
+    CREDIT = 19         # Flow-control credit grant in CHUNK units (CREDIT frames)
+    UNBOUNDED = 20      # Stream makes no length promise (STREAM_START frames)
+
+
+# =============================================================================
+# FLOW KEY — Composite key for frame ordering (RID + optional XID)
+# =============================================================================
+
+class FlowKey:
+    """Composite key identifying a frame flow for seq ordering.
+    Absence of XID (routing_id) is a valid separate flow from presence of XID.
+    (matches Rust FlowKey and Go FlowKey)
+    """
+    __slots__ = ("_rid", "_xid")
+
+    def __init__(self, rid: str, xid: str):
+        self._rid = rid
+        self._xid = xid
+
+    @classmethod
+    def from_frame(cls, frame: "Frame") -> "FlowKey":
+        """Extract a FlowKey from a frame."""
+        rid = frame.id.to_string()
+        xid = frame.routing_id.to_string() if frame.routing_id is not None else ""
+        return cls(rid, xid)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FlowKey):
+            return NotImplemented
+        return self._rid == other._rid and self._xid == other._xid
+
+    def __hash__(self) -> int:
+        return hash((self._rid, self._xid))
+
+    def __repr__(self) -> str:
+        return f"FlowKey(rid={self._rid!r}, xid={self._xid!r})"
+
+
+# =============================================================================
+# SEQ ASSIGNER — Centralized seq assignment at output stages
+# =============================================================================
+
+class SeqAssigner:
+    """Assigns monotonically increasing seq numbers per FlowKey (RID + optional XID).
+    Used at output stages (writer threads) to ensure each flow's frames
+    carry a contiguous, gap-free seq sequence starting at 0.
+    Non-flow frames (Hello, Heartbeat, RelayNotify, RelayState) are skipped.
+    (matches Rust SeqAssigner and Go SeqAssigner)
+    """
+
+    def __init__(self):
+        self._counters: dict = {}
+
+    def assign(self, frame: "Frame") -> None:
+        """Assign the next seq number to a frame.
+        Non-flow frames are left unchanged (seq stays 0).
+        """
+        if not frame.is_flow_frame():
+            return
+        key = FlowKey.from_frame(frame)
+        counter = self._counters.get(key, 0)
+        frame.seq = counter
+        self._counters[key] = counter + 1
+
+    def remove(self, key: FlowKey) -> None:
+        """Remove tracking for a flow (call after END/ERR delivery)."""
+        self._counters.pop(key, None)
+
+
+# =============================================================================
+# REORDER BUFFER — Per-flow frame reordering at relay boundaries
+# =============================================================================
+
+
+class _FlowState:
+    """Per-flow state for the reorder buffer."""
+    __slots__ = ("expected_seq", "buffer")
+
+    def __init__(self):
+        self.expected_seq: int = 0
+        self.buffer: dict[int, "Frame"] = {}
+
+
+class ReorderBuffer:
+    """Reorder buffer for validating and reordering frames at relay boundaries.
+    Keyed by FlowKey (RID + optional XID). Each flow tracks expected seq
+    and buffers out-of-order frames until gaps are filled.
+
+    Protocol errors:
+    - Stale/duplicate seq (frame.seq < expected_seq)
+    - Buffer overflow (buffered frames exceed max_buffer_per_flow)
+
+    (matches Rust ReorderBuffer)
+    """
+
+    def __init__(self, max_buffer_per_flow: int):
+        self._flows: dict[FlowKey, _FlowState] = {}
+        self._max_buffer_per_flow = max_buffer_per_flow
+
+    def accept(self, frame: "Frame") -> list["Frame"]:
+        """Accept a frame into the reorder buffer.
+        Returns a list of frames ready for delivery (in seq order).
+        Non-flow frames bypass reordering and are returned immediately.
+
+        Raises:
+            ProtocolError: If stale/duplicate seq or buffer overflow.
+        """
+        from capdag.bifaci.io import ProtocolError
+
+        if not frame.is_flow_frame():
+            return [frame]
+
+        key = FlowKey.from_frame(frame)
+        if key not in self._flows:
+            self._flows[key] = _FlowState()
+        state = self._flows[key]
+
+        if frame.seq == state.expected_seq:
+            # In-order: deliver this frame + drain consecutive buffered frames
+            ready = [frame]
+            state.expected_seq += 1
+            while state.expected_seq in state.buffer:
+                ready.append(state.buffer.pop(state.expected_seq))
+                state.expected_seq += 1
+            return ready
+        elif frame.seq > state.expected_seq:
+            # Out-of-order: buffer it
+            if frame.seq in state.buffer:
+                raise ProtocolError(
+                    f"stale/duplicate seq: seq {frame.seq} already buffered "
+                    f"(expected >= {state.expected_seq})"
+                )
+            if len(state.buffer) >= self._max_buffer_per_flow:
+                raise ProtocolError(
+                    f"reorder buffer overflow: flow has {len(state.buffer)} "
+                    f"buffered frames (max {self._max_buffer_per_flow}), "
+                    f"expected seq {state.expected_seq} but got seq {frame.seq}"
+                )
+            state.buffer[frame.seq] = frame
+            return []
+        else:
+            # Stale or duplicate
+            raise ProtocolError(
+                f"stale/duplicate seq: expected >= {state.expected_seq} "
+                f"but got {frame.seq}"
+            )
+
+    def cleanup_flow(self, key: FlowKey) -> None:
+        """Remove flow state after terminal frame delivery (END/ERR)."""
+        self._flows.pop(key, None)
+
+
+# =============================================================================
+# DROP REASON — Why a frame was dropped instead of written (L8 observability)
+# =============================================================================
+
+class DropReason(str, Enum):
+    """Reason a frame was dropped instead of delivered/written.
+
+    Every dropped frame anywhere in a bifaci runtime (writer thread, relay,
+    executor) increments exactly one of these counters, observable via the
+    protocol stats snapshots. Frames are never dropped silently.
+
+    A DROP means something went wrong. The benign teardown crossing — a
+    flow frame that arrives after its request's terminal, which the
+    protocol expects (in-flight frames legally race END/ERR, L13) — is NOT
+    a drop and has no reason here: it is counted as a post-terminal
+    STRAGGLER (``StragglerCounters`` in stats.py), indicated as benign in
+    every stats surface.
+
+    The value is the stable snake_case name — the wire/snapshot contract
+    mirrored from the Rust reference.
+    """
+    NO_ROUTE = "no_route"  # Flow frame for a request with no routing state (never registered, or released for a reason the terminated-ledger cannot vouch for).
+    CHANNEL_CLOSED = "channel_closed"  # Send attempted on a closed channel (receiver gone).
+    CREDIT_VIOLATION = "credit_violation"  # CHUNK received beyond the granted credit window.
+    CANCELLED = "cancelled"  # Frame discarded because its request was cancelled.
+    MASTER_DIED = "master_died"  # Frame discarded because the owning master/host connection died.
+
+    @classmethod
+    def all(cls) -> tuple:
+        """All variants, for counter arrays and snapshot serialization."""
+        return (
+            cls.NO_ROUTE,
+            cls.CHANNEL_CLOSED,
+            cls.CREDIT_VIOLATION,
+            cls.CANCELLED,
+            cls.MASTER_DIED,
+        )
+
+    def as_str(self) -> str:
+        """Stable snake_case name (the wire/snapshot contract for mirrors)."""
+        return self.value
