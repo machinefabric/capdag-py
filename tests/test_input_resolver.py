@@ -483,6 +483,27 @@ def test_1276_register_non_conflicting(tmp_path: Path):
     assert registry.has_adapter_for_extension("json")
 
 
+# TEST1478: exact re-registration is idempotent — the SAME cartridge
+# re-registering the SAME group with the SAME adapter URNs (a cartridge
+# attached through two hosting routes, e.g. app-bundled AND system-installed)
+# is a no-op, not a self-conflict and not duplicate rows. A DIFFERENT
+# cartridge claiming the same URN stays rejected.
+def test_1478_exact_reregistration_is_idempotent(tmp_path: Path):
+    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
+    urns = ["media:fmt=json", "media:fmt=yaml"]
+    registry.register_cap_group("text-formats", urns, "txtcartridge")
+    registry.register_cap_group("text-formats", urns, "txtcartridge")
+    assert len(registry._registered_adapters) == 2, "re-registration must not duplicate rows"
+
+    # A partially-new group from the same owner registers only the new URN.
+    registry.register_cap_group("text-formats", ["media:fmt=json", "media:fmt=toml"], "txtcartridge")
+    assert len(registry._registered_adapters) == 3
+
+    # Another cartridge claiming an identical URN is still ambiguity.
+    with pytest.raises(Exception):
+        registry.register_cap_group("text-formats", ["media:fmt=json"], "other")
+
+
 # TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
 def test_1277_reject_conforming_overlap(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
