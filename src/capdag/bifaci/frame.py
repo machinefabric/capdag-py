@@ -449,7 +449,6 @@ class Frame:
             "max_reorder_buffer": max_reorder_buffer,
             "initial_credit": initial_credit,
             "version": PROTOCOL_VERSION,
-            "handler_capacity": 0,
         }
         frame = cls.new(FrameType.HELLO, MessageId(0))
         frame.meta = meta
@@ -461,18 +460,18 @@ class Frame:
         max_frame: int,
         max_chunk: int,
         manifest: bytes,
-        handler_capacity: int,
+        pool_states: "PoolStates",
         max_reorder_buffer: int = DEFAULT_MAX_REORDER_BUFFER,
         initial_credit: int = DEFAULT_INITIAL_CREDIT,
     ) -> "Frame":
-        """Create a HELLO frame for handshake with manifest (cartridge side)
+        """Create a HELLO frame for handshake with manifest (cartridge side).
 
-        The manifest is JSON-encoded cartridge metadata including name, version, and caps.
-        This is the ONLY way for cartridges to communicate their capabilities.
+        The manifest is JSON-encoded cartridge metadata including name,
+        version, and caps. ``pool_states`` is the cartridge's mandatory
+        concurrency-pool state map (see ``bifaci.pools``).
         """
-        if not isinstance(handler_capacity, int) or isinstance(handler_capacity, bool) \
-                or handler_capacity < 0:
-            raise ValueError("handler_capacity must be a non-negative integer")
+        from capdag.bifaci.pools import META_POOLS, encode_pool_states
+
         meta = {
             "max_frame": max_frame,
             "max_chunk": max_chunk,
@@ -480,10 +479,23 @@ class Frame:
             "initial_credit": initial_credit,
             "version": PROTOCOL_VERSION,
             "manifest": manifest,
-            "handler_capacity": handler_capacity,
+            META_POOLS: encode_pool_states(pool_states),
         }
         frame = cls.new(FrameType.HELLO, MessageId(0))
         frame.meta = meta
+        return frame
+
+    @classmethod
+    def heartbeat_with_desired(
+        cls, id: "MessageId", desired: "DesiredCapacities"
+    ) -> "Frame":
+        """A heartbeat PROBE carrying the operator's desired ``configured``
+        values (host→cartridge). The plain probe is ``Frame.heartbeat``.
+        (matches Rust Frame::heartbeat_with_desired)"""
+        from capdag.bifaci.pools import META_DESIRED_CAPACITIES, encode_desired
+
+        frame = cls.heartbeat(id)
+        frame.meta = {META_DESIRED_CAPACITIES: encode_desired(desired)}
         return frame
 
     @classmethod
@@ -1072,14 +1084,29 @@ class Frame:
             return val
         return None
 
-    def hello_handler_capacity(self) -> Optional[int]:
-        """Extract the required non-negative handler capacity."""
-        if self.frame_type != FrameType.HELLO or self.meta is None:
+    def pool_state_bytes(self) -> Optional[bytes]:
+        """Extract the JSON-encoded pool-state map carried in this frame's
+        meta — present on the cartridge's HELLO and on every heartbeat
+        reply. ``None`` when the frame carries no map; decoding is the
+        caller's boundary and fails hard there. (matches Rust
+        Frame::pool_state_bytes)"""
+        from capdag.bifaci.pools import META_POOLS
+
+        if self.meta is None:
             return None
-        val = self.meta.get("handler_capacity")
-        if isinstance(val, int) and val >= 0:
-            return val
-        return None
+        val = self.meta.get(META_POOLS)
+        return val if isinstance(val, (bytes, bytearray)) else None
+
+    def desired_capacity_bytes(self) -> Optional[bytes]:
+        """Extract the JSON-encoded desired-capacities map from a heartbeat
+        PROBE's meta — the host delivering operator ``configured`` values.
+        (matches Rust Frame::desired_capacity_bytes)"""
+        from capdag.bifaci.pools import META_DESIRED_CAPACITIES
+
+        if self.frame_type != FrameType.HEARTBEAT or self.meta is None:
+            return None
+        val = self.meta.get(META_DESIRED_CAPACITIES)
+        return val if isinstance(val, (bytes, bytearray)) else None
 
     def hello_version(self) -> Optional[int]:
         """Extract the protocol version declared in HELLO metadata."""

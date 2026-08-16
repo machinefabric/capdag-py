@@ -48,7 +48,7 @@ from capdag.bifaci.cartridge_runtime import (
     OpFactory,
     GatedWrite,
     write_gated,
-    CapacityHandle,
+    RuntimePools,
     demux_peer_response,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
@@ -3271,24 +3271,121 @@ def test_end_defaults_to_progress_one_without_finish():
 
 
 # -----------------------------------------------------------------------
-# CapacityHandle (set_capacity/queue) — no dedicated numbered Rust unit
-# test in this diff (capacity queueing is exercised at the E2E/interop
-# level); covered here at the unit level.
+# Concurrency pools (see ``bifaci.pools``) — the runtime's admission
+# substrate, shared-range TEST numbers with the Rust reference.
 # -----------------------------------------------------------------------
 
-def test_capacity_handle_get_set():
-    handle = CapacityHandle(0)
-    assert handle.get() == 0
-    handle.set(3)
-    assert handle.get() == 3
+POOL_CAP_A = "cap:pool-a"
+POOL_CAP_B = "cap:pool-b"
 
 
-def test_cartridge_runtime_set_capacity_and_handle_share_state():
-    runtime = CartridgeRuntime(VALID_MANIFEST.encode('utf-8'))
-    handle = runtime.capacity_handle()
-    assert handle.get() == 0
-    runtime.set_capacity(2)
-    assert handle.get() == 2, "capacity_handle() shares live state with set_capacity()"
+def _pool_declarations(pools=None, capacities=None):
+    from capdag.bifaci.pools import PoolDeclarations
+
+    return PoolDeclarations(pools=pools or {}, capacities=capacities or {})
+
+
+# TEST1527: RuntimePools materializes one singleton per registered pattern,
+# every declared shared pool, and `all` — and a declaration referencing a
+# cap no handler serves is a hard cartridge-author error, never a silently
+# ignored name.
+def test_1527_runtime_pools_materialization_and_declaration_resolution():
+    import pytest
+
+    pools = RuntimePools(
+        [POOL_CAP_A, POOL_CAP_B],
+        _pool_declarations({"gpu": [POOL_CAP_A, POOL_CAP_B]}, {"gpu": 1}),
+    )
+    snapshot = pools.snapshot()
+    assert len(snapshot) == 4, "two singletons + gpu + all"
+    assert snapshot["gpu"].declared == 1
+    assert len(snapshot["gpu"].caps) == 2
+    assert snapshot["all"].caps == [POOL_CAP_A, POOL_CAP_B]
+    assert pools.chain(POOL_CAP_A) == [POOL_CAP_A, "gpu", "all"]
+
+    with pytest.raises(ValueError, match="cap:ghost"):
+        RuntimePools([POOL_CAP_A], _pool_declarations({"gpu": ["cap:ghost"]}))
+
+
+# TEST1528: singleton queues are ISOLATED — saturating one cap queues its
+# requests without touching a sibling cap's admission, and a release admits
+# the queued request.
+def test_1528_singleton_queue_isolation():
+    pools = RuntimePools(
+        [POOL_CAP_A, POOL_CAP_B], _pool_declarations(None, {POOL_CAP_A: 1})
+    )
+    assert pools.try_admit(POOL_CAP_A), "first dispatch admits"
+    assert not pools.try_admit(POOL_CAP_A), "singleton capacity 1 is full"
+    assert pools.enqueue(POOL_CAP_A, "req-a") == 1, "queue position is 1-based"
+    assert pools.try_admit(POOL_CAP_B), "a saturated sibling must not block this cap"
+    assert pools.pop_admissible() is None, "nothing admissible while the singleton is full"
+    pools.release(POOL_CAP_A)
+    admitted = pools.pop_admissible()
+    assert admitted is not None, "the release must admit the queued request"
+    assert admitted[0] == POOL_CAP_A
+
+
+# TEST1529: admission across a shared pool's members on release is
+# arrival-ordered by the GLOBAL ticket — never cap-biased.
+def test_1529_shared_pool_release_admits_in_global_arrival_order():
+    pools = RuntimePools(
+        [POOL_CAP_A, POOL_CAP_B],
+        _pool_declarations({"gpu": [POOL_CAP_A, POOL_CAP_B]}, {"gpu": 1}),
+    )
+    assert pools.try_admit(POOL_CAP_A), "gpu slot taken"
+    # B arrives before A — the global ticket must remember that even though
+    # "cap:pool-a" sorts first.
+    pools.enqueue(POOL_CAP_B, "req-b")
+    pools.enqueue(POOL_CAP_A, "req-a")
+    pools.release(POOL_CAP_A)
+    first = pools.pop_admissible()
+    assert first is not None and first[0] == POOL_CAP_B, "arrival order, not cap order"
+    assert pools.pop_admissible() is None, "gpu capacity 1 admits exactly one"
+
+
+# TEST1530: the operator's desired batch applies atomically — one unknown
+# pool refuses the WHOLE batch (nothing half-applied), a valid batch
+# rewrites `configured` and admission follows immediately.
+def test_1530_apply_desired_is_atomic_and_immediate():
+    import pytest
+
+    pools = RuntimePools([POOL_CAP_A], _pool_declarations(None, {POOL_CAP_A: 1}))
+    with pytest.raises(ValueError, match="ghost"):
+        pools.apply_desired({POOL_CAP_A: 3, "ghost": 1})
+    assert pools.snapshot()[POOL_CAP_A].configured == 1, "a refused batch applies NOTHING"
+
+    pools.apply_desired({POOL_CAP_A: 2})
+    assert pools.try_admit(POOL_CAP_A)
+    assert pools.try_admit(POOL_CAP_A), "raise admits immediately"
+    assert not pools.try_admit(POOL_CAP_A), "raised bound still bounds"
+
+
+# TEST1531: `available` is the cartridge's self-report — effective =
+# min(configured, available) — and the snapshot counts a waiter on its own
+# singleton AND on every chain pool actually blocking it.
+def test_1531_available_self_report_and_snapshot_queued_attribution():
+    import pytest
+
+    pools = RuntimePools(
+        [POOL_CAP_A, POOL_CAP_B],
+        _pool_declarations({"gpu": [POOL_CAP_A, POOL_CAP_B]}, {"gpu": 2}),
+    )
+    # Self-limit gpu to 1 (model loading): effective = min(2, 1) = 1.
+    pools.set_available("gpu", 1)
+    assert pools.try_admit(POOL_CAP_A)
+    assert not pools.try_admit(POOL_CAP_B), "the self-report must bound admission"
+    pools.enqueue(POOL_CAP_B, "req-b")
+
+    snapshot = pools.snapshot()
+    assert snapshot["gpu"].available == 1
+    assert snapshot[POOL_CAP_B].queued == 1, "a waiter always counts on its own singleton"
+    assert snapshot["gpu"].queued == 1, "the full shared pool owns the queued count"
+    assert snapshot["all"].queued == 0, "an unlimited chain pool blocks nobody"
+
+    pools.set_available("gpu", 0)
+    assert pools.try_admit(POOL_CAP_B), "clearing the self-limit (0 = unlimited) restores min(configured, inf) = 2"
+    with pytest.raises(ValueError, match="cap:ghost"):
+        pools.set_available("cap:ghost", 1)
 
 
 def test_protocol_drops_snapshot_starts_empty():

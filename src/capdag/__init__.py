@@ -207,6 +207,24 @@ from capdag.media.spec import (
 # Bifaci module
 from capdag.bifaci import decode_chunk_payload
 from capdag.bifaci.manifest import CapManifest, CapGroup, default_group
+# Concurrency pools — the one capacity concept (a cap is a pool of one;
+# `all` is the pool of every cap; queues lead to pools).
+from capdag.bifaci.pools import (
+    CAPACITY_UNLIMITED,
+    META_DESIRED_CAPACITIES,
+    META_POOLS,
+    POOL_ALL,
+    DesiredCapacities,
+    PoolDeclarations,
+    PoolState,
+    PoolStates,
+    chain_from_states,
+    decode_desired,
+    decode_pool_states,
+    effective_capacity,
+    encode_desired,
+    encode_pool_states,
+)
 from capdag.bifaci.relay import (
     RelaySlave,
     RelayMaster,
@@ -368,6 +386,20 @@ __all__ = [
     "MediaDef",
     # Manifest
     "CapManifest",
+    "CAPACITY_UNLIMITED",
+    "META_DESIRED_CAPACITIES",
+    "META_POOLS",
+    "POOL_ALL",
+    "DesiredCapacities",
+    "PoolDeclarations",
+    "PoolState",
+    "PoolStates",
+    "chain_from_states",
+    "decode_desired",
+    "decode_pool_states",
+    "effective_capacity",
+    "encode_desired",
+    "encode_pool_states",
     "CapGroup",
     "default_group",
     # Bifaci utilities

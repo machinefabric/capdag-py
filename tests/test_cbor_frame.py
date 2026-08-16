@@ -153,7 +153,7 @@ def test_180_hello_frame():
 def test_181_hello_frame_with_manifest():
     """Test HELLO frame with manifest (cartridge side)"""
     manifest_json = b'{"name":"TestCartridge","version":"1.0.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[]}]}'
-    frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json, 0)
+    frame = Frame.hello_with_manifest(1_000_000, 100_000, manifest_json, {})
     assert frame.frame_type == FrameType.HELLO
     assert frame.hello_max_frame() == 1_000_000
     assert frame.hello_max_chunk() == 100_000
@@ -382,7 +382,7 @@ def test_200_key_constants():
 def test_201_hello_manifest_binary_data():
     """Test manifest preserves binary data"""
     binary_manifest = bytes([0x00, 0x01, 0xFF, 0xFE, 0x80])
-    frame = Frame.hello_with_manifest(1000, 500, binary_manifest, 0)
+    frame = Frame.hello_with_manifest(1000, 500, binary_manifest, {})
     assert frame.hello_manifest() == binary_manifest
 
 

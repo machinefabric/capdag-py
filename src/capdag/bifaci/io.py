@@ -43,6 +43,7 @@ from capdag.bifaci.frame import (
     verify_chunk_checksum,
 )
 from capdag.standard.caps import CAP_IDENTITY
+from capdag.bifaci.pools import PoolStates, decode_pool_states
 
 
 # Maximum frame size (16 MB) - hard limit to prevent memory exhaustion
@@ -623,7 +624,7 @@ class HandshakeResult:
     """Result of handshake negotiation"""
     limits: Limits
     manifest: bytes
-    handler_capacity: int
+    pool_states: "PoolStates"
 
 
 def _required_hello_limit(value: Optional[int], name: str) -> int:
@@ -673,9 +674,16 @@ def handshake(
     manifest = their_frame.hello_manifest()
     if manifest is None:
         raise HandshakeError("Cartridge HELLO missing required manifest")
-    handler_capacity = their_frame.hello_handler_capacity()
-    if handler_capacity is None:
-        raise HandshakeError("Cartridge HELLO missing required non-negative handler_capacity")
+    # The pool-state map is MANDATORY on a cartridge HELLO (see
+    # ``bifaci.pools``): a missing or malformed map is a protocol
+    # violation, never a default.
+    pool_bytes = their_frame.pool_state_bytes()
+    if pool_bytes is None:
+        raise HandshakeError("Cartridge HELLO missing required concurrency-pool state map")
+    try:
+        pool_states = decode_pool_states(pool_bytes)
+    except ValueError as exc:
+        raise HandshakeError(f"Cartridge HELLO pool-state map: {exc}") from exc
 
     # Negotiate minimum of both
     their_max_frame = _required_hello_limit(their_frame.hello_max_frame(), "max_frame")
@@ -701,7 +709,7 @@ def handshake(
     return HandshakeResult(
         limits=limits,
         manifest=bytes(manifest),
-        handler_capacity=handler_capacity,
+        pool_states=pool_states,
     )
 
 
@@ -709,7 +717,7 @@ def handshake_accept(
     reader: FrameReader,
     writer: FrameWriter,
     manifest: bytes,
-    handler_capacity: int,
+    pool_states: "PoolStates",
 ) -> Limits:
     """Accept HELLO handshake with manifest (cartridge side - receives first, sends manifest in response)
 
@@ -766,7 +774,7 @@ def handshake_accept(
         limits.max_frame,
         limits.max_chunk,
         manifest,
-        handler_capacity,
+        pool_states,
         limits.max_reorder_buffer,
         limits.initial_credit,
     )
@@ -946,7 +954,7 @@ class HandshakeResult:
     """Result of handshake"""
     limits: Limits
     manifest: bytes
-    handler_capacity: int
+    pool_states: "PoolStates"
 
 
 async def handshake_async(
@@ -992,9 +1000,16 @@ async def handshake_async(
     manifest = their_frame.hello_manifest()
     if manifest is None:
         raise HandshakeError("Cartridge HELLO missing required manifest")
-    handler_capacity = their_frame.hello_handler_capacity()
-    if handler_capacity is None:
-        raise HandshakeError("Cartridge HELLO missing required non-negative handler_capacity")
+    # The pool-state map is MANDATORY on a cartridge HELLO (see
+    # ``bifaci.pools``): a missing or malformed map is a protocol
+    # violation, never a default.
+    pool_bytes = their_frame.pool_state_bytes()
+    if pool_bytes is None:
+        raise HandshakeError("Cartridge HELLO missing required concurrency-pool state map")
+    try:
+        pool_states = decode_pool_states(pool_bytes)
+    except ValueError as exc:
+        raise HandshakeError(f"Cartridge HELLO pool-state map: {exc}") from exc
 
     # Negotiate minimum of both
     their_max_frame = _required_hello_limit(their_frame.hello_max_frame(), "max_frame")
@@ -1020,5 +1035,5 @@ async def handshake_async(
     return HandshakeResult(
         limits=limits,
         manifest=bytes(manifest),
-        handler_capacity=handler_capacity,
+        pool_states=pool_states,
     )

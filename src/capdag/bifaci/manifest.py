@@ -119,6 +119,11 @@ class CapManifest:
         self.cap_groups = cap_groups
         self.author: Optional[str] = None
         self.page_url: Optional[str] = None
+        # Concurrency-pool declarations (see ``bifaci.pools``): shared-pool
+        # memberships and declared capacities. Empty = nothing declared
+        # (every pool unlimited). (matches Rust CapManifest.pool_declarations)
+        from capdag.bifaci.pools import PoolDeclarations
+        self.pool_declarations: PoolDeclarations = PoolDeclarations()
 
     def all_caps(self) -> List[Cap]:
         """Returns all caps from all cap groups."""
@@ -136,6 +141,23 @@ class CapManifest:
         """Set the page URL for the component"""
         self.page_url = page_url
         return self
+
+    def with_pool_declarations(self, declarations) -> "CapManifest":
+        """Validate the pool declarations against this manifest's caps,
+        canonicalize them, and attach them. Hard error (ValueError) on any
+        illegal shape. (matches Rust CapManifest::with_pool_declarations)"""
+        self.pool_declarations = declarations.validated(
+            [cap.urn for cap in self.all_caps()]
+        )
+        return self
+
+    def declared_pool_states(self):
+        """Materialize the manifest's declared pool-state map: one singleton
+        pool per cap, every declared shared pool, and ``all`` (see
+        ``bifaci.pools``). (matches Rust declared_pool_states)"""
+        return self.pool_declarations.declared_states(
+            [cap.urn for cap in self.all_caps()]
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict.
@@ -158,6 +180,9 @@ class CapManifest:
 
         if self.page_url is not None:
             result["page_url"] = self.page_url
+
+        if not self.pool_declarations.is_empty():
+            result["pool_declarations"] = self.pool_declarations.to_dict()
 
         return result
 
@@ -193,6 +218,12 @@ class CapManifest:
         if "page_url" in data:
             manifest.page_url = data["page_url"]
 
+        if "pool_declarations" in data:
+            from capdag.bifaci.pools import PoolDeclarations
+            manifest.pool_declarations = PoolDeclarations.from_dict(
+                data["pool_declarations"]
+            )
+
         return manifest
 
     @classmethod
@@ -214,6 +245,11 @@ class CapManifest:
         has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
         if not has_identity:
             raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
+
+        # Pool declarations must resolve against this manifest's caps —
+        # a dangling reference is a cartridge-author bug, surfaced here.
+        if not self.pool_declarations.is_empty():
+            self.pool_declarations.validated([cap.urn for cap in self.all_caps()])
 
     def ensure_identity(self) -> "CapManifest":
         """Ensure CAP_IDENTITY is present in this manifest. Adds it if missing.

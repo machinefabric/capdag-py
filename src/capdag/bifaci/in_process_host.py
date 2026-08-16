@@ -369,6 +369,24 @@ class InProcessHostIdentity:
 CapTable = List[Tuple[str, int]]
 
 
+def _in_process_pool_states(cap_urns: List[str], configured: Dict[str, int]):
+    """The host's full pool-state map: one at-rest singleton per advertised
+    cap plus the mandatory ``all`` pool. In-process handlers are
+    thread-backed with no fixed concurrency ceiling, so every capacity is 0
+    (unlimited) and nothing ever queues; ``configured`` carries the
+    operator overlay delivered via heartbeat probes (the ENGINE's admission
+    enforces it). (matches Rust pool_states_snapshot)"""
+    from capdag.bifaci.pools import POOL_ALL, PoolState
+
+    states: Dict[str, PoolState] = {}
+    for cap_urn in cap_urns:
+        states[cap_urn] = PoolState(configured=configured.get(cap_urn, 0))
+    states[POOL_ALL] = PoolState(
+        configured=configured.get(POOL_ALL, 0), caps=list(cap_urns)
+    )
+    return states
+
+
 class InProcessCartridgeHost:
     """A cartridge host that dispatches to in-process FrameHandler objects.
 
@@ -400,6 +418,7 @@ class InProcessCartridgeHost:
             for cap in entry.caps:
                 if cap.urn.to_string() != CAP_IDENTITY:
                     caps.append(cap)
+        cap_urn_list = [cap.urn.to_string() for cap in caps]
 
         cartridge = {
             "registry_url": self.identity.registry_url,
@@ -419,7 +438,13 @@ class InProcessCartridgeHost:
             "attachment_error": None,
             "runtime_stats": {
                 "running": True,
-                "handler_capacity": 0,
+                # In-process handlers are task-backed and have no fixed
+                # concurrency ceiling: every pool is unlimited, at rest at
+                # manifest-build time (see ``bifaci.pools``).
+                "pools": {
+                    name: state.to_dict()
+                    for name, state in _in_process_pool_states(cap_urn_list, {}).items()
+                },
                 "pid": os.getpid(),
                 "active_request_count": 0,
                 "peer_request_count": 0,
@@ -486,6 +511,17 @@ class InProcessCartridgeHost:
         ``local_read`` / ``local_write`` connect to the RelaySlave's local side.
         """
         reader = FrameReader(local_read)
+
+        # Advertised caps (canonical URNs) — the singleton pool roster — and
+        # the operator ``configured`` overlay delivered via heartbeat probes
+        # (see ``bifaci.pools``).
+        advertised_caps: List[str] = [CAP_IDENTITY]
+        for entry in self.handlers:
+            for cap in entry.caps:
+                cap_urn = cap.urn.to_string()
+                if cap_urn not in advertised_caps:
+                    advertised_caps.append(cap_urn)
+        configured_overlay: Dict[str, int] = {}
 
         # Writer runs in a separate thread with a SeqAssigner.
         write_tx: "queue.Queue" = queue.Queue()
@@ -648,8 +684,46 @@ class InProcessCartridgeHost:
                     write_tx.put(err)
 
                 elif ft == FrameType.HEARTBEAT:
+                    # The heartbeat is the capacity CONFIG channel (see the
+                    # cartridge runtime): a probe may carry the operator's
+                    # desired ``configured`` values. Validate the whole
+                    # batch against the pool roster first — an unknown pool
+                    # refuses it all with an ERR naming it.
+                    from capdag.bifaci.pools import (
+                        META_POOLS,
+                        POOL_ALL,
+                        decode_desired,
+                        encode_pool_states,
+                    )
+                    desired_bytes = frame.desired_capacity_bytes()
+                    if desired_bytes is not None:
+                        refusal = None
+                        try:
+                            desired = decode_desired(desired_bytes)
+                        except ValueError as decode_err:
+                            refusal = str(decode_err)
+                            desired = {}
+                        if refusal is None:
+                            for name in desired:
+                                if name != POOL_ALL and name not in advertised_caps:
+                                    refusal = f"unknown pool '{name}'"
+                                    break
+                        if refusal is not None:
+                            err = Frame.err(
+                                frame.id,
+                                "UNKNOWN_POOL",
+                                AttributionClass.INTERNAL,
+                                f"desired capacities refused: {refusal}",
+                            )
+                            write_tx.put(err)
+                            continue
+                        configured_overlay.update(desired)
                     response = Frame.heartbeat(frame.id)
-                    response.meta = {"handler_capacity": 0}
+                    response.meta = {
+                        META_POOLS: encode_pool_states(
+                            _in_process_pool_states(advertised_caps, configured_overlay)
+                        )
+                    }
                     write_tx.put(response)
 
                 # else: RelayNotify, RelayState, etc. — not expected from relay side

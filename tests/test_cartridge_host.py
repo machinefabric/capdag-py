@@ -118,7 +118,7 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
     reader = FrameReader(cartridge_read)
     writer = FrameWriter(cartridge_write)
 
-    limits = handshake_accept(reader, writer, manifest_str.encode("utf-8"), 0)
+    limits = handshake_accept(reader, writer, manifest_str.encode("utf-8"), {})
     reader.set_limits(limits)
     writer.set_limits(limits)
 
@@ -204,7 +204,7 @@ def test_486_attach_cartridge_identity_verification_fails():
     def broken_cartridge():
         reader = FrameReader(pr)
         writer = FrameWriter(pw)
-        limits = handshake_accept(reader, writer, manifest.encode("utf-8"), 0)
+        limits = handshake_accept(reader, writer, manifest.encode("utf-8"), {})
         reader.set_limits(limits)
         writer.set_limits(limits)
         req = reader.read()
@@ -1424,7 +1424,9 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     with host._lock:
         host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
     response = Frame.heartbeat(hb_id)
-    response.meta = {"drops_total": 42, "handler_capacity": 0}
+    from capdag.bifaci.pools import META_POOLS, encode_pool_states
+
+    response.meta = {"drops_total": 42, META_POOLS: encode_pool_states({})}
     host._handle_cartridge_frame(0, response, _NullWriter())
 
     with host._lock:
@@ -1439,7 +1441,7 @@ def test_7090_heartbeat_drops_total_reaches_inventory_stats():
     with host._lock:
         host._cartridges[0].pending_heartbeats[hb_id] = time.monotonic()
     response = Frame.heartbeat(hb_id)
-    response.meta = {"drops_total": 45, "handler_capacity": 0}
+    response.meta = {"drops_total": 45, META_POOLS: encode_pool_states({})}
     host._handle_cartridge_frame(0, response, _NullWriter())
 
     with host._lock:

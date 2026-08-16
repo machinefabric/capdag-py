@@ -386,7 +386,14 @@ class _ManagedCartridge:
         # first heartbeat round-trip carries the counter. Survives across
         # readings (each heartbeat carries the cartridge's running total).
         self.protocol_drops_total: Optional[int] = None
-        self.handler_capacity: int = 0
+        # The cartridge's last-known concurrency-pool state map (see
+        # ``bifaci.pools``): captured at HELLO and refreshed by every
+        # heartbeat reply. This IS the capacity surface; there is no scalar.
+        self.pool_states: Dict[str, Any] = {}
+        # Operator ``configured`` values queued for delivery on the next
+        # heartbeat probe (the heartbeat is the config channel). Cleared
+        # when a probe carries them.
+        self.pending_desired: Dict[str, int] = {}
         # Pending host-initiated heartbeat probes sent to this cartridge
         # (MessageId -> monotonic sent time). A heartbeat frame whose id
         # matches an entry here is a RESPONSE to our own probe (ingest
@@ -624,7 +631,7 @@ class CartridgeHost:
             cartridge.writer_queue = writer_q
             cartridge.manifest = result.manifest
             cartridge.limits = result.limits
-            cartridge.handler_capacity = result.handler_capacity
+            cartridge.pool_states = result.pool_states
             cartridge.cap_groups = cap_groups
             cartridge.running = True
             cartridge.generation = 1
@@ -896,12 +903,22 @@ class CartridgeHost:
                         drops_total = frame.meta.get("drops_total")
                         if isinstance(drops_total, int):
                             cartridge.protocol_drops_total = drops_total
-                        handler_capacity = frame.meta.get("handler_capacity")
-                        if not isinstance(handler_capacity, int) or handler_capacity < 0:
+                        # The pool-state map is MANDATORY on every
+                        # heartbeat reply (see ``bifaci.pools``): a missing
+                        # or malformed map is a protocol violation, never a
+                        # default.
+                        from capdag.bifaci.pools import decode_pool_states
+                        pool_bytes = frame.pool_state_bytes()
+                        if pool_bytes is None:
                             raise Protocol(
-                                "Cartridge heartbeat missing required non-negative handler_capacity"
+                                "Cartridge heartbeat reply missing required concurrency-pool state map"
                             )
-                        cartridge.handler_capacity = handler_capacity
+                        try:
+                            cartridge.pool_states = decode_pool_states(pool_bytes)
+                        except ValueError as pool_err:
+                            raise Protocol(
+                                f"Cartridge heartbeat reply pool map: {pool_err}"
+                            ) from pool_err
                 else:
                     # Cartridge-initiated heartbeat request — respond locally,
                     # don't forward.
@@ -1110,7 +1127,7 @@ class CartridgeHost:
 
         cartridge.manifest = result.manifest
         cartridge.limits = result.limits
-        cartridge.handler_capacity = result.handler_capacity
+        cartridge.pool_states = result.pool_states
         cartridge.cap_groups = cap_groups
         cartridge.running = True
         cartridge.generation = generation
@@ -1182,7 +1199,7 @@ class CartridgeHost:
             if cartridge.process is not None:
                 pid = cartridge.process.pid
             stats = CartridgeRuntimeStats(
-                handler_capacity=cartridge.handler_capacity,
+                pools=dict(cartridge.pool_states),
                 running=cartridge.running,
                 pid=pid,
                 protocol_drops_total=cartridge.protocol_drops_total,

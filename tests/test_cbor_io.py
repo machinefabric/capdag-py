@@ -375,7 +375,7 @@ def test_472_handshake_negotiates_reorder_buffer():
             DEFAULT_MAX_FRAME,
             DEFAULT_MAX_CHUNK,
             manifest,
-            0,
+            {},
             32,
         )
     )
@@ -421,7 +421,7 @@ def _run_v4_handshake(cartridge_limits: Limits):
             cartridge_limits.max_frame,
             cartridge_limits.max_chunk,
             _V4_TEST_MANIFEST,
-            0,
+            {},
             cartridge_limits.max_reorder_buffer,
             cartridge_limits.initial_credit,
         )
@@ -481,8 +481,7 @@ def test_7001_handshake_rejects_version_2():
     assert _host_hello is not None
 
     hello = Frame.hello_with_manifest(
-        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V4_TEST_MANIFEST, 0
-    )
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V4_TEST_MANIFEST, {})
     hello.version = 2
     hello.meta["version"] = 2
     cartridge_writer.write(hello)
@@ -533,7 +532,7 @@ def test_481_verify_identity_succeeds():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest, 0)
+        handshake_accept(reader, writer, manifest, {})
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
         ss = reader.read()
@@ -571,7 +570,7 @@ def test_482_verify_identity_fails_on_err():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest, 0)
+        handshake_accept(reader, writer, manifest, {})
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
         writer.write(Frame.err(req.id, "BROKEN", AttributionClass.INTERNAL, "identity handler broken"))
@@ -600,7 +599,7 @@ def test_483_verify_identity_fails_on_close():
     def cartridge_thread():
         reader = FrameReader(cartridge_read_sock.makefile("rb"))
         writer = FrameWriter(cartridge_write_sock.makefile("wb"))
-        handshake_accept(reader, writer, manifest, 0)
+        handshake_accept(reader, writer, manifest, {})
         _ = reader.read()
         cartridge_write_sock.close()
 
@@ -640,7 +639,7 @@ def test_224_handshake_negotiates_to_minimum_limits():
     their_max_frame = received.hello_max_frame() or DEFAULT_MAX_FRAME
     negotiated_frame = min(8000, their_max_frame)
 
-    cartridge_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest, 0)
+    cartridge_hello = Frame.hello_with_manifest(negotiated_frame, 3000, manifest, {})
 
     cartridge_writer = FrameWriter.new(cartridge_to_host)
     cartridge_writer.write(cartridge_hello)
@@ -662,8 +661,7 @@ def test_225_handshake_function_full_handshake():
 
     # Cartridge side accepts handshake in background (simulate)
     cartridge_hello = Frame.hello_with_manifest(
-        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, 0
-    )
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, manifest, {})
     cartridge_writer_temp = FrameWriter.new(cartridge_to_host)
     cartridge_writer_temp.write(cartridge_hello)
 
@@ -700,7 +698,7 @@ def test_226_handshake_accept_receives_first():
 
     manifest = b'{"identifier": "test", "version": "1.0.0","channel":"release", "cap_groups":[{"name":"default","caps":[]}]}'
 
-    limits = handshake_accept(cartridge_reader, cartridge_writer, manifest, 0)
+    limits = handshake_accept(cartridge_reader, cartridge_writer, manifest, {})
 
     # Verify negotiated limits
     assert limits.max_frame == DEFAULT_MAX_FRAME

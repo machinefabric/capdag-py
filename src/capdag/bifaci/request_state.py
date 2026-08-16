@@ -506,10 +506,11 @@ class RequestTable:
 # =============================================================================
 # Admission control (mirrors Rust src/bifaci/request_state.rs).
 #
-# FIFO admission per cartridge install identity behind one relay master. The
-# cartridge-side ``handler_capacity`` gate (cartridge_runtime.py) bounds what one
-# process runs at a time; THIS gate bounds what the switch dispatches to it, so
-# work queues in the switch instead of piling up unacknowledged on the wire.
+# Pool-chain admission per cartridge install identity behind one relay master
+# (see ``bifaci.pools``). The cartridge-side pool-chain gate
+# (cartridge_runtime.py) bounds what one process runs at a time; THIS gate
+# bounds what the switch dispatches to it, so work queues in the switch
+# instead of piling up unacknowledged on the wire.
 # =============================================================================
 
 #: How long a queued request waits for an admission target that has gone
@@ -547,7 +548,34 @@ class AdmissionKey:
     sha256: str
 
 
-class _AdmissionSlot:
+@dataclass(frozen=True)
+class PoolKey:
+    """One admission domain: a pool on one install. (matches Rust
+    request_state::PoolKey)"""
+
+    install: AdmissionKey
+    pool: str
+
+
+class _PoolSlot:
+    """One pool's admission state: EFFECTIVE capacity (0 = unlimited),
+    active count, and — for singleton pools only, the head of every chain —
+    the FIFO ticket queue. (matches Rust PoolSlot)"""
+
+    def __init__(self) -> None:
+        self.capacity: int = 0
+        self.active: int = 0
+        self.queue: Deque[int] = deque()
+
+    def has_room(self) -> bool:
+        return self.capacity == 0 or self.active < self.capacity
+
+
+class _InstallState:
+    """One install's availability. Outages are an INSTALL-level fact — a
+    process disappears whole, never one pool at a time. (matches Rust
+    InstallState)"""
+
     def __init__(self) -> None:
         # ``None`` while the target is available; the monotonic instant it went
         # unavailable otherwise. Kept as an instant rather than a bool so the
@@ -555,9 +583,6 @@ class _AdmissionSlot:
         # — a request that queues late into an outage does not get a fresh
         # window.
         self.unavailable_since: Optional[float] = None
-        self.capacity: int = 0
-        self.active: int = 0
-        self.queue: Deque[int] = deque()
 
     @property
     def available(self) -> bool:
@@ -578,116 +603,146 @@ class _AdmissionSlot:
 
 
 class AdmissionPermit:
-    """An actively owned process slot. Released exactly once."""
+    """A set of actively owned pool slots — a dispatch's whole chain.
+    Released exactly once."""
 
-    def __init__(self, controller: "AdmissionController", key: AdmissionKey) -> None:
+    def __init__(self, controller: "AdmissionController", chain: List[PoolKey]) -> None:
         self._controller = controller
-        self._key = key
+        self._chain = chain
         self._released = False
 
     def release(self) -> None:
         if self._released:
             return
         self._released = True
-        self._controller._release(self._key)
+        self._controller._release(self._chain)
 
 
 class AdmissionController:
-    """FIFO admission shared by every request path in a RelaySwitch."""
+    """The engine-side pool admission gate (see ``bifaci.pools``): one slot
+    per (install, pool), one availability state per install. A dispatch
+    acquires its cap's whole pool CHAIN atomically."""
 
     def __init__(self) -> None:
         self._condition = threading.Condition()
-        self._slots: Dict[AdmissionKey, _AdmissionSlot] = {}
+        self._slots: Dict[PoolKey, _PoolSlot] = {}
+        self._installs: Dict[AdmissionKey, _InstallState] = {}
         self._tickets = 0
         # ``ADMISSION_UNAVAILABLE_GRACE_SECONDS`` in production. Tests shorten
         # it to drive the expiry path without sleeping through a real minute.
         self.grace = ADMISSION_UNAVAILABLE_GRACE_SECONDS
 
-    def configure(self, key: AdmissionKey, capacity: int) -> None:
-        """Register or update a target's capacity. A configure is the target
-        advertising itself: it ENDS any outage, which is what releases waiters
-        queued through a respawn or a roster round-trip."""
+    def configure_pools(self, install: AdmissionKey, pools: Dict[str, int]) -> None:
+        """Advertise one install's full pool map: EFFECTIVE capacity per
+        pool. A configure is the target advertising itself: it ENDS any
+        outage, which is what releases waiters queued through a respawn or a
+        roster round-trip. (matches Rust configure_pools)"""
         with self._condition:
-            slot = self._slots.get(key)
-            if slot is None:
-                slot = _AdmissionSlot()
-                self._slots[key] = slot
-            slot.unavailable_since = None
-            slot.capacity = capacity
+            state = self._installs.get(install)
+            if state is None:
+                state = _InstallState()
+                self._installs[install] = state
+            state.unavailable_since = None
+            for pool, capacity in pools.items():
+                key = PoolKey(install=install, pool=pool)
+                slot = self._slots.get(key)
+                if slot is None:
+                    slot = _PoolSlot()
+                    self._slots[key] = slot
+                slot.capacity = capacity
             self._condition.notify_all()
 
     def reconcile_master(self, master_idx: int, available: set) -> None:
-        """Mark every slot of this master absent from the advertised set
+        """Mark every install of this master absent from the advertised set
         unavailable."""
         now = time.monotonic()
         with self._condition:
-            for key, slot in self._slots.items():
-                if key.master_idx == master_idx and key not in available:
-                    slot.mark_unavailable(now)
+            for install, state in self._installs.items():
+                if install.master_idx == master_idx and install not in available:
+                    state.mark_unavailable(now)
             self._condition.notify_all()
 
     def disable_master(self, master_idx: int) -> None:
-        """Mark every slot of this master unavailable (master died)."""
+        """Mark every install of this master unavailable (master died)."""
         now = time.monotonic()
         with self._condition:
-            for key, slot in self._slots.items():
-                if key.master_idx == master_idx:
-                    slot.mark_unavailable(now)
+            for install, state in self._installs.items():
+                if install.master_idx == master_idx:
+                    state.mark_unavailable(now)
             self._condition.notify_all()
 
     def acquire(
-        self, key: AdmissionKey, cancel: Optional[threading.Event] = None
+        self, chain: List[PoolKey], cancel: Optional[threading.Event] = None
     ) -> AdmissionPermit:
-        """Take a FIFO admission slot for ``key``, waiting for capacity.
+        """Take a FIFO admission slot across a cap's whole pool CHAIN,
+        waiting for capacity. The chain's FIRST key is the cap's singleton
+        pool — the queue the ticket waits in; admission requires EVERY chain
+        pool to have room, decided in one critical section (no
+        half-admission).
 
-        An UNAVAILABLE target does not fail the caller immediately. The request
-        stays queued for :data:`ADMISSION_UNAVAILABLE_GRACE_SECONDS` measured
-        from the start of the outage, so a cartridge that is respawning — or
-        that a transient registry outage briefly retired — resumes serving its
-        queue instead of terminally failing every body waiting on it (17.2: one
-        body's process loss must not terminate unrelated queued bodies). Only
-        when the window expires does the wait fail, and it fails hard.
+        An UNAVAILABLE target (an install-level fact) does not fail the
+        caller immediately. The request stays queued for
+        :data:`ADMISSION_UNAVAILABLE_GRACE_SECONDS` measured from the start
+        of the outage, so a cartridge that is respawning — or that a
+        transient registry outage briefly retired — resumes serving its
+        queue instead of terminally failing every body waiting on it (17.2:
+        one body's process loss must not terminate unrelated queued bodies).
+        Only when the window expires does the wait fail, and it fails hard.
 
         ``cancel``, when set, abandons the wait (the caller gave up); the
         ticket is removed so it cannot strand the queue behind a dead head.
+        (matches Rust acquire)
         """
+        if not chain:
+            raise AdmissionError(
+                "admission chain is empty — a dispatch always has at least its cap's own pool"
+            )
+        head = chain[0]
+        install = head.install
         with self._condition:
-            slot = self._slots.get(key)
-            if slot is None:
-                raise AdmissionError(
-                    f"cartridge '{key.id}' has no configured admission target"
-                )
+            for key in chain:
+                if key not in self._slots:
+                    raise AdmissionError(
+                        f"cartridge '{key.install.id}' has no configured admission pool '{key.pool}'"
+                    )
             ticket = self._tickets
             self._tickets += 1
             # Queue even while unavailable: the loop below owns the grace
             # window, so a request arriving mid-outage gets the same treatment
             # as one that was already waiting when the outage began.
-            slot.queue.append(ticket)
+            self._slots[head].queue.append(ticket)
 
             while True:
                 if cancel is not None and cancel.is_set():
-                    self._remove_ticket_locked(key, ticket)
+                    self._remove_ticket_locked(head, ticket)
                     raise AdmissionError(
-                        f"admission wait for '{key.id}' was cancelled"
+                        f"admission wait for '{install.id}' was cancelled"
                     )
-                slot = self._slots.get(key)
-                if slot is None:
+                head_slot = self._slots.get(head)
+                if head_slot is None:
                     raise AdmissionError(
-                        f"admission slot for '{key.id}' disappeared while queued"
+                        f"admission pool for '{install.id}' disappeared while queued"
                     )
-                has_capacity = slot.capacity == 0 or slot.active < slot.capacity
-                if slot.available and has_capacity and slot.queue and slot.queue[0] == ticket:
-                    slot.queue.popleft()
-                    slot.active += 1
+                state = self._installs.get(install)
+                if state is None:
+                    raise AdmissionError(
+                        f"cartridge '{install.id}' has admission pools but no install "
+                        "state — configure_pools was bypassed"
+                    )
+                chain_has_room = all(self._slots[key].has_room() for key in chain)
+                if state.available and chain_has_room and head_slot.queue and head_slot.queue[0] == ticket:
+                    head_slot.queue.popleft()
+                    for key in chain:
+                        self._slots[key].active += 1
                     self._condition.notify_all()
-                    return AdmissionPermit(self, key)
+                    return AdmissionPermit(self, list(chain))
 
-                remaining = slot.grace_remaining(time.monotonic(), self.grace)
+                remaining = state.grace_remaining(time.monotonic(), self.grace)
                 if remaining is not None and remaining <= 0.0:
                     # Outage outlived the window — the target is gone, not slow.
-                    self._remove_ticket_locked(key, ticket)
+                    self._remove_ticket_locked(head, ticket)
                     raise AdmissionError(
-                        f"cartridge '{key.id}' was unavailable for longer than "
+                        f"cartridge '{install.id}' was unavailable for longer than "
                         f"{int(self.grace)}s while this request waited for capacity"
                     )
                 # Available: wait for capacity. Mid-outage: wait no longer than
@@ -700,9 +755,9 @@ class AdmissionController:
                 else:
                     self._condition.wait(remaining)
 
-    def _remove_ticket_locked(self, key: AdmissionKey, ticket: int) -> None:
-        """Drop a ticket so an abandoned waiter cannot strand the queue behind
-        it. Caller must hold the condition."""
+    def _remove_ticket_locked(self, key: PoolKey, ticket: int) -> None:
+        """Drop a ticket from its singleton queue so an abandoned waiter
+        cannot strand the queue behind it. Caller must hold the condition."""
         slot = self._slots.get(key)
         if slot is None:
             return
@@ -712,9 +767,10 @@ class AdmissionController:
             pass
         self._condition.notify_all()
 
-    def _release(self, key: AdmissionKey) -> None:
+    def _release(self, chain: List[PoolKey]) -> None:
         with self._condition:
-            slot = self._slots.get(key)
-            if slot is not None and slot.active > 0:
-                slot.active -= 1
+            for key in chain:
+                slot = self._slots.get(key)
+                if slot is not None and slot.active > 0:
+                    slot.active -= 1
             self._condition.notify_all()

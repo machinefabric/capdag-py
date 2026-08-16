@@ -384,26 +384,231 @@ class SyncFrameWriter:
 # CONCURRENCY CAPACITY — dynamic handler-slot limit
 # =============================================================================
 
-class CapacityHandle:
-    """Shared handle for dynamic concurrency capacity adjustment (thread-safe).
+class _RuntimePool:
+    """One materialized concurrency pool (see ``bifaci.pools``).
+    (matches Rust RuntimePool)"""
 
-    Cartridges receive this via `CartridgeRuntime.capacity_handle()` and can
-    call `set(n)` at any time to adjust how many concurrent requests the
-    runtime will dispatch to handlers. 0 means unlimited.
-    (matches Rust CapacityHandle)
-    """
+    def __init__(self, declared: int, members: Optional[List[str]] = None):
+        self.declared = declared
+        self.configured = declared
+        # Cartridge self-report; ``None`` = static (the normal case).
+        # Written only through PoolHandle.set.
+        self.available: Optional[int] = None
+        self.active = 0
+        # Member patterns (shared pools and ``all``); singletons empty.
+        self.members: List[str] = members or []
 
-    def __init__(self, initial: int):
-        self._lock = threading.Lock()
-        self._value = initial
+    def effective(self) -> int:
+        from capdag.bifaci.pools import effective_capacity
+        return effective_capacity(self.configured, self.available)
 
-    def set(self, n: int) -> None:
-        with self._lock:
-            self._value = n
+    def has_room(self) -> bool:
+        from capdag.bifaci.pools import CAPACITY_UNLIMITED
+        effective = self.effective()
+        return effective == CAPACITY_UNLIMITED or self.active < effective
 
-    def get(self) -> int:
-        with self._lock:
-            return self._value
+
+class RuntimePools:
+    """The runtime's materialized concurrency pools (see ``bifaci.pools``):
+    one singleton pool per registered handler pattern, every declared
+    shared pool from the manifest, and ``all``. The owning runtime's pools
+    lock guards capacities, active counts, and queues together so
+    admission is one atomic decision. (matches Rust RuntimePools)"""
+
+    def __init__(self, handler_patterns: List[str], declarations) -> None:
+        from capdag.bifaci.pools import CAPACITY_UNLIMITED, POOL_ALL
+
+        patterns: List[str] = []
+        for raw in handler_patterns:
+            try:
+                canon = CapUrn.from_string(raw).to_string()
+            except Exception as exc:
+                raise ValueError(
+                    f"registered handler pattern '{raw}' is not a valid cap URN: {exc}"
+                ) from exc
+            if canon in patterns:
+                raise ValueError(f"handler pattern '{canon}' is registered twice")
+            patterns.append(canon)
+
+        def resolve(declared_cap: str) -> str:
+            try:
+                canon = CapUrn.from_string(declared_cap).to_string()
+            except Exception as exc:
+                raise ValueError(
+                    f"pool declaration cap '{declared_cap}' is not a valid cap URN: {exc}"
+                ) from exc
+            if canon not in patterns:
+                raise ValueError(
+                    f"pool declaration references cap '{canon}' but no handler is "
+                    "registered under it — pool declarations bind to the caps the "
+                    "runtime actually serves"
+                )
+            return canon
+
+        self.pools: Dict[str, _RuntimePool] = {}
+        # Singleton queues — queues lead to pools. Keyed by registered
+        # pattern. Each entry: (ticket, queued-request payload).
+        self.queues: Dict[str, List[Tuple[int, Any]]] = {}
+        for pattern in patterns:
+            declared = declarations.capacities.get(pattern, CAPACITY_UNLIMITED)
+            self.pools[pattern] = _RuntimePool(declared)
+            self.queues[pattern] = []
+        for name in sorted(declarations.pools):
+            members = [resolve(member) for member in declarations.pools[name]]
+            declared = declarations.capacities.get(name, CAPACITY_UNLIMITED)
+            self.pools[name] = _RuntimePool(declared, members)
+        for key in declarations.capacities:
+            if key == POOL_ALL or key in self.pools:
+                continue
+            try:
+                if CapUrn.from_string(key).to_string() in patterns:
+                    continue
+            except Exception:
+                pass
+            raise ValueError(
+                f"declared capacity for '{key}' names neither a registered cap, "
+                f"a declared pool, nor '{POOL_ALL}'"
+            )
+        all_declared = declarations.capacities.get(POOL_ALL, CAPACITY_UNLIMITED)
+        self.pools[POOL_ALL] = _RuntimePool(all_declared, list(patterns))
+
+        # Registered handler pattern (canonical) → its pool chain in
+        # admission order: singleton, declared pools containing it, ``all``.
+        self.chains: Dict[str, List[str]] = {}
+        for pattern in patterns:
+            chain = [pattern]
+            for name in sorted(self.pools):
+                if name in (POOL_ALL, pattern):
+                    continue
+                if pattern in self.pools[name].members:
+                    chain.append(name)
+            chain.append(POOL_ALL)
+            self.chains[pattern] = chain
+
+        # Global FIFO ticket counter: cross-cap admission on a shared-pool
+        # release is arrival-ordered, never cap-biased.
+        self.next_ticket = 0
+
+    def chain(self, pattern: str) -> List[str]:
+        if pattern not in self.chains:
+            raise RuntimeError(f"no pool chain for registered pattern '{pattern}'")
+        return self.chains[pattern]
+
+    def chain_has_room(self, pattern: str) -> bool:
+        return all(self.pools[pool].has_room() for pool in self.chain(pattern))
+
+    def try_admit(self, pattern: str) -> bool:
+        """Admit one dispatch of ``pattern`` if its whole chain has room."""
+        if not self.chain_has_room(pattern):
+            return False
+        for pool in self.chain(pattern):
+            self.pools[pool].active += 1
+        return True
+
+    def release(self, pattern: str) -> None:
+        """Release one dispatch of ``pattern`` across its chain."""
+        for pool in self.chain(pattern):
+            slot = self.pools[pool]
+            if slot.active == 0:
+                raise RuntimeError(f"pool '{pool}' released below zero active")
+            slot.active -= 1
+
+    def enqueue(self, pattern: str, request: Any) -> int:
+        """Queue a request on its cap's singleton queue, returning its
+        queue position (1-based) for the "queued" LOG."""
+        if pattern not in self.queues:
+            raise RuntimeError(f"no singleton queue for pattern '{pattern}'")
+        ticket = self.next_ticket
+        self.next_ticket += 1
+        self.queues[pattern].append((ticket, request))
+        return len(self.queues[pattern])
+
+    def pop_admissible(self) -> Optional[Tuple[str, Any]]:
+        """Pop-and-admit the oldest queued request whose chain has room —
+        arrival-ordered across all caps by the global ticket. Returns
+        (pattern, request) or None."""
+        best: Optional[Tuple[int, str]] = None
+        for pattern in sorted(self.queues):
+            queue_entries = self.queues[pattern]
+            if not queue_entries:
+                continue
+            ticket = queue_entries[0][0]
+            if self.chain_has_room(pattern) and (best is None or ticket < best[0]):
+                best = (ticket, pattern)
+        if best is None:
+            return None
+        _, pattern = best
+        _, request = self.queues[pattern].pop(0)
+        for pool in self.chain(pattern):
+            self.pools[pool].active += 1
+        return pattern, request
+
+    def apply_desired(self, desired: Dict[str, int]) -> None:
+        """Apply an operator's desired ``configured`` values (heartbeat
+        probe). The whole batch is validated first — an unknown pool
+        refuses it all (ValueError)."""
+        for name in desired:
+            if name not in self.pools:
+                raise ValueError(f"unknown pool '{name}'")
+        for name, configured in desired.items():
+            self.pools[name].configured = configured
+
+    def set_available(self, pool: str, available: int) -> None:
+        """Cartridge self-report for one pool (see PoolHandle)."""
+        if pool not in self.pools:
+            raise ValueError(f"unknown pool '{pool}'")
+        self.pools[pool].available = available
+
+    def snapshot(self) -> "Dict[str, Any]":
+        """The full wire-shaped state map. ``queued`` counts each waiting
+        request on its own singleton pool and on every chain pool that
+        currently lacks room (its blockers) — so a shared pool's queued
+        figure is the number of waiters it is actually holding back."""
+        from capdag.bifaci.pools import PoolState
+
+        states: Dict[str, PoolState] = {}
+        for name, pool in self.pools.items():
+            states[name] = PoolState(
+                declared=pool.declared,
+                configured=pool.configured,
+                available=pool.available,
+                active=pool.active,
+                queued=0,
+                caps=list(pool.members),
+            )
+        for pattern, queue_entries in self.queues.items():
+            waiting = len(queue_entries)
+            if waiting == 0:
+                continue
+            states[pattern].queued += waiting
+            for pool in self.chain(pattern):
+                if pool != pattern and not self.pools[pool].has_room():
+                    states[pool].queued += waiting
+        return states
+
+
+class PoolHandle:
+    """Shared handle for a pool's cartridge SELF-REPORT (``available`` —
+    see ``bifaci.pools``). Obtained from ``CartridgeRuntime.pool_handle``
+    with a pool name (a registered cap URN for a single cap, a declared
+    pool name, or ``all``). ``set(n)`` reports what the cartridge can serve
+    right now from its OWN state (0 = unlimited); it never touches the
+    operator's ``configured`` or the manifest's ``declared``. A cartridge
+    that never calls it is fully static — the normal case. (matches Rust
+    PoolHandle)"""
+
+    def __init__(self, runtime: "CartridgeRuntime", name: str):
+        self._runtime = runtime
+        self._name = name
+
+    def set(self, available: int) -> None:
+        with self._runtime._pools_lock:
+            if self._runtime._pools is None:
+                raise RuntimeError(
+                    f"pool handle '{self._name}' used before the runtime "
+                    "materialized its pools (call run first)"
+                )
+            self._runtime._pools.set_available(self._name, available)
 
 
 # =============================================================================
@@ -3225,9 +3430,11 @@ class CartridgeRuntime:
         self.manifest_data = manifest_data
         self.limits = Limits.default()
 
-        # Concurrency capacity: 0 = unlimited, N = max N concurrent handlers.
-        # Shared via CapacityHandle so handlers can adjust dynamically.
-        self._capacity = CapacityHandle(0)
+        # Concurrency pools (see ``bifaci.pools``): materialized at
+        # run_cbor_mode from the registered handlers + the manifest's
+        # declarations. One lock guards admission atomically.
+        self._pools_lock = threading.Lock()
+        self._pools: Optional[RuntimePools] = None
 
         # Process-wide dropped-frame accounting (L8). Shared with the writer's
         # terminal gate, every write-failure drop, and the stats surface.
@@ -3306,28 +3513,13 @@ class CartridgeRuntime:
         if self.find_handler(CAP_ADAPTER_SELECTION) is None:
             self.register_op_type(CAP_ADAPTER_SELECTION, AdapterSelectionOp)
 
-    def set_capacity(self, n: int) -> None:
-        """Set the maximum number of concurrent handler invocations.
-
-        When set to N > 0, the runtime queues incoming requests beyond N
-        active handlers. Queued requests receive a LOG frame with
-        `level="queued"` so the pipeline's activity timeout pauses for that
-        body.
-
-        * `0` — unlimited (default)
-        * `1` — serial execution (e.g. a cartridge with a single loaded model)
-        * `N` — up to N concurrent handlers
-        """
-        self._capacity.set(n)
-
-    def capacity_handle(self) -> CapacityHandle:
-        """Get a shared handle to the concurrency capacity.
-
-        Handlers can use this to adjust capacity dynamically at runtime —
-        for example, increasing capacity after freeing VRAM or decreasing it
-        under memory pressure.
-        """
-        return self._capacity
+    def pool_handle(self, pool: str) -> PoolHandle:
+        """A self-report handle for one pool (a registered cap URN, a
+        declared pool name, or ``all`` — see ``bifaci.pools``). ``set(n)``
+        on it writes the pool's ``available`` only — for example, dropping
+        a "gpu" pool to 1 during a model load, then clearing it (0) once
+        resources allow. (matches Rust CartridgeRuntime::pool_handle)"""
+        return PoolHandle(self, pool)
 
     def protocol_stragglers(self) -> "StragglerSnapshot":
         """Benign post-terminal straggler snapshot (L4): late frames the
@@ -3398,6 +3590,39 @@ class CartridgeRuntime:
         # then by smallest absolute distance
         matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
         return matches[0][0]
+
+    def find_handler_with_pattern(self, cap_urn: str) -> Optional[Tuple[OpFactory, str]]:
+        """Find the best handler for a cap URN and return it together with
+        the CANONICAL registered pattern that won — the request's singleton
+        pool and pool-chain key. (matches Rust find_handler_with_pattern)"""
+        # First try exact match
+        if cap_urn in self.handlers:
+            try:
+                return self.handlers[cap_urn], CapUrn.from_string(cap_urn).to_string()
+            except Exception:
+                return self.handlers[cap_urn], cap_urn
+
+        try:
+            request_urn = CapUrn.from_string(cap_urn)
+        except Exception:
+            return None
+
+        request_specificity = request_urn.specificity()
+        matches = []  # (handler, pattern, signed_distance)
+        for registered_cap_str, handler in self.handlers.items():
+            try:
+                registered_urn = CapUrn.from_string(registered_cap_str)
+                if registered_urn.is_dispatchable(request_urn):
+                    specificity = registered_urn.specificity()
+                    matches.append(
+                        (handler, registered_urn.to_string(), specificity - request_specificity)
+                    )
+            except Exception:
+                continue
+        if not matches:
+            return None
+        matches.sort(key=lambda m: (0 if m[2] >= 0 else 1, abs(m[2])))
+        return matches[0][0], matches[0][1]
 
     def run(self) -> None:
         """Run the cartridge runtime.
@@ -3552,11 +3777,25 @@ class CartridgeRuntime:
             stragglers=self._straggler_counters,
         )
 
+        # Materialize the concurrency pools BEFORE the handshake — the
+        # HELLO carries the full pool-state map (see ``bifaci.pools``), and
+        # a declaration that does not resolve against the registered
+        # handlers is a cartridge-author bug surfaced right here, at
+        # startup.
+        from capdag.bifaci.pools import PoolDeclarations
+        declarations = PoolDeclarations()
+        if self.manifest is not None:
+            declarations = self.manifest.pool_declarations
+        materialized = RuntimePools(sorted(self.handlers.keys()), declarations)
+        with self._pools_lock:
+            self._pools = materialized
+            pool_snapshot = materialized.snapshot()
+
         # Perform handshake - send our manifest in the HELLO response
         # Handshake uses raw_writer directly (HELLO is non-flow, seq doesn't matter)
         try:
             limits = handshake_accept(
-                reader, raw_writer, self.manifest_data, self._capacity.get()
+                reader, raw_writer, self.manifest_data, pool_snapshot
             )
             reader.set_limits(limits)
             sync_writer.set_limits(limits)
@@ -3589,31 +3828,29 @@ class CartridgeRuntime:
         # close_request releases waiters on handler completion.
         credit_router = CreditRouter()
 
-        # Concurrency capacity queueing (set_capacity/capacity_handle): when
-        # the runtime is at capacity, dispatch-ready requests are queued
-        # instead of spawned, with a "queued" LOG frame telling the pipeline
-        # to pause its activity timeout for that body. A slot frees the
-        # instant a handler finishes (not on the next stdin frame) — the
-        # finishing handler itself drains the queue.
-        capacity_lock = threading.Lock()
-        running_handler_count = 0
-        # Each entry: (request_id, routing_id, zero-arg target callable).
-        request_queue: List[Tuple[MessageId, Optional[MessageId], Callable[[], None]]] = []
-
+        # Pool-chain admission (see ``bifaci.pools``): when every pool in a
+        # request's chain has room, its handler thread spawns immediately;
+        # otherwise it queues on its cap's singleton queue with a "queued"
+        # LOG frame telling the pipeline to pause its activity timeout for
+        # that body. A chain frees the instant a handler finishes (not on
+        # the next stdin frame) — the finishing handler itself drains the
+        # oldest admissible queued request (global arrival order).
         def _spawn_thread(target_fn: Callable[[], None]) -> None:
-            nonlocal running_handler_count
-            running_handler_count += 1
             thread = threading.Thread(target=target_fn, daemon=True)
             thread.start()
             active_handlers.append(thread)
 
-        def _drain_queue_locked() -> None:
-            """Spawn handlers for queued requests while capacity allows.
-            Caller must hold capacity_lock."""
-            nonlocal running_handler_count
-            cap = self._capacity.get()
-            while request_queue and (cap == 0 or running_handler_count < cap):
-                qrid, qxid, qfn = request_queue.pop(0)
+        def _on_handler_done(request_id: MessageId, pattern: str) -> None:
+            """Called by a handler thread right after it finishes (success or
+            error) — releases its whole pool chain, releases its credit
+            waiters (L13), and immediately admits the oldest admissible
+            queued request across ALL singleton queues."""
+            credit_router.close_request(request_id, "END")
+            with self._pools_lock:
+                self._pools.release(pattern)
+                admitted = self._pools.pop_admissible()
+            if admitted is not None:
+                _, (qrid, qxid, qfn) = admitted
                 dequeued_log = Frame.log(
                     qrid,
                     "dequeued",
@@ -3626,43 +3863,34 @@ class CartridgeRuntime:
                 except Exception:
                     pass
                 _spawn_thread(qfn)
-                cap = self._capacity.get()
 
-        def _on_handler_done(request_id: MessageId) -> None:
-            """Called by a handler thread right after it finishes (success or
-            error) — releases its credit waiters (L13) and immediately drains
-            one queued request into the freed slot."""
-            nonlocal running_handler_count
-            credit_router.close_request(request_id, "END")
-            with capacity_lock:
-                running_handler_count -= 1
-                _drain_queue_locked()
-
-        def _spawn_or_queue(request_id: MessageId, routing_id: Optional[MessageId], target_fn: Callable[[], None]) -> None:
+        def _spawn_or_queue(request_id: MessageId, routing_id: Optional[MessageId], pattern: str, target_fn: Callable[[], None]) -> None:
             """Dispatch a live-routed request: spawn its handler immediately
-            under capacity, else queue it with a "queued" LOG frame. Input
-            frames route onto the request's raw_queue as they arrive
-            regardless (protocol v4, L16) — nothing is buffered to completion
-            before dispatch."""
-            nonlocal running_handler_count
-            with capacity_lock:
-                cap = self._capacity.get()
-                if cap > 0 and running_handler_count >= cap:
-                    queue_pos = len(request_queue) + 1
-                    log_frame = Frame.log(
-                        request_id,
-                        "queued",
-                        AttributionClass.INTERNAL,
-                        f"Request queued (position {queue_pos}, {running_handler_count} active)",
+            when its whole pool chain has room, else queue it on its cap's
+            singleton queue with a "queued" LOG frame. Input frames route
+            onto the request's raw_queue as they arrive regardless (protocol
+            v4, L16) — nothing is buffered to completion before dispatch."""
+            with self._pools_lock:
+                admitted = self._pools.try_admit(pattern)
+                queue_pos = 0
+                if not admitted:
+                    queue_pos = self._pools.enqueue(
+                        pattern, (request_id, routing_id, target_fn)
                     )
-                    log_frame.routing_id = routing_id
-                    try:
-                        sync_writer.write(log_frame)
-                    except Exception:
-                        pass
-                    request_queue.append((request_id, routing_id, target_fn))
-                else:
-                    _spawn_thread(target_fn)
+            if not admitted:
+                log_frame = Frame.log(
+                    request_id,
+                    "queued",
+                    AttributionClass.INTERNAL,
+                    f"Request queued (position {queue_pos} on pool '{pattern}')",
+                )
+                log_frame.routing_id = routing_id
+                try:
+                    sync_writer.write(log_frame)
+                except Exception:
+                    pass
+            else:
+                _spawn_thread(target_fn)
 
         # Process requests - main loop stays responsive
         while True:
@@ -3715,7 +3943,8 @@ class CartridgeRuntime:
                         pass
                     continue
 
-                factory = self.find_handler(cap_urn)
+                found = self.find_handler_with_pattern(cap_urn)
+                factory, pattern = found if found is not None else (None, None)
                 if factory is None:
                     # A dispatched cap this binary doesn't handle is a
                     # deployment/manifest mismatch — Environment.
@@ -3754,6 +3983,7 @@ class CartridgeRuntime:
                     request_id=request_id,
                     raw_queue=raw_queue,
                     factory=factory,
+                    pattern=pattern,
                     max_chunk=_max_chunk,
                     routing_id=routing_id,
                     initial_credit=_initial_credit,
@@ -3783,10 +4013,10 @@ class CartridgeRuntime:
                                 f"[CartridgeRuntime] Failed to write error response: {write_err}",
                                 file=sys.stderr,
                             )
-                        # Release credit waiters and the capacity slot exactly
+                        # Release credit waiters and the pool chain exactly
                         # like a completed handler (L13) — a failed derivation
-                        # must not leak the slot.
-                        _on_handler_done(request_id)
+                        # must not leak the chain.
+                        _on_handler_done(request_id, pattern)
                         return
                     # SyncFrameWriter assigns seq centrally for all frames.
                     # routing_id (XID) is propagated from incoming REQ to all response frames.
@@ -3864,12 +4094,12 @@ class CartridgeRuntime:
                         with self._lf_handles_lock:
                             for handle in self._live_feed_handles_by_rid.pop(str(request_id), []):
                                 handle.close()
-                        # Release this request's credit waiters (L13) and
-                        # immediately drain one queued request into the
-                        # freed capacity slot.
-                        _on_handler_done(request_id)
+                        # Release this request's credit waiters (L13), the
+                        # whole pool chain, and immediately admit the oldest
+                        # admissible queued request.
+                        _on_handler_done(request_id, pattern)
 
-                _spawn_or_queue(request_id, routing_id, handle_request)
+                _spawn_or_queue(request_id, routing_id, pattern, handle_request)
                 continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
 
             elif frame.frame_type == FrameType.CANCEL:
@@ -3903,18 +4133,51 @@ class CartridgeRuntime:
                 )
 
             elif frame.frame_type == FrameType.HEARTBEAT:
+                # The heartbeat is the capacity CONFIG channel: a probe may
+                # carry the operator's desired ``configured`` values. The
+                # whole batch is validated first — an unknown pool refuses
+                # it all with an ERR naming it, and the probe gets that ERR
+                # instead of a reply, so the host's awaited apply fails
+                # precisely rather than silently.
+                from capdag.bifaci.pools import (
+                    META_POOLS,
+                    decode_desired,
+                    encode_pool_states,
+                )
+                desired_bytes = frame.desired_capacity_bytes()
+                if desired_bytes is not None:
+                    try:
+                        desired = decode_desired(desired_bytes)
+                        with self._pools_lock:
+                            self._pools.apply_desired(desired)
+                    except ValueError as apply_err:
+                        err_frame = Frame.err(
+                            frame.id,
+                            "UNKNOWN_POOL",
+                            AttributionClass.INTERNAL,
+                            f"desired capacities refused: {apply_err}",
+                        )
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception as write_err:
+                            print(f"[CartridgeRuntime] Failed to write UNKNOWN_POOL error: {write_err}", file=sys.stderr)
+                            break
+                        continue
                 # Respond to heartbeat immediately - never blocked by handlers
                 response = Frame.heartbeat(frame.id)
+                with self._pools_lock:
+                    heartbeat_snapshot = self._pools.snapshot()
                 # Protocol observability (L8): this cartridge's dropped-frame
                 # total rides every heartbeat so the host can surface it
                 # without a dedicated stats round-trip. The benign straggler
                 # total rides alongside, under its own name — stragglers are
-                # not drops.
+                # not drops. The pool map is MANDATORY: the host hard-errors
+                # on a reply without it.
                 response.meta = {
                     "drops_total": self._drop_counters.total(),
                     "stragglers_total": self._straggler_counters.total(),
                     "overruns_total": self.protocol_overruns_total(),
-                    "handler_capacity": self._capacity.get(),
+                    META_POOLS: encode_pool_states(heartbeat_snapshot),
                 }
                 try:
                     sync_writer.write(response)

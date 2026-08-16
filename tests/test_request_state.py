@@ -330,11 +330,22 @@ def _admission_key():
     )
 
 
-def _acquire_async(controller, key, out):
+def _pool_key(install, pool):
+    from capdag.bifaci.request_state import PoolKey
+
+    return PoolKey(install=install, pool=pool)
+
+
+def _all_chain(install):
+    """The minimal chain: a cap addressed through its install's `all` pool."""
+    return [_pool_key(install, "all")]
+
+
+def _acquire_async(controller, chain, out):
     """Acquire on a worker thread, recording the permit or the error."""
     def run():
         try:
-            out.append(("ok", controller.acquire(key)))
+            out.append(("ok", controller.acquire(chain)))
         except AdmissionError as e:
             out.append(("err", e))
     t = threading.Thread(target=run, daemon=True)
@@ -346,15 +357,15 @@ def _acquire_async(controller, key, out):
 def test_7110_admission_fifo_releases_one_waiter():
     controller = AdmissionController()
     key = _admission_key()
-    controller.configure(key, 1)
-    first = controller.acquire(key)
+    controller.configure_pools(key, {"all": 1})
+    first = controller.acquire(_all_chain(key))
 
     second_out, third_out = [], []
-    _acquire_async(controller, key, second_out)
+    _acquire_async(controller, _all_chain(key), second_out)
     # Let the second waiter take its ticket before the third queues, so the
     # FIFO order under test is deterministic.
     _time.sleep(0.05)
-    _acquire_async(controller, key, third_out)
+    _acquire_async(controller, _all_chain(key), third_out)
     _time.sleep(0.05)
     assert not second_out and not third_out, "no waiter is admitted while the slot is held"
 
@@ -377,15 +388,15 @@ def test_7110_admission_fifo_releases_one_waiter():
 def test_7112_capacity_reconfiguration_wakes_existing_waiters():
     controller = AdmissionController()
     key = _admission_key()
-    controller.configure(key, 1)
-    active = controller.acquire(key)
+    controller.configure_pools(key, {"all": 1})
+    active = controller.acquire(_all_chain(key))
 
     out = []
-    _acquire_async(controller, key, out)
+    _acquire_async(controller, _all_chain(key), out)
     _time.sleep(0.05)
     assert not out, "a waiter must not be admitted at capacity 1 while the slot is held"
 
-    controller.configure(key, 0)  # unlimited
+    controller.configure_pools(key, {"all": 0})  # unlimited
     deadline = _time.monotonic() + 2
     while not out and _time.monotonic() < deadline:
         _time.sleep(0.01)
@@ -398,11 +409,11 @@ def test_7112_capacity_reconfiguration_wakes_existing_waiters():
 def test_7114_transient_unavailability_does_not_fail_queued_work():
     controller = AdmissionController()
     key = _admission_key()
-    controller.configure(key, 1)
-    active = controller.acquire(key)
+    controller.configure_pools(key, {"all": 1})
+    active = controller.acquire(_all_chain(key))
 
     out = []
-    _acquire_async(controller, key, out)
+    _acquire_async(controller, _all_chain(key), out)
     _time.sleep(0.05)
 
     # The target vanishes from its host's inventory...
@@ -411,7 +422,7 @@ def test_7114_transient_unavailability_does_not_fail_queued_work():
     assert not out, "an outage inside the grace window must not fail queued work"
 
     # ...and comes back, which is what must release the queue.
-    controller.configure(key, 1)
+    controller.configure_pools(key, {"all": 1})
     active.release()
     deadline = _time.monotonic() + 2
     while not out and _time.monotonic() < deadline:
@@ -427,11 +438,11 @@ def test_1943_outage_outliving_the_grace_window_fails_queued_work():
     # through a real minute. Production uses ADMISSION_UNAVAILABLE_GRACE_SECONDS.
     controller.grace = 0.15
     key = _admission_key()
-    controller.configure(key, 1)
-    active = controller.acquire(key)
+    controller.configure_pools(key, {"all": 1})
+    active = controller.acquire(_all_chain(key))
 
     out = []
-    _acquire_async(controller, key, out)
+    _acquire_async(controller, _all_chain(key), out)
     _time.sleep(0.05)
     assert not out, "the window must not expire early"
 
@@ -450,15 +461,15 @@ def test_1943_outage_outliving_the_grace_window_fails_queued_work():
 def test_7111_cancelled_admission_waiter_cannot_block_queue():
     controller = AdmissionController()
     key = _admission_key()
-    controller.configure(key, 1)
-    active = controller.acquire(key)
+    controller.configure_pools(key, {"all": 1})
+    active = controller.acquire(_all_chain(key))
 
     cancel = threading.Event()
     cancelled_out = []
 
     def run():
         try:
-            cancelled_out.append(("ok", controller.acquire(key, cancel)))
+            cancelled_out.append(("ok", controller.acquire(_all_chain(key), cancel)))
         except AdmissionError as e:
             cancelled_out.append(("err", e))
 
@@ -473,7 +484,7 @@ def test_7111_cancelled_admission_waiter_cannot_block_queue():
     )
 
     next_out = []
-    _acquire_async(controller, key, next_out)
+    _acquire_async(controller, _all_chain(key), next_out)
     _time.sleep(0.05)
     active.release()
     deadline = _time.monotonic() + 2
@@ -483,3 +494,61 @@ def test_7111_cancelled_admission_waiter_cannot_block_queue():
         "the next body must be admitted, not stranded behind the cancelled ticket"
     )
     next_out[0][1].release()
+
+
+# TEST1524: chain admission is ATOMIC — a request is admitted only when EVERY
+# pool in its chain has room, and holds all of them until release. A free
+# singleton behind a full shared pool waits; releasing the shared pool's
+# holder admits it.
+def test_1524_chain_admission_is_atomic_across_pools():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure_pools(
+        key, {"cap:a": 0, "cap:b": 0, "gpu": 1, "all": 0}
+    )
+    chain_a = [_pool_key(key, "cap:a"), _pool_key(key, "gpu"), _pool_key(key, "all")]
+    chain_b = [_pool_key(key, "cap:b"), _pool_key(key, "gpu"), _pool_key(key, "all")]
+
+    holder = controller.acquire(chain_a)
+
+    # cap:b's own singleton is free, but the shared "gpu" pool is full — the
+    # whole chain must wait.
+    out = []
+    _acquire_async(controller, chain_b, out)
+    _time.sleep(0.05)
+    assert not out, "a full shared pool must block the whole chain"
+
+    holder.release()
+    deadline = _time.monotonic() + 2
+    while not out and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert out and out[0][0] == "ok", "releasing the shared pool must admit the queued chain"
+    out[0][1].release()
+
+
+# TEST1525: pools are ISOLATED — saturating one cap's singleton does not
+# block a different cap whose chain shares only unlimited pools.
+def test_1525_disjoint_bounded_pools_admit_independently():
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure_pools(key, {"cap:a": 1, "cap:b": 1, "all": 0})
+    chain_a = [_pool_key(key, "cap:a"), _pool_key(key, "all")]
+    chain_b = [_pool_key(key, "cap:b"), _pool_key(key, "all")]
+
+    a = controller.acquire(chain_a)
+    # cap:a is saturated; cap:b must admit immediately.
+    b = controller.acquire(chain_b)
+    b.release()
+    a.release()
+
+
+# TEST1526: acquiring a chain naming a pool the install never advertised
+# fails hard — an unknown pool is a protocol defect, never a free pass.
+def test_1526_unknown_pool_in_chain_fails_hard():
+    import pytest
+
+    controller = AdmissionController()
+    key = _admission_key()
+    controller.configure_pools(key, {"all": 0})
+    with pytest.raises(AdmissionError, match="cap:ghost"):
+        controller.acquire([_pool_key(key, "cap:ghost"), _pool_key(key, "all")])

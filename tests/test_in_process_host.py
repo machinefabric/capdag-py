@@ -251,7 +251,11 @@ def test_6751_manifest_includes_all_caps():
     assert len(payload["installed_cartridges"][0]["cap_groups"]) == 1
     stats = payload["installed_cartridges"][0]["runtime_stats"]
     assert stats["running"] is True
-    assert stats["handler_capacity"] == 0
+    # The pool map is the capacity surface: one at-rest unlimited singleton
+    # per advertised cap plus the mandatory `all` pool.
+    pools = stats["pools"]
+    assert pools["all"]["configured"] == 0, "in-process hosts are unlimited"
+    assert CAP_IDENTITY in pools
 
 
 # TEST658: InProcessCartridgeHost handles heartbeat by echoing same ID
@@ -274,7 +278,15 @@ def test_658_heartbeat_response():
     resp = reader.read()
     assert resp.frame_type == FrameType.HEARTBEAT
     assert resp.id == hb_id
-    assert resp.meta["handler_capacity"] == 0
+    # The heartbeat reply's mandatory pool map replaces the retired scalar
+    # handler_capacity meta.
+    from capdag.bifaci.pools import decode_pool_states
+
+    pool_bytes = resp.pool_state_bytes()
+    assert pool_bytes is not None, "heartbeat reply must carry the pool map"
+    states = decode_pool_states(pool_bytes)
+    assert states["all"].configured == 0, "in-process hosts are unlimited"
+    assert states["all"].active == 0
 
     close_socks(test_socks)
     close_socks(host_socks)

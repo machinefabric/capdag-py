@@ -41,6 +41,20 @@ def send_notify(writer: FrameWriter, manifest_json: dict, limits: Limits):
 _make_manifest_counter = itertools.count(1)
 
 
+def _test_pool_states_json(cap_urns) -> dict:
+    """A roster pools map for test stats: one at-rest singleton per cap
+    (canonical URN) plus the mandatory ``all`` pool — the pool-map
+    equivalent of the retired scalar handler_capacity."""
+    from capdag.urn.cap_urn import CapUrn
+
+    def at_rest():
+        return {"declared": 0, "configured": 0, "active": 0, "queued": 0}
+
+    pools = {CapUrn.from_string(u).to_string(): at_rest() for u in cap_urns}
+    pools["all"] = at_rest()
+    return pools
+
+
 def make_manifest(*caps: str) -> dict:
     """Build a RelayNotify-shaped manifest dict from a flat cap-urn list.
 
@@ -67,9 +81,9 @@ def make_manifest(*caps: str) -> dict:
                 "version": "0.0.0",
                 "sha256": "0" * 64,
                 # v4: an advertised installed cartridge always carries its
-                # runtime stats — the switch resolves admission capacity from
-                # handler_capacity.
-                "runtime_stats": {"running": True, "handler_capacity": 0},
+                # runtime stats — the switch resolves admission capacities
+                # from the pool map.
+                "runtime_stats": {"running": True, "pools": _test_pool_states_json(all_caps)},
                 "cap_groups": [
                     {
                         "name": "test",
@@ -1321,9 +1335,9 @@ def _deferred_identity_slave(slave_read, slave_write, caps, succeed: bool):
                 "version": "0.0.0",
                 "sha256": "0" * 64,
                 # v4: an advertised installed cartridge always carries its
-                # runtime stats — the switch resolves admission capacity from
-                # handler_capacity.
-                "runtime_stats": {"running": True, "handler_capacity": 0},
+                # runtime stats — the switch resolves admission capacities
+                # from the pool map.
+                "runtime_stats": {"running": True, "pools": _test_pool_states_json(caps)},
                 "cap_groups": [
                     {"name": "test", "caps": group_caps, "adapter_urns": []},
                 ],

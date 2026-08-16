@@ -44,6 +44,7 @@ from capdag.bifaci.request_state import (
     AdmissionController,
     AdmissionError,
     AdmissionKey,
+    PoolKey,
     FrameDirection,
     RequestState,
     RequestStateError,
@@ -211,7 +212,11 @@ class CartridgeRuntimeStats:
     ``CartridgeRuntimeStats``. Absent (``None``) for cartridges that are not
     yet running (e.g. dir-registered, spawn-on-demand)."""
 
-    handler_capacity: int = 0
+    #: The cartridge's full concurrency-pool state map (``bifaci.pools``):
+    #: declared/configured/available/active/queued per pool — singleton
+    #: pools keyed by cap URN, declared shared pools, and ``all``. This IS
+    #: the capacity surface; there is no scalar.
+    pools: Dict[str, Any] = field(default_factory=dict)
     running: bool = False
     pid: Optional[int] = None
     active_request_count: int = 0
@@ -416,9 +421,10 @@ class RelaySwitch:
         # by `self._lock` (the table itself is unsynchronized, mirroring the
         # reference `RwLock<RequestTable>`).
         self._requests: RequestTable = RequestTable()
-        # Switch-side FIFO admission: a positive handler_capacity bounds how
-        # many requests the switch dispatches to one cartridge install at a
-        # time. Mirrors the reference RelaySwitch.admission.
+        # Switch-side pool-chain admission (see ``bifaci.pools``): a
+        # dispatch is held against its cap's whole pool chain; a bounded
+        # pool limits how many requests the switch dispatches through it at
+        # a time. Mirrors the reference RelaySwitch.admission.
         self._admission: AdmissionController = AdmissionController()
         # Dropped-frame accounting (L8): unroutable/post-terminal frames are
         # counted drops, never silent losses and never protocol errors.
@@ -962,21 +968,24 @@ class RelaySwitch:
                     f"cartridge '{record.id}' on master {master_idx} is missing "
                     "mandatory v4 runtime_stats"
                 )
-            capacity = record.runtime_stats.handler_capacity if record.runtime_stats.running else 1
             key = self._admission_key(master_idx, record)
             # A host may expose several process instances of the same logical
             # install. They share one admission identity: preserve the first
             # host-ordered record, matching host dispatch.
             if key not in available:
                 available.add(key)
-                self._admission.configure(key, capacity)
+                self._admission.configure_pools(
+                    key, _pool_capacities(record.runtime_stats, record.id)
+                )
         self._admission.reconcile_master(master_idx, available)
 
     def _cap_admission_target_locked(
         self, master_idx: int, registered_cap: str
-    ) -> Tuple[AdmissionKey, int]:
-        """Admission identity and capacity of the cartridge that owns
-        ``registered_cap`` on this master. Caller must hold ``self._lock``.
+    ) -> List[Tuple[PoolKey, int]]:
+        """The cap's admission CHAIN — each (install, pool) permit domain a
+        dispatch is held against, in order (singleton, declared pools,
+        ``all``), paired with that pool's effective capacity (0 =
+        unlimited) — on this master. Caller must hold ``self._lock``.
         Mirrors ``cap_admission_target``."""
         if master_idx < 0 or master_idx >= len(self._masters):
             raise ProtocolError(f"selected master index {master_idx} no longer exists")
@@ -1006,8 +1015,10 @@ class RelaySwitch:
                 f"cartridge '{owner.id}' on master {master_idx} is missing mandatory "
                 "v4 runtime_stats"
             )
-        capacity = owner.runtime_stats.handler_capacity if owner.runtime_stats.running else 1
-        return owner_key, capacity
+        self._admission.configure_pools(
+            owner_key, _pool_capacities(owner.runtime_stats, owner.id)
+        )
+        return _admission_chain(owner_key, owner.runtime_stats, registered_cap, owner.id)
 
     def _registered_cap_for_locked(self, master_idx: int, cap_urn: str) -> str:
         """The cap-table entry on this master that ``cap_urn`` dispatches to.
@@ -1021,33 +1032,34 @@ class RelaySwitch:
         raise NoHandlerError(cap_urn)
 
     def admission_capacity_for_cap(self, cap_urn: str) -> int:
-        """Authoritative handler capacity for the cartridge selected by normal
-        cap dispatch. A positive capacity is an execution boundary: callers
-        must not pre-acquire that request as part of a multi-cap live pipeline,
-        because the permit represents an actively owned process slot. Zero
-        means unlimited. Mirrors ``admission_capacity_for_cap``."""
+        """Authoritative minimum effective capacity across the pool chain
+        serving a cap (0 = every pool unlimited). A positive capacity is an
+        execution boundary: callers must not pre-acquire that request as
+        part of a multi-cap live pipeline, because the permit represents
+        actively owned pool slots. Mirrors ``admission_capacity_for_cap``."""
         with self._lock:
             dest_idx = self._find_master_for_cap(cap_urn, None)
             if dest_idx is None:
                 raise NoHandlerError(cap_urn)
             registered = self._registered_cap_for_locked(dest_idx, cap_urn)
-            _, capacity = self._cap_admission_target_locked(dest_idx, registered)
-            return capacity
+            chain = self._cap_admission_target_locked(dest_idx, registered)
+        bounded = [capacity for _, capacity in chain if capacity > 0]
+        return min(bounded) if bounded else 0
 
     def _acquire_cap_admission(self, cap_urn: str, preferred_cap: Optional[str]):
         """Resolve the cartridge that will serve ``cap_urn`` and take its
-        admission slot, waiting for capacity. Called WITHOUT ``self._lock``:
-        acquiring can block, and blocking under the switch lock would deadlock
-        every path that must run for a slot to be released."""
+        whole pool CHAIN, waiting for capacity. Called WITHOUT
+        ``self._lock``: acquiring can block, and blocking under the switch
+        lock would deadlock every path that must run for a slot to be
+        released."""
         with self._lock:
             dest_idx = self._find_master_for_cap(cap_urn, preferred_cap)
             if dest_idx is None:
                 raise NoHandlerError(cap_urn)
             registered = self._registered_cap_for_locked(dest_idx, cap_urn)
-            key, capacity = self._cap_admission_target_locked(dest_idx, registered)
-            self._admission.configure(key, capacity)
+            chain = self._cap_admission_target_locked(dest_idx, registered)
         try:
-            return self._admission.acquire(key)
+            return self._admission.acquire([key for key, _ in chain])
         except AdmissionError as e:
             raise CartridgeUnavailableError(str(e)) from e
 
@@ -1949,12 +1961,73 @@ def _installed_cartridge_record_to_wire(ic: InstalledCartridgeRecord) -> dict:
             "last_heartbeat_unix_seconds": rs.last_heartbeat_unix_seconds,
             "restart_count": rs.restart_count,
             "protocol_drops_total": rs.protocol_drops_total,
-            "handler_capacity": rs.handler_capacity,
+            "pools": {name: state.to_dict() for name, state in rs.pools.items()},
         }
     lifecycle = ic.effective_lifecycle()
     if lifecycle != CartridgeLifecycle.DISCOVERED:
         out["lifecycle"] = lifecycle.value
     return out
+
+
+def _pool_capacities(stats: "CartridgeRuntimeStats", cartridge_id: str) -> Dict[str, int]:
+    """One record's advertised pool map as the admission controller's
+    EFFECTIVE capacities. A NOT-RUNNING record's ``all`` pool is clamped to
+    1 — the cold-start canary: the first dispatch to a cold cartridge is a
+    single body that proves the spawn before the advertised capacities apply
+    (failure containment, not missing information). An EMPTY pool map on an
+    operational record is a protocol error, never a free pass. (matches
+    Rust pool_capacities)"""
+    from capdag.bifaci.pools import POOL_ALL
+
+    if not stats.pools:
+        raise ProtocolError(
+            f"cartridge '{cartridge_id}' advertises no concurrency pools — the "
+            "pool map is mandatory for operational records"
+        )
+    capacities: Dict[str, int] = {}
+    for name, state in stats.pools.items():
+        if not stats.running and name == POOL_ALL:
+            capacities[name] = 1
+        else:
+            capacities[name] = state.effective()
+    return capacities
+
+
+def _admission_chain(
+    install: AdmissionKey,
+    stats: "CartridgeRuntimeStats",
+    registered_cap: str,
+    cartridge_id: str,
+) -> List[Tuple[PoolKey, int]]:
+    """The cap's pool CHAIN over one record's advertised pool map — each
+    admission domain paired with its effective capacity (0 = unlimited,
+    with the not-running canary clamp on ``all``). A cap the pool map does
+    not cover is a protocol error, never a free pass. (matches Rust
+    admission_chain)"""
+    from capdag.bifaci.pools import POOL_ALL, chain_from_states
+
+    try:
+        canonical = CapUrn.from_string(registered_cap).to_string()
+    except Exception as exc:
+        raise ProtocolError(
+            f"registered cap '{registered_cap}' is not a valid cap URN: {exc}"
+        ) from exc
+    names = chain_from_states(stats.pools, canonical)
+    if not names or names[0] != canonical or names[-1] != POOL_ALL:
+        raise ProtocolError(
+            f"cartridge '{cartridge_id}' advertises cap '{canonical}' with no pool "
+            f"coverage — its pool map is missing the cap's singleton or the "
+            f"'{POOL_ALL}' pool"
+        )
+    chain: List[Tuple[PoolKey, int]] = []
+    for name in names:
+        if not stats.running and name == POOL_ALL:
+            # The cold-start canary clamp — see _pool_capacities.
+            effective = 1
+        else:
+            effective = stats.pools[name].effective()
+        chain.append((PoolKey(install=install, pool=name), effective))
+    return chain
 
 
 def _parse_relay_notify_payload(
@@ -2058,11 +2131,12 @@ def _parse_relay_notify_payload(
         runtime_stats = None
         rs_raw = item.get("runtime_stats")
         if isinstance(rs_raw, dict):
-            if not isinstance(rs_raw.get("handler_capacity"), int) \
-                    or rs_raw["handler_capacity"] < 0:
-                raise ValueError("runtime_stats.handler_capacity must be a non-negative integer")
+            from capdag.bifaci.pools import PoolState
+            pools_raw = rs_raw.get("pools")
+            if not isinstance(pools_raw, dict):
+                raise ValueError("runtime_stats.pools is required")
             runtime_stats = CartridgeRuntimeStats(
-                handler_capacity=rs_raw["handler_capacity"],
+                pools={name: PoolState.from_dict(state) for name, state in pools_raw.items()},
                 running=bool(rs_raw.get("running", False)),
                 pid=rs_raw.get("pid"),
                 active_request_count=int(rs_raw.get("active_request_count", 0)),
