@@ -1980,10 +1980,16 @@ def _pool_capacities(stats: "CartridgeRuntimeStats", cartridge_id: str) -> Dict[
     from capdag.bifaci.pools import POOL_ALL
 
     if not stats.pools:
-        raise ProtocolError(
-            f"cartridge '{cartridge_id}' advertises no concurrency pools — the "
-            "pool map is mandatory for operational records"
-        )
+        if stats.running:
+            raise ProtocolError(
+                f"cartridge '{cartridge_id}' is running but advertises no concurrency "
+                "pools — the pool map is mandatory once HELLO has completed"
+            )
+        # A cold record before its first HELLO legitimately has no pool map
+        # yet (registered-dir cartridges spawn on first dispatch). Admit
+        # through the canary alone: `all` clamped to 1, so the first body
+        # proves the spawn before real capacities exist.
+        return {POOL_ALL: 1}
     capacities: Dict[str, int] = {}
     for name, state in stats.pools.items():
         if not stats.running and name == POOL_ALL:
@@ -2006,6 +2012,16 @@ def _admission_chain(
     admission_chain)"""
     from capdag.bifaci.pools import POOL_ALL, chain_from_states
 
+    if not stats.pools:
+        if stats.running:
+            raise ProtocolError(
+                f"cartridge '{cartridge_id}' is running but advertises no concurrency "
+                "pools — the pool map is mandatory once HELLO has completed"
+            )
+        # Cold record before its first HELLO: the whole dispatch is the
+        # canary — one body through the clamped `all` pool, which is what
+        # triggers the spawn and the real pool map.
+        return [(PoolKey(install=install, pool=POOL_ALL), 1)]
     try:
         canonical = CapUrn.from_string(registered_cap).to_string()
     except Exception as exc:
