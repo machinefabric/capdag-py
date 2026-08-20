@@ -304,7 +304,7 @@ def test_800_machine_input_vector():
 def test_801_cap_input_file_deserialization_from_dry_context():
     payload = [
         {
-            "file_path": "/Users/bahram/ws/prj/machinefabric/pdfcartridge/test_files/aws_in_action.pdf",
+            "file_path": "/fixtures/aws_in_action.pdf",
             "media_urn": "media:ext=pdf",
             "source_id": "1b964d3b-f409-4f51-8684-884348ec2501",
             "source_type": "listing",
