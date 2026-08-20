@@ -26,7 +26,9 @@ host.run(relay_reader, relay_writer, resource_fn=lambda: b"")
 
 import hashlib
 import json
+import os
 import subprocess
+import sys
 import threading
 import queue
 import time
@@ -331,6 +333,30 @@ class CartridgeProcessHandle:
         self._command_queue.put(("kill_cartridge", pid))
 
 
+def _start_stderr_drain(cartridge: "_ManagedCartridge", stream: Any) -> threading.Thread:
+    """Drain a cartridge's stderr line by line for its whole life — into the
+    cartridge's bounded tail and this process's stderr — ending at EOF (the
+    process closed stderr, normally at death). Mirrors the reference host's
+    stderr forwarding task."""
+    name = os.path.basename(cartridge.path)
+
+    def run() -> None:
+        try:
+            for raw in iter(stream.readline, b""):
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line:
+                    continue
+                cartridge.append_stderr(line)
+                print(f"[cartridge stderr] {name}: {line}", file=sys.stderr, flush=True)
+        except (OSError, ValueError):
+            # The pipe was closed under us (death teardown); nothing left to drain.
+            return
+
+    thread = threading.Thread(target=run, name=f"cartridge-stderr[{name}]", daemon=True)
+    thread.start()
+    return thread
+
+
 class _ManagedCartridge:
     """A cartridge managed by the CartridgeHost."""
 
@@ -370,6 +396,16 @@ class _ManagedCartridge:
         # attachment error. Mirrors the reference ``ManagedCartridge.removed``
         # (Swift ``isRemoved``).
         self.removed: bool = False
+        # The cartridge's stderr, drained CONTINUOUSLY by a thread for the
+        # process's whole life (the reference host forwards it line by
+        # line). A pipe nobody reads fills its 64 KiB buffer and then blocks
+        # the cartridge's next write — inside whatever it was doing; DEVNULL
+        # hid every complaint a living cartridge made and every crash
+        # message a dying one left. The bounded tail is what the death
+        # report quotes.
+        self._stderr_lock = threading.Lock()
+        self._stderr_tail: str = ""
+        self.stderr_thread: Optional[threading.Thread] = None
         # Set when a roster sync retired this cartridge while it still had
         # work in flight. It is already out of the cap table and the
         # inventory, so nothing new routes to it; the process stays alive
@@ -406,6 +442,20 @@ class _ManagedCartridge:
         # attachment error when the cartridge has permanently failed HELLO.
         self.last_death_message: Optional[str] = None
 
+
+    STDERR_TAIL_LIMIT = 2000
+
+    def append_stderr(self, line: str) -> None:
+        with self._stderr_lock:
+            self._stderr_tail += line + "\n"
+            if len(self._stderr_tail) > self.STDERR_TAIL_LIMIT:
+                self._stderr_tail = self._stderr_tail[-self.STDERR_TAIL_LIMIT:]
+
+    def take_stderr_tail(self) -> str:
+        with self._stderr_lock:
+            tail = self._stderr_tail
+            self._stderr_tail = ""
+            return tail
     def installed_cartridge_record(self) -> Optional["InstalledCartridgeRecord"]:
         """The cartridge's resolvable install identity, or None for an
         attached/probe-based registration with no on-disk anchor."""
@@ -1002,11 +1052,16 @@ class CartridgeHost:
             # operator a healthy process crashed. Both are Environment — the
             # cause is outside the engine either way.
             code = "CARTRIDGE_RETIRED" if cartridge.retired else "CARTRIDGE_DIED"
+            stderr_tail = cartridge.take_stderr_tail()
             reason = (
                 f"cartridge {cartridge_idx} retired: it is no longer in the "
                 "host's desired roster"
                 if cartridge.retired
-                else f"cartridge {cartridge_idx} died"
+                else (
+                    f"cartridge {cartridge_idx} died. stderr:\n{stderr_tail}"
+                    if stderr_tail
+                    else f"cartridge {cartridge_idx} died"
+                )
             )
             for i, key in enumerate(failed_keys):
                 # A dead cartridge process is a runtime-environment
@@ -1090,7 +1145,7 @@ class CartridgeHost:
                 [cartridge.path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
         except Exception as e:
             cartridge.hello_failed = True
@@ -1098,6 +1153,8 @@ class CartridgeHost:
             return f"failed to start cartridge: {e}"
 
         cartridge.process = proc
+        cartridge.take_stderr_tail()
+        cartridge.stderr_thread = _start_stderr_drain(cartridge, proc.stderr)
 
         reader = FrameReader(proc.stdout)
         writer = FrameWriter(proc.stdin)
