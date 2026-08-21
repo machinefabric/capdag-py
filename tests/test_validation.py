@@ -355,6 +355,22 @@ def test_1953_rule14_streaming_only_on_main_input():
     assert MEDIA_INTEGER in exc_info.value.issue
 
 
+# TEST1964: a definition field this capdag does not know is a NEWER fabric, not
+# noise — parsing refuses it, naming the key, for arguments and outputs alike.
+# The field being dropped is how a cartridge built on an older capdag once
+# advertised a ``streaming`` input as bounded.
+def test_1964_unknown_definition_field_is_refused():
+    from capdag.cap.definition import CapOutput
+
+    with pytest.raises(ValueError, match="chunking"):
+        CapArg.from_dict({"media_urn": MEDIA_STRING, "required": True,
+                          "sources": [{"stdin": MEDIA_STRING}], "chunking": "adaptive"})
+    assert CapArg.from_dict({"media_urn": MEDIA_STRING, "required": True,
+                             "sources": [{"stdin": MEDIA_STRING}], "streaming": True}).streaming
+    with pytest.raises(ValueError, match="windowed"):
+        CapOutput.from_dict({"media_urn": MEDIA_STRING, "output_description": "x", "windowed": True})
+
+
 # TEST1297: RULE11 - non-void-input cap with stdin source passes
 def test_1297_rule11_non_void_input_with_stdin():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))

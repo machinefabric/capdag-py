@@ -98,6 +98,16 @@ def arg_source_from_dict(data: Dict[str, Any]) -> ArgSource:
         raise ValueError(f"Unknown arg source format: {data}")
 
 
+def _refuse_unknown_keys(data: Dict[str, Any], known: frozenset, what: str) -> None:
+    unknown = sorted(key for key in data if key not in known)
+    if unknown:
+        raise ValueError(
+            f"{what} carries field(s) this capdag does not know: {', '.join(unknown)} — "
+            "the definition comes from a fabric newer than this capdag; the contract is "
+            + ", ".join(sorted(known))
+        )
+
+
 @dataclass
 class CapArg:
     """Cap argument definition"""
@@ -212,9 +222,19 @@ class CapArg:
         result["streaming"] = self.streaming
         return result
 
+    #: The definition's keys — what every capdag mirror's CapArg carries.
+    KNOWN_KEYS = frozenset({
+        "media_urn", "required", "sources", "arg_description", "default_value",
+        "metadata", "is_sequence", "streaming",
+    })
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CapArg":
-        """Parse from dict"""
+        """Parse from dict. Unknown keys are REFUSED: a key this type does not
+        know is a fabric NEWER than this capdag — a contract this build cannot
+        honour. Dropping it would let a cartridge advertise a contract the
+        fabric never made. (matches Rust ``deny_unknown_fields``)"""
+        _refuse_unknown_keys(data, cls.KNOWN_KEYS, "cap argument")
         return cls(
             media_urn=data["media_urn"],
             required=data["required"],
@@ -288,9 +308,14 @@ class CapOutput:
         result["streaming"] = self.streaming
         return result
 
+    #: The definition's keys — what every capdag mirror's CapOutput carries.
+    KNOWN_KEYS = frozenset({"media_urn", "output_description", "metadata", "is_sequence", "streaming"})
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CapOutput":
-        """Parse from dict"""
+        """Parse from dict, refusing unknown keys for the same reason as
+        ``CapArg.from_dict``: an unknown key is a newer fabric."""
+        _refuse_unknown_keys(data, cls.KNOWN_KEYS, "cap output")
         return cls(
             media_urn=data["media_urn"],
             output_description=data["output_description"],
