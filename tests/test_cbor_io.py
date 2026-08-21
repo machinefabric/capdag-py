@@ -23,6 +23,7 @@ from capdag.bifaci.io import (
     InvalidFrameError,
 )
 from capdag.bifaci.frame import (
+    CancelReason,
     Frame,
     FrameType,
     MessageId,
@@ -1285,3 +1286,57 @@ def test_7097_decode_frame_accepts_valid_id_variants():
     decoded = decode_frame(encode_frame(uint_frame))
     assert decoded.id == MessageId(7)
     assert decoded.id.is_uint()
+
+
+# TEST1954: a Cancel frame is attributed through ``meta`` exactly like an ERR
+# frame — ``code`` / ``attribution_class`` / ``message`` — and every attributed
+# reason round-trips through the codec; the wire carries the class token under
+# the meta key, never a numeric frame key.
+def test_1954_cancel_attribution_roundtrips_in_meta():
+    for reason in (
+        CancelReason.user(True),
+        CancelReason.collateral(AttributionClass.RESOURCE, "step s3 (cap:x) failed: GPU_OUT_OF_MEMORY"),
+        CancelReason.host(AttributionClass.ENVIRONMENT, "stale for 1800 s"),
+    ):
+        frame = Frame.cancel(MessageId(7), reason)
+        encoded = encode_frame(frame)
+        decoded = decode_frame(encoded)
+        assert decoded.frame_type == FrameType.CANCEL
+        assert decoded.cancel_reason() == reason, reason
+        assert decoded.meta["attribution_class"] == reason.attribution_class.as_str()
+        assert decoded.meta["code"] == reason.code
+        raw = cbor2.loads(encoded)
+        assert 21 not in raw and 22 not in raw, "attribution lives in meta (key 5), never in new frame keys"
+    assert CancelReason.user().is_user()
+    assert not CancelReason.collateral(AttributionClass.INPUT, "x").is_user()
+
+
+# TEST1955: a Cancel WITHOUT attribution is still a cancel — it encodes with
+# no meta, decodes as ``CancelReason.unattributed``, and its terminal reads
+# CANCELLED / internal; an unknown class token in meta degrades to "no class",
+# never to a rejected frame (a cancel must always act). A CLOSE_STREAM frame is
+# its own type and is never a cancel.
+def test_1955_unattributed_cancel_still_cancels_and_close_stream_is_not_a_cancel():
+    bare = Frame.cancel(MessageId(1), CancelReason.unattributed())
+    assert bare.meta is None
+    decoded = decode_frame(encode_frame(bare))
+    reason = decoded.cancel_reason()
+    assert reason == CancelReason.unattributed()
+    assert reason.terminal_code() == "CANCELLED"
+    assert reason.terminal_class() is AttributionClass.INTERNAL
+    assert reason.terminal_message() == "Request cancelled"
+
+    odd = Frame.new(FrameType.CANCEL, MessageId(2))
+    odd.meta = {"attribution_class": "because", "message": "operator note"}
+    decoded = decode_frame(encode_frame(odd))
+    reason = decoded.cancel_reason()
+    assert reason.attribution_class is None
+    assert reason.message == "operator note"
+    assert reason.terminal_message() == "Request cancelled: operator note"
+
+    close = Frame.close_stream(MessageId(3), "mic")
+    decoded = decode_frame(encode_frame(close))
+    assert decoded.frame_type == FrameType.CLOSE_STREAM
+    assert decoded.stream_id == "mic"
+    assert decoded.cancel_reason() is None
+    assert not decoded.is_flow_frame()

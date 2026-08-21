@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from capdag.bifaci.frame import Frame, FrameType, MessageId
+from capdag.bifaci.frame import AttributionClass, CancelReason, Frame, FrameType, MessageId
 
 
 class RequestStateError(Exception):
@@ -216,9 +216,17 @@ class TerminatedSummary:
     frames_out: int
     bytes_in: int
     bytes_out: int
+    # WHY a CANCELLED termination happened — the Cancel's attribution in the
+    # ERR vocabulary: the terminal code (always present for a cancelled kind),
+    # the class (absent for an unattributed cancel) and the reason. Never
+    # present for any other kind. Surfaces read them to say "aborted — step X
+    # failed" instead of the one word "cancelled".
+    cancel_code: Optional[str] = None
+    cancel_class: Optional[AttributionClass] = None
+    cancel_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out: Dict[str, Any] = {
             "xid": self.xid,
             "rid": self.rid,
             "kind": self.kind.value,
@@ -230,6 +238,13 @@ class TerminatedSummary:
             "bytes_in": self.bytes_in,
             "bytes_out": self.bytes_out,
         }
+        if self.cancel_code is not None:
+            out["cancel_code"] = self.cancel_code
+        if self.cancel_class is not None:
+            out["cancel_class"] = self.cancel_class.as_str()
+        if self.cancel_reason is not None:
+            out["cancel_reason"] = self.cancel_reason
+        return out
 
 
 # How many terminated-request summaries the ring retains.
@@ -366,7 +381,38 @@ class RequestTable:
         for cancel cascades, the external channel for final delivery). After
         this returns, zero state for the key remains (L7). Returns None if
         the key is not live (already terminated — termination happens
-        exactly once)."""
+        exactly once).
+
+        CANCELLED terminations go through ``terminate_cancelled`` — a
+        cancellation records its attribution (at least its terminal code)."""
+        if kind == TerminalKind.CANCELLED:
+            raise AssertionError(
+                "RequestTable.terminate: Cancelled terminations carry their attribution — use terminate_cancelled"
+            )
+        return self._terminate_with(key, kind, None, None, None)
+
+    def terminate_cancelled(
+        self, key: RequestKey, reason: CancelReason
+    ) -> Optional[RequestState]:
+        """Terminate a request as cancelled, recording WHY (the Cancel frame's
+        attribution) on its summary. An unattributed reason records the
+        terminal code CANCELLED and no class."""
+        return self._terminate_with(
+            key,
+            TerminalKind.CANCELLED,
+            reason.terminal_code(),
+            reason.attribution_class,
+            reason.message,
+        )
+
+    def _terminate_with(
+        self,
+        key: RequestKey,
+        kind: TerminalKind,
+        cancel_code: Optional[str],
+        cancel_class: Optional[AttributionClass],
+        cancel_reason: Optional[str],
+    ) -> Optional[RequestState]:
         state = self._entries.pop(key, None)
         if state is None:
             return None
@@ -401,6 +447,9 @@ class RequestTable:
             frames_out=frames_out,
             bytes_in=bytes_in,
             bytes_out=bytes_out,
+            cancel_code=cancel_code,
+            cancel_class=cancel_class,
+            cancel_reason=cancel_reason,
         )
         self._recent_terminated.append(summary)
         self._terminated_by_kind[kind.as_str()] = (
@@ -416,6 +465,15 @@ class RequestTable:
         """Install the termination observer (see field docs). One observer;
         installing replaces any previous one."""
         self._terminate_observer = observer
+
+    def recent_terminal_of_rid(self, rid: MessageId) -> Optional[TerminatedSummary]:
+        """How a recently terminated RID ended (newest summary for the RID),
+        or None when the RID is live or unknown within the ring's horizon."""
+        rid_str = rid.to_string()
+        for summary in reversed(self._recent_terminated):
+            if summary.rid == rid_str:
+                return summary
+        return None
 
     def recently_terminated_rid(self, rid: MessageId) -> bool:
         """Whether this RID belongs to a recently terminated request (the

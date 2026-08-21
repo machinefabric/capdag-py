@@ -38,6 +38,12 @@ Each frame is a CBOR map with integer keys:
 
 Protocol v4 adds two integer keys: 19 (credit grant, CREDIT frames) and
 20 (unbounded flag, STREAM_START frames).
+
+A Cancel frame is attributed like an ERR frame, through ``meta``:
+``meta.code`` / ``meta.attribution_class`` / ``meta.message`` say WHY the
+request is being cancelled (all optional — an unattributed Cancel still
+cancels). A CLOSE_STREAM frame (14) is the tap-off: close the request's live
+input stream(s) and let it drain; it is not a cancel.
 """
 
 import uuid as uuid_module
@@ -75,6 +81,7 @@ class FrameType(IntEnum):
     RELAY_STATE = 11   # Relay host system resources + cap demands (master → slave)
     CANCEL = 12        # Cancel a specific in-flight request by RID
     CREDIT = 13        # Grant per-stream flow-control credit, in CHUNK units (protocol v4).
+    CLOSE_STREAM = 14  # Close a request's live input stream(s) — the tap-off; not a cancel.
                        # Non-flow: bypasses seq assignment and reorder buffers, and is
                        # forwarded end-to-end by intermediaries (never originated or absorbed).
 
@@ -104,6 +111,7 @@ class FrameType(IntEnum):
             cls.RELAY_STATE,
             cls.CANCEL,
             cls.CREDIT,
+            cls.CLOSE_STREAM,
         )
 
     def as_str(self) -> str:
@@ -152,6 +160,7 @@ class AttributionClass(str, Enum):
     RESOURCE = "resource"  # A compute resource was exhausted (GPU VRAM, host memory). Retryable.
     ENVIRONMENT = "environment"  # The environment failed (network, download, process death). Retryable.
     INTERNAL = "internal"  # Everything else: a defect in the engine or a cartridge. Ours.
+    USER = "user"  # The user decided it (a cancel). Not a failure; never retried automatically.
 
     def as_str(self) -> str:
         """Stable lowercase wire token for ERR and non-progress LOG frames."""
@@ -168,9 +177,10 @@ class AttributionClass(str, Enum):
 
     def is_permanent(self) -> bool:
         """Whether retrying can NEVER succeed: the failure is a deterministic
-        function of the input. Resource/environment/internal stay retryable
-        (memory frees up, networks recover, races un-race)."""
-        return self is AttributionClass.INPUT
+        function of the input, or the user chose to end it.
+        Resource/environment/internal stay retryable (memory frees up,
+        networks recover, races un-race)."""
+        return self is AttributionClass.INPUT or self is AttributionClass.USER
 
 
 class MessageId:
@@ -348,6 +358,76 @@ def verify_chunk_checksum(frame: "Frame") -> None:
             f"CHUNK checksum mismatch: expected {expected}, got {frame.checksum} "
             f"(payload {len(payload)} bytes)"
         )
+
+
+# =============================================================================
+# CANCEL REASON — why a request is being cancelled (12.2 §Cancel)
+# =============================================================================
+
+CANCEL_CODE_CANCELLED = "CANCELLED"  # terminal code of a cancel attributed to the operator
+CANCEL_CODE_ABORTED_COLLATERAL = "ABORTED_COLLATERAL"  # collateral of a failure elsewhere in the run
+CANCEL_CODE_ABORTED = "ABORTED"  # a cancel the host decided on its own
+
+
+@dataclass(frozen=True)
+class CancelReason:
+    """WHY a request is being cancelled — the attribution a Cancel frame
+    carries in its ``meta``, in the SAME vocabulary as an ERR frame (``code``,
+    ``attribution_class``, ``message``; docs/failure-taxonomy.md). Every part
+    is optional: an unattributed Cancel still cancels. (matches Rust
+    CancelReason)"""
+
+    attribution_class: Optional[AttributionClass] = None
+    code: Optional[str] = None
+    message: Optional[str] = None
+    force_kill: bool = False
+
+    @classmethod
+    def unattributed(cls, force_kill: bool = False) -> "CancelReason":
+        return cls(force_kill=force_kill)
+
+    @classmethod
+    def user(cls, force_kill: bool = False) -> "CancelReason":
+        """The operator cancelled the run — the one reason that reads "cancelled"."""
+        return cls(AttributionClass.USER, CANCEL_CODE_CANCELLED, "Cancelled by user", force_kill)
+
+    @classmethod
+    def collateral(cls, attribution_class: AttributionClass, detail: str) -> "CancelReason":
+        """Another step of the same run failed; the cancel carries THAT
+        failure's class and names it."""
+        return cls(attribution_class, CANCEL_CODE_ABORTED_COLLATERAL, detail, False)
+
+    @classmethod
+    def host(cls, attribution_class: AttributionClass, detail: str, force_kill: bool = False) -> "CancelReason":
+        """The host aborted the run for a reason of its own; the class is the
+        host's attribution of that reason."""
+        return cls(attribution_class, CANCEL_CODE_ABORTED, detail, force_kill)
+
+    def is_user(self) -> bool:
+        return self.attribution_class is AttributionClass.USER
+
+    def terminal_code(self) -> str:
+        return self.code if self.code is not None else CANCEL_CODE_CANCELLED
+
+    def terminal_class(self) -> AttributionClass:
+        return self.attribution_class if self.attribution_class is not None else AttributionClass.INTERNAL
+
+    def terminal_message(self) -> str:
+        """The terminal ERR message for a request cancelled under this reason."""
+        if self.code is None:
+            return f"Request cancelled: {self.message}" if self.message is not None else "Request cancelled"
+        if self.code == CANCEL_CODE_ABORTED_COLLATERAL:
+            base = "Request aborted as collateral of a failure elsewhere in the run"
+            return f"{base}: {self.message}" if self.message is not None else base
+        if self.code == CANCEL_CODE_ABORTED:
+            base = "Request aborted by the host"
+            return f"{base}: {self.message}" if self.message is not None else base
+        if self.code == CANCEL_CODE_CANCELLED and self.message is not None:
+            return self.message
+        if self.message is not None:
+            return f"{self.code}: {self.message}"
+        return f"Request cancelled ({self.code})"
+
 
 
 class Frame:
@@ -632,16 +712,54 @@ class Frame:
         return message if isinstance(message, str) else None
 
     @classmethod
-    def cancel(cls, target_rid: MessageId, force_kill: bool) -> "Frame":
-        """Create a CANCEL frame targeting a specific request by RID.
-
-        Args:
-            target_rid: The request ID to cancel
-            force_kill: If True, force-kill the cartridge process. If False, cooperative cancel.
-        """
+    def cancel(cls, target_rid: MessageId, reason: CancelReason) -> "Frame":
+        """Create a CANCEL frame targeting a specific request by RID, for a
+        stated reason: the attribution (``meta.code`` /
+        ``meta.attribution_class`` / ``meta.message``, each written only when
+        present) and the force-kill flag. A Cancel built from
+        ``CancelReason.unattributed`` carries no meta and is still a cancel.
+        (matches Rust Frame::cancel)"""
         frame = cls.new(FrameType.CANCEL, target_rid)
-        frame.force_kill = force_kill
+        frame.force_kill = reason.force_kill
+        meta: Dict[str, Any] = {}
+        if reason.code is not None:
+            meta["code"] = reason.code
+        if reason.attribution_class is not None:
+            meta["attribution_class"] = reason.attribution_class.as_str()
+        if reason.message is not None:
+            meta["message"] = reason.message
+        if meta:
+            frame.meta = meta
         return frame
+
+    @classmethod
+    def close_stream(cls, target_rid: MessageId, stream_id: Optional[str] = None) -> "Frame":
+        """Create a CLOSE_STREAM frame — the tap-off for a request's live
+        input (15.2 §Runs Stop). ``stream_id`` names one stream; None closes
+        every live feed the request holds. The request is not cancelled: it
+        drains and ends naturally. (matches Rust Frame::close_stream)"""
+        frame = cls.new(FrameType.CLOSE_STREAM, target_rid)
+        frame.stream_id = stream_id
+        return frame
+
+    def cancel_reason(self) -> Optional[CancelReason]:
+        """The reason this Cancel frame carries (None for a non-Cancel frame).
+        Read from ``meta`` exactly as an ERR's attribution is; a Cancel with no
+        meta is an unattributed cancel, never an error."""
+        if self.frame_type != FrameType.CANCEL:
+            return None
+
+        def text(key: str) -> Optional[str]:
+            value = (self.meta or {}).get(key)
+            return value if isinstance(value, str) and value else None
+
+        class_token = text("attribution_class")
+        return CancelReason(
+            attribution_class=AttributionClass.from_wire(class_token) if class_token is not None else None,
+            code=text("code"),
+            message=text("message"),
+            force_kill=bool(self.force_kill),
+        )
 
     @classmethod
     def log(
@@ -929,6 +1047,7 @@ class Frame:
             FrameType.RELAY_STATE,
             FrameType.CANCEL,
             FrameType.CREDIT,
+            FrameType.CLOSE_STREAM,
         )
 
     def error_code(self) -> Optional[str]:

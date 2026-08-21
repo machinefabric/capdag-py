@@ -8,6 +8,8 @@ import time
 import pytest
 
 from capdag.bifaci.frame import (
+    AttributionClass,
+    CancelReason,
     CreditDirection,
     Frame,
     MessageId,
@@ -291,7 +293,7 @@ def test_7033_terminated_summaries_ring():
         checksum = compute_checksum(payload)
         chunk = Frame.chunk(MessageId(n), "s", 0, payload, 0, checksum)
         table.record_frame(k, FrameDirection.INBOUND, chunk)
-        assert table.terminate(k, TerminalKind.CANCELLED) is not None
+        assert table.terminate_cancelled(k, CancelReason.user(False)) is not None
 
     snap = table.snapshot()
     assert len(snap.recent_terminated) == RECENT_TERMINATED_CAP
@@ -299,6 +301,8 @@ def test_7033_terminated_summaries_ring():
     assert snap.recent_terminated[0].rid == MessageId(3).to_string()
     last = snap.recent_terminated[-1]
     assert last.kind == TerminalKind.CANCELLED
+    assert last.cancel_code == "CANCELLED"
+    assert last.cancel_class is AttributionClass.USER
     assert last.is_peer
     assert last.frames_in == 1
     assert last.bytes_in == 10

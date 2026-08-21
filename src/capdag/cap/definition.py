@@ -109,6 +109,11 @@ class CapArg:
     default_value: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
     is_sequence: bool = False
+    # Consumed WITHOUT a length promise: the cap processes items as they
+    # arrive and may be wired live to an unbounded producer. Orthogonal to
+    # ``is_sequence`` (cardinality), not part of the URN. Only the main input
+    # may stream (RULE14).
+    streaming: bool = False
 
     @classmethod
     def with_full_definition(
@@ -120,6 +125,7 @@ class CapArg:
         default_value: Optional[Any] = None,
         metadata: Optional[Any] = None,
         is_sequence: bool = False,
+        streaming: bool = False,
     ) -> "CapArg":
         """Create a CapArg with all fields set"""
         return cls(
@@ -130,6 +136,7 @@ class CapArg:
             default_value=default_value,
             metadata=metadata,
             is_sequence=is_sequence,
+            streaming=streaming,
         )
 
     def get_media_urn(self) -> str:
@@ -202,6 +209,7 @@ class CapArg:
         # compared across implementations and omitting it made Python's bytes
         # differ from Rust's for the identical cap.
         result["is_sequence"] = self.is_sequence
+        result["streaming"] = self.streaming
         return result
 
     @classmethod
@@ -215,6 +223,7 @@ class CapArg:
             default_value=data.get("default_value"),
             metadata=data.get("metadata"),
             is_sequence=data.get("is_sequence", False),
+            streaming=data.get("streaming", False),
         )
 
 
@@ -226,6 +235,11 @@ class CapOutput:
     output_description: str
     metadata: Optional[Dict[str, Any]] = None
     is_sequence: bool = False
+    # MAY be emitted without a length promise (unbounded). A non-streaming
+    # consumer downstream is fed the bounded whole after this cap ends; the
+    # runtime refuses an unbounded emission from an output that did not
+    # declare this.
+    streaming: bool = False
 
     @classmethod
     def with_full_definition(
@@ -234,6 +248,7 @@ class CapOutput:
         output_description: str,
         metadata: Optional[Any] = None,
         is_sequence: bool = False,
+        streaming: bool = False,
     ) -> "CapOutput":
         """Create a CapOutput with all fields set"""
         return cls(
@@ -241,6 +256,7 @@ class CapOutput:
             output_description=output_description,
             metadata=metadata,
             is_sequence=is_sequence,
+            streaming=streaming,
         )
 
     def get_media_urn(self) -> str:
@@ -269,6 +285,7 @@ class CapOutput:
             result["metadata"] = self.metadata
         # Emitted even when False — see CapArg.to_dict.
         result["is_sequence"] = self.is_sequence
+        result["streaming"] = self.streaming
         return result
 
     @classmethod
@@ -279,6 +296,7 @@ class CapOutput:
             output_description=data["output_description"],
             metadata=data.get("metadata"),
             is_sequence=data.get("is_sequence", False),
+            streaming=data.get("streaming", False),
         )
 
 
@@ -479,6 +497,29 @@ class Cap:
                 if isinstance(source, StdinSource):
                     return source.stdin_media_urn()
         return None
+
+    def main_input_arg(self) -> Optional["CapArg"]:
+        """The cap's main input argument — the arg whose stdin source is
+        equivalent to the URN's ``in=`` — or None for a void-input cap."""
+        from capdag.urn.media_urn import MediaUrn
+
+        try:
+            in_spec = MediaUrn.from_string(self.urn.in_spec())
+        except Exception:
+            return None
+        return next((arg for arg in self.args if arg.is_main_input(in_spec)), None)
+
+    def streaming_shape(self) -> Tuple[bool, bool]:
+        """Streaming contract of this cap's primary data path:
+        ``(input_streams, output_streams)`` — whether the main input is
+        consumed without a length promise and whether the output may be
+        emitted without one. Orthogonal to ``sequence_shape``. The executor's
+        hop rule reads it: a streaming producer into a non-streaming consumer
+        is a chain boundary."""
+        main_input = self.main_input_arg()
+        input_streams = main_input.streaming if main_input is not None else False
+        output_streams = self.output.streaming if self.output is not None else False
+        return input_streams, output_streams
 
     def sequence_shape(self) -> Tuple[bool, bool]:
         """Cardinality shape of this cap's primary data path:

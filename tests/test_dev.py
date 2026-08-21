@@ -224,6 +224,39 @@ def _split_pin(text: str) -> tuple[tuple[int, ...] | None, str]:
     return pin, "\n".join(kept_lines)
 
 
+_DEPENDENCY_MANIFESTS = ("Cargo.toml", "go.mod", "Package.swift")
+
+
+def _is_capdag_dependency_source(line: str) -> bool:
+    """A manifest line that is the capdag dependency SOURCE: a path, git tag,
+    module version or SwiftPM `from:` naming capdag."""
+    t = line.strip()
+    return "capdag" in t and (
+        "path" in t
+        or "git =" in t
+        or "tag =" in t
+        or "url:" in t
+        or "from:" in t
+        or t.startswith("require ")
+        or t.startswith("replace ")
+    )
+
+
+def _strip_capdag_dependency_source(dest: str, text: str) -> str:
+    """Strip the capdag dependency source from a manifest: the dependency
+    line(s), the comment lines that explain them, and blank lines (the
+    templates' conditional blocks differ in spacing). Other files untouched."""
+    if not dest.endswith(_DEPENDENCY_MANIFESTS):
+        return text
+    kept = []
+    for line in text.split("\n"):
+        t = line.strip()
+        if not t or t.startswith("#") or t.startswith("//") or _is_capdag_dependency_source(t):
+            continue
+        kept.append(line)
+    return "\n".join(kept) + "\n"
+
+
 def _assert_stub_matches(language: str, dest: str, vendored: str, canonical: str) -> None:
     """A vendored stub file against the canonical bytes.
 
@@ -243,11 +276,18 @@ def _assert_stub_matches(language: str, dest: str, vendored: str, canonical: str
     """
     if vendored == canonical:
         return
+    # HOW the stub reaches capdag is environment, not contract: the dependency
+    # line of a language manifest (tag / module version / SwiftPM `from:` — or
+    # a path, were one ever rendered) and the comment lines explaining it are
+    # stripped before comparing. The VERSION on that line is read first, and
+    # the ordering rule below still applies to it.
     vendored_pin, vendored_rest = _split_pin(vendored)
     canonical_pin, canonical_rest = _split_pin(canonical)
+    vendored_rest = _strip_capdag_dependency_source(dest, vendored_rest)
+    canonical_rest = _strip_capdag_dependency_source(dest, canonical_rest)
     assert vendored_rest == canonical_rest, (
         f"{language}: vendored {dest} differs from the canonical bytes in more than the "
-        "pinned capdag version — re-vendor the stubs"
+        "capdag dependency source/version — re-vendor the stubs"
     )
     assert vendored_pin is not None and canonical_pin is not None, (
         f"{language}: vendored {dest} differs from the canonical bytes and neither carries "

@@ -86,6 +86,7 @@ def validate_cap_args(cap) -> None:
     - RULE9: No two args may have same cli_flag
     - RULE10: Reserved cli_flags cannot be used
     - RULE11: Stdin source consistency with in= spec
+    - RULE14: Only the main input argument may declare streaming=true
     """
     from capdag.cap.definition import PositionSource, CliFlagSource, StdinSource
 
@@ -175,6 +176,20 @@ def validate_cap_args(cap) -> None:
             " — the main input is the value piped in on stdin, so at least one"
             " arg must accept stdin"
         )
+
+    # RULE14: Only the main input may stream. ``streaming: true`` declares
+    # that an argument is consumed without a length promise — a feed. Side
+    # arguments (options, model specs, prompts alongside the main input) are
+    # values the runtime demuxes whole; a feed there has no meaning and would
+    # let an unbounded stream reach a collector that must refuse it (L16).
+    for arg in cap.args:
+        if arg.streaming and not arg.is_main_input(in_media):
+            raise InvalidCapSchemaError(
+                cap_urn,
+                f"RULE14: Argument '{arg.media_urn}' declares streaming=true but is not"
+                f" the main input (no stdin source equivalent to in='{cap.urn.in_spec()}')"
+                " — only the main input may be consumed without a length promise"
+            )
 
     # RULE5: No two args may have same position
     position_set = set()

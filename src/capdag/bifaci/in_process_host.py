@@ -23,6 +23,7 @@ synchronous cartridge-host style, rather than tokio tasks.
 import json
 import os
 import queue
+import sys
 import threading
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
@@ -656,10 +657,23 @@ class InProcessCartridgeHost:
                     if pr is not None:
                         pr.sender.put(frame)
 
+                elif ft == FrameType.CLOSE_STREAM:
+                    # An in-process handler holds no live feed taps: a CloseStream
+                    # has nothing to close and never aborts the request — it is
+                    # logged and the request continues.
+                    print(
+                        f"[InProcessHost] CloseStream for request {frame.id} with no live feed "
+                        "— nothing to close, request continues",
+                        file=sys.stderr,
+                    )
+
                 elif ft == FrameType.CANCEL:
                     target_rid = frame.id
                     xid = frame.routing_id
-                    force_kill = bool(frame.force_kill)
+                    # The attribution rides in meta like an ERR's; an
+                    # unattributed Cancel is still a cancel.
+                    reason = frame.cancel_reason()
+                    assert reason is not None
 
                     if target_rid in active:
                         # Signal handler input is done.
@@ -675,10 +689,14 @@ class InProcessCartridgeHost:
                         ]
                         for peer_rid in to_cancel:
                             del pending_peer_requests[peer_rid]
-                            write_tx.put(Frame.cancel(peer_rid, force_kill))
+                            write_tx.put(Frame.cancel(peer_rid, reason))
 
+                    # Terminal ERR in the cancel's own attribution.
                     err = Frame.err(
-                        target_rid, "CANCELLED", AttributionClass.INTERNAL, "Request cancelled"
+                        target_rid,
+                        reason.terminal_code(),
+                        reason.terminal_class(),
+                        reason.terminal_message(),
                     )
                     err.routing_id = xid
                     write_tx.put(err)

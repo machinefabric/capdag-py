@@ -58,7 +58,8 @@ def test_172_invalid_frame_type():
     assert FrameType.from_u8(11) == FrameType.RELAY_STATE
     assert FrameType.from_u8(12) == FrameType.CANCEL
     assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
-    assert FrameType.from_u8(14) is None, "value 14 is one past Credit"
+    assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream (the tap-off)"
+    assert FrameType.from_u8(15) is None, "value 15 is one past CloseStream"
     assert FrameType.from_u8(100) is None
     assert FrameType.from_u8(255) is None
 
@@ -536,9 +537,10 @@ def test_402_relay_state_factory_and_payload():
 
 # TEST403: Verify from_u8 returns None for values past the last valid frame type
 def test_403_frame_type_one_past_cancel():
-    """Test that value 14 is invalid (one past Credit, v3 — Cancel/13 boundary moved when Credit was added)"""
+    """Test that value 15 is invalid (one past CloseStream/14, the last frame type)"""
     assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
-    assert FrameType.from_u8(14) is None, "value 14 is one past Credit"
+    assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream"
+    assert FrameType.from_u8(15) is None, "value 15 is one past CloseStream"
 
 
 # TEST667: verify_chunk_checksum detects corrupted payload
@@ -1760,7 +1762,12 @@ def test_1900_err_frame_attribution_class_wire_contract():
     for c in AttributionClass:
         assert AttributionClass.from_wire(c.as_str()) is c
     assert AttributionClass.INPUT.is_permanent()
-    assert not any(c.is_permanent() for c in AttributionClass if c is not AttributionClass.INPUT)
+    assert AttributionClass.USER.is_permanent()
+    assert not any(
+        c.is_permanent()
+        for c in AttributionClass
+        if c not in (AttributionClass.INPUT, AttributionClass.USER)
+    )
 
     malformed_arg = Frame.err(id, "BOOM", AttributionClass.INTERNAL, "x")
     malformed_arg.meta["arg_urn"] = 7

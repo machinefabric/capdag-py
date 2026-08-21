@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
 from capdag.bifaci.frame import (
-    AttributionClass,
+    AttributionClass, CancelReason,
     Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
@@ -876,51 +876,103 @@ class RelaySwitch:
                 hosts=hosts,
             )
 
-    def cancel_request(self, rid: MessageId, force_kill: bool) -> None:
-        """Cancel a specific in-flight request by request ID.
+    def stop_request_feeds(self, rid: MessageId) -> bool:
+        """STOP a feed-bearing request's live inputs (15.2 §Runs Stop): send a
+        CLOSE_STREAM frame to the request's destination WITHOUT touching
+        host-side request state. The cartridge runtime closes the request's
+        open taps and the request then ends NATURALLY — END after the drain.
+        Not a cancel in any form: contrast ``cancel_request``, which
+        terminates host state, cascades to children, and delivers a terminal
+        ERR.
 
-        1. Looks up RID → XID → routing destination.
-        2. Terminates the request (Cancelled) FIRST — one atomic removal
-           yields the destination, the children for the cascade, and the
-           external channel for the final ERR (L7). A concurrent terminal
-           for the same key loses the race and is simply a no-op here.
-        3. Sends a Cancel frame to the destination master.
-        4. Recursively cancels the child peer calls recorded on the entry.
-        5. Sends ERR "CANCELLED" to the external response channel if present.
+        Returns whether the request was live and the stop was sent. A request
+        the switch does not know (already terminated) is not stopped, and the
+        caller must not claim that it was."""
+        with self._lock:
+            xid = self._requests.xid_for_rid(rid)
+            if xid is None:
+                return False
+            state = self._requests.get((xid, rid))
+            if state is None:
+                return False
+            close_frame = Frame.close_stream(rid, None)
+            close_frame.routing_id = xid
+            try:
+                self._masters[state.routing.destination_master_idx].socket_writer.write(close_frame)
+            except Exception:
+                return False
+            return True
+
+    def is_request_live(self, rid: MessageId) -> bool:
+        """Whether a RID is live in the request table."""
+        with self._lock:
+            return self._requests.xid_for_rid(rid) is not None
+
+    def recent_terminal_of_rid(self, rid: MessageId) -> Optional[TerminatedSummary]:
+        """How a recently terminated RID ended, or None while it is live or
+        once it has aged out of the terminated ring."""
+        with self._lock:
+            return self._requests.recent_terminal_of_rid(rid)
+
+    def cancel_request(self, rid: MessageId, reason: CancelReason) -> None:
+        """Cancel a specific in-flight request by request ID, for a stated
+        reason.
+
+        1. Terminates the request as cancelled WITH the reason FIRST — one
+           atomic removal yields the destination, the children for the
+           cascade, and the external channel for the final ERR (L7), and
+           records the attribution on the summary. A concurrent terminal for
+           the same key loses the race and is simply a no-op here.
+        2. Sends the Cancel frame (attribution in meta, force_kill) to the
+           destination master.
+        3. Recursively cancels the child peer calls recorded on the entry,
+           under the same reason.
+        4. Sends the terminal ERR to the external response channel if
+           present, in the reason's own words: CANCELLED/user for an
+           operator's cancel, ABORTED_COLLATERAL with the originating
+           failure's class for collateral, ABORTED with the host's class for
+           a host abort — so "cancelled" is never said of an abort.
+
+        The reason is optional attribution, never a precondition: an
+        unattributed reason cancels all the same. Closing a live input
+        without cancelling is ``stop_request_feeds``.
         """
         with self._lock:
-            self._cancel_request_locked(rid, force_kill)
+            self._cancel_request_locked(rid, reason)
 
-    def _cancel_request_locked(self, rid: MessageId, force_kill: bool) -> None:
+    def _cancel_request_locked(self, rid: MessageId, reason: CancelReason) -> None:
         """Cancel a request. Must be called with self._lock held."""
         xid = self._requests.xid_for_rid(rid)
         if xid is None:
             return
 
         key = (xid, rid)
-        state = self._requests.terminate(key, TerminalKind.CANCELLED)
+        state = self._requests.terminate_cancelled(key, reason)
         if state is None:
             return
 
         # Send Cancel frame to destination
-        cancel_frame = Frame.cancel(rid, force_kill)
+        cancel_frame = Frame.cancel(rid, reason)
         cancel_frame.routing_id = xid
         try:
             self._masters[state.routing.destination_master_idx].socket_writer.write(cancel_frame)
         except Exception:
             pass
 
-        # Recursively cancel children
+        # Recursively cancel children, under the same reason
         for _child_xid, child_rid in state.children:
-            self._cancel_request_locked(child_rid, force_kill)
+            self._cancel_request_locked(child_rid, reason)
 
-        # Send ERR "CANCELLED" to the external response channel if present.
+        # Send the terminal ERR to the external response channel if present.
         # The send result is discarded, not drop-counted: only the primary
         # response-forwarding path in `_handle_master_frame` counts
         # channel_closed drops (mirrors the reference's `let _ = tx.send(...)`).
         if state.external_channel is not None:
             err_frame = Frame.err(
-                rid, "CANCELLED", AttributionClass.INTERNAL, "Request cancelled"
+                rid,
+                reason.terminal_code(),
+                reason.terminal_class(),
+                reason.terminal_message(),
             )
             err_frame.routing_id = xid
             try:
@@ -928,17 +980,15 @@ class RelaySwitch:
             except Exception:
                 pass
 
-    def cancel_all_requests(self, force_kill: bool) -> List[MessageId]:
-        """Cancel all external-origin (engine-initiated) in-flight requests.
-
-        Returns the list of cancelled request IDs.
-        """
+    def cancel_all_requests(self, reason: CancelReason) -> List[MessageId]:
+        """Cancel all external-origin (engine-initiated) in-flight requests,
+        for a stated reason. Returns the list of cancelled request IDs."""
         with self._lock:
             # Snapshot all external-origin (origin is None) rids before mutating
             rids = [rid for _xid, rid in self._requests.keys_where(lambda s: s.origin is None)]
 
             for rid in rids:
-                self._cancel_request_locked(rid, force_kill)
+                self._cancel_request_locked(rid, reason)
 
             return rids
 
@@ -1138,7 +1188,7 @@ class RelaySwitch:
 
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK,
                                      FrameType.STREAM_END, FrameType.END, FrameType.ERR,
-                                     FrameType.CANCEL, FrameType.CREDIT):
+                                     FrameType.CANCEL, FrameType.CLOSE_STREAM, FrameType.CREDIT):
                 # Continuation/control frames from the engine: look up XID
                 # from RID if missing, then the destination — one table read.
                 # Unknown RID is a hard error back to the caller: the engine
@@ -1583,7 +1633,13 @@ class RelaySwitch:
                                 if not is_terminal:
                                     threading.Thread(
                                         target=self.cancel_request,
-                                        args=(rid, False),
+                                        args=(
+                                            rid,
+                                            CancelReason.host(
+                                                AttributionClass.INTERNAL,
+                                                "response channel receiver gone: the caller abandoned the request",
+                                            ),
+                                        ),
                                         daemon=True,
                                     ).start()
                             return None
@@ -1620,11 +1676,12 @@ class RelaySwitch:
                     self._masters[state.routing.destination_master_idx].socket_writer.write(frame)
                     return None
 
-            elif frame.frame_type == FrameType.CANCEL:
-                # Cancel from cartridge — route to destination like a
-                # continuation frame. Cartridge is cancelling its own peer
-                # call. Unknown RID means the request already completed: a
-                # well-defined no-op (silently ignored, never an error).
+            elif frame.frame_type in (FrameType.CANCEL, FrameType.CLOSE_STREAM):
+                # Cancel / CloseStream from cartridge — route to destination
+                # like a continuation frame. Cartridge is cancelling (or
+                # closing the live input of) its own peer call. Unknown RID
+                # means the request already completed: a well-defined no-op
+                # (silently ignored, never an error).
                 rid = frame.id
                 if frame.routing_id is not None:
                     xid = frame.routing_id

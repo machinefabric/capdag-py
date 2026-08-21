@@ -22,7 +22,7 @@ from capdag.bifaci.in_process_host import (
     ResponseWriter,
     accumulate_input,
 )
-from capdag.bifaci.frame import Frame, FrameType, MessageId, compute_checksum
+from capdag.bifaci.frame import AttributionClass, CancelReason, Frame, FrameType, MessageId, compute_checksum
 from capdag.bifaci.io import FrameReader, FrameWriter, identity_nonce
 from capdag.bifaci import decode_chunk_payload
 from capdag.cap.definition import Cap
@@ -154,6 +154,88 @@ def test_6748_routes_req_to_handler():
     close_socks(test_socks)
     close_socks(host_socks)
     host_thread.join(timeout=2)
+
+
+# TEST1961: the in-process host answers a Cancel in the cancel's OWN
+# attribution — ERR ABORTED/resource for a host abort (message carries the
+# reason), ERR ABORTED_COLLATERAL with the originating failure's class for
+# collateral, ERR CANCELLED/user for an operator's cancel, and ERR
+# CANCELLED/internal for an UNATTRIBUTED cancel, which still cancels. A
+# CLOSE_STREAM is a no-op for a handler with no live feed: the request
+# continues and completes normally with END.
+def test_1961_cancel_terminal_carries_its_attribution():
+    cap_urn = 'cap:in="media:text";echo;out="media:text"'
+
+    def run(control):
+        cap = make_test_cap(cap_urn)
+        host = InProcessCartridgeHost(
+            InProcessHostIdentity.for_test("in-process-test"), [("echo", [cap], EchoHandler())]
+        )
+        host_read, host_write, test_read, test_write, host_socks, test_socks = make_host_conn()
+        host_thread = threading.Thread(target=lambda: host.run(host_read, host_write), daemon=True)
+        host_thread.start()
+        reader = FrameReader(test_read)
+        writer = FrameWriter(test_write)
+        notify = reader.read()
+        assert notify is not None and notify.frame_type == FrameType.RELAY_NOTIFY
+
+        # Open the request and its input stream, but do not END it — the
+        # handler is active when the control frame arrives.
+        rid = MessageId.new_uuid()
+        req = Frame.req(rid, cap_urn, b"", "application/cbor")
+        req.routing_id = MessageId(1)
+        writer.write(req)
+        writer.write(Frame.stream_start(rid, "arg0", "media:text"))
+
+        control.id = rid
+        control.routing_id = MessageId(1)
+        writer.write(control)
+
+        if control.frame_type == FrameType.CLOSE_STREAM:
+            # Finish the request: it was never cancelled.
+            payload_bytes = cbor_bytes_payload(b"still here")
+            writer.write(Frame.chunk(rid, "arg0", 0, payload_bytes, 0, compute_checksum(payload_bytes)))
+            writer.write(Frame.stream_end(rid, "arg0", 1))
+            writer.write(Frame.end(rid, None))
+            while True:
+                frame = reader.read()
+                assert frame is not None and frame.id == rid
+                assert frame.frame_type != FrameType.ERR, "a CloseStream never aborts"
+                outcome = frame
+                if frame.frame_type == FrameType.END:
+                    break
+        else:
+            outcome = reader.read()
+            assert outcome is not None and outcome.id == rid
+
+        close_socks(test_socks)
+        close_socks(host_socks)
+        host_thread.join(timeout=2)
+        return outcome
+
+    def cancel(reason):
+        return Frame.cancel(MessageId(0), reason)
+
+    err = run(cancel(CancelReason.host(AttributionClass.RESOURCE, "memory pressure relief")))
+    assert err.frame_type == FrameType.ERR
+    assert err.error_code() == "ABORTED"
+    assert err.attribution_class() is AttributionClass.RESOURCE
+    assert "memory pressure relief" in err.error_message()
+
+    err = run(cancel(CancelReason.collateral(AttributionClass.INPUT, "step s1 failed")))
+    assert err.error_code() == "ABORTED_COLLATERAL"
+    assert err.attribution_class() is AttributionClass.INPUT
+
+    err = run(cancel(CancelReason.user()))
+    assert err.error_code() == "CANCELLED"
+    assert err.attribution_class() is AttributionClass.USER
+
+    err = run(cancel(CancelReason.unattributed()))
+    assert err.error_code() == "CANCELLED", "an unattributed Cancel still cancels"
+    assert err.attribution_class() is AttributionClass.INTERNAL
+
+    end = run(Frame.close_stream(MessageId(0)))
+    assert end.frame_type == FrameType.END
 
 
 # TEST6749: InProcessCartridgeHost handles identity verification (echo nonce)

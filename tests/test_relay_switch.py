@@ -9,7 +9,7 @@ from io import BytesIO
 
 import pytest
 
-from capdag.bifaci.frame import AttributionClass, CreditDirection, DEFAULT_INITIAL_CREDIT, DropReason, Frame, FrameType, Limits, MessageId, compute_checksum
+from capdag.bifaci.frame import AttributionClass, CancelReason, CreditDirection, DEFAULT_INITIAL_CREDIT, DropReason, Frame, FrameType, Limits, MessageId, compute_checksum
 from capdag.bifaci.io import CborError
 from capdag.bifaci.io import FrameReader, FrameWriter
 from capdag.bifaci.relay_switch import (
@@ -1875,7 +1875,7 @@ def test_7037_cancel_cascades_to_children_and_cleans_all_state():
     switch._requests.register(child_key, _state(0, 0, None, is_peer=True))
     switch._requests.link_child(parent_key, child_key)
 
-    switch.cancel_request(parent_key[1], False)
+    switch.cancel_request(parent_key[1], CancelReason.user(False))
 
     # Parent's waiter observes ERR CANCELLED.
     assert len(delivered) == 1, "parent channel gets ERR"

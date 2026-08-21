@@ -4102,23 +4102,38 @@ class CartridgeRuntime:
                 _spawn_or_queue(request_id, routing_id, pattern, handle_request)
                 continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
 
-            elif frame.frame_type == FrameType.CANCEL:
-                # STOP, not cancel (15.2 §Runs Stop): a non-force CANCEL for
-                # a request holding open live feeds CLOSES THE TAPS — capture
-                # ends, the pipeline drains, and the run completes its
-                # outputs (a stopped recording is a valid recording). The
-                # handles leave the registry, so a SECOND cancel falls
-                # through to the abort divergence below. Mirrors the
-                # Rust/Swift Cancel arm.
+            elif frame.frame_type == FrameType.CLOSE_STREAM:
+                # The tap-off (15.2 §Runs Stop): close the request's live feed
+                # taps — capture ends, the pipeline drains, and the run
+                # completes its outputs (a stopped recording is a valid
+                # recording). Nothing is cancelled. A CloseStream for a
+                # request that holds no open feed is a caller's mistake,
+                # logged and ignored — it never turns into an abort.
                 target_rid = frame.id
-                force_kill = bool(getattr(frame, "force_kill", False))
-                if not force_kill:
-                    with self._lf_handles_lock:
-                        feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
-                    if feeds:
-                        for handle in feeds:
-                            handle.close()
-                        continue
+                with self._lf_handles_lock:
+                    feeds = list(self._live_feed_handles_by_rid.get(str(target_rid), []))
+                if feeds:
+                    for handle in feeds:
+                        handle.close()
+                else:
+                    print(
+                        f"[CartridgeRuntime] CloseStream for rid={target_rid} with no open "
+                        "live feed — nothing to close, request continues",
+                        file=sys.stderr,
+                    )
+
+            elif frame.frame_type == FrameType.CANCEL:
+                # The attribution rides in meta like an ERR's (12.2 §Cancel);
+                # an unattributed Cancel is still a cancel.
+                target_rid = frame.id
+                reason = frame.cancel_reason()
+                assert reason is not None
+                # Close any live feeds the request holds so a capture source
+                # does not keep producing for a request that is ending.
+                with self._lf_handles_lock:
+                    feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
+                for handle in feeds:
+                    handle.close()
                 # Abort semantics: Python handler threads cannot be killed —
                 # the runtime cannot abort a running handler mid-flight.
                 # This is the documented py divergence (parity README,
@@ -4126,9 +4141,10 @@ class CartridgeRuntime:
                 # to completion; its request state is torn down when it
                 # finishes. Announce loudly rather than pretending.
                 print(
-                    f"[CartridgeRuntime] CANCEL rid={target_rid} force={force_kill}: "
-                    f"python handlers cannot be aborted mid-flight; the handler "
-                    f"runs to completion (documented divergence)",
+                    f"[CartridgeRuntime] CANCEL rid={target_rid} "
+                    f"code={reason.terminal_code()} class={reason.terminal_class().as_str()} "
+                    f"force={reason.force_kill}: python handlers cannot be aborted "
+                    f"mid-flight; the handler runs to completion (documented divergence)",
                     file=sys.stderr,
                 )
 

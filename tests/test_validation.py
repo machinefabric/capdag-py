@@ -331,6 +331,30 @@ def test_1296_rule11_void_input_cli_flag_only():
     validate_cap_args(cap)
 
 
+# TEST1953: RULE14 — ``streaming=True`` is accepted on the main input (the
+# stdin arg equivalent to ``in=``) and refused on any other argument: a side
+# option has no wire stream, so it has nothing to consume incrementally, and
+# the rule keeps the executor's hop rule one-dimensional.
+def test_1953_rule14_streaming_only_on_main_input():
+    urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
+    ok = Cap(urn, "Test Capability", ["test-command"])
+    main = CapArg(MEDIA_STRING, True, [StdinSource(MEDIA_STRING)])
+    main.streaming = True
+    ok.add_arg(main)
+    validate_cap_args(ok)
+    assert ok.streaming_shape() == (True, False)
+
+    bad = Cap(CapUrn.from_string(_test_urn_with_input("type=test;cap")), "Test Capability", ["test-command"])
+    bad.add_arg(CapArg(MEDIA_STRING, True, [StdinSource(MEDIA_STRING)]))
+    side = CapArg(MEDIA_INTEGER, False, [CliFlagSource("--count")])
+    side.streaming = True
+    bad.add_arg(side)
+    with pytest.raises(InvalidCapSchemaError) as exc_info:
+        validate_cap_args(bad)
+    assert "RULE14" in exc_info.value.issue
+    assert MEDIA_INTEGER in exc_info.value.issue
+
+
 # TEST1297: RULE11 - non-void-input cap with stdin source passes
 def test_1297_rule11_non_void_input_with_stdin():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
