@@ -1047,6 +1047,87 @@ def test_134_add_master_with_duplicate_healthy_id_errors():
     )
 
 
+# TEST1965: attachment is decided by the SOCKET, not the health flag.
+def test_1965_attach_decided_by_socket_liveness_not_health():
+    """A slot whose identity probe is pending is unhealthy yet attached —
+    its socket is open — and reattaching over it would strand the host;
+    ``slot_accepts_attach`` says no and ``add_master`` refuses, so a host
+    that asks first never dials a slot it holds. Once the slave drops its
+    socket (reader EOF → the slot detaches) the same id reattaches in
+    place."""
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    done = threading.Event()
+    release = threading.Event()
+
+    def slave_thread():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(CAP_GENERIC), Limits.default())
+        done.set()
+        complete_identity_verification(reader, writer)
+        release.wait(timeout=10)
+        slave_write.close()
+        slave_read.close()
+
+    threading.Thread(target=slave_thread, daemon=True).start()
+    done.wait(timeout=2)
+
+    switch = RelaySwitch([
+        SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
+    ])
+    assert switch.slot_accepts_attach("xpc-service") is False, (
+        "a healthy attached slot must not accept a second attach"
+    )
+    assert switch.slot_accepts_attach("never-seen") is True
+
+    # Unhealthy but attached (the identity-probe-pending state): the
+    # health flag alone must not open the slot.
+    with switch._lock:
+        switch._masters[0].healthy = False
+    assert switch.slot_accepts_attach("xpc-service") is False, (
+        "an unhealthy slot whose socket is still open is still attached"
+    )
+    dummy_a, dummy_b = socket.socketpair()
+    with pytest.raises(ProtocolError) as exc_info:
+        switch.add_master(SocketPair(
+            id="xpc-service", read=dummy_a.makefile("rb"), write=dummy_b.makefile("wb"),
+        ))
+    assert "attached but unhealthy" in str(exc_info.value)
+    with switch._lock:
+        switch._masters[0].healthy = True
+
+    # The slave drops its socket: the reader exits, the slot detaches —
+    # without the pump having to run.
+    release.set()
+    deadline = time.monotonic() + 5
+    while not switch.slot_accepts_attach("xpc-service"):
+        assert time.monotonic() < deadline, "the slot must detach once its socket is gone"
+        time.sleep(0.02)
+
+    # Reattach in place.
+    engine_read2, slave_write2 = socket.socketpair()
+    slave_read2, engine_write2 = socket.socketpair()
+    done2 = threading.Event()
+
+    def slave2_thread():
+        reader = FrameReader(slave_read2.makefile("rb"))
+        writer = FrameWriter(slave_write2.makefile("wb"))
+        send_notify(writer, make_manifest(CAP_GENERIC), Limits.default())
+        done2.set()
+        complete_identity_verification(reader, writer)
+        reader.read()
+
+    threading.Thread(target=slave2_thread, daemon=True).start()
+    done2.wait(timeout=2)
+    idx = switch.add_master(SocketPair(
+        id="xpc-service", read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb"),
+    ))
+    assert idx == 0
+    assert len(switch._masters) == 1
+    assert switch.slot_accepts_attach("xpc-service") is False
+
+
 # TEST6745: RelaySwitch::new rejects duplicate ids in its cardinality list.
 def test_6745_relay_switch_init_rejects_duplicate_ids():
     """The constructor rejects duplicate ids before any I/O. Without

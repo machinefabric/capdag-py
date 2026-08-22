@@ -584,10 +584,17 @@ class RelaySwitch:
             with self._lock:
                 for idx, master in enumerate(self._masters):
                     if master.id == sock_pair.id:
-                        if master.healthy:
+                        # Attachment is decided by the SOCKET (the
+                        # reader thread's liveness), never by ``healthy``:
+                        # a slot with its identity probe pending is
+                        # unhealthy yet attached, and reattaching over it
+                        # would strand the host on the other end. Mirrors
+                        # the reference, which checks the reader task.
+                        if not master.detached and master.reader_handle.is_alive():
+                            state = "healthy" if master.healthy else "attached but unhealthy"
                             raise ProtocolError(
                                 f"add_master: id {sock_pair.id!r} is already attached to a "
-                                f"healthy slot at index {idx} — cardinality violation "
+                                f"{state} slot at index {idx} — cardinality violation "
                                 f"(each id may only be attached once at a time)"
                             )
                         existing_idx = idx
@@ -683,6 +690,7 @@ class RelaySwitch:
                     slot.installed_cartridges = installed_cartridges
                     self._configure_master_admission_locked(idx, installed_cartridges)
                     slot.healthy = healthy_at_register
+                    slot.detached = False
                     slot.reader_handle = reader_thread
                     slot.last_error = identity_failure
                     slot.host_protocol_stats = host_protocol_stats
@@ -708,6 +716,22 @@ class RelaySwitch:
         same call site that registers the cartridges."""
         with self._lock:
             self._expected_master_count = expected
+
+    def slot_accepts_attach(self, master_id: str) -> bool:
+        """Whether ``add_master(id)`` is legitimate RIGHT NOW: no slot
+        carries this id, or the slot's connection is gone (its reader
+        thread exited, or a death was declared). A host that reconnects
+        on every control-plane event must ask this BEFORE dialling —
+        ``add_master`` can only learn the answer after consuming a fresh
+        socket, and a socket dialled into an attached slot is a duplicate
+        connection the host side has to refuse. A slot that is merely
+        UNHEALTHY (identity probe pending or failed) with its socket open
+        is still attached. Mirrors the reference ``slot_accepts_attach``."""
+        with self._lock:
+            for master in self._masters:
+                if master.id == master_id:
+                    return master.detached or not master.reader_handle.is_alive()
+            return True
 
     def all_masters_ready(self) -> bool:
         """True when (1) the number of connected masters is at least
@@ -1704,6 +1728,14 @@ class RelaySwitch:
     def _handle_master_death(self, master_idx: int):
         """Handle master death: ERR pending requests, mark unhealthy, rebuild caps"""
         with self._lock:
+            # The slot is DETACHED from here on, whatever the health flag
+            # said: the connection is declared dead, so the slot is
+            # reattachable to ``add_master`` / ``slot_accepts_attach``.
+            # Before the already-handled short-circuit below — an
+            # unhealthy-but-attached slot (probe pending) whose socket
+            # then closes must detach too, or the host could never
+            # reconnect to it.
+            self._masters[master_idx].detached = True
             if not self._masters[master_idx].healthy:
                 return  # Already handled
 
@@ -1964,6 +1996,11 @@ class _MasterConnection:
     installed_cartridges: List[InstalledCartridgeRecord]
     healthy: bool
     reader_handle: threading.Thread
+    #: True once the slot's CONNECTION has been declared gone by
+    #: ``_handle_master_death``; together with ``reader_handle.is_alive()``
+    #: this decides attachment — a slot is attached while its reader lives
+    #: and no death has been declared, healthy or not. Cleared on reattach.
+    detached: bool = False
     #: Most recent attachment / identity-probe failure reason, or None when
     #: the slot is healthy. Mirrors the reference ``MasterConnection.last_error``.
     #: Populated when a connect-time / runtime identity probe fails so the
