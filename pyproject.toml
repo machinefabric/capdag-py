@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "1.297.74"
+version = "1.298.82"
 description = "Core cap URN and definition system for MACHFAB cartridges"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
