@@ -203,25 +203,40 @@ def _first_triple(line: str) -> tuple[tuple[int, ...], int, int] | None:
     return None
 
 
-def _split_pin(text: str) -> tuple[tuple[int, ...] | None, str]:
-    """Split a stub file into its capdag version pin and everything else.
+def _is_pin_line(line: str) -> bool:
+    """A line whose dotted triple is a STAMPED version, not contract: one that
+    names capdag (the dependency pin, in any language's syntax), or the stub's
+    own version — a manifest's `version = "…"` line, a CapManifest
+    `version: "…"` / `version="…"` argument, or a bare positional `"N.N.N",`
+    (the stub repo's release, stamped by the templates so a scaffolded
+    cartridge carries an accurate version). All move on every release and
+    none says anything about the stub."""
+    stripped = line.strip()
+    if "capdag" in line or stripped.startswith("version"):
+        return True
+    bare = stripped.rstrip(",").strip()
+    if len(bare) < 2 or bare[0] != '"' or bare[-1] != '"':
+        return False
+    found = _first_triple(bare)
+    return found is not None and found[1] == 1 and found[2] == len(bare) - 1
 
-    The pin appears once per stub, in the language's own dependency syntax:
-    `tag = "v1.2.3"` (Cargo), `capdag-go v1.2.3` (go.mod), `from: "1.2.3"`
-    (SwiftPM). Rather than teach this three grammars, the first dotted-triple on
-    a line that mentions capdag IS the pin.
-    """
-    pin = None
+
+def _split_pins(text: str) -> tuple[list[tuple[int, ...]], str]:
+    """Split a stub file into its version pins (in order) and everything
+    else. Rather than teach this several grammars, the first dotted-triple on
+    every pin line (see `_is_pin_line`) IS a pin."""
+    pins = []
     kept_lines = []
     for line in text.split("\n"):
         kept = line
-        if pin is None and "capdag" in line:
+        if _is_pin_line(line):
             found = _first_triple(line)
             if found is not None:
                 pin, start, end = found
+                pins.append(pin)
                 kept = line[:start] + "<pin>" + line[end:]
         kept_lines.append(kept)
-    return pin, "\n".join(kept_lines)
+    return pins, "\n".join(kept_lines)
 
 
 _DEPENDENCY_MANIFESTS = ("Cargo.toml", "go.mod", "Package.swift")
@@ -281,23 +296,24 @@ def _assert_stub_matches(language: str, dest: str, vendored: str, canonical: str
     # a path, were one ever rendered) and the comment lines explaining it are
     # stripped before comparing. The VERSION on that line is read first, and
     # the ordering rule below still applies to it.
-    vendored_pin, vendored_rest = _split_pin(vendored)
-    canonical_pin, canonical_rest = _split_pin(canonical)
+    vendored_pins, vendored_rest = _split_pins(vendored)
+    canonical_pins, canonical_rest = _split_pins(canonical)
     vendored_rest = _strip_capdag_dependency_source(dest, vendored_rest)
     canonical_rest = _strip_capdag_dependency_source(dest, canonical_rest)
     assert vendored_rest == canonical_rest, (
         f"{language}: vendored {dest} differs from the canonical bytes in more than the "
-        "capdag dependency source/version — re-vendor the stubs"
+        "capdag dependency source and the stamped version pins — re-vendor the stubs"
     )
-    assert vendored_pin is not None and canonical_pin is not None, (
-        f"{language}: vendored {dest} differs from the canonical bytes and neither carries "
-        "a version pin to explain it — re-vendor the stubs"
+    assert vendored_pins and len(vendored_pins) == len(canonical_pins), (
+        f"{language}: vendored {dest} differs from the canonical bytes and the two sides "
+        "do not carry the same version pins to explain it — re-vendor the stubs"
     )
-    assert vendored_pin <= canonical_pin, (
-        f"{language}: vendored {dest} pins capdag "
-        f"{'.'.join(str(part) for part in vendored_pin)} but capdag is "
-        f"{'.'.join(str(part) for part in canonical_pin)} — a stub may lag a release, "
-        "never precede one"
+    for vendored_pin, canonical_pin in zip(vendored_pins, canonical_pins):
+        assert vendored_pin <= canonical_pin, (
+            f"{language}: vendored {dest} pins "
+            f"{'.'.join(str(part) for part in vendored_pin)} but the canonical stub is at "
+            f"{'.'.join(str(part) for part in canonical_pin)} — a stub may lag a release, "
+            "never precede one"
     )
 
 
