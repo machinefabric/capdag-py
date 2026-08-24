@@ -3,6 +3,7 @@
 Tests use TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
+import re
 import json
 import os
 import stat
@@ -187,133 +188,58 @@ def test_7159_two_entries_is_ambiguous_not_a_coin_flip(tmp_path):
 # a different commit than the stub repo currently holds — which would ship
 # capdags that disagree about what a cartridge looks like, silently.
 
-def _first_triple(line: str) -> tuple[tuple[int, ...], int, int] | None:
-    """The first `N.N.N` in a line, with the span it occupies."""
-    index = 0
-    while index < len(line):
-        if not line[index].isdigit():
-            index += 1
+VERSION = re.compile(r"\b\d+\.\d+\.\d+\b")
+
+# A dependency line naming capdag, in any language's manifest syntax.
+CAPDAG_DEPENDENCY = re.compile(
+    r"capdag.*(path\s*[:=]|git\s*=|tag\s*=|url:|from:)|^\s*(require|replace)\s+\S*capdag"
+)
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Split on real newlines AND the escaped ones inside string literals.
+
+    The generated module embeds each stub file — manifests included — as a
+    single-line string literal whose newlines are the two characters `\n`. A
+    rule applied only to real lines cannot see inside them, which is exactly
+    where the versions and the dependency lines live."""
+    return re.split(r"(\\n|\n)", text)
+
+
+def _comparable(text: str) -> str:
+    """The stub, with everything that moves on its own removed.
+
+    Two things change without the stub changing, and neither says anything
+    about whether the stub is the canonical one:
+
+      * the capdag DEPENDENCY — a path while somebody works locally, a git tag
+        or a registry version once published. The same stub, reached two ways,
+        and the two forms are different LINES rather than one line differing
+        in a version.
+      * every stamped VERSION — capdag's, and the stub project's own. Both are
+        written by the templates and move on every release.
+
+    Both go, so the comparison is about the stub's CODE. Anything else that
+    differs is a real edit, which is what this check exists to find."""
+    out = []
+    for piece in _logical_lines(text):
+        if piece in ("\n", "\\n"):
+            out.append(piece)
             continue
-        start = index
-        while index < len(line) and (line[index].isdigit() or line[index] == "."):
-            index += 1
-        parts = line[start:index].split(".")
-        if len(parts) == 3 and all(part.isdigit() for part in parts):
-            return tuple(int(part) for part in parts), start, index
-    return None
-
-
-def _is_pin_line(line: str) -> bool:
-    """A line whose dotted triple is a STAMPED version, not contract: one that
-    names capdag (the dependency pin, in any language's syntax), or the stub's
-    own version — a manifest's `version = "…"` line, a CapManifest
-    `version: "…"` / `version="…"` argument, or a bare positional `"N.N.N",`
-    (the stub repo's release, stamped by the templates so a scaffolded
-    cartridge carries an accurate version). All move on every release and
-    none says anything about the stub."""
-    stripped = line.strip()
-    if "capdag" in line or stripped.startswith("version"):
-        return True
-    bare = stripped.rstrip(",").strip()
-    if len(bare) < 2 or bare[0] != '"' or bare[-1] != '"':
-        return False
-    found = _first_triple(bare)
-    return found is not None and found[1] == 1 and found[2] == len(bare) - 1
-
-
-def _split_pins(text: str) -> tuple[list[tuple[int, ...]], str]:
-    """Split a stub file into its version pins (in order) and everything
-    else. Rather than teach this several grammars, the first dotted-triple on
-    every pin line (see `_is_pin_line`) IS a pin."""
-    pins = []
-    kept_lines = []
-    for line in text.split("\n"):
-        kept = line
-        if _is_pin_line(line):
-            found = _first_triple(line)
-            if found is not None:
-                pin, start, end = found
-                pins.append(pin)
-                kept = line[:start] + "<pin>" + line[end:]
-        kept_lines.append(kept)
-    return pins, "\n".join(kept_lines)
-
-
-_DEPENDENCY_MANIFESTS = ("Cargo.toml", "go.mod", "Package.swift")
-
-
-def _is_capdag_dependency_source(line: str) -> bool:
-    """A manifest line that is the capdag dependency SOURCE: a path, git tag,
-    module version or SwiftPM `from:` naming capdag."""
-    t = line.strip()
-    return "capdag" in t and (
-        "path" in t
-        or "git =" in t
-        or "tag =" in t
-        or "url:" in t
-        or "from:" in t
-        or t.startswith("require ")
-        or t.startswith("replace ")
-    )
-
-
-def _strip_capdag_dependency_source(dest: str, text: str) -> str:
-    """Strip the capdag dependency source from a manifest: the dependency
-    line(s), the comment lines that explain them, and blank lines (the
-    templates' conditional blocks differ in spacing). Other files untouched."""
-    if not dest.endswith(_DEPENDENCY_MANIFESTS):
-        return text
-    kept = []
-    for line in text.split("\n"):
-        t = line.strip()
-        if not t or t.startswith("#") or t.startswith("//") or _is_capdag_dependency_source(t):
+        if CAPDAG_DEPENDENCY.search(piece):
             continue
-        kept.append(line)
-    return "\n".join(kept) + "\n"
+        out.append(VERSION.sub("<version>", piece))
+    return "".join(out)
 
 
 def _assert_stub_matches(language: str, dest: str, vendored: str, canonical: str) -> None:
-    """A vendored stub file against the canonical bytes.
-
-    Byte equality, with ONE allowance: the capdag version the stub pins may be
-    OLDER in the vendored copy than in the canonical one. The canonical stub is
-    rendered from a template that stamps capdag's current version, and the
-    vendored copies are snapshots taken when someone last vendored them — so the
-    two disagree from the moment capdag's version moves, which is every time it
-    is bumped, and the disagreement says nothing about the stub CONTRACT.
-
-    An older pin is harmless: it names a release that exists, so a cartridge
-    scaffolded from it resolves. A NEWER pin is not, because it would name a
-    version this capdag has not reached, so the comparison is an ordering and
-    not "ignore the version".
-
-    Every other byte still has to match.
-    """
+    """The vendored stub IS the canonical one, once the things that move on
+    their own are set aside."""
     if vendored == canonical:
         return
-    # HOW the stub reaches capdag is environment, not contract: the dependency
-    # line of a language manifest (tag / module version / SwiftPM `from:` — or
-    # a path, were one ever rendered) and the comment lines explaining it are
-    # stripped before comparing. The VERSION on that line is read first, and
-    # the ordering rule below still applies to it.
-    vendored_pins, vendored_rest = _split_pins(vendored)
-    canonical_pins, canonical_rest = _split_pins(canonical)
-    vendored_rest = _strip_capdag_dependency_source(dest, vendored_rest)
-    canonical_rest = _strip_capdag_dependency_source(dest, canonical_rest)
-    assert vendored_rest == canonical_rest, (
-        f"{language}: vendored {dest} differs from the canonical bytes in more than the "
-        "capdag dependency source and the stamped version pins — re-vendor the stubs"
-    )
-    assert vendored_pins and len(vendored_pins) == len(canonical_pins), (
-        f"{language}: vendored {dest} differs from the canonical bytes and the two sides "
-        "do not carry the same version pins to explain it — re-vendor the stubs"
-    )
-    for vendored_pin, canonical_pin in zip(vendored_pins, canonical_pins):
-        assert vendored_pin <= canonical_pin, (
-            f"{language}: vendored {dest} pins "
-            f"{'.'.join(str(part) for part in vendored_pin)} but the canonical stub is at "
-            f"{'.'.join(str(part) for part in canonical_pin)} — a stub may lag a release, "
-            "never precede one"
+    assert _comparable(vendored) == _comparable(canonical), (
+        f"{language}: vendored {dest} differs from the canonical stub in more than its "
+        "versions and capdag dependency — re-vendor the stubs"
     )
 
 
