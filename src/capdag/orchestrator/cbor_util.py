@@ -297,7 +297,7 @@ def wrap_raw_items_as_cbor_sequence(items: List[bytes]) -> bytes:
 
     Contrast assemble_cbor_sequence, which requires each item to ALREADY be a
     complete CBOR value (it validates rather than wraps) -- the form used when
-    the caller has itself CBOR-encoded each item (e.g. machfab's file-item
+    the caller has itself CBOR-encoded each item (e.g. floom-engine's file-item
     interpreter).
 
     Raises:
