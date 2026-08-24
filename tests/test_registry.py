@@ -248,7 +248,7 @@ def test_143_default_config():
     assert "/schema" in config.schema_base_url
 
 
-# TEST1899: Test custom registry URL updates both registry and schema base URLs
+# TEST0144: Test custom registry URL updates both registry and schema base URLs
 def test_144_custom_registry_url():
     """Test setting custom registry URL"""
     config = RegistryConfig().with_registry_url("https://localhost:8888")
@@ -316,7 +316,7 @@ def test_147_registry_for_test_with_config():
     assert registry.config.registry_base_url == "https://test-registry.local"
 
 
-# TEST0144: a media def published under a manifest (v>=1) resolves to the
+# TEST1899: a media def published under a manifest (v>=1) resolves to the
 # VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat
 # path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a
 # registry that silently runs in v0 mode fetches it and 404s every lookup
