@@ -69,7 +69,7 @@ def test_6382_parse_registry_json():
                 "schema": {
                     "type": "string",
                     "pattern": "[0-9a-f-]{36}",
-                    "description": "MachineFabric listing UUID"
+                    "description": "Listing UUID"
                 }
             }
         ],

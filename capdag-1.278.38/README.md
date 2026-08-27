@@ -1,8 +1,8 @@
 # capdag-py
 
-Python implementation of the capdag (Cap SDK) - Core cap URN and definition system for FLOOM_ENGINE cartridges.
+Python implementation of CapDAG's capability SDK and definition system.
 
-This library provides the fundamental cap URN system used across all FLOOM_ENGINE cartridges and candidates. It defines the formal structure for cap identifiers with flat tag-based naming, wildcard support, and specificity comparison.
+This library provides the fundamental capability URN system used across all CapDAG cartridges and candidates. It defines the formal structure for capability identifiers with flat tag-based naming, wildcard support, and specificity comparison.
 
 ## Features
 

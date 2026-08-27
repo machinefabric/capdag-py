@@ -1,7 +1,7 @@
 """Standard capability URN builders
 
 This module provides standard capability URN builders used across
-all FLOOM_ENGINE cartridges. These are the single source of truth for URN construction.
+all CapDAG cartridges. These are the single source of truth for URN construction.
 """
 
 from dataclasses import dataclass
