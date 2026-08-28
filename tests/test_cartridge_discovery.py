@@ -6,7 +6,7 @@ Test numbers match the reference (4-digit-padded). The fixtures install a
 satisfies ``read_from_dir`` but cannot complete a HELLO handshake, so a
 cartridge that reaches the probe ends at HANDSHAKE_FAILED — that is how the
 scan-all tests prove discovery REACHED a cartridge (vs. rejecting it
-earlier with BAD_INSTALLATION).
+earlier with MISPLACED).
 """
 
 import os
@@ -93,7 +93,7 @@ def test_0092_channel_mismatch_is_bad_installation(tmp_path):
     json_str = _dev_cartridge_json("release", 1)
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
-    _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
 
 
 # TEST94: Fabric manifest mismatch is flagged
@@ -117,7 +117,7 @@ def test_0120_registry_url_under_dev_slug_is_rejected(tmp_path):
     )
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
-    _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
 
 
 # TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe.
@@ -171,7 +171,7 @@ def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
     json_str = _registry_cartridge_json(url, "nightly", 1)
     _install_fixture(tmp_path, wrong_slug, "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
-    _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
 
 
 # TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
@@ -187,7 +187,7 @@ def test_1878_bundled_cartridge_without_baked_hash_is_rejected(tmp_path):
     )
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
-    _expect_incompatible(out, CartridgeAttachmentErrorKind.BAD_INSTALLATION)
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
     entry = out[0]
     assert "bundled cartridge integrity" in entry.error.message, (
         f"message should name the bundled-integrity failure: {entry.error.message}"

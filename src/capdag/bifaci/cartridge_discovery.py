@@ -300,7 +300,7 @@ def _scan_channel_root(
             # unreadable/garbage cartridge.json (ManifestInvalid). Both are
             # surfaced + logged, never hosted.
             if isinstance(e, CartridgeJsonRegistrySlugMismatch):
-                kind = CartridgeAttachmentErrorKind.BAD_INSTALLATION
+                kind = CartridgeAttachmentErrorKind.MISPLACED
             else:
                 kind = CartridgeAttachmentErrorKind.MANIFEST_INVALID
             logger.error(
@@ -336,7 +336,7 @@ def _scan_channel_root(
                     registry_url=cj.registry_url,
                     version=cj.version,
                     error=CartridgeAttachmentError(
-                        kind=CartridgeAttachmentErrorKind.BAD_INSTALLATION,
+                        kind=CartridgeAttachmentErrorKind.MISPLACED,
                         message=(
                             f"Channel mismatch: cartridge declares '{cj.channel}' but host "
                             f"is pinned to '{identity.channel.value}'. Release and nightly "
@@ -464,7 +464,7 @@ def _scan_channel_root(
                             registry_url=cj.registry_url,
                             version=cj.version,
                             error=CartridgeAttachmentError(
-                                kind=CartridgeAttachmentErrorKind.BAD_INSTALLATION,
+                                kind=CartridgeAttachmentErrorKind.MISPLACED,
                                 message=f"bundled cartridge integrity check failed: {reason}",
                                 detected_at_unix_seconds=detected_at,
                             ),

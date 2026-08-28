@@ -139,12 +139,31 @@ class CartridgeAttachmentErrorKind(str, Enum):
     #: or name/version directory mismatch. Structurally well-formed but
     #: cannot be trusted because its placement does not match what it
     #: claims to be. Distinct from QUARANTINED and MANIFEST_INVALID.
-    BAD_INSTALLATION = "bad_installation"
+    #: Recovery is "reinstall".
+    #:
+    #: This was BAD_INSTALLATION and meant two unrelated things: this one,
+    #: and "the registry does not list this version" — now NOT_LISTED. One
+    #: kind covering two situations with different remedies cannot state
+    #: either of them.
+    MISPLACED = "misplaced"
+    #: The cartridge's registry verified, and does not list this
+    #: (channel, id, version): the artefact says it came from somewhere that
+    #: has never heard of it. Distinct from REGISTRY_UNVERIFIED, where the
+    #: registry's answer could not be obtained or could not be trusted —
+    #: there we do not know, here we do. Recovery is "wait for the publish,
+    #: or rebuild as dev".
+    NOT_LISTED = "not_listed"
     #: Operator explicitly disabled this cartridge through the host UI.
     DISABLED = "disabled"
-    #: The cartridge declares a non-null registry_url but the host could
-    #: not reach that registry to verify the cartridge is listed.
-    REGISTRY_UNREACHABLE = "registry_unreachable"
+    #: The cartridge declares a non-null registry_url and that registry's
+    #: verdict is not VERIFIED, so its provenance claim is unconfirmed and it
+    #: is held back. WHY belongs to the REGISTRY, not the cartridge:
+    #: a RegistryVerdict is one fact per registry URL, shared by every
+    #: cartridge from it, and consumers join on registry_url to state it
+    #: once. The kind this replaces carried its own reason, called itself
+    #: REGISTRY_UNREACHABLE, and so reported a signature the build could not
+    #: read as a network outage with "check your connection" as the remedy.
+    REGISTRY_UNVERIFIED = "registry_unverified"
     #: The cartridge was built against a different fabric registry manifest
     #: version than this engine is pinned to.
     FABRIC_MANIFEST_VERSION_MISMATCH = "fabric_manifest_version_mismatch"
