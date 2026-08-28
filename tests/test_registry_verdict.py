@@ -36,6 +36,7 @@ def test_8150_state_wire_names_match_the_mirrors():
         "unsigned",
         "untrusted",
         "unverifiable",
+        "unenforced",
     ]
     assert [reason.value for reason in ChainFailureReason] == [
         "malformed_envelope",
@@ -90,7 +91,14 @@ def test_8152_only_verified_permits_attachment():
     """TEST8152: only a verified registry lets a cartridge attach — PENDING
     included, which must never read as permission."""
     for state in RegistryVerdictState:
-        assert state.permits_attachment == (state is RegistryVerdictState.VERIFIED)
+        assert state.permits_attachment == (
+            state in (RegistryVerdictState.VERIFIED, RegistryVerdictState.UNENFORCED)
+        )
+    # A DEV BUILD HAS TO WORK, and it says which of the two it is: "we checked
+    # and it passed" and "we did not check" are different facts.
+    assert RegistryVerdictState.UNENFORCED.permits_attachment
+    assert not RegistryVerdictState.UNENFORCED.is_trust_failure
+    assert not RegistryVerdictState.UNENFORCED.is_transient
 
 
 def test_8153_trust_failures_are_never_transient():

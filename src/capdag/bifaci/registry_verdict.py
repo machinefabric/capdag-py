@@ -73,13 +73,24 @@ class RegistryVerdictState(str, Enum):
     #: implement. Our problem, remedied by updating the client, never by
     #: distrusting the registry and never by checking the network.
     UNVERIFIABLE = "unverifiable"
+    #: This build bakes no trust anchors, so there is no regime to verify
+    #: against and the manifest was accepted without proof. A development
+    #: build, and only ever that. It permits attachment — a dev build has to
+    #: work — and is a SEPARATE state rather than being reported as VERIFIED,
+    #: because "we checked and it passed" and "we did not check" are different
+    #: facts, and a consumer that cannot tell them apart will one day ship the
+    #: second believing the first.
+    UNENFORCED = "unenforced"
 
     @property
     def permits_attachment(self) -> bool:
         """Whether a cartridge claiming provenance from a registry in this
         state may attach. True for VERIFIED alone: every other state, the
         hopeful ones included, means the claim is unconfirmed."""
-        return self is RegistryVerdictState.VERIFIED
+        return self in (
+            RegistryVerdictState.VERIFIED,
+            RegistryVerdictState.UNENFORCED,
+        )
 
     @property
     def is_trust_failure(self) -> bool:
@@ -146,6 +157,7 @@ _REGISTRY_REMEDY_BY_STATE = {
     RegistryVerdictState.UNSIGNED: RegistryRemedy.DO_NOT_PROCEED,
     RegistryVerdictState.UNTRUSTED: RegistryRemedy.DO_NOT_PROCEED,
     RegistryVerdictState.UNVERIFIABLE: RegistryRemedy.UPDATE_CLIENT,
+    RegistryVerdictState.UNENFORCED: RegistryRemedy.NONE,
 }
 
 
@@ -253,6 +265,19 @@ class RegistryVerdict:
         )
 
     @staticmethod
+    def unenforced(registry_url: str, checked_at_unix_seconds: int) -> "RegistryVerdict":
+        """This build bakes no trust anchors: the manifest was accepted without
+        proof, and says so rather than claiming it verified."""
+        return RegistryVerdict(
+            registry_url=registry_url,
+            state=RegistryVerdictState.UNENFORCED,
+            detail="",
+            http_status=None,
+            chain_failure=None,
+            checked_at_unix_seconds=checked_at_unix_seconds,
+        )
+
+    @staticmethod
     def pending(registry_url: str) -> "RegistryVerdict":
         """No verdict yet. Carries no time, because nothing has been checked."""
         return RegistryVerdict(
@@ -338,6 +363,7 @@ class RegistryVerdict:
         states_no_failure = state in (
             RegistryVerdictState.VERIFIED,
             RegistryVerdictState.PENDING,
+            RegistryVerdictState.UNENFORCED,
         )
         if states_no_failure and self.detail:
             raise RegistryVerdictError(
