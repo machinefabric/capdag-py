@@ -250,3 +250,36 @@ def test_8157_signature_format_discriminators_come_from_the_library():
     keeps working — which is precisely what happened."""
     assert MANIFEST_SIG_FORMAT == "machinefabric-manifest-sig/1"
     assert RELEASE_KEY_CERT_FORMAT == "machinefabric-release-key-cert/1"
+
+
+def test_8162_a_verdict_says_the_same_thing_at_a_different_time():
+    """WHEN IS A VERDICT NEWS?
+
+    Both desktop clients re-verify their registries after every discovery round
+    and re-run discovery when the verdicts "changed". Change had to mean "the
+    registry said something different", and comparing whole verdicts cannot mean
+    that: they carry the moment of the check, so the same answer taken a second
+    later is a different value. That is the loop that left an engine discovering
+    cartridges forever.
+    """
+    earlier = RegistryVerdict.verified("https://r.example", 1_756_000_000)
+    later = RegistryVerdict.verified("https://r.example", 1_756_000_931)
+    assert earlier.to_json() != later.to_json(), "not the same value — one is a later check"
+    assert earlier.states_the_same_as(later), "but the same statement about the registry"
+
+    differing = [
+        RegistryVerdict.stated("https://r.example", RegistryVerdictState.UNREACHABLE, "connection timed out", 1_756_000_000),
+        RegistryVerdict.http_error("https://r.example", 503, "the registry answered HTTP 503", 1_756_000_000),
+        RegistryVerdict.chain_failed("https://r.example", ChainFailureReason.MANIFEST_SIGNATURE_INVALID, "signature does not verify", 1_756_000_000),
+        RegistryVerdict.verified("https://other.example/manifest", 1_756_000_000),
+    ]
+    for verdict in differing:
+        assert not earlier.states_the_same_as(verdict), f"{verdict.state} is a different statement"
+
+    # 404 and 503 are different situations with different remedies.
+    not_found = RegistryVerdict.http_error("https://r.example", 404, "the registry answered HTTP 404", 1_756_000_000)
+    unavailable = RegistryVerdict.http_error("https://r.example", 503, "the registry answered HTTP 503", 1_756_000_000)
+    assert not not_found.states_the_same_as(unavailable)
+
+    with pytest.raises(TypeError):
+        earlier.states_the_same_as({"state": "verified"})

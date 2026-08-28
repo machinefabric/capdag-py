@@ -410,6 +410,27 @@ class RegistryVerdict:
         """Whether a cartridge from this registry may attach."""
         return RegistryVerdictState(self.state).permits_attachment
 
+    def states_the_same_as(self, other: "RegistryVerdict") -> bool:
+        """Whether two verdicts say the same thing ABOUT THE REGISTRY.
+
+        Not equality. A verdict carries ``checked_at_unix_seconds``, which is
+        provenance about the CHECK and not about the registry — so a consumer
+        asking "did this change?" by comparing whole verdicts is told yes on
+        every re-check, forever. Both desktop clients asked exactly that to
+        decide whether to re-run cartridge discovery, and the answer drove a
+        loop that left the engine discovering cartridges and never reaching
+        ready.
+        """
+        if not isinstance(other, RegistryVerdict):
+            raise TypeError("states_the_same_as compares two registry verdicts")
+        return (
+            self.registry_url == other.registry_url
+            and self.state == other.state
+            and self.detail == other.detail
+            and self.http_status == other.http_status
+            and self.chain_failure == other.chain_failure
+        )
+
     def to_json(self) -> dict[str, Any]:
         return {
             "registry_url": self.registry_url,
