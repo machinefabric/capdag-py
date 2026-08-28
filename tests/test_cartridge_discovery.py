@@ -87,8 +87,8 @@ def test_0091_missing_cartridge_json_is_manifest_invalid(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MANIFEST_INVALID)
 
 
-# TEST92: Channel mismatch is bad installation
-def test_0092_channel_mismatch_is_bad_installation(tmp_path):
+# TEST92: Channel mismatch is a misplaced install
+def test_0092_channel_mismatch_is_misplaced(tmp_path):
     # Declares release but lives under nightly/ — host is nightly.
     json_str = _dev_cartridge_json("release", 1)
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
