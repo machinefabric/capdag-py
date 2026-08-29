@@ -23,13 +23,12 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
 
-from capdag.bifaci.bundled_cartridge_hashes import bundled_cartridge_expected_hash
+from capdag.bifaci.bundle_manifest import BundleProof
 from capdag.bifaci.cartridge_json import (
     CartridgeInstallSource,
     CartridgeJsonError,
@@ -67,6 +66,15 @@ class DiscoveryIdentity:
     #: level: cartridges live under ``{slug}/v{cartridge_registry_version}/
     #: {channel}/…``, pinned like the channel so a v1 host never scans a v2 tree.
     cartridge_registry_version: int
+    #: What proves the bundled cartridges under the root being scanned.
+    #: Carried rather than looked up, because verification is one act per
+    #: discovery and because the caller is the only thing that knows what this
+    #: root IS: a build's own bundled-cartridges tree carries a verified
+    #: manifest, and the operator's installed-cartridges directory carries
+    #: ``BundleProof.none`` — so a cartridge claiming to be bundled while
+    #: sitting there is refused for exactly that reason instead of being
+    #: hosted because nobody asked.
+    bundle: BundleProof
 
     def slug(self) -> str:
         """On-disk top-level slug for THIS host's own baked registry
@@ -422,55 +430,47 @@ def _scan_channel_root(
 
         # Bundled-cartridge integrity. A cartridge marked
         # ``installed_from: bundle`` is shipped INSIDE this build, not
-        # user-installed, and has no upstream registry to verify against —
-        # so it needs its own integrity proof. Platform-split by necessity:
+         # Bundled-cartridge integrity. A cartridge marked `installed_from:
+        # bundle` is shipped INSIDE this build, not user-installed, and has no
+        # upstream registry to verify against — so it needs its own integrity
+        # proof.
         #
-        # - macOS: the OS code-signature IS the guard (notarized .app). A
-        #   content hash would be re-broken by Apple's (re)signing, so macOS
-        #   does NOT bake or verify hashes. We log that we are trusting the
-        #   signature — an explicit, visible rule, not a silent skip.
-        # - Linux/Windows: binaries are unsigned, so the integrity proof is a
-        #   content hash baked into the build (BUNDLED_CARTRIDGE_HASHES). The
-        #   on-disk directory must hash to the baked value; a mismatch or an
-        #   entry absent from the baked set means the shipped cartridge was
-        #   tampered with or the build failed to record it — surfaced
-        #   incompatible + logged, never hosted.
+        # ONE mechanism, on every platform: the build's signed bundle manifest.
+        # The proof was established when this discovery started (see
+        # BundleProof); here it is applied to the cartridge in hand.
+        #
+        # This used to be platform-split, and macOS had no check of ours at
+        # all. The manifest is produced at the END of a build, after every
+        # platform signing step, which is what removed the ordering problem
+        # that split existed for. Apple's signature still matters, and it is
+        # what stops the operating system warning a user; it is not what
+        # decides whether code runs here.
         if cj.installed_from == CartridgeInstallSource.BUNDLE:
-            if sys.platform == "darwin":
-                logger.info(
-                    "bundled cartridge integrity on macOS is the OS code-signature "
-                    "(notarized .app); baked-hash verification is intentionally skipped: "
-                    "%s (%s %s)",
+            reason = identity.bundle.check(cj.name, cj.version, version_dir)
+            if reason is not None:
+                logger.error(
+                    "bundled cartridge is not proven by this build's signed bundle "
+                    "manifest (%s, %s %s) — surfacing as incompatible: %s",
                     version_dir,
                     cj.name,
                     cj.version,
+                    reason,
                 )
-            else:
-                reason = _verify_bundled_cartridge_hash(cj.name, cj.version, version_dir)
-                if reason is not None:
-                    logger.error(
-                        "bundled cartridge hash verification failed (%s, %s %s) — "
-                        "surfacing as incompatible: %s",
-                        version_dir,
-                        cj.name,
-                        cj.version,
-                        reason,
+                discovered.append(
+                    DiscoveredCartridgeIncompatible(
+                        version_dir=version_dir,
+                        id=cj.name,
+                        channel=cj_channel,
+                        registry_url=cj.registry_url,
+                        version=cj.version,
+                        error=CartridgeAttachmentError(
+                            kind=CartridgeAttachmentErrorKind.MISPLACED,
+                            message=f"bundled cartridge integrity check failed: {reason}",
+                            detected_at_unix_seconds=detected_at,
+                        ),
                     )
-                    discovered.append(
-                        DiscoveredCartridgeIncompatible(
-                            version_dir=version_dir,
-                            id=cj.name,
-                            channel=cj_channel,
-                            registry_url=cj.registry_url,
-                            version=cj.version,
-                            error=CartridgeAttachmentError(
-                                kind=CartridgeAttachmentErrorKind.MISPLACED,
-                                message=f"bundled cartridge integrity check failed: {reason}",
-                                detected_at_unix_seconds=detected_at,
-                            ),
-                        )
-                    )
-                    continue
+                )
+                continue
 
         entry_point = cj.resolve_entry_point(version_dir)
         try:
@@ -510,30 +510,3 @@ def _scan_channel_root(
         )
 
 
-def _verify_bundled_cartridge_hash(name: str, version: str, version_dir: Path) -> Optional[str]:
-    """Verify a bundled cartridge's on-disk content against the hash baked
-    into this build. ``None`` when the directory hashes to the expected
-    value for ``(name, version)``; a reason string when the pair is absent
-    from the baked set or the hash differs (tamper / corruption /
-    unrecorded build).
-
-    Non-macOS only: macOS bundled-cartridge integrity is the OS
-    code-signature (see the discovery call site), so the host there
-    neither bakes nor checks these hashes.
-    """
-    expected = bundled_cartridge_expected_hash(name, version)
-    if expected is None:
-        return (
-            f"no baked hash for bundled cartridge {name} {version} — this build did not "
-            f"record it (MFR_BUNDLED_CARTRIDGE_HASHES)"
-        )
-    try:
-        actual = hash_cartridge_directory(version_dir)
-    except Exception as e:
-        return f"failed to hash bundled cartridge directory: {e}"
-    if actual == expected:
-        return None
-    return (
-        f"content hash mismatch — baked {expected}, on-disk {actual}; the shipped cartridge "
-        f"differs from what this build was compiled to ship"
-    )

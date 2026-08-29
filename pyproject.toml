@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "1.312.14"
+version = "1.313.17"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]

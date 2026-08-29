@@ -20,6 +20,8 @@ from capdag.bifaci.cartridge_discovery import (
     DiscoveryIdentity,
     discover_cartridges,
 )
+from capdag.bifaci.bundle_manifest import BundleManifest, BundledCartridge, BundleProof
+from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION, CartridgeChannel
 from capdag.bifaci.cartridge_slug import slug_for
 from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
@@ -31,6 +33,28 @@ def _nightly_dev_identity() -> DiscoveryIdentity:
         registry_url=None,
         fabric_manifest_version=1,
         cartridge_registry_version=CARTRIDGE_REGISTRY_VERSION,
+        # A root that ships no bundle. Every test that is not ABOUT the bundle
+        # scans a tree nothing built, so a cartridge claiming to be bundled
+        # there is in the wrong place — which is what this says.
+        bundle=BundleProof.none("this directory is not a build's bundle"),
+    )
+
+
+def _bundled_identity(manifest: BundleManifest) -> DiscoveryIdentity:
+    """An identity whose bundled cartridges are proven by ``manifest``.
+
+    Built here rather than verified, because what is under test is what
+    discovery DOES with a proof. This mirror carries no chain verification at
+    all — the Rust library is the only implementation of it — which is exactly
+    why the proof is a parameter.
+    """
+    identity = _nightly_dev_identity()
+    return DiscoveryIdentity(
+        channel=identity.channel,
+        registry_url=identity.registry_url,
+        fabric_manifest_version=identity.fabric_manifest_version,
+        cartridge_registry_version=identity.cartridge_registry_version,
+        bundle=BundleProof.proven(manifest),
     )
 
 
@@ -125,11 +149,13 @@ def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
     url = "https://cartridges.example.com/manifest"
     rslug = slug_for(url)
     # Host baked for a DIFFERENT registry than the on-disk registry cartridge.
+    base = _nightly_dev_identity()
     host = DiscoveryIdentity(
-        channel=CartridgeChannel.NIGHTLY,
+        channel=base.channel,
         registry_url="https://other.example.com/manifest",
-        fabric_manifest_version=1,
-        cartridge_registry_version=CARTRIDGE_REGISTRY_VERSION,
+        fabric_manifest_version=base.fabric_manifest_version,
+        cartridge_registry_version=base.cartridge_registry_version,
+        bundle=base.bundle,
     )
     _install_fixture(
         tmp_path, "dev", "nightly", "devcart", "1.0.0",
@@ -174,21 +200,78 @@ def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
 
 
-# TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in BUNDLED_CARTRIDGE_HASHES (the const is empty under plain `cargo test`) is rejected as BadInstallation — the bundled-integrity gate fires before the probe. Proves the verify is wired into discovery; a real bundle build bakes the hash so the matching directory passes. Non-macOS only: on macOS the baked-hash path is intentionally absent (OS code-signature is the guard), so a bundled cartridge is accepted there and would instead end at the probe.
-@pytest.mark.skipif(sys.platform == "darwin", reason="macOS uses code-signature, not baked hashes")
-def test_1878_bundled_cartridge_without_baked_hash_is_rejected(tmp_path):
-    # Dev slug (null registry) but installed_from=bundle — placement is
-    # self-consistent (null→dev), so it passes read_from_dir and reaches the
-    # bundled-hash gate, which has no baked entry → BadInstallation.
-    json_str = (
+def _bundled_cartridge_json() -> str:
+    """The cartridge.json of a bundled cartridge in the dev slot: placement is
+    self-consistent (null registry -> dev slug), so it passes every earlier
+    check and reaches the bundled-integrity gate."""
+    return (
         '{"name":"cart","version":"1.0.0","channel":"nightly","registry_url":null,'
         '"entry":"cart","installed_at":"2024-01-01T00:00:00Z",'
         '"installed_from":"bundle","fabric_manifest_version":1}'
     )
-    _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
+
+
+# TEST1878: a bundled cartridge in a root that proves nothing is refused — on
+# every platform.
+#
+# This is the check macOS did not have. The old rule was platform-split: Linux
+# and Windows verified a baked content hash and macOS verified nothing of ours,
+# trusting Gatekeeper instead — so this test skipped itself on darwin. It runs
+# everywhere now because the guard does.
+def test_1878_a_bundled_cartridge_is_refused_where_nothing_proves_it(tmp_path):
+    _install_fixture(
+        tmp_path, "dev", "nightly", "cart", "1.0.0", _bundled_cartridge_json(), "cart"
+    )
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
     entry = out[0]
     assert "bundled cartridge integrity" in entry.error.message, (
         f"message should name the bundled-integrity failure: {entry.error.message}"
+    )
+
+
+# TEST1928: a bundled cartridge the manifest records passes, and one it records
+# differently does not.
+#
+# The other half of TEST1878, and the one that proves the gate is a real check
+# rather than a refusal of everything: the same tree, the same cartridge, and
+# the only difference is what the build recorded about it. A gate that always
+# said no would pass TEST1878 alone.
+def test_1928_a_bundled_cartridge_passes_exactly_when_the_manifest_records_it(tmp_path):
+    _install_fixture(
+        tmp_path, "dev", "nightly", "cart", "1.0.0", _bundled_cartridge_json(), "cart"
+    )
+    version_dir = os.path.join(
+        str(tmp_path), "dev", f"v{CARTRIDGE_REGISTRY_VERSION}", "nightly", "cart", "1.0.0"
+    )
+    recorded = hash_cartridge_directory(version_dir)
+
+    def listed(sha256: str) -> DiscoveryIdentity:
+        return _bundled_identity(
+            BundleManifest.create(
+                "dev",
+                [
+                    BundledCartridge(
+                        name="cart", version="1.0.0", channel="nightly", sha256=sha256
+                    )
+                ],
+            )
+        )
+
+    # Recorded as it is on disk: past the gate. It still ends at the HELLO
+    # probe, because the fixture's entry point is not a cartridge — what
+    # matters is that the failure is no longer the integrity one.
+    out = discover_cartridges(tmp_path, listed(recorded))
+    assert len(out) == 1
+    assert "bundled cartridge integrity" not in out[0].error.message, (
+        "a cartridge the manifest records must get past the integrity gate: "
+        f"{out[0].error.message}"
+    )
+
+    # Recorded as something else — the cartridge was changed after the build
+    # recorded it.
+    out = discover_cartridges(tmp_path, listed("f" * 64))
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
+    assert "bundled cartridge integrity" in out[0].error.message, (
+        f"a cartridge that differs from the manifest must be refused: {out[0].error.message}"
     )
