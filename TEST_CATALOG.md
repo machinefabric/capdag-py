@@ -1,6 +1,6 @@
 # Test catalogue — capdag/capdag-py
 
-Generated from the catalogue table by `sdx catalog export`. Edit the tests, not this file.
+Generated from the test catalogue. Edit the tests, not this file.
 
 1272 tests: 1260 numbered, 12 unnumbered.
 
