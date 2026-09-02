@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Optional, List, Callable
 from dataclasses import dataclass
 
+from capdag.bifaci import launch
 from capdag.bifaci.frame import (
     AttributionClass,
     Frame,
@@ -1141,8 +1142,10 @@ class CartridgeHost:
         generation = cartridge.generation + 1
 
         try:
+            # Through the launcher: a dev cartridge's entry may be a
+            # script, and a published one is a binary.
             proc = subprocess.Popen(
-                [cartridge.path],
+                launch.command(cartridge.path),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

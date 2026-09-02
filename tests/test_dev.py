@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from capdag.bifaci import launch
 from capdag.bifaci.manifest import CapManifest
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn
@@ -60,9 +61,28 @@ def test_7154_scaffold_writes_a_runnable_project_in_every_language(tmp_path):
             assert STUB_PLACEHOLDER not in body, f"{lang.id}: {dest} still contains the placeholder"
             sources += body
 
+            # What `executable` means is "the host can start this", and the
+            # two platforms establish that differently. A Unix host runs the
+            # file, so it needs the bit. NTFS has no such bit — Python reports
+            # 0o666 for every file on it — so asserting one there failed for a
+            # project that was perfectly launchable, and would have gone on
+            # failing however the scaffold was written.
+            #
+            # On Windows the same claim is that the launcher resolves an
+            # interpreter for it, which is what actually starts a `.py` on a
+            # platform with no shebang.
             if file.executable:
-                mode = dest.stat().st_mode
-                assert mode & stat.S_IXUSR, f"{lang.id}: {dest} is declared executable but is not"
+                if os.name == "nt":
+                    argv = launch.launcher(dest)
+                    assert len(argv) == 2 and argv[0] != str(dest), (
+                        f"{lang.id}: {dest} is declared executable and Windows cannot "
+                        f"start it: no interpreter is resolved for {dest.suffix!r}"
+                    )
+                else:
+                    mode = dest.stat().st_mode
+                    assert mode & stat.S_IXUSR, (
+                        f"{lang.id}: {dest} is declared executable but is not"
+                    )
 
         # The rendered entry path must itself be free of the placeholder — a
         # compiled cartridge's binary is named after the project.
@@ -88,13 +108,21 @@ def test_7155_scaffold_guards(tmp_path):
 
 
 def _write_stub_entry(directory: Path, name: str, alias: str, cap_urn: str) -> Path:
-    """Write a cartridge entry (a bash script) that prints a canned CapManifest
-    on `manifest`, exercising the capdag-side staging/parsing/resolution without
-    any language runtime.
+    """Write a cartridge entry that prints a canned CapManifest on `manifest`,
+    exercising the capdag-side staging/parsing/resolution without any cartridge
+    runtime.
 
     It is written at the PYTHON entry because that is the one language whose
-    entry is a source file with no build step, so a bash script standing in for
-    it is discovered by exactly the same path a real project would be.
+    entry is a source file with no build step, so a stand-in is discovered by
+    exactly the same path a real project would be.
+
+    A PYTHON stand-in, not a bash one. It used to be a bash script named
+    `cartridge.py`, which worked because the shebang decided what ran it — and
+    the shebang is precisely the mechanism that does not exist on Windows,
+    where the entry is refused with `%1 is not a valid Win32 application`. The
+    launcher resolves the interpreter from the extension now, so a file
+    claiming to be Python is run as Python everywhere, and a stand-in that lied
+    about its language would be testing a path no real cartridge takes.
     """
     python = language("python")
     assert python is not None, "the contract must cover python"
@@ -105,7 +133,15 @@ def _write_stub_entry(directory: Path, name: str, alias: str, cap_urn: str) -> P
         f'{{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}},'
         f'{{"urn":"{urn_json}","title":"{name}","aliases":["{alias}"]}}]}}]}}'
     )
-    script = "#!/usr/bin/env bash\nif [ \"$1\" = manifest ]; then\n  cat <<'EOF'\n" + manifest + "\nEOF\nfi\n"
+    # `json.dumps` of the text, so the manifest becomes a Python string
+    # literal with every quote and backslash already escaped.
+    script = (
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        f"MANIFEST = {json.dumps(manifest)}\n"
+        'if len(sys.argv) > 1 and sys.argv[1] == "manifest":\n'
+        "    sys.stdout.write(MANIFEST)\n"
+    )
     path = directory / entry_for(python, directory.name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(script, encoding="utf-8")

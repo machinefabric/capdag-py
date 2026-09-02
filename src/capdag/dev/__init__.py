@@ -38,6 +38,7 @@ from capdag.bifaci.cartridge_json import (
     install_timestamp_now,
     read_cartridge_json_from_dir,
 )
+from capdag.bifaci import launch
 from capdag.bifaci.cartridge_slug import DEV_SLUG
 from capdag.bifaci.manifest import CapManifest
 from capdag.cap.definition import Cap
@@ -316,8 +317,10 @@ def read_entry_manifest(entry: Path) -> CapManifest:
     """
     entry = Path(entry)
     try:
+        # Through the launcher: a scaffolded Python cartridge is a `.py`,
+        # and Windows cannot execute one. See `capdag.bifaci.launch`.
         completed = subprocess.run(
-            [str(entry), "manifest"], capture_output=True, check=False
+            launch.command(entry, "manifest"), capture_output=True, check=False
         )
     except OSError as error:
         raise DevError(

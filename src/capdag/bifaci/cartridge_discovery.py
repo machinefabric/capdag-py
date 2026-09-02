@@ -38,6 +38,7 @@ from capdag.bifaci.cartridge_json import (
     read_cartridge_json_from_dir,
     validate_registry_url_scheme,
 )
+from capdag.bifaci import launch
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.bifaci.cartridge_slug import slug_for
 from capdag.bifaci.io import FrameReader, FrameWriter, handshake, verify_identity
@@ -138,8 +139,10 @@ def probe_cartridge_cap_groups(path: Path) -> List[Any]:
     manifest raises — the caller surfaces it as ``HANDSHAKE_FAILED``.
     """
     try:
+        # Through the launcher, because a dev cartridge's entry may be a
+        # script and Windows cannot execute one. See `capdag.bifaci.launch`.
         child = subprocess.Popen(
-            [str(path)],
+            launch.command(path),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=None,
