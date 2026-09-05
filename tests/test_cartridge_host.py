@@ -64,9 +64,9 @@ def make_conn():
     - cartridge_socks: [s1b, s2b] — close these to simulate cartridge death
     """
     # Channel 1: cartridge writes (s1b) → host reads (s1a)
-    s1a, s1b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    s1a, s1b = socket.socketpair()
     # Channel 2: host writes (s2a) → cartridge reads (s2b)
-    s2a, s2b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    s2a, s2b = socket.socketpair()
 
     host_read = s1a.makefile("rb")
     cartridge_write = s1b.makefile("wb")

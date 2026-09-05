@@ -411,10 +411,17 @@ def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> Cartr
     if not raw_entry.exists():
         raise CartridgeJsonEntryPointMissing(json_path, cj.entry)
 
-    # Validate entry point is executable
-    mode = raw_entry.stat().st_mode
-    if not (mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)):
-        raise CartridgeJsonEntryPointNotExecutable(json_path, cj.entry)
+    # Validate entry point is executable, where that is a thing a file can be.
+    #
+    # The permission bits are POSIX. Windows has no execute bit — what may run
+    # is decided by the extension — so an NTFS file reports none of S_IX*, and
+    # checking them there rejected every cartridge on the platform as "not
+    # executable" no matter how valid it was. The reference guards this same
+    # check with `#[cfg(unix)]`; this is that contract, not a platform excuse.
+    if os.name == "posix":
+        mode = raw_entry.stat().st_mode
+        if not (mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)):
+            raise CartridgeJsonEntryPointNotExecutable(json_path, cj.entry)
 
     return cj
 

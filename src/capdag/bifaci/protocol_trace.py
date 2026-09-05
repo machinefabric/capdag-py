@@ -80,6 +80,18 @@ class ClockError(ProtocolTraceError):
         )
 
 
+class ClosedError(ProtocolTraceError):
+    """A line was recorded after the sink was closed.
+
+    Refused rather than reopened: a caller that closed the trace and then wrote
+    to it has lost track of the sink's lifetime, and silently reopening would
+    append to a file nobody believes is still open.
+    """
+
+    def __init__(self):
+        super().__init__("protocol trace is closed: the sink was already released")
+
+
 # =============================================================================
 # TRANSITION FINGERPRINT
 # =============================================================================
@@ -175,6 +187,8 @@ class ProtocolTraceSink:
         """Append one JSONL line ``{ ts, segment, stats }``, then flush. The
         trace must be complete on disk even if the process is killed right
         after a failing segment. Caller holds ``self._lock``."""
+        if self._file is None:
+            raise ClosedError()
         ts = time.time()
         if ts < 0:
             raise ClockError()
@@ -219,3 +233,31 @@ class ProtocolTraceSink:
                 return
             self._write_line_locked(stats, segment_label)
             self._last_fingerprint = fingerprint
+
+    def close(self) -> None:
+        """Release the file handle. Idempotent.
+
+        The reference drops its handle when the sink goes out of scope; Python
+        has no such moment, so the sink says when it is done with the file.
+        Leaving that to the garbage collector meant the trace stayed open for
+        an indeterminate time after the last write, and on Windows an open
+        handle forbids deleting or replacing the file — the trace a caller had
+        finished with could not be cleaned up.
+
+        A double close is not an error: the handle is gone either way, which is
+        what the caller asked for.
+        """
+        with self._lock:
+            if self._file is None:
+                return
+            file, self._file = self._file, None
+            try:
+                file.close()
+            except OSError as exc:
+                raise IoError(exc) from exc
+
+    def __enter__(self) -> "ProtocolTraceSink":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()

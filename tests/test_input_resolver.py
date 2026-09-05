@@ -669,8 +669,13 @@ def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinalit
 def test_1146_input_resolver_error_display_and_source():
     from capdag.input_resolver.types import IoError, InvalidGlobError, InputResolverError
 
-    io_error = IoError(Path("/tmp/data.bin"), Exception("no access"))
-    assert "IO error at /tmp/data.bin" in str(io_error)
+    # The path is rendered the way the platform spells it, so the expectation
+    # is built from the same Path rather than from a POSIX literal: on Windows
+    # the message reads `\tmp\data.bin`, and asserting the forward-slash form
+    # tested the separator instead of the message.
+    io_path = Path("/tmp/data.bin")
+    io_error = IoError(io_path, Exception("no access"))
+    assert f"IO error at {io_path}" in str(io_error)
     assert "no access" in str(io_error)
     assert isinstance(io_error, InputResolverError)
 

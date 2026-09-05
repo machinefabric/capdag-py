@@ -88,10 +88,11 @@ def _temp_path(tag: str) -> Path:
 # each carrying ts + segment + a round-tripped stats object (requests/drops).
 def test_1312_record_appends_one_json_line_per_snapshot():
     path = _temp_path("roundtrip")
-    sink = ProtocolTraceSink.open(path)
-
-    sink.record(_empty_stats(1), "seg-a")
-    sink.record(_empty_stats(2), "seg-b")
+    # Closed before the file is read back and removed: an open handle forbids
+    # deleting the file on Windows, where this left the trace undeletable.
+    with ProtocolTraceSink.open(path) as sink:
+        sink.record(_empty_stats(1), "seg-a")
+        sink.record(_empty_stats(2), "seg-b")
 
     contents = path.read_text(encoding="utf-8")
     path.unlink(missing_ok=True)
@@ -117,15 +118,14 @@ def test_1312_record_appends_one_json_line_per_snapshot():
 # keeps a stalled engine's repeated live samples from spamming the trace.
 def test_1313_record_deduped_writes_only_on_change():
     path = _temp_path("dedup")
-    sink = ProtocolTraceSink.open(path)
-
-    sink.record_deduped(_empty_stats(1), "seg")
-    # Identical state -- must NOT write a second line.
-    sink.record_deduped(_empty_stats(1), "seg")
-    # Changed counter -- must write.
-    sink.record_deduped(_empty_stats(2), "seg")
-    # A stream flow-counter change is also a transition.
-    sink.record_deduped(_active_stats(10, 0, 512), "seg")
+    with ProtocolTraceSink.open(path) as sink:
+        sink.record_deduped(_empty_stats(1), "seg")
+        # Identical state -- must NOT write a second line.
+        sink.record_deduped(_empty_stats(1), "seg")
+        # Changed counter -- must write.
+        sink.record_deduped(_empty_stats(2), "seg")
+        # A stream flow-counter change is also a transition.
+        sink.record_deduped(_active_stats(10, 0, 512), "seg")
 
     contents = path.read_text(encoding="utf-8")
     path.unlink(missing_ok=True)

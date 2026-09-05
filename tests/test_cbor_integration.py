@@ -40,8 +40,14 @@ CAP_GENERIC = "cap:echo"
 
 
 def create_socket_pair():
-    """Create a Unix socket pair for bidirectional communication"""
-    return socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    """Create a connected socket pair for bidirectional communication.
+
+    The family is left to `socketpair` rather than named: what these tests need
+    is a connected byte stream, and AF_UNIX is only how one platform provides
+    one. Naming it made every socket-backed test in this suite fail on Windows,
+    whose `socket` module has no AF_UNIX at all.
+    """
+    return socket.socketpair()
 
 
 def cartridge_handshake_worker(cartridge_read_sock, cartridge_write_sock, manifest):
@@ -386,10 +392,10 @@ def test_299_empty_payload_roundtrip():
 def _stream_pair():
     """Create a unidirectional byte stream returning (read_file, write_file).
 
-    Backed by a Unix socket pair; the write end is the second socket so a
+    Backed by a connected socket pair; the write end is the second socket so a
     reader on the first end sees what is written to the second.
     """
-    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    a, b = socket.socketpair()
     read_file = a.makefile("rb", buffering=0)
     write_file = b.makefile("wb", buffering=0)
     return read_file, write_file, a, b

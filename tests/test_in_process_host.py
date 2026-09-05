@@ -46,9 +46,9 @@ def make_host_conn():
     The host reads what the test writes and vice versa.
     """
     # Channel 1: test writes -> host reads
-    s1a, s1b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    s1a, s1b = socket.socketpair()
     # Channel 2: host writes -> test reads
-    s2a, s2b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    s2a, s2b = socket.socketpair()
 
     host_read = s1a.makefile("rb")
     test_write = s1b.makefile("wb")
