@@ -3679,3 +3679,217 @@ def test_1949_peer_progress_without_numeric_value_fails_hard():
     assert not emitter.progress_calls and not emitter.log_calls, (
         "no frame may be emitted from a malformed peer frame"
     )
+
+
+# ---------------------------------------------------------------------------
+# Reading piped stdin.
+#
+# Every stdin test above hands `_extract_arg_value` a `stdin_data` argument
+# directly, which is why the reader that PRODUCES that argument went wrong
+# unnoticed: nothing exercised it. It asked `select.select()` whether stdin was
+# ready, and on Windows `select` accepts only sockets — a pipe raises OSError,
+# which a bare `except (OSError, IOError): return None` turned into "nothing
+# was piped".
+#
+# So on Windows every Python cartridge silently believed it had been given no
+# input. The cap's required argument was never filled and the runtime refused
+# with `MissingArgumentError`, naming an argument the caller had supplied,
+# before the handler was ever reached. Rust and Go passed the same case, which
+# is what a mirror divergence looks like from the outside.
+#
+# These run the reader against a real redirected stdin on every platform, so
+# the Windows-only failure is reproducible from a mac.
+# ---------------------------------------------------------------------------
+
+
+def _reader_with_stdin(monkeypatch, stream):
+    """The runtime's stdin reader, pointed at a stream of our choosing."""
+    monkeypatch.setattr(sys, "stdin", stream)
+    manifest = create_test_manifest("TestCartridge", "1.0.0", "Test", [])
+    return CartridgeRuntime.with_manifest(manifest)._read_stdin_if_available()
+
+
+class _PipedStdin:
+    """Redirected stdin, as a shell pipe presents it: not a tty, with bytes."""
+
+    def __init__(self, data: bytes) -> None:
+        self.buffer = io.BytesIO(data)
+
+    def isatty(self) -> bool:
+        return False
+
+
+class _TerminalStdin:
+    """An interactive terminal: nothing was piped, and reading would block."""
+
+    def __init__(self) -> None:
+        self.buffer = io.BytesIO(b"nobody typed this")
+
+    def isatty(self) -> bool:
+        return True
+
+
+# TEST11866: piped stdin is read, without asking whether it is "ready".
+#
+# Readiness is not the question — existence is. `select` answers the first, is
+# unavailable for pipes on Windows, and reports "not ready" on every platform
+# for a producer that has not written its first byte yet.
+def test_11866_piped_stdin_is_read(monkeypatch):
+    assert _reader_with_stdin(monkeypatch, _PipedStdin(b"I love this")) == b"I love this"
+
+
+# TEST11867: a terminal means nothing was piped.
+#
+# The one case that must NOT read: there is no producer, and reading blocks on
+# a person who is not there to type.
+def test_11867_a_terminal_is_not_input(monkeypatch):
+    assert _reader_with_stdin(monkeypatch, _TerminalStdin()) is None
+
+
+# TEST11868: an empty pipe is no input, not empty input.
+#
+# `cartridge < /dev/null` is a caller who supplied nothing. Returning b"" would
+# fill a required argument with emptiness and take the cap past the check that
+# exists to catch exactly that.
+def test_11868_an_empty_pipe_is_no_input(monkeypatch):
+    assert _reader_with_stdin(monkeypatch, _PipedStdin(b"")) is None
+
+
+# TEST11869: the reader never consults `select`.
+#
+# The regression guard, and the only one that reproduces the Windows failure on
+# a mac: `select` on a pipe works on POSIX and raises on Windows, so a test
+# that merely checked the RESULT would pass here with the bug still present.
+# What is asserted is that the code path does not go near it.
+def test_11869_stdin_is_not_gated_on_select(monkeypatch):
+    import select as _select
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "the stdin reader called select(); on Windows this raises OSError "
+            "for a pipe, and catching that reports piped input as absent"
+        )
+
+    monkeypatch.setattr(_select, "select", refuse)
+    assert _reader_with_stdin(monkeypatch, _PipedStdin(b"still read")) == b"still read"
+
+
+# TEST11870: a read error is raised, not reported as "no input".
+#
+# The blanket `except (OSError, IOError): return None` is what made the Windows
+# bug invisible. A stdin that genuinely cannot be read is a fault to surface —
+# reporting it as "the caller supplied nothing" sends the diagnosis to the
+# caller's command line, which is where a whole day went.
+def test_11870_a_read_error_surfaces(monkeypatch):
+    class _Broken:
+        def isatty(self):
+            return False
+
+        @property
+        def buffer(self):
+            class _Fails:
+                def read(self_inner):
+                    raise OSError("stdin is not readable")
+            return _Fails()
+
+    with pytest.raises(OSError, match="not readable"):
+        _reader_with_stdin(monkeypatch, _Broken())
+
+
+# ---------------------------------------------------------------------------
+# The emitter contract, in both modes.
+#
+# `OutputStream.start` sends STREAM_START carrying whole-stream metadata, and
+# handlers call it to propagate their input's provenance across a hop — which
+# is the documented thing for a handler to do. `CliStreamEmitter` simply did
+# not have the method.
+#
+# So every such handler died in CLI mode with `'CliStreamEmitter' object has no
+# attribute 'start'`, raised as a HandlerError, which reads as the handler
+# being at fault. The reference has one `OutputStream` used by both modes and
+# could not have this bug; the Python mirror split the two and gave the method
+# to one of them.
+#
+# The guard is not "does CliStreamEmitter have a start" — that is a test
+# somebody satisfies with a no-op that then drifts. It is that the two emitters
+# offer the SAME surface, so a method added to one is noticed on the other.
+# ---------------------------------------------------------------------------
+
+
+# TEST11881: the CLI emitter offers everything the streaming emitter does.
+#
+# Found by reflection rather than by a list written here, so a method added to
+# the frame-mode emitter tomorrow fails this until CLI mode has an answer for
+# it — which is exactly what did not happen for `start`.
+def test_11881_both_emitters_offer_the_same_surface():
+    from capdag.bifaci.cartridge_runtime import CliStreamEmitter, StreamEmitter
+
+    def surface(kind) -> set:
+        return {
+            name for name in dir(kind)
+            if not name.startswith("_") and callable(getattr(kind, name, None))
+        }
+
+    streaming = surface(StreamEmitter)
+    cli = surface(CliStreamEmitter)
+
+    missing = streaming - cli
+    assert not missing, (
+        f"CliStreamEmitter is missing {sorted(missing)}. A handler calling one "
+        f"of these works in frame mode and dies in CLI mode with an "
+        f"AttributeError reported as a HandlerError — which is what happened "
+        f"to `start`. CLI mode may have nothing to transmit for a method, and "
+        f"it still has to answer it."
+    )
+
+
+# TEST11882: `start` carries stream metadata without a stream to carry it on.
+#
+# CLI output goes straight to stdout as bytes: there is no envelope for meta to
+# travel in, and nothing is transmitted. That is not the same as having no
+# method — a handler propagating its input's provenance must work in both
+# modes, and in CLI mode the propagation is simply a no-op.
+def test_11882_cli_start_accepts_what_a_handler_propagates():
+    from capdag.bifaci.cartridge_runtime import CliStreamEmitter
+
+    emitter = CliStreamEmitter()
+    emitter.start(is_sequence=True, meta={"title": "a thing", "source": "upstream"})
+    emitter.start_unbounded(is_sequence=False, meta=None)
+
+
+# TEST11883: a start after the first emission is refused, in CLI mode too.
+#
+# Frame mode cannot accept one — STREAM_START after a CHUNK is a malformed
+# stream — and a CLI mode that shrugged would let the defect through on the
+# platform it is easiest to test on, to be found in frame mode on another day
+# by somebody else.
+def test_11883_cli_start_after_output_is_refused(capsysbinary):
+    from capdag.bifaci.cartridge_runtime import (
+        CliStreamEmitter,
+        RuntimeError as _RuntimeError,
+    )
+
+    emitter = CliStreamEmitter()
+    emitter.emit_cbor(b"already out")
+
+    with pytest.raises(_RuntimeError) as refused:
+        emitter.start()
+    assert "before" in str(refused.value) or "precede" in str(refused.value)
+
+
+# TEST11884: writing raw bytes counts as having emitted.
+#
+# `write` is the other path to stdout. A start-ordering check that only knew
+# about `emit_cbor` would accept a start after raw output, which is the same
+# malformed order by a different route.
+def test_11884_raw_write_also_starts_the_output(capsysbinary):
+    from capdag.bifaci.cartridge_runtime import (
+        CliStreamEmitter,
+        RuntimeError as _RuntimeError,
+    )
+
+    emitter = CliStreamEmitter()
+    emitter.write(b"raw")
+
+    with pytest.raises(_RuntimeError):
+        emitter.start()

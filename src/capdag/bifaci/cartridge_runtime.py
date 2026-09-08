@@ -1284,11 +1284,56 @@ class CliStreamEmitter:
             ndjson: Whether to add newlines after each emit (NDJSON style)
         """
         self.ndjson = ndjson
+        #: Whether `start` has been called. Nothing is transmitted for it in
+        #: CLI mode, and it is tracked so the ordering contract can be enforced
+        #: rather than silently ignored on this side.
+        self._started = False
+        #: Whether anything has gone to stdout yet. A `start` after the first
+        #: emission is a defect in the handler, and frame mode would refuse it.
+        self._emitted = False
 
     @classmethod
     def without_ndjson(cls):
         """Create a CLI emitter without NDJSON formatting"""
         return cls(ndjson=False)
+
+    def start(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Begin the stream. In CLI mode there is nothing on the wire to begin.
+
+        Part of the emitter contract — `OutputStream.start` sends STREAM_START
+        carrying whole-stream metadata, and handlers call it to propagate their
+        input's provenance across a hop. CLI mode has no frames: output goes
+        straight to stdout as bytes, and there is no envelope for meta to
+        travel in.
+
+        It was simply ABSENT here, which is not the same as having nothing to
+        do. Any handler that called it — every handler that propagates stream
+        meta, which is the documented thing to do — died in CLI mode with
+        `'CliStreamEmitter' object has no attribute 'start'`, reported as a
+        HandlerError as though the handler were at fault. The reference has one
+        `OutputStream` used by both modes, so it could not have this bug; the
+        Python mirror split the two and gave the method to one of them.
+
+        The ordering contract is kept even though nothing is transmitted: a
+        start after the first emission is a defect in the handler, and one that
+        went unremarked in CLI mode would be found only in frame mode, on
+        another day, by somebody else.
+        """
+        if self._emitted:
+            raise RuntimeError(
+                "start() was called after output had already been emitted; "
+                "a stream's start must precede its first emission"
+            )
+        self._started = True
+
+    def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
+        """Begin a stream that makes no length promise.
+
+        The distinction is a frame-mode one: `finalize()` sends STREAM_END with
+        no chunk_count. CLI mode promises no length either way — stdout ends
+        when the process does — so this is `start` with the same contract.
+        """
+        self.start(is_sequence=is_sequence, meta=meta)
 
     def emit_cbor(self, value: Any) -> None:
         """Emit a CBOR value to stdout.
@@ -1296,6 +1341,7 @@ class CliStreamEmitter:
         Supported types: bytes, str, list of bytes/str.
         NO FALLBACK - fail hard if unsupported type.
         """
+        self._emitted = True
         stdout = sys.stdout.buffer
 
         if isinstance(value, bytes):
@@ -1320,6 +1366,7 @@ class CliStreamEmitter:
 
     def write(self, data: bytes) -> None:
         """In CLI mode, write raw bytes to stdout"""
+        self._emitted = True
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
 
@@ -4346,37 +4393,47 @@ class CartridgeRuntime:
         return None
 
     def _read_stdin_if_available(self) -> Optional[bytes]:
-        """Read stdin if data is available (non-blocking check).
+        """Read piped stdin, or None when there is none.
 
-        Returns None immediately if stdin is a terminal or no data is ready.
+        Mirrors capdag/src/bifaci/cartridge_runtime.rs::read_piped_stdin, and
+        the mirroring is the point: a terminal means nothing was piped, and
+        anything else is read to the end.
+
+        This used to ask `select.select()` whether data was ready first. On
+        Windows `select` accepts ONLY sockets — a pipe raises `OSError` — and
+        the exception was caught and turned into "no stdin". So on Windows
+        every Python cartridge silently believed nothing was piped to it: the
+        cap's required argument was never filled, and the runtime refused with
+        `MissingArgumentError` naming an argument the caller HAD supplied,
+        before the handler was ever reached.
+
+        The check was also wrong where it worked. `select` reports readiness,
+        not existence: a producer that has not written its first byte yet is
+        not ready, and a fast enough consumer read "no stdin" from a pipe that
+        was about to deliver megabytes.
+
+        There is nothing to be non-blocking about. A cartridge invoked with
+        stdin redirected is being given input; one invoked from a terminal is
+        not, and `isatty` is the portable question that separates them.
         """
-        import select
-
-        # Don't read from stdin if it's a terminal (interactive)
+        # A terminal means nobody piped anything: reading would block on a
+        # person who is not there to type.
         if sys.stdin.isatty():
             return None
 
-        # Check if we're in a test environment where stdin is captured
-        # (DontReadFromInput from pytest)
-        if hasattr(sys.stdin, 'read') and 'DontReadFromInput' in type(sys.stdin).__name__:
+        # pytest replaces stdin with an object that raises on read to catch
+        # tests that accidentally block. It is not a pipe and has no bytes.
+        if 'DontReadFromInput' in type(sys.stdin).__name__:
             return None
 
-        try:
-            # Non-blocking check: use select with 0 timeout to see if data is ready
-            ready, _, _ = select.select([sys.stdin], [], [], 0)
-
-            # No data ready - return None immediately without blocking
-            if not ready:
-                return None
-
-            # Data is ready - read it
-            data = sys.stdin.buffer.read()
-            if not data:
-                return None
-            return data
-        except (OSError, IOError):
-            # stdin not available or can't be read
+        buffer = getattr(sys.stdin, "buffer", None)
+        if buffer is None:
+            # Something replaced stdin with a text-only stream — a harness, a
+            # notebook. Not a pipe carrying bytes, and encoding a str back into
+            # bytes here would guess at an encoding the producer never stated.
             return None
+        data = buffer.read()
+        return data or None
 
     def _build_payload_from_streaming_reader(self, cap: Cap, reader, max_chunk: int) -> bytes:
         """Build CBOR payload from streaming reader (testable version).
