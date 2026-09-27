@@ -12,19 +12,12 @@ from enum import Enum
 from typing import Dict, List, Optional
 from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
 from capdag.urn.media_urn import MediaUrn, MediaUrnError
+from capdag import _formal
 
 
 class CapUrnError(Exception):
     """Base exception for cap URN errors"""
     pass
-
-
-# Per-tag truth-table specificity scoring is owned by tagged_urn —
-# the same scorer applies uniformly to media-URN tags, cap-tag y-axis,
-# and any other Tagged URN dimension. We re-use the canonical
-# implementation rather than duplicate it; any drift here would be a
-# wire-level inconsistency.
-from tagged_urn import score_tag_value as _score_tag_value
 
 
 class CapKind(Enum):
@@ -118,7 +111,7 @@ class CapUrn:
             if k.lower() not in ("in", "out", "effect")
         }
         self._validate_non_structural_tags(self.tags)
-        self._validate_admissible()
+        self._assemble()
 
     @staticmethod
     def _normalize_effect_value(raw: Optional[str]) -> str:
@@ -146,6 +139,28 @@ class CapUrn:
             TaggedUrn.from_string(TaggedUrn("cap", tags).to_string())
         except TaggedUrnError as e:
             raise CapUrnError(f"Invalid cap URN: {e}") from e
+
+    _EFFECTS = {
+        CapEffect.DECLARED.value: _formal.EffectDeclared(),
+        CapEffect.NONE.value: _formal.EffectNone_(),
+        CapEffect.PATCH.value: _formal.EffectPatch(),
+        CapEffect.ANY.value: _formal.EffectUnspecified(),
+    }
+
+    def _assemble(self) -> None:
+        """Build the same cap on the proved model's side — its three URNs and its
+        effect — from exactly the fields, and check admissibility. Dispatch,
+        acceptance, equivalence and specificity are asked of it, through the module
+        generated from ../formal (``capdag._formal``). Every constructor ends here,
+        and nothing changes the fields afterwards, so it can never describe a
+        different cap from the one beside it."""
+        self._formal = _formal.WfCap(
+            MediaUrn.from_string(self.in_urn).inner().formal,
+            MediaUrn.from_string(self.out_urn).inner().formal,
+            TaggedUrn(self.PREFIX, self.tags).formal,
+            self._EFFECTS[self.effect],
+        )
+        self._validate_admissible()
 
     def _validate_admissible(self) -> None:
         in_media = self.in_media_urn()
@@ -212,7 +227,7 @@ class CapUrn:
         instance.out_urn = "media:" if out_urn == "" else out_urn
         instance.effect = cls._normalize_effect_value(effect)
         instance.tags = normalized_tags
-        instance._validate_admissible()
+        instance._assemble()
         return instance
 
     @classmethod
@@ -483,49 +498,16 @@ class CapUrn:
         return CapUrn._from_preserved_parts(self.in_urn, self.out_urn, new_tags, effect=self.effect)
 
     def accepts(self, request: "CapUrn") -> bool:
-        """Check if this cap (pattern/handler) accepts the given request (instance).
+        """Whether this cap, as a PATTERN, accepts ``request`` as an instance: the
+        request's input refines this cap's, this cap's output refines the request's,
+        the effect matches (this cap's ``?effect`` matching any), and the request's
+        cap-tags refine this cap's.
 
-        Direction specs use semantic TaggedUrn matching via MediaUrn:
-        - Input: `cap_in.accepts(request_in)` — cap's input pattern accepts request's input
-        - Output: `cap_out.conforms_to(request_out)` — cap's output conforms to request's expectation
-
-        For other tags: cap satisfies request's tag constraints.
-        Missing cap tags are wildcards (cap accepts any value for that tag).
+        Decided by the proved model (``CapDAG.Exec.accepts``). The cap-tag axis runs
+        opposite to :meth:`is_dispatchable`'s: this is the pattern relation, dispatch
+        is the routing one.
         """
-        # Input direction: self.in_urn is pattern, request.in_urn is instance
-        # "media:" on the PATTERN side means "I accept any input" — skip check.
-        # "media:" on the INSTANCE side is just the least specific — still check.
-        if self.in_urn != "media:":
-            cap_in = MediaUrn.from_string(self.in_urn)
-            request_in = MediaUrn.from_string(request.in_urn)
-            if not cap_in.accepts(request_in):
-                return False
-
-        # Output direction: the handler's output must refine the request's. No
-        # case for `media:` here: a handler whose output is `media:` promises no
-        # particular output, as in dispatch. Skipping the axis for it made
-        # acceptance non-transitive (capdag/formal,
-        # Legacy.accepts_skipping_top_output_not_transitive).
-        cap_out = MediaUrn.from_string(self.out_urn)
-        request_out = MediaUrn.from_string(request.out_urn)
-        if not cap_out.conforms_to(request_out):
-            return False
-
-        if self.effect != CapEffect.ANY.value and self.effect != request.effect:
-            return False
-
-        # Y-axis: every tag's per-key match runs through the six-form
-        # truth table (TaggedUrn._values_match). Walk the union of
-        # all keys appearing on either side so missing-on-pattern and
-        # missing-on-instance cells both get evaluated.
-        all_keys = set(self.tags.keys()) | set(request.tags.keys())
-        for key in all_keys:
-            patt = self.tags.get(key)     # self is the pattern
-            inst = request.tags.get(key)  # request is the instance
-            if not TaggedUrn._values_match(inst, patt):
-                return False
-
-        return True
+        return _formal.accepts(self._formal, request._formal)
 
     def conforms_to(self, cap: "CapUrn") -> bool:
         """Check if this cap URN (as a request) conforms to another cap (handler).
@@ -534,88 +516,32 @@ class CapUrn:
         """
         return cap.accepts(self)
 
-    # Both directional axes are TYPES, compared by refinement and nothing else
-    # (capdag/formal, `dispatch`). A request whose input is `media:` may send
-    # anything, so only a candidate that accepts anything serves it: reading it
-    # as "don't care" served it with a PDF-only cap, and dispatch stopped
-    # composing — a cap could serve a request that could serve another, and not
-    # serve that one. And top-ness is a meaning, not a spelling: `media:?ext`
-    # constrains nothing exactly as `media:` does, and a comparison against the
-    # string "media:" answered differently for the two.
-
-    def _input_dispatchable(self, request: "CapUrn") -> bool:
-        """Input is CONTRAVARIANT: the request's input must refine the candidate's."""
-        try:
-            req_in = MediaUrn.from_string(request.in_urn)
-            prov_in = MediaUrn.from_string(self.in_urn)
-        except Exception:
-            return False
-        return req_in.conforms_to(prov_in)
-
-    def _output_dispatchable(self, request: "CapUrn") -> bool:
-        """Output is COVARIANT: the candidate's output must refine the request's."""
-        try:
-            req_out = MediaUrn.from_string(request.out_urn)
-            prov_out = MediaUrn.from_string(self.out_urn)
-        except Exception:
-            return False
-        return prov_out.conforms_to(req_out)
-
-    def _cap_tags_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if candidate's cap-tags are dispatchable for request's cap-tags.
-
-        Every explicit request tag must be satisfied by candidate.
-        Candidate may have extra tags (refinement is OK).
-        Wildcard (*) in request means any value acceptable.
-        Wildcard (*) in candidate means candidate can handle any value.
-        """
-        all_keys = set(self.tags.keys()) | set(request.tags.keys())
-        for key in all_keys:
-            candidate_value = self.tags.get(key)
-            request_value = request.tags.get(key)
-            if not TaggedUrn._values_match(candidate_value, request_value):
-                return False
-        return True
-
-    def _effect_dispatchable(self, request: "CapUrn") -> bool:
-        return request.effect == CapEffect.ANY.value or self.effect == request.effect
-
     def is_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if this candidate can dispatch (handle) the given request.
+        """Whether this candidate can serve ``request`` — the PRIMARY predicate for
+        routing and dispatch.
 
-        This is the PRIMARY predicate for routing/dispatch decisions.
+        Decided by the proved model (``CapDAG.Exec.dispatch``): every axis is a type.
+        The request's input refines the candidate's (a candidate may accept more),
+        the candidate's output refines the request's (it must produce at least what
+        is needed), the effect matches unless the request says ``?effect``, and the
+        candidate's cap-tags refine the request's (it satisfies every tag the request
+        states, and may add more).
 
-        A candidate is dispatchable for a request iff:
-        1. Input axis: candidate can handle request's input (contravariant)
-        2. Output axis: candidate meets request's output needs (covariant)
-        3. Cap-tags: candidate satisfies all explicit request tags, may add more
+        ``media:`` on a request's input is a type — "may send anything" — so only a
+        candidate that accepts anything serves it. That is what makes dispatch
+        compose.
 
-        Key insight: This is NOT symmetric. candidate.is_dispatchable(request) may
-        be true while request.is_dispatchable(candidate) is false.
+        Not symmetric: ``a.is_dispatchable(b)`` says nothing about the reverse.
         """
-        if not self._input_dispatchable(request):
-            return False
-        if not self._output_dispatchable(request):
-            return False
-        if not self._effect_dispatchable(request):
-            return False
-        if not self._cap_tags_dispatchable(request):
-            return False
-        return True
+        return _formal.dispatch(self._formal, request._formal)
 
     def is_comparable(self, other: "CapUrn") -> bool:
-        """Check if two cap URNs are comparable in the order-theoretic sense.
-
-        Two URNs are comparable if either one accepts the other.
-        """
-        return self.accepts(other) or other.accepts(self)
+        """Whether either cap accepts the other (``CapDAG.Exec.comparable``)."""
+        return _formal.comparable(self._formal, other._formal)
 
     def is_equivalent(self, other: "CapUrn") -> bool:
-        """Check if two cap URNs are equivalent in the order-theoretic sense.
-
-        Two URNs are equivalent if each accepts the other.
-        """
-        return self.accepts(other) and other.accepts(self)
+        """Whether each cap accepts the other (``CapDAG.Exec.equivalent``)."""
+        return _formal.equivalent(self._formal, other._formal)
 
     def accepts_str(self, request_str: str) -> bool:
         """Check if this cap accepts a string-specified request"""
@@ -722,16 +648,10 @@ class CapUrn:
         routing intent: producing different things is the largest
         semantic difference between two caps; consuming different
         things is next; descriptive y-axis metadata is last.
-        """
-        in_media = MediaUrn.from_string(self.in_urn)
-        out_media = MediaUrn.from_string(self.out_urn)
 
-        y_score = sum(_score_tag_value(v) for v in self.tags.values())
-        return (
-            CapUrn.WEIGHT_OUT * out_media.inner().specificity()
-            + CapUrn.WEIGHT_IN * in_media.inner().specificity()
-            + y_score
-        )
+        Computed by the proved model (``CapDAG.Exec.specificity``).
+        """
+        return _formal.specificity(self._formal)
 
     def is_more_specific_than(self, other: "CapUrn") -> bool:
         """Check if this cap is more specific than another"""

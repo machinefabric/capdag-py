@@ -1,6 +1,15 @@
+# The package builds the program generated from the proved model in ../formal (src/capdag/_formal,
+# see ../lungo.toml) with CMake, on lungo-py — at exactly the lungo release that generated it. The
+# model's URNs are tagged-urn's, so tagged-urn is pinned exactly too: its model must have the layout
+# this program was generated against, which the module checks when it is imported.
+{%- if env.MFR_LOCAL_LIBS %}
+# MFR_LOCAL_LIBS: lungo-py and tagged-urn at the working copies' versions. lungo-py's wheel is in
+# lungo's local distribution (pip --find-links <build root>/lungo/distribution/wheels); tagged-urn is
+# the working copy, installed with this package. Re-render without it before committing or releasing.
+{%- endif %}
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo.version }}{% else %}{{ projects.lungo.latest_remote_version }}{% endif %}"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
@@ -12,11 +21,8 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    # The published constraint, in local mode too: a PEP 508 reference cannot
-    # name a working copy relative to this file. Locally the workspace's
-    # requirements.txt installs `-e ./tagged-urn/tagged-urn-py` first, and its
-    # version satisfies this.
-    "tagged-urn>={{ projects.tagged_urn_py.latest_remote_version }}",
+    "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo.version }}{% else %}{{ projects.lungo.latest_remote_version }}{% endif %}",
+    "tagged-urn=={% if env.MFR_LOCAL_LIBS %}{{ projects.tagged_urn_py.version }}{% else %}{{ projects.tagged_urn_py.latest_remote_version }}{% endif %}",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.
@@ -35,13 +41,11 @@ dev = [
     "pytest-cov>=4.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/capdag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-
-[tool.setuptools.package-data]
-"capdag.machine" = ["*.pest"]

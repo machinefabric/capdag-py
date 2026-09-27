@@ -1,10 +1,14 @@
+# The package builds the program generated from the proved model in ../formal (src/capdag/_formal,
+# see ../lungo.toml) with CMake, on lungo-py — at exactly the lungo release that generated it. The
+# model's URNs are tagged-urn's, so tagged-urn is pinned exactly too: its model must have the layout
+# this program was generated against, which the module checks when it is imported.
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "lungo-py==0.27.1270"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
-version = "1.394.78"
+version = "1.395.80"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
@@ -12,11 +16,8 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    # The published constraint, in local mode too: a PEP 508 reference cannot
-    # name a working copy relative to this file. Locally the workspace's
-    # requirements.txt installs `-e ./tagged-urn/tagged-urn-py` first, and its
-    # version satisfies this.
-    "tagged-urn>=1.27.122",
+    "lungo-py==0.27.1270",
+    "tagged-urn==1.27.122",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.
@@ -35,13 +36,11 @@ dev = [
     "pytest-cov>=4.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/capdag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-
-[tool.setuptools.package-data]
-"capdag.machine" = ["*.pest"]
