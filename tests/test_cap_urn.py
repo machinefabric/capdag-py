@@ -660,11 +660,16 @@ def test_042_matching_semantics_cap_has_extra_tag():
     assert request.accepts(cap), "Request pattern satisfied by more-specific cap"
 
 
-# TEST43: Matching semantics - request wildcard matches specific cap value
+# TEST43: Matching semantics - a request's wildcard is not a promise of a value
+#
+# "some ext" is not a pdf, so a pdf pattern does not accept it; "some ext"
+# accepts a pdf (tagged-urn formal, `tagMatch_iff_allows`).
 def test_043_matching_semantics_request_has_wildcard():
     cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
     request = CapUrn.from_string(_test_urn("generate;ext=*"))
-    assert cap.accepts(request), "Test 4: Request wildcard should be accepted"
+    assert not cap.accepts(request), 'a pdf pattern does not accept "some ext"'
+    assert request.accepts(cap), '"some ext" accepts a pdf'
+
 
 
 # TEST44: Matching semantics - cap wildcard matches specific request value
@@ -697,11 +702,20 @@ def test_047_matching_semantics_thumbnail_void_input():
     assert cap.accepts(request), "Test 7b: Thumbnail fallback with void input should accept"
 
 
-# TEST6203: Matching semantics - generic legal wildcard cap matches specific caps
+# TEST6203: A handler whose output is `media:` promises no particular output
+#
+# A generic INPUT accepts any request input; a generic OUTPUT guarantees
+# nothing, so it does not satisfy a request that needs an object — the same
+# rule dispatch applies. Skipping the output axis for a `media:` handler made
+# acceptance non-transitive (capdag/formal,
+# Legacy.accepts_skipping_top_output_not_transitive).
 def test_6203_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:generate")
     request = CapUrn.from_string(f'cap:ext=pdf;in="media:enc=utf-8";generate;out="{MEDIA_OBJECT}"')
-    assert cap.accepts(request), "Test 8: Wildcard direction should accept any direction"
+    assert not cap.accepts(request), "a media:-output handler does not promise the object the request needs"
+    any_output_request = CapUrn.from_string('cap:ext=pdf;in="media:enc=utf-8";generate')
+    assert cap.accepts(any_output_request), \
+        "a generic handler accepts a more specific request that asks for no particular output"
 
 
 # TEST49: Non-overlapping tags — neither direction accepts
@@ -992,13 +1006,25 @@ def test_647_wildcard_invalid_out_spec():
         CapUrn.from_string("cap:in=media:;out=bar")
 
 
-# TEST648: Wildcard in/out match specific caps
+# TEST648: A generic handler accepts a more specific request only where it
+# promises enough
+#
+# `cap:raw` takes any input and promises no particular output. It accepts a
+# request that sends something specific; it does not accept one that needs
+# `media:text` out, since a `media:` output guarantees nothing (the rule
+# dispatch applies). Skipping the output axis for a `media:` handler made
+# acceptance non-transitive (capdag/formal,
+# Legacy.accepts_skipping_top_output_not_transitive).
 def test_648_wildcard_010_wildcard_accepts_specific():
     wildcard = CapUrn.from_string("cap:raw")
-    specific = CapUrn.from_string("cap:out=media:text;raw")
+    specific_out = CapUrn.from_string("cap:out=media:text;raw")
+    specific_in = CapUrn.from_string("cap:in=media:text;raw")
 
-    assert wildcard.accepts(specific), "Wildcard should accept specific cap"
-    assert specific.conforms_to(wildcard), "Specific should conform to wildcard"
+    assert not wildcard.accepts(specific_out), "a media:-output handler does not promise text out"
+    assert specific_out.accepts(wildcard), \
+        "a handler producing text satisfies a request that asks for no particular output"
+    assert wildcard.accepts(specific_in), "a handler taking any input accepts a request that sends text"
+    assert specific_in.conforms_to(wildcard), "the text-sending request conforms to the generic handler"
 
 
 # TEST649: Specificity - wildcard has 0, specific has tag count
@@ -1018,13 +1044,25 @@ def test_650_wildcard_012_preserve_other_tags():
     assert cap.has_marker_tag("test")
 
 
-# TEST6614: Legal generic cap with top directions matches specific caps
+# TEST6614: A generic handler accepts a more specific request only where it
+# promises enough
+#
+# `cap:raw` takes any input and promises no particular output. It accepts a
+# request that sends something specific; it does not accept one that needs
+# `media:text` out, since a `media:` output guarantees nothing (the rule
+# dispatch applies). Skipping the output axis for a `media:` handler made
+# acceptance non-transitive (capdag/formal,
+# Legacy.accepts_skipping_top_output_not_transitive).
 def test_6614_wildcard_accepts_specific():
     wildcard = CapUrn.from_string("cap:raw")
-    specific = CapUrn.from_string("cap:out=media:text;raw")
+    specific_out = CapUrn.from_string("cap:out=media:text;raw")
+    specific_in = CapUrn.from_string("cap:in=media:text;raw")
 
-    assert wildcard.accepts(specific), "Wildcard should accept specific"
-    assert specific.conforms_to(wildcard), "Specific should conform to wildcard"
+    assert not wildcard.accepts(specific_out), "a media:-output handler does not promise text out"
+    assert specific_out.accepts(wildcard), \
+        "a handler producing text satisfies a request that asks for no particular output"
+    assert wildcard.accepts(specific_in), "a handler taking any input accepts a request that sends text"
+    assert specific_in.conforms_to(wildcard), "the text-sending request conforms to the generic handler"
 
 
 # TEST6616: Specificity - generic marker-only cap has y-axis specificity only
@@ -1198,16 +1236,27 @@ def test_824_dispatch_contravariant_input():
     assert candidate.is_dispatchable(request)
 
 
-# TEST825: is_dispatchable — request with unconstrained input dispatches to specific candidate media: on the request input axis means "unconstrained" — vacuously true
+# TEST825: a request that may send anything is served only by a candidate
+# that accepts anything
+#
+# `media:` on a request's input is a type — "any A" — not a wildcard that
+# switches the axis off. Read as "don't care", a PDF-only candidate served it,
+# and dispatch stopped composing: the PDF-only cap served that request, which
+# served an image request, which the PDF-only cap did not serve
+# (capdag/formal, Legacy.wildcard_input_not_transitive).
 def test_825_dispatch_request_unconstrained_input():
-    candidate = CapUrn.from_string(
+    pdf_only = CapUrn.from_string(
         'cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"'
+    )
+    accepts_anything = CapUrn.from_string(
+        'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
     request = CapUrn.from_string(
         'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
-    assert candidate.is_dispatchable(request), \
-        "Request in=media: is unconstrained — axis is vacuously true"
+    assert not pdf_only.is_dispatchable(request), \
+        "a PDF-only candidate cannot take whatever the request may send"
+    assert accepts_anything.is_dispatchable(request)
 
 
 # TEST826: is_dispatchable — candidate output must satisfy request output (covariance)
@@ -1790,15 +1839,18 @@ def test_1835_canonicalize_must_not_have():
         )
 
 
-# TEST1842: Full 6×6 truth table — every cell must match the matrix in 04-PREDICATES.md §2.5. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.
+# TEST1842: Full 6×6 truth table — every cell must match rule B, the matrix capdag/formal proves. Treats prefix `cap:` as the host for a single-key URN (key `x`), pairing every instance form with every pattern form.
 def test_1842_truth_table_full_cross_product():
     forms = ["", "?x", "x?=v", "x", "x!=v", "x=v", "!x"]
     expected = [
+        # Each form means the set of states it allows, on either side; an
+        # instance is accepted when its set lies inside the pattern's
+        # (tagged-urn formal, `tagMatch_iff_allows`).
         # miss   ?x    x?=v   x      x!=v   x=v    !x
-        [True, True, True, False, False, False, True],   # missing
-        [True, True, True, True, True, True, True],      # ?x
-        [True, True, True, False, False, False, True],   # x?=v
-        [True, True, True, True, True, True, False],     # x
+        [True, True, False, False, False, False, False], # missing
+        [True, True, False, False, False, False, False], # ?x
+        [True, True, True, False, False, False, False],  # x?=v
+        [True, True, False, True, False, False, False],  # x
         [True, True, True, True, True, False, False],    # x!=v
         [True, True, False, True, False, True, False],   # x=v
         [True, True, True, False, False, False, True],   # !x

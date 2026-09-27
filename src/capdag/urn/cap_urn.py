@@ -501,14 +501,15 @@ class CapUrn:
             if not cap_in.accepts(request_in):
                 return False
 
-        # Output direction: self.out_urn is pattern, request.out_urn is instance
-        # "media:" on the PATTERN side means "I accept any output" — skip check.
-        # "media:" on the INSTANCE side is just the least specific — still check.
-        if self.out_urn != "media:":
-            cap_out = MediaUrn.from_string(self.out_urn)
-            request_out = MediaUrn.from_string(request.out_urn)
-            if not cap_out.conforms_to(request_out):
-                return False
+        # Output direction: the handler's output must refine the request's. No
+        # case for `media:` here: a handler whose output is `media:` promises no
+        # particular output, as in dispatch. Skipping the axis for it made
+        # acceptance non-transitive (capdag/formal,
+        # Legacy.accepts_skipping_top_output_not_transitive).
+        cap_out = MediaUrn.from_string(self.out_urn)
+        request_out = MediaUrn.from_string(request.out_urn)
+        if not cap_out.conforms_to(request_out):
+            return False
 
         if self.effect != CapEffect.ANY.value and self.effect != request.effect:
             return False
@@ -533,65 +534,31 @@ class CapUrn:
         """
         return cap.accepts(self)
 
+    # Both directional axes are TYPES, compared by refinement and nothing else
+    # (capdag/formal, `dispatch`). A request whose input is `media:` may send
+    # anything, so only a candidate that accepts anything serves it: reading it
+    # as "don't care" served it with a PDF-only cap, and dispatch stopped
+    # composing — a cap could serve a request that could serve another, and not
+    # serve that one. And top-ness is a meaning, not a spelling: `media:?ext`
+    # constrains nothing exactly as `media:` does, and a comparison against the
+    # string "media:" answered differently for the two.
+
     def _input_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if candidate's input is dispatchable for request's input.
-
-        Input is CONTRAVARIANT: candidate with looser input constraint can handle
-        request with stricter input. media: is the identity (top) and means
-        "unconstrained" — vacuously true on either side.
-
-        - Request in=media: (unconstrained) + any candidate -> YES (no constraint)
-        - Candidate in=media: (accepts any) + Request in=media:ext=pdf -> YES
-        - Both specific -> request input must conform to candidate's accepted input
-        """
-        # Request wildcard: any candidate input is fine
-        if request.in_urn == "media:":
-            return True
-
-        # Candidate wildcard: candidate accepts any input
-        if self.in_urn == "media:":
-            return True
-
-        # Both specific: request input must conform to candidate input requirement
+        """Input is CONTRAVARIANT: the request's input must refine the candidate's."""
         try:
             req_in = MediaUrn.from_string(request.in_urn)
-        except Exception:
-            return False
-        try:
             prov_in = MediaUrn.from_string(self.in_urn)
         except Exception:
             return False
-
         return req_in.conforms_to(prov_in)
 
     def _output_dispatchable(self, request: "CapUrn") -> bool:
-        """Check if candidate's output is dispatchable for request's output.
-
-        Output is COVARIANT: candidate must produce at least what request needs.
-
-        - Request out=media: (unconstrained): any candidate output is fine
-        - Candidate out=media: + request specific: FAIL (cannot guarantee)
-        - Both specific: candidate output must conform to request output
-        """
-        # Request wildcard: any candidate output is fine
-        if request.out_urn == "media:":
-            return True
-
-        # Candidate wildcard: cannot guarantee specific output request needs
-        # This is asymmetric with input! Generic output doesn't satisfy specific requirement.
-        if self.out_urn == "media:":
-            return False
-
-        # Both specific: candidate output must conform to request output
+        """Output is COVARIANT: the candidate's output must refine the request's."""
         try:
             req_out = MediaUrn.from_string(request.out_urn)
-        except Exception:
-            return False
-        try:
             prov_out = MediaUrn.from_string(self.out_urn)
         except Exception:
             return False
-
         return prov_out.conforms_to(req_out)
 
     def _cap_tags_dispatchable(self, request: "CapUrn") -> bool:
