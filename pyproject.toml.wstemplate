@@ -12,7 +12,11 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    "tagged-urn>=1.27.122",
+    # The published constraint, in local mode too: a PEP 508 reference cannot
+    # name a working copy relative to this file. Locally the workspace's
+    # requirements.txt installs `-e ./tagged-urn/tagged-urn-py` first, and its
+    # version satisfies this.
+    "tagged-urn>={{ projects.tagged_urn_py.latest_remote_version }}",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag"
-version = "1.391.64"
+version = "1.392.73"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
@@ -12,6 +12,10 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
+    # The published constraint, in local mode too: a PEP 508 reference cannot
+    # name a working copy relative to this file. Locally the workspace's
+    # requirements.txt installs `-e ./tagged-urn/tagged-urn-py` first, and its
+    # version satisfies this.
     "tagged-urn>=1.27.122",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
