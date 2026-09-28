@@ -8,7 +8,7 @@
 # the working copy, installed with this package. Re-render without it before committing or releasing.
 {%- endif %}
 [build-system]
-requires = ["scikit-build-core>=0.10", "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo.version }}{% else %}{{ projects.lungo.latest_remote_version }}{% endif %}"]
+requires = ["scikit-build-core>=0.10", "lungo-py=={{ projects.lungo.version }}"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -21,7 +21,7 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo.version }}{% else %}{{ projects.lungo.latest_remote_version }}{% endif %}",
+    "lungo-py=={{ projects.lungo.version }}",
     "tagged-urn=={% if env.MFR_LOCAL_LIBS %}{{ projects.tagged_urn_py.version }}{% else %}{{ projects.tagged_urn_py.latest_remote_version }}{% endif %}",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",

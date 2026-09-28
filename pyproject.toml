@@ -3,12 +3,12 @@
 # model's URNs are tagged-urn's, so tagged-urn is pinned exactly too: its model must have the layout
 # this program was generated against, which the module checks when it is imported.
 [build-system]
-requires = ["scikit-build-core>=0.10", "lungo-py==0.27.1270"]
+requires = ["scikit-build-core>=0.10", "lungo-py==1.72.2908"]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
-version = "1.400.260"
+version = "1.401.302"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
@@ -16,7 +16,7 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    "lungo-py==0.27.1270",
+    "lungo-py==1.72.2908",
     "tagged-urn==1.27.122",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
