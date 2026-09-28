@@ -16,10 +16,11 @@ if lungo_py.__version__ != "1.70.2879":
 
 def _library() -> str:
     name = {"win32": "capdagFormal_lean.dll", "darwin": "libcapdagFormal_lean.dylib"}.get(_sys.platform, "libcapdagFormal_lean.so")
-    path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), name)
-    if not _os.path.isfile(path):
-        raise ImportError(f"the compiled program {path} is missing: install the package with pip")
-    return path
+    for directory in __path__:
+        path = _os.path.join(directory, name)
+        if _os.path.isfile(path):
+            return path
+    raise ImportError(f"the compiled program {name} is in none of {list(__path__)}: install the package with pip")
 
 
 _program = lungo_py.Program(_library(), "capdagFormal__types")
