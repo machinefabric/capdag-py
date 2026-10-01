@@ -774,23 +774,25 @@ class CartridgeRepoServer:
         ]
 
     def get_cartridges_by_cap(self, cap_urn: str) -> List[CartridgeInfo]:
-        """Return cartridges that provide a cap conforming to the
-        requested URN.
+        """Return every cartridge with a cap that can SERVE the requested
+        URN.
 
-        The request URN is parsed via CapUrn.from_string. Each declared
-        cartridge cap is parsed and matched with `conforms_to`: cap
-        dispatch is the partial-order question "does the declared cap
-        conform to the requested pattern?". Only `in` and `out` tags
-        are functionally meaningful — the `op` tag has no role. A
-        malformed input URN raises; a malformed declared URN raises
-        too (registry corruption is not a fallback condition).
+        The request URN is parsed via CapUrn.from_string; each declared
+        cartridge cap is parsed too and asked ``is_dispatchable`` — "can this
+        declared candidate serve the request?" (it takes at least what is
+        sent, gives at least what is needed, has the tags asked for; a side
+        the request leaves open is not asked about). This is deliberately
+        looser than the equivalence used to resolve an alias to its exact
+        cap: here everything capable is enumerated. A malformed input URN
+        raises; a malformed declared URN raises too (registry corruption is
+        not a fallback condition).
         """
         requested = CapUrn.from_string(cap_urn)
         result: List[CartridgeInfo] = []
         for cartridge in self.transform_to_cartridge_array():
             for cap in cartridge.iter_caps():
                 declared = CapUrn.from_string(cap.urn)
-                if declared.conforms_to(requested):
+                if declared.is_dispatchable(requested):
                     result.append(cartridge)
                     break
         return result

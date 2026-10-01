@@ -110,6 +110,7 @@ from capdag.urn.cap_urn import (
     CapMatcher,
     CapKind,
 )
+from capdag.urn.cap_query import CapQuery, MatchGrade
 
 # Cap module
 from capdag.cap.response import ResponseWrapper
@@ -374,6 +375,8 @@ __all__ = [
     "CapUrnBuilder",
     "CapMatcher",
     "CapKind",
+    "CapQuery",
+    "MatchGrade",
     # Response
     "ResponseWrapper",
     # Cap

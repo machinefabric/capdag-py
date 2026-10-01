@@ -2198,7 +2198,8 @@ class LiveFeedContext:
                 )
             content = MediaUrn.from_string(provider_content)
             main_urn = MediaUrn.from_string(arg.media_urn)
-            if not content.conforms_to(main_urn):
+            # What the device delivers is a value; the arg is a declared type.
+            if not content.satisfies(main_urn):
                 raise StreamError(
                     f"live-feed reference '{reference_urn}' delivers "
                     f"'{provider_content}' which does not conform to cap "
@@ -3168,7 +3169,7 @@ def extract_effective_payload(
         except Exception as e:
             raise RuntimeError(f"Invalid argument media URN '{urn_str}': {e}")
 
-        if not file_path_base.accepts(arg_urn):
+        if not arg_urn.satisfies(file_path_base):
             continue
 
         # Look up the cap's arg definition by URN equivalence (NOT string compare).
@@ -3397,7 +3398,7 @@ def build_cli_foreach_iterations(raw_payload: bytes, cap: Cap) -> List[bytes]:
             arg_urn = MediaUrn.from_string(urn_str)
         except Exception as e:
             raise RuntimeError(f"Invalid argument media URN '{urn_str}': {e}")
-        if not file_path_base.accepts(arg_urn):
+        if not arg_urn.satisfies(file_path_base):
             continue
         is_seq = False
         for parsed, seq in arg_defs:

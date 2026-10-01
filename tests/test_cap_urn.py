@@ -702,20 +702,23 @@ def test_047_matching_semantics_thumbnail_void_input():
     assert cap.accepts(request), "Test 7b: Thumbnail fallback with void input should accept"
 
 
-# TEST6203: A handler whose output is `media:` promises no particular output
+# TEST6203: A pattern that leaves a side open asks nothing of it
 #
-# A generic INPUT accepts any request input; a generic OUTPUT guarantees
-# nothing, so it does not satisfy a request that needs an object — the same
-# rule dispatch applies. Skipping the output axis for a `media:` handler made
-# acceptance non-transitive (capdag/formal,
-# Legacy.accepts_skipping_top_output_not_transitive).
+# `cap:generate` as a pattern says nothing of what a cap takes or gives: both
+# are unknown, not the type "anything", so it fits a cap that takes text and
+# gives an object. Read as a type, its open output would be covered only by a
+# cap that gives `media:` — which is how a pattern search came to find nothing
+# (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits).
 def test_6203_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:generate")
     request = CapUrn.from_string(f'cap:ext=pdf;in="media:enc=utf-8";generate;out="{MEDIA_OBJECT}"')
-    assert not cap.accepts(request), "a media:-output handler does not promise the object the request needs"
+    assert cap.accepts(request), "a pattern with open sides fits a cap whatever it takes and gives"
+    # As descriptions the two are not the same cap, and a cap that gives
+    # `media:` does not SERVE a request that needs the object.
+    assert not cap.is_equivalent(request)
+    assert not cap.is_dispatchable(request), "media: out guarantees no object"
     any_output_request = CapUrn.from_string('cap:ext=pdf;in="media:enc=utf-8";generate')
-    assert cap.accepts(any_output_request), \
-        "a generic handler accepts a more specific request that asks for no particular output"
+    assert cap.accepts(any_output_request)
 
 
 # TEST49: Non-overlapping tags — neither direction accepts
@@ -1006,25 +1009,25 @@ def test_647_wildcard_invalid_out_spec():
         CapUrn.from_string("cap:in=media:;out=bar")
 
 
-# TEST648: A generic handler accepts a more specific request only where it
-# promises enough
+# TEST648: An open pattern fits specific caps; fitting is not serving
 #
-# `cap:raw` takes any input and promises no particular output. It accepts a
-# request that sends something specific; it does not accept one that needs
-# `media:text` out, since a `media:` output guarantees nothing (the rule
-# dispatch applies). Skipping the output axis for a `media:` handler made
-# acceptance non-transitive (capdag/formal,
-# Legacy.accepts_skipping_top_output_not_transitive).
+# `cap:raw` as a pattern leaves both sides open, so it fits a cap that gives
+# text and one that takes text. Whether `cap:raw`, as a CANDIDATE, serves a
+# request that needs text out is a different question with a different answer:
+# a `media:` output guarantees nothing.
 def test_648_wildcard_010_wildcard_accepts_specific():
     wildcard = CapUrn.from_string("cap:raw")
     specific_out = CapUrn.from_string("cap:out=media:text;raw")
     specific_in = CapUrn.from_string("cap:in=media:text;raw")
 
-    assert not wildcard.accepts(specific_out), "a media:-output handler does not promise text out"
+    assert wildcard.accepts(specific_out), "an open pattern fits a cap that gives text"
+    assert specific_out.conforms_to(wildcard), "the same, asked from the cap's side"
+    assert not wildcard.is_dispatchable(specific_out), \
+        "a media:-output candidate does not serve a request that needs text"
     assert specific_out.accepts(wildcard), \
-        "a handler producing text satisfies a request that asks for no particular output"
-    assert wildcard.accepts(specific_in), "a handler taking any input accepts a request that sends text"
-    assert specific_in.conforms_to(wildcard), "the text-sending request conforms to the generic handler"
+        "a pattern asking for text out is covered by a cap that gives anything"
+    assert wildcard.accepts(specific_in), "an open pattern fits a cap that takes text"
+    assert specific_in.conforms_to(wildcard)
 
 
 # TEST649: Specificity - wildcard has 0, specific has tag count
@@ -1044,25 +1047,25 @@ def test_650_wildcard_012_preserve_other_tags():
     assert cap.has_marker_tag("test")
 
 
-# TEST6614: A generic handler accepts a more specific request only where it
-# promises enough
+# TEST6614: An open pattern fits specific caps; fitting is not serving
 #
-# `cap:raw` takes any input and promises no particular output. It accepts a
-# request that sends something specific; it does not accept one that needs
-# `media:text` out, since a `media:` output guarantees nothing (the rule
-# dispatch applies). Skipping the output axis for a `media:` handler made
-# acceptance non-transitive (capdag/formal,
-# Legacy.accepts_skipping_top_output_not_transitive).
+# `cap:raw` as a pattern leaves both sides open, so it fits a cap that gives
+# text and one that takes text. Whether `cap:raw`, as a CANDIDATE, serves a
+# request that needs text out is a different question with a different answer:
+# a `media:` output guarantees nothing.
 def test_6614_wildcard_accepts_specific():
     wildcard = CapUrn.from_string("cap:raw")
     specific_out = CapUrn.from_string("cap:out=media:text;raw")
     specific_in = CapUrn.from_string("cap:in=media:text;raw")
 
-    assert not wildcard.accepts(specific_out), "a media:-output handler does not promise text out"
+    assert wildcard.accepts(specific_out), "an open pattern fits a cap that gives text"
+    assert specific_out.conforms_to(wildcard), "the same, asked from the cap's side"
+    assert not wildcard.is_dispatchable(specific_out), \
+        "a media:-output candidate does not serve a request that needs text"
     assert specific_out.accepts(wildcard), \
-        "a handler producing text satisfies a request that asks for no particular output"
-    assert wildcard.accepts(specific_in), "a handler taking any input accepts a request that sends text"
-    assert specific_in.conforms_to(wildcard), "the text-sending request conforms to the generic handler"
+        "a pattern asking for text out is covered by a cap that gives anything"
+    assert wildcard.accepts(specific_in), "an open pattern fits a cap that takes text"
+    assert specific_in.conforms_to(wildcard)
 
 
 # TEST6616: Specificity - generic marker-only cap has y-axis specificity only
@@ -1236,14 +1239,16 @@ def test_824_dispatch_contravariant_input():
     assert candidate.is_dispatchable(request)
 
 
-# TEST825: a request that may send anything is served only by a candidate
-# that accepts anything
+# TEST825: a request that leaves its input open has not said what it will
+# send, and is served whatever the candidate takes
 #
-# `media:` on a request's input is a type — "any A" — not a wildcard that
-# switches the axis off. Read as "don't care", a PDF-only candidate served it,
-# and dispatch stopped composing: the PDF-only cap served that request, which
-# served an image request, which the PDF-only cap did not serve
-# (capdag/formal, Legacy.wildcard_input_not_transitive).
+# The open input is unknown — "some input" — not the type "anything": the
+# request is served by exactly the candidates that serve SOME typed call it
+# could become (capdag/formal, serves_unknown_iff). Read as "anything" it was
+# served only by a candidate that takes anything, and asking the fabric "what
+# gives me this?" found nothing. What a candidate cannot do is stand in for the
+# request AS A DESCRIPTION — that relation is typed and composes
+# (Legacy.wildcard_input_not_transitive is why the two were never one).
 def test_825_dispatch_request_unconstrained_input():
     pdf_only = CapUrn.from_string(
         'cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"'
@@ -1254,9 +1259,16 @@ def test_825_dispatch_request_unconstrained_input():
     request = CapUrn.from_string(
         'cap:in="media:";analyze;out="media:enc=utf-8;record"'
     )
-    assert not pdf_only.is_dispatchable(request), \
-        "a PDF-only candidate cannot take whatever the request may send"
+    assert pdf_only.is_dispatchable(request), \
+        "the request has not said what it sends: a PDF-only candidate serves it"
     assert accepts_anything.is_dispatchable(request)
+    # A request that DOES say what it sends is held to it.
+    png_request = CapUrn.from_string(
+        'cap:in="media:ext=png";analyze;out="media:enc=utf-8;record"'
+    )
+    assert not pdf_only.is_dispatchable(png_request)
+    assert accepts_anything.is_dispatchable(png_request)
+    assert not pdf_only.is_equivalent(request), "serving a request is not being it"
 
 
 # TEST826: is_dispatchable — candidate output must satisfy request output (covariance)
@@ -1843,11 +1855,13 @@ def test_1835_canonicalize_must_not_have():
 def test_1842_truth_table_full_cross_product():
     forms = ["", "?x", "x?=v", "x", "x!=v", "x=v", "!x"]
     expected = [
-        # Each form means the set of states it allows, on either side; an
-        # instance is accepted when its set lies inside the pattern's
-        # (tagged-urn formal, `tagMatch_iff_allows`).
+        # Each form means the set of states it allows; the cap fits when, key
+        # by key, its set lies inside the pattern's (tagged-urn formal,
+        # `tagMatch_iff_allows`). The cap's own tags are complete, so a key it
+        # does not mention it does not have: its "missing" row is the row of
+        # `!x` (`Constraint.closed`), not of "anything".
         # miss   ?x    x?=v   x      x!=v   x=v    !x
-        [True, True, False, False, False, False, False], # missing
+        [True, True, True, False, False, False, True],   # missing
         [True, True, False, False, False, False, False], # ?x
         [True, True, True, False, False, False, False],  # x?=v
         [True, True, False, True, False, False, False],  # x

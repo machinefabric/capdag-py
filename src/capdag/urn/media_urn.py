@@ -410,6 +410,26 @@ class MediaUrn:
         """
         return self._urn.accepts(instance._urn)
 
+    def meets(self, other: "MediaUrn") -> bool:
+        """Whether this media type and ``other`` COULD describe the same value:
+        not a guarantee (``conforms_to``), and not excluded. ``media:ext`` meets
+        ``media:ext=pdf``; ``media:ext=pdf`` does not meet ``media:ext=png``."""
+        return self._urn.meets(other._urn)
+
+    def satisfies(self, pattern: "MediaUrn") -> bool:
+        """Whether a VALUE whose media this is satisfies the type ``pattern``.
+
+        ``conforms_to`` compares two types, and a type that does not mention a
+        key says nothing about it. A value that exists is complete: the tags it
+        does not have, it does not have. Use this where the left side is the
+        media of actual data — a stream that arrived, an output that was
+        produced."""
+        return self._urn.satisfies(pattern._urn)
+
+    def may_satisfy(self, pattern: "MediaUrn") -> bool:
+        """Whether a value whose media this is COULD satisfy ``pattern``."""
+        return self._urn.may_satisfy(pattern._urn)
+
     def is_comparable(self, other: "MediaUrn") -> bool:
         """Check if two media URNs are comparable in the order-theoretic sense.
 

@@ -497,11 +497,10 @@ class Cap:
         self._registered_by = None
 
     def accepts_request(self, request_str: str) -> bool:
-        """Check if this cap accepts a request string.
-        Uses routing direction: request is the pattern, cap is the instance.
-        """
+        """Whether this cap, as a candidate, can serve the request
+        (``CapUrn.is_dispatchable``)."""
         request = CapUrn.from_string(request_str)
-        return request.accepts(self.urn)
+        return self.urn.is_dispatchable(request)
 
     def is_more_specific_than(self, other: "Cap", request: str) -> bool:
         """Check if this cap is more specific than another for a given request.
