@@ -47,7 +47,7 @@ serialized strings.
 ## Find the relevant API
 
 The package follows the boundaries in the
-[CapDAG specification](https://capdag.com/docs/01-overview/):
+[CapDAG specification](https://machinefabric.com/capdag/docs/01-overview/):
 
 - `capdag.urn` contains Tagged, Media, and Cap URNs;
 - `capdag.cap` contains definitions, argument sources, schema validation, and
@@ -72,7 +72,7 @@ echo "I love this" | capdag sentiment-tagger
 
 The generated project demonstrates a manifest, canonical URNs, handler
 registration, typed input and output, a model-backed peer call, and progress
-forwarding. See [Build and Run a Cartridge](https://capdag.com/docs/18.2-getting-started-cartridge-development/).
+forwarding. See [Build and Run a Cartridge](https://machinefabric.com/capdag/docs/18.2-getting-started-cartridge-development/).
 
 ## Verify changes
 
