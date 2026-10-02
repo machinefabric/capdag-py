@@ -64,7 +64,7 @@ from capdag.bifaci.frame import (
     compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey,
 )
 from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
-from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed
+from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed, CreditWindow
 from capdag.bifaci.stats import (
     DropCounters,
     DropSnapshot,
@@ -305,8 +305,13 @@ def write_gated(
     Raises whatever `writer.write()` raises on I/O failure — the caller's
     existing exception handling covers that path.
     """
+    from capdag import _formal
+
+    # Whether the frame is written, and whether writing it ends the flow, is
+    # the proved model's decision (formal/CapDAG/Bifaci/Request.lean).
     key = FlowKey.from_frame(frame)
-    if frame.is_flow_frame() and terminated.contains(key):
+    decision = _formal.write(terminated.contains(key), frame.frame_type.model())
+    if isinstance(decision, _formal.WriteSuppress):
         total = stragglers.record(frame.frame_type)
         print(
             f"[CartridgeRuntime] writer: suppressed benign post-terminal "
@@ -317,9 +322,12 @@ def write_gated(
         )
         return GatedWrite.SUPPRESSED_STRAGGLER
 
+    if not isinstance(decision, _formal.WriteSend):
+        raise RuntimeError(f"BUG: unknown answer to a write: {decision!r}")
+
     seq_assigner.assign(frame)
     writer.write(frame)
-    if frame.frame_type in (FrameType.END, FrameType.ERR):
+    if decision.ends:
         seq_assigner.remove(key)
         terminated.insert(key)
     return GatedWrite.WRITTEN
@@ -384,9 +392,8 @@ class SyncFrameWriter:
 # CONCURRENCY CAPACITY — dynamic handler-slot limit
 # =============================================================================
 
-class _RuntimePool:
-    """One materialized concurrency pool (see ``bifaci.pools``).
-    (matches Rust RuntimePool)"""
+class _PoolMeta:
+    """The three numbers a pool carries on the wire, and its members."""
 
     def __init__(self, declared: int, members: Optional[List[str]] = None):
         self.declared = declared
@@ -394,7 +401,6 @@ class _RuntimePool:
         # Cartridge self-report; ``None`` = static (the normal case).
         # Written only through PoolHandle.set.
         self.available: Optional[int] = None
-        self.active = 0
         # Member patterns (shared pools and ``all``); singletons empty.
         self.members: List[str] = members or []
 
@@ -402,20 +408,25 @@ class _RuntimePool:
         from capdag.bifaci.pools import effective_capacity
         return effective_capacity(self.configured, self.available)
 
-    def has_room(self) -> bool:
-        from capdag.bifaci.pools import CAPACITY_UNLIMITED
-        effective = self.effective()
-        return effective == CAPACITY_UNLIMITED or self.active < effective
-
 
 class RuntimePools:
     """The runtime's materialized concurrency pools (see ``bifaci.pools``):
     one singleton pool per registered handler pattern, every declared
-    shared pool from the manifest, and ``all``. The owning runtime's pools
-    lock guards capacities, active counts, and queues together so
-    admission is one atomic decision. (matches Rust RuntimePools)"""
+    shared pool from the manifest, and ``all``.
+
+    Who is admitted, and when, is the proved model's decision
+    (``formal/CapDAG/Bifaci/Pools.lean``): ``state`` is its picture of this
+    cartridge — each pool's limit and how many requests hold a slot in it,
+    and the line of waiters in order of arrival. A request is admitted
+    through EVERY pool in its chain or it waits, never half-admitted; and
+    whenever anything changes, the first waiter whose whole chain has room
+    goes next. This class keeps what the model has no use for: the three
+    numbers each pool carries on the wire, and the queued requests
+    themselves. The owning runtime's pools lock guards it all, so admission
+    is one atomic decision. (matches Rust RuntimePools)"""
 
     def __init__(self, handler_patterns: List[str], declarations) -> None:
+        from capdag import _formal
         from capdag.bifaci.pools import CAPACITY_UNLIMITED, POOL_ALL
 
         patterns: List[str] = []
@@ -445,20 +456,24 @@ class RuntimePools:
                 )
             return canon
 
-        self.pools: Dict[str, _RuntimePool] = {}
-        # Singleton queues — queues lead to pools. Keyed by registered
-        # pattern. Each entry: (ticket, queued-request payload).
-        self.queues: Dict[str, List[Tuple[int, Any]]] = {}
+        # Singletons in registration order, declared pools in name order, then
+        # ``all``: the order the pools are listed in everywhere after.
+        order: List[str] = []
+        # Each pool's wire numbers and members, by pool name.
+        self.meta: Dict[str, _PoolMeta] = {}
         for pattern in patterns:
             declared = declarations.capacities.get(pattern, CAPACITY_UNLIMITED)
-            self.pools[pattern] = _RuntimePool(declared)
-            self.queues[pattern] = []
+            self.meta[pattern] = _PoolMeta(declared)
+            order.append(pattern)
+        shared: List[Tuple[str, List[str]]] = []
         for name in sorted(declarations.pools):
             members = [resolve(member) for member in declarations.pools[name]]
             declared = declarations.capacities.get(name, CAPACITY_UNLIMITED)
-            self.pools[name] = _RuntimePool(declared, members)
+            self.meta[name] = _PoolMeta(declared, members)
+            order.append(name)
+            shared.append((name, members))
         for key in declarations.capacities:
-            if key == POOL_ALL or key in self.pools:
+            if key == POOL_ALL or key in self.meta:
                 continue
             try:
                 if CapUrn.from_string(key).to_string() in patterns:
@@ -470,120 +485,117 @@ class RuntimePools:
                 f"a declared pool, nor '{POOL_ALL}'"
             )
         all_declared = declarations.capacities.get(POOL_ALL, CAPACITY_UNLIMITED)
-        self.pools[POOL_ALL] = _RuntimePool(all_declared, list(patterns))
+        self.meta[POOL_ALL] = _PoolMeta(all_declared, list(patterns))
+        order.append(POOL_ALL)
+
+        self.state = _formal.empty()
+        for name in order:
+            self.state = _formal.set_capacity(self.state, name, self.meta[name].effective())
 
         # Registered handler pattern (canonical) → its pool chain in
         # admission order: singleton, declared pools containing it, ``all``.
-        self.chains: Dict[str, List[str]] = {}
-        for pattern in patterns:
-            chain = [pattern]
-            for name in sorted(self.pools):
-                if name in (POOL_ALL, pattern):
-                    continue
-                if pattern in self.pools[name].members:
-                    chain.append(name)
-            chain.append(POOL_ALL)
-            self.chains[pattern] = chain
-
-        # Global FIFO ticket counter: cross-cap admission on a shared-pool
-        # release is arrival-ordered, never cap-biased.
-        self.next_ticket = 0
+        self.chains: Dict[str, List[str]] = {
+            pattern: list(_formal.chain(pattern, shared)) for pattern in patterns
+        }
+        # The requests in line, by the ticket the model gave each:
+        # ticket -> (pattern, queued-request payload).
+        self.waiting: Dict[int, Tuple[str, Any]] = {}
 
     def chain(self, pattern: str) -> List[str]:
         if pattern not in self.chains:
             raise RuntimeError(f"no pool chain for registered pattern '{pattern}'")
         return self.chains[pattern]
 
-    def chain_has_room(self, pattern: str) -> bool:
-        return all(self.pools[pool].has_room() for pool in self.chain(pattern))
+    def arrive(self, pattern: str, request: Any) -> Optional[int]:
+        """A request arrives: admitted at once through its cap's whole chain
+        when every pool of it has room and nobody in line could go instead —
+        ``None`` — and otherwise in line: its position (from 1) among the
+        requests waiting on its own cap."""
+        from capdag import _formal
 
-    def try_admit(self, pattern: str) -> bool:
-        """Admit one dispatch of ``pattern`` if its whole chain has room."""
-        if not self.chain_has_room(pattern):
-            return False
-        for pool in self.chain(pattern):
-            self.pools[pool].active += 1
-        return True
+        arrival = _formal.state_arrive(self.state, self.chain(pattern))
+        if isinstance(arrival, _formal.PoolsArrivalAdmitted):
+            self.state = arrival.state
+            return None
+        if isinstance(arrival, _formal.PoolsArrivalQueued):
+            self.state = arrival.state
+            self.waiting[arrival.ticket] = (pattern, request)
+            return arrival.position
+        raise RuntimeError(
+            f"BUG: a registered pattern's chain names only this runtime's pools: {arrival!r}"
+        )
 
     def release(self, pattern: str) -> None:
         """Release one dispatch of ``pattern`` across its chain."""
-        for pool in self.chain(pattern):
-            slot = self.pools[pool]
-            if slot.active == 0:
-                raise RuntimeError(f"pool '{pool}' released below zero active")
-            slot.active -= 1
+        from capdag import _formal
 
-    def enqueue(self, pattern: str, request: Any) -> int:
-        """Queue a request on its cap's singleton queue, returning its
-        queue position (1-based) for the "queued" LOG."""
-        if pattern not in self.queues:
-            raise RuntimeError(f"no singleton queue for pattern '{pattern}'")
-        ticket = self.next_ticket
-        self.next_ticket += 1
-        self.queues[pattern].append((ticket, request))
-        return len(self.queues[pattern])
+        chain = self.chain(pattern)
+        active = {pool.name: pool.active for pool in self.state.pools}
+        for name in chain:
+            if active[name] == 0:
+                raise RuntimeError(f"pool '{name}' released below zero active")
+        self.state = _formal.release(self.state, chain)
 
-    def pop_admissible(self) -> Optional[Tuple[str, Any]]:
-        """Pop-and-admit the oldest queued request whose chain has room —
-        arrival-ordered across all caps by the global ticket. Returns
-        (pattern, request) or None."""
-        best: Optional[Tuple[int, str]] = None
-        for pattern in sorted(self.queues):
-            queue_entries = self.queues[pattern]
-            if not queue_entries:
-                continue
-            ticket = queue_entries[0][0]
-            if self.chain_has_room(pattern) and (best is None or ticket < best[0]):
-                best = (ticket, pattern)
-        if best is None:
+    def admit_next(self) -> Optional[Tuple[str, Any]]:
+        """Admit whoever is next: the request that has waited longest among
+        those whose whole chain has room — in order of arrival across all
+        caps, never cap-biased. Returns (pattern, request), or ``None`` when
+        nobody in line can be admitted."""
+        from capdag import _formal
+
+        following = _formal.admit_next(self.state)
+        if following is None:
             return None
-        _, pattern = best
-        _, request = self.queues[pattern].pop(0)
-        for pool in self.chain(pattern):
-            self.pools[pool].active += 1
-        return pattern, request
+        waiter, self.state = following
+        if waiter.ticket not in self.waiting:
+            raise RuntimeError(
+                f"BUG: ticket {waiter.ticket} is in line but its request is not held"
+            )
+        return self.waiting.pop(waiter.ticket)
 
     def apply_desired(self, desired: Dict[str, int]) -> None:
         """Apply an operator's desired ``configured`` values (heartbeat
         probe). The whole batch is validated first — an unknown pool
         refuses it all (ValueError)."""
         for name in desired:
-            if name not in self.pools:
+            if name not in self.meta:
                 raise ValueError(f"unknown pool '{name}'")
-        for name, configured in desired.items():
-            self.pools[name].configured = configured
+        for name in sorted(desired):
+            self.meta[name].configured = desired[name]
+            self._limit_changed(name)
 
     def set_available(self, pool: str, available: int) -> None:
         """Cartridge self-report for one pool (see PoolHandle)."""
-        if pool not in self.pools:
+        if pool not in self.meta:
             raise ValueError(f"unknown pool '{pool}'")
-        self.pools[pool].available = available
+        self.meta[pool].available = available
+        self._limit_changed(pool)
+
+    def _limit_changed(self, pool: str) -> None:
+        """One of a pool's numbers changed: tell the model its new limit."""
+        from capdag import _formal
+
+        self.state = _formal.set_capacity(self.state, pool, self.meta[pool].effective())
 
     def snapshot(self) -> "Dict[str, Any]":
         """The full wire-shaped state map. ``queued`` counts each waiting
         request on its own singleton pool and on every chain pool that
         currently lacks room (its blockers) — so a shared pool's queued
         figure is the number of waiters it is actually holding back."""
+        from capdag import _formal
         from capdag.bifaci.pools import PoolState
 
         states: Dict[str, PoolState] = {}
-        for name, pool in self.pools.items():
-            states[name] = PoolState(
-                declared=pool.declared,
-                configured=pool.configured,
-                available=pool.available,
+        for pool in self.state.pools:
+            meta = self.meta[pool.name]
+            states[pool.name] = PoolState(
+                declared=meta.declared,
+                configured=meta.configured,
+                available=meta.available,
                 active=pool.active,
-                queued=0,
-                caps=list(pool.members),
+                queued=_formal.held_back(self.state, pool.name),
+                caps=list(meta.members),
             )
-        for pattern, queue_entries in self.queues.items():
-            waiting = len(queue_entries)
-            if waiting == 0:
-                continue
-            states[pattern].queued += waiting
-            for pool in self.chain(pattern):
-                if pool != pattern and not self.pools[pool].has_room():
-                    states[pool].queued += waiting
         return states
 
 
@@ -609,6 +621,11 @@ class PoolHandle:
                     "materialized its pools (call run first)"
                 )
             self._runtime._pools.set_available(self._name, available)
+            changed = self._runtime._pools_changed
+        # A limit that rises may let a request in line go: it is started
+        # here, not at the host's next frame.
+        if changed is not None:
+            changed()
 
 
 # =============================================================================
@@ -712,30 +729,11 @@ def _classify_handler_error(e: Exception) -> tuple:
     return "HANDLER_ERROR", AttributionClass.INTERNAL, str(e), None
 
 
-class _WindowCounter:
-    """Thread-safe per-stream credit window used for receive-side violation
-    accounting (L12). The demux decrements it per arriving chunk; the
-    handler's consumption grants (via `InputGrantEmitter`) extend it."""
-
-    def __init__(self, initial: int):
-        self._lock = threading.Lock()
-        self._value = initial
-
-    def add(self, n: int) -> None:
-        with self._lock:
-            self._value += n
-
-    def fetch_sub_one(self) -> int:
-        """Decrement by one; return the value BEFORE the decrement."""
-        with self._lock:
-            before = self._value
-            self._value -= 1
-            return before
-
-
 class InputGrantEmitter:
     """Emits CREDIT grants for one input stream as the handler consumes it
-    (L10). Grants are batched: one CREDIT per `batch` consumed chunks.
+    (L10). Grants are batched: one CREDIT once half the window has been
+    consumed, at least 1. When a grant is due, and for how much, is the
+    proved model's decision (``credit.CreditWindow``).
 
     Deadlock-freedom rule (L10): a receiver MUST flush pending grants before
     blocking on an empty input — `InputStream.recv()` calls `flush()` right
@@ -753,35 +751,34 @@ class InputGrantEmitter:
         xid: Optional[MessageId],
         stream_id: Optional[str],
         direction: CreditDirection,
-        batch: int,
-        window: _WindowCounter,
+        window: CreditWindow,
     ):
         self._writer = writer
         self._rid = rid
         self._xid = xid
         self._stream_id = stream_id
         self._direction = direction
-        self._batch = max(batch, 1)
-        self._consumed_since_grant = 0
         self._window = window
-        self._lock = threading.Lock()
 
     def consumed(self) -> None:
         """Record one consumed chunk; emit a batched CREDIT grant when due."""
-        with self._lock:
-            self._consumed_since_grant += 1
-            due = self._consumed_since_grant >= self._batch
-        if due:
-            self.flush()
+        self._send(self._window.consumed())
+
+    def continued(self) -> None:
+        """Record a chunk that only continues an item, and grant it back at
+        once. Immediate granting is load-bearing: the demux only runs when
+        frames arrive, so a batched (held) grant while the producer is
+        stalled on exactly that credit would deadlock the stream mid-item
+        (L10 has no other flush point inside the demux)."""
+        self._send(self._window.continued())
 
     def flush(self) -> None:
         """Emit any pending (sub-batch) grant immediately."""
-        with self._lock:
-            if self._consumed_since_grant == 0:
-                return
-            n = self._consumed_since_grant
-            self._consumed_since_grant = 0
-        self._window.add(n)
+        self._send(self._window.flush())
+
+    def _send(self, n: int) -> None:
+        if n == 0:
+            return
         frame = Frame.credit(self._rid, self._stream_id, n, self._direction)
         frame.routing_id = self._xid
         try:
@@ -790,24 +787,6 @@ class InputGrantEmitter:
             # A failed grant send means the runtime is shutting down; the
             # sender-side gate will be closed by the terminal path.
             pass
-
-    def fragment_sibling(self) -> "InputGrantEmitter":
-        """Build a second emitter over the SAME window/sender for the
-        demux's fragment crediting on sequence streams, with `batch = 1` so
-        every grant flushes immediately. Immediate flushing is load-bearing:
-        the demux only runs when frames arrive, so a batched (held) grant
-        while the producer is stalled on exactly that credit would deadlock
-        the stream mid-item (L10 has no other flush point inside the demux).
-        """
-        return InputGrantEmitter(
-            writer=self._writer,
-            rid=self._rid,
-            xid=self._xid,
-            stream_id=self._stream_id,
-            direction=self._direction,
-            batch=1,
-            window=self._window,
-        )
 
 
 @dataclass
@@ -2271,7 +2250,7 @@ def demux_multi_stream(
         # CREDIT_VIOLATION. The demux itself never blocks on this — it only
         # accounts, so control frames keep flowing regardless of data
         # pressure.
-        stream_windows: Dict[str, _WindowCounter] = {}
+        stream_windows: Dict[str, CreditWindow] = {}
         # stream_id -> item reassembly state for sequence-mode streams (see
         # `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
         # at item granularity).
@@ -2300,7 +2279,7 @@ def demux_multi_stream(
                 stream_channels[stream_id] = chunk_q
                 grants: Optional[InputGrantEmitter] = None
                 if credit is not None:
-                    window = _WindowCounter(credit.initial_credit)
+                    window = CreditWindow(credit.initial_credit)
                     stream_windows[stream_id] = window
                     grants = InputGrantEmitter(
                         writer=credit.writer,
@@ -2308,13 +2287,10 @@ def demux_multi_stream(
                         xid=credit.xid,
                         stream_id=stream_id,
                         direction=CreditDirection.REQUEST,
-                        batch=max(credit.initial_credit // 2, 1),
                         window=window,
                     )
                 if frame.is_sequence:
-                    seq_reassembly[stream_id] = SeqReassembly(
-                        fragment_grants=grants.fragment_sibling() if grants is not None else None,
-                    )
+                    seq_reassembly[stream_id] = SeqReassembly(fragment_grants=grants)
                 input_stream = InputStream(
                     media_urn=media_urn,
                     stream_meta=frame.meta,
@@ -2338,8 +2314,7 @@ def demux_multi_stream(
                 # window is a fatal protocol error for this request.
                 window = stream_windows.get(stream_id)
                 if window is not None:
-                    before = window.fetch_sub_one()
-                    if before <= 0:
+                    if not window.arrive():
                         tx = stream_channels.get(stream_id)
                         if tx is not None:
                             tx.put(StreamError(
@@ -2376,7 +2351,7 @@ def demux_multi_stream(
                             # consumed ITEM, so without this an item
                             # spanning more frames than the credit window
                             # could never finish arriving.
-                            seq.fragment_grants.consumed()
+                            seq.fragment_grants.continued()
                         seq.buf.extend(payload)
                         while True:
                             status, a, b = try_decode_sequence_item(bytes(seq.buf))
@@ -2897,19 +2872,20 @@ def demux_peer_response(
     item_queue: queue.Queue = queue.Queue(maxsize=256)
     grants: Optional[InputGrantEmitter] = None
     if writer is not None and request_id is not None:
+        # The window batches grants only — arrivals are not checked here,
+        # because the responder's window was negotiated on another link.
         grants = InputGrantEmitter(
             writer=writer,
             rid=request_id,
             xid=None,
             stream_id=None,
             direction=CreditDirection.RESPONSE,
-            batch=max(initial_credit // 2, 1),
-            window=_WindowCounter(0),
+            window=CreditWindow(initial_credit),
         )
     # Fragment crediting for sequence-mode responses (same scheme as
     # `demux_multi_stream`): the caller grants one frame per consumed ITEM,
     # so continuation fragments are credited back on arrival here.
-    fragment_grants = grants.fragment_sibling() if grants is not None else None
+    fragment_grants = grants
 
     def _demux_worker():
         # Sequence reassembly for the single response stream (None until a
@@ -2943,7 +2919,7 @@ def demux_peer_response(
                         if len(seq.buf) == 0:
                             seq.item_meta = chunk_meta
                         elif seq.fragment_grants is not None:
-                            seq.fragment_grants.consumed()
+                            seq.fragment_grants.continued()
                         seq.buf.extend(payload)
                         while True:
                             status, a, b = try_decode_sequence_item(bytes(seq.buf))
@@ -3483,6 +3459,9 @@ class CartridgeRuntime:
         # declarations. One lock guards admission atomically.
         self._pools_lock = threading.Lock()
         self._pools: Optional[RuntimePools] = None
+        # Starts whoever in line can now go. Set by the running runtime; None
+        # before run. Called WITHOUT the pools lock held.
+        self._pools_changed: Optional[Callable[[], None]] = None
 
         # Process-wide dropped-frame accounting (L8). Shared with the writer's
         # terminal gate, every write-failure drop, and the stats surface.
@@ -3888,16 +3867,20 @@ class CartridgeRuntime:
             thread.start()
             active_handlers.append(thread)
 
-        def _on_handler_done(request_id: MessageId, pattern: str) -> None:
-            """Called by a handler thread right after it finishes (success or
-            error) — releases its whole pool chain, releases its credit
-            waiters (L13), and immediately admits the oldest admissible
-            queued request across ALL singleton queues."""
-            credit_router.close_request(request_id, "END")
-            with self._pools_lock:
-                self._pools.release(pattern)
-                admitted = self._pools.pop_admissible()
-            if admitted is not None:
+        def _admit_waiting() -> None:
+            """Start everyone in line who can now go, in the model's order:
+            the request that has waited longest among those whose whole chain
+            has room, then the next, until nobody in line can be admitted.
+            Called whenever anything changed — a handler finished, the
+            operator changed a limit, the cartridge reported what it can
+            serve. One release can free a slot for more than one waiter (two
+            caps that shared nothing but the pools the finished request
+            held), so it admits until none is left, never just one."""
+            while True:
+                with self._pools_lock:
+                    admitted = self._pools.admit_next()
+                if admitted is None:
+                    return
                 _, (qrid, qxid, qfn) = admitted
                 dequeued_log = Frame.log(
                     qrid,
@@ -3912,20 +3895,30 @@ class CartridgeRuntime:
                     pass
                 _spawn_thread(qfn)
 
+        with self._pools_lock:
+            self._pools_changed = _admit_waiting
+
+        def _on_handler_done(request_id: MessageId, pattern: str) -> None:
+            """Called by a handler thread right after it finishes (success or
+            error) — releases its whole pool chain, releases its credit
+            waiters (L13), and starts everyone in line who can now go."""
+            credit_router.close_request(request_id, "END")
+            with self._pools_lock:
+                self._pools.release(pattern)
+            _admit_waiting()
+
         def _spawn_or_queue(request_id: MessageId, routing_id: Optional[MessageId], pattern: str, target_fn: Callable[[], None]) -> None:
             """Dispatch a live-routed request: spawn its handler immediately
-            when its whole pool chain has room, else queue it on its cap's
-            singleton queue with a "queued" LOG frame. Input frames route
-            onto the request's raw_queue as they arrive regardless (protocol
-            v4, L16) — nothing is buffered to completion before dispatch."""
+            when its whole pool chain has room and nobody in line could go
+            instead, else put it in line with a "queued" LOG frame. Input
+            frames route onto the request's raw_queue as they arrive
+            regardless (protocol v4, L16) — nothing is buffered to completion
+            before dispatch."""
             with self._pools_lock:
-                admitted = self._pools.try_admit(pattern)
-                queue_pos = 0
-                if not admitted:
-                    queue_pos = self._pools.enqueue(
-                        pattern, (request_id, routing_id, target_fn)
-                    )
-            if not admitted:
+                queue_pos = self._pools.arrive(
+                    pattern, (request_id, routing_id, target_fn)
+                )
+            if queue_pos is not None:
                 log_frame = Frame.log(
                     request_id,
                     "queued",
@@ -3937,6 +3930,8 @@ class CartridgeRuntime:
                     sync_writer.write(log_frame)
                 except Exception:
                     pass
+                # It waits behind whoever could already go: start them.
+                _admit_waiting()
             else:
                 _spawn_thread(target_fn)
 
@@ -4227,6 +4222,8 @@ class CartridgeRuntime:
                             print(f"[CartridgeRuntime] Failed to write UNKNOWN_POOL error: {write_err}", file=sys.stderr)
                             break
                         continue
+                    # A limit that rose may let requests in line go.
+                    _admit_waiting()
                 # Respond to heartbeat immediately - never blocked by handlers
                 response = Frame.heartbeat(frame.id)
                 with self._pools_lock:

@@ -55,19 +55,27 @@ CAPACITY_UNLIMITED = 0
 
 
 def effective_capacity(configured: int, available: Optional[int]) -> int:
-    """``min(configured, available)`` under the 0-as-unlimited convention.
+    """``min(configured, available)`` under the 0-as-unlimited convention —
+    the proved model's ``effective`` (``formal/CapDAG/Bifaci/Pools.lean``).
 
     (matches Rust effective_capacity)
     """
-    c = float("inf") if configured == CAPACITY_UNLIMITED else configured
-    if available is None or available == CAPACITY_UNLIMITED:
-        a = float("inf")
-    else:
-        a = available
-    effective = min(c, a)
-    if effective == float("inf"):
-        return CAPACITY_UNLIMITED
-    return int(effective)
+    from capdag import _formal
+
+    return _formal.effective(configured, available)
+
+
+def advertised_capacity(running: bool, pool: str, state: "PoolState") -> int:
+    """The limit a relay switch admits against for one pool of a cartridge. A
+    cartridge that is not running yet is given ONE request, through ``all`` —
+    the cold-start canary: the first body proves the spawn before the
+    capacities the process will advertise are believed.
+
+    (matches Rust advertised_capacity)
+    """
+    from capdag import _formal
+
+    return _formal.advertised(running, pool, state.configured, state.available)
 
 
 @dataclass
@@ -269,30 +277,38 @@ class PoolDeclarations:
         """The pool CHAIN of one cap, in admission order: its singleton
         pool, every declared pool containing it, then ``all``. ``cap`` must
         be the canonical URN string. (matches Rust chain_for)"""
-        chain = [cap]
-        for name in sorted(self.pools):
-            if cap in self.pools[name]:
-                chain.append(name)
-        chain.append(POOL_ALL)
-        return chain
+        return _chain(cap, [(name, list(self.pools[name])) for name in sorted(self.pools)])
+
+
+def _chain(cap: str, shared: List[tuple]) -> List[str]:
+    """A cap's chain, by the proved model: its own pool, the shared pools it
+    is a member of (in the order given), then ``all``."""
+    from capdag import _formal
+
+    return list(_formal.chain(cap, shared))
 
 
 def chain_from_states(states: PoolStates, cap: str) -> List[str]:
     """The chain of one cap over a MATERIALIZED state map (roster /
     heartbeat truth): the singleton pool, every pool listing the cap as a
-    member, then ``all``. Order: singleton, declared pools in sorted order,
-    ``all``. (matches Rust chain_from_states)"""
-    chain: List[str] = []
-    if cap in states:
-        chain.append(cap)
-    for name in sorted(states):
-        if name in (POOL_ALL, cap):
-            continue
-        if cap in states[name].caps:
-            chain.append(name)
-    if POOL_ALL in states:
-        chain.append(POOL_ALL)
-    return chain
+    member (in sorted order), then ``all``.
+
+    Raises ``ValueError`` naming the first pool of the chain the map does not
+    have: a cap its cartridge's pool map does not cover is refused, never
+    admitted through whatever part of its chain happens to be there.
+    (matches Rust chain_from_states)"""
+    names = _chain(
+        cap,
+        [
+            (name, list(states[name].caps))
+            for name in sorted(states)
+            if name not in (POOL_ALL, cap)
+        ],
+    )
+    for name in names:
+        if name not in states:
+            raise ValueError(f"its pool map has no '{name}' pool")
+    return names
 
 
 def encode_pool_states(states: PoolStates) -> bytes:

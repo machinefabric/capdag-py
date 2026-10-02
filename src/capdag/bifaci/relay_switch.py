@@ -44,6 +44,7 @@ from capdag.bifaci.request_state import (
     AdmissionController,
     AdmissionError,
     AdmissionKey,
+    Disposition,
     PoolKey,
     FrameDirection,
     RequestState,
@@ -1343,10 +1344,13 @@ class RelaySwitch:
         Otherwise the RID is one the table never knew: a genuine routing
         anomaly, counted as a ``no_route`` drop. Caller holds ``self._lock``.
         (matches Rust RelaySwitch::account_unrouted_frame)"""
-        if self._requests.recently_terminated_rid(frame.id):
+        disposition = Disposition.of(False, self._requests.recently_terminated_rid(frame.id))
+        if disposition is Disposition.STRAGGLER:
             self._stragglers.record(frame.frame_type)
-            return
-        self._drops.record(DropReason.NO_ROUTE, frame.frame_type)
+        elif disposition is Disposition.NO_ROUTE:
+            self._drops.record(DropReason.NO_ROUTE, frame.frame_type)
+        else:
+            raise RuntimeError("BUG: a frame with no routing state cannot be routed")
 
     def _master_initial_credit_locked(self, dest_idx: int) -> int:
         """The destination master's negotiated initial credit — the ledger
@@ -1630,7 +1634,8 @@ class RelaySwitch:
                     xid = frame.routing_id
                     rid = frame.id
                     key = (xid, rid)
-                    is_terminal = frame.frame_type in (FrameType.END, FrameType.ERR)
+                    kind = TerminalKind.of_frame(frame.frame_type)
+                    is_terminal = kind is not None
 
                     # Record flow stats, resolve the return path, and — on
                     # terminal — remove the whole entry atomically (L7). A
@@ -1638,7 +1643,6 @@ class RelaySwitch:
                     # never a protocol error and never silent (L8).
                     self._requests.record_frame(key, FrameDirection.INBOUND, frame)
                     if is_terminal:
-                        kind = TerminalKind.END if frame.frame_type == FrameType.END else TerminalKind.ERR
                         state = self._requests.terminate(key, kind)
                         if state is None:
                             # Classify by the terminated ring: a frame for a
@@ -2090,7 +2094,7 @@ def _pool_capacities(stats: "CartridgeRuntimeStats", cartridge_id: str) -> Dict[
     (failure containment, not missing information). An EMPTY pool map on an
     operational record is a protocol error, never a free pass. (matches
     Rust pool_capacities)"""
-    from capdag.bifaci.pools import POOL_ALL
+    from capdag.bifaci.pools import POOL_ALL, advertised_capacity
 
     if not stats.pools:
         if stats.running:
@@ -2103,13 +2107,10 @@ def _pool_capacities(stats: "CartridgeRuntimeStats", cartridge_id: str) -> Dict[
         # through the canary alone: `all` clamped to 1, so the first body
         # proves the spawn before real capacities exist.
         return {POOL_ALL: 1}
-    capacities: Dict[str, int] = {}
-    for name, state in stats.pools.items():
-        if not stats.running and name == POOL_ALL:
-            capacities[name] = 1
-        else:
-            capacities[name] = state.effective()
-    return capacities
+    return {
+        name: advertised_capacity(stats.running, name, state)
+        for name, state in stats.pools.items()
+    }
 
 
 def _admission_chain(
@@ -2123,7 +2124,7 @@ def _admission_chain(
     with the not-running canary clamp on ``all``). A cap the pool map does
     not cover is a protocol error, never a free pass. (matches Rust
     admission_chain)"""
-    from capdag.bifaci.pools import POOL_ALL, chain_from_states
+    from capdag.bifaci.pools import POOL_ALL, advertised_capacity, chain_from_states
 
     if not stats.pools:
         if stats.running:
@@ -2141,22 +2142,21 @@ def _admission_chain(
         raise ProtocolError(
             f"registered cap '{registered_cap}' is not a valid cap URN: {exc}"
         ) from exc
-    names = chain_from_states(stats.pools, canonical)
-    if not names or names[0] != canonical or names[-1] != POOL_ALL:
+    try:
+        names = chain_from_states(stats.pools, canonical)
+    except ValueError as uncovered:
         raise ProtocolError(
             f"cartridge '{cartridge_id}' advertises cap '{canonical}' with no pool "
-            f"coverage — its pool map is missing the cap's singleton or the "
-            f"'{POOL_ALL}' pool"
+            f"coverage — {uncovered}"
+        ) from uncovered
+    # The cold-start canary included — see _pool_capacities.
+    return [
+        (
+            PoolKey(install=install, pool=name),
+            advertised_capacity(stats.running, name, stats.pools[name]),
         )
-    chain: List[Tuple[PoolKey, int]] = []
-    for name in names:
-        if not stats.running and name == POOL_ALL:
-            # The cold-start canary clamp — see _pool_capacities.
-            effective = 1
-        else:
-            effective = stats.pools[name].effective()
-        chain.append((PoolKey(install=install, pool=name), effective))
-    return chain
+        for name in names
+    ]
 
 
 def _parse_relay_notify_payload(

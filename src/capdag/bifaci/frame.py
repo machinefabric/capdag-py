@@ -93,6 +93,25 @@ class FrameType(IntEnum):
         except ValueError:
             return None
 
+    def model(self):
+        """The proved model's frame type for this one (``capdag._formal``,
+        generated from ``formal/CapDAG/Bifaci``). The mapping is by hand; that
+        each type is the one the model means by its wire number is TEST12375."""
+        return _model_frame_types()[self]
+
+    def is_flow(self) -> bool:
+        """Whether frames of this type are part of a request's flow: numbered
+        in order, reordered at a relay boundary, and gated behind the flow's
+        end. HELLO, HEARTBEAT, the relay frames, CANCEL, CREDIT and
+        CLOSE_STREAM are not — CREDIT in particular must never wait behind a
+        gap in the flow it is unblocking. The model's decision."""
+        return _frame_facts()[self][0]
+
+    def is_terminal(self) -> bool:
+        """Whether a frame of this type ends its flow: END or ERR. The model's
+        decision."""
+        return _frame_facts()[self][1]
+
     @classmethod
     def all(cls) -> tuple:
         """All variants, for counter arrays and snapshot serialization
@@ -118,6 +137,48 @@ class FrameType(IntEnum):
         """Stable snake_case name (the snapshot contract for mirrors and
         traces; matches Rust FrameType::as_str)."""
         return self.name.lower()
+
+
+_MODEL_FRAME_TYPES: Optional[dict] = None
+_FRAME_FACTS: Optional[dict] = None
+
+
+def _model_frame_types() -> dict:
+    global _MODEL_FRAME_TYPES
+    if _MODEL_FRAME_TYPES is None:
+        from capdag import _formal
+
+        _MODEL_FRAME_TYPES = {
+            FrameType.HELLO: _formal.FrameTypeHello(),
+            FrameType.REQ: _formal.FrameTypeReq(),
+            FrameType.CHUNK: _formal.FrameTypeChunk(),
+            FrameType.END: _formal.FrameTypeFin(),
+            FrameType.LOG: _formal.FrameTypeLog(),
+            FrameType.ERR: _formal.FrameTypeErr(),
+            FrameType.HEARTBEAT: _formal.FrameTypeHeartbeat(),
+            FrameType.STREAM_START: _formal.FrameTypeStreamStart(),
+            FrameType.STREAM_END: _formal.FrameTypeStreamEnd(),
+            FrameType.RELAY_NOTIFY: _formal.FrameTypeRelayNotify(),
+            FrameType.RELAY_STATE: _formal.FrameTypeRelayState(),
+            FrameType.CANCEL: _formal.FrameTypeCancel(),
+            FrameType.CREDIT: _formal.FrameTypeCredit(),
+            FrameType.CLOSE_STREAM: _formal.FrameTypeCloseStream(),
+        }
+    return _MODEL_FRAME_TYPES
+
+
+def _frame_facts() -> dict:
+    """What the model says of each frame type — (flow, terminal) — asked once:
+    it is asked of every frame that moves."""
+    global _FRAME_FACTS
+    if _FRAME_FACTS is None:
+        from capdag import _formal
+
+        _FRAME_FACTS = {
+            frame_type: (_formal.is_flow(model), _formal.is_terminal(model))
+            for frame_type, model in _model_frame_types().items()
+        }
+    return _FRAME_FACTS
 
 
 class CreditDirection(str, Enum):
@@ -1040,15 +1101,7 @@ class Frame:
         behind the data it is flow-controlling.
         (matches Rust Frame::is_flow_frame and Go Frame.IsFlowFrame)
         """
-        return self.frame_type not in (
-            FrameType.HELLO,
-            FrameType.HEARTBEAT,
-            FrameType.RELAY_NOTIFY,
-            FrameType.RELAY_STATE,
-            FrameType.CANCEL,
-            FrameType.CREDIT,
-            FrameType.CLOSE_STREAM,
-        )
+        return self.frame_type.is_flow()
 
     def error_code(self) -> Optional[str]:
         """Get error code if this is an ERR frame"""
@@ -1356,11 +1409,15 @@ class SeqAssigner:
 
 
 class _FlowState:
-    """Per-flow state for the reorder buffer."""
-    __slots__ = ("expected_seq", "buffer")
+    """Per-flow state for the reorder buffer: the model's picture of the flow
+    — the number expected next and the numbers held — and the held frames
+    themselves."""
+    __slots__ = ("order", "buffer")
 
     def __init__(self):
-        self.expected_seq: int = 0
+        from capdag import _formal
+
+        self.order = _formal.start()
         self.buffer: dict[int, "Frame"] = {}
 
 
@@ -1368,6 +1425,11 @@ class ReorderBuffer:
     """Reorder buffer for validating and reordering frames at relay boundaries.
     Keyed by FlowKey (RID + optional XID). Each flow tracks expected seq
     and buffers out-of-order frames until gaps are filled.
+
+    What an arriving frame does — delivered with those it releases, held, or
+    refused — is the proved model's decision
+    (``formal/CapDAG/Bifaci/Flow.lean``): frames are handed on in the order
+    they were written, and none is lost.
 
     Protocol errors:
     - Stale/duplicate seq (frame.seq < expected_seq)
@@ -1388,6 +1450,7 @@ class ReorderBuffer:
         Raises:
             ProtocolError: If stale/duplicate seq or buffer overflow.
         """
+        from capdag import _formal
         from capdag.bifaci.io import ProtocolError
 
         if not frame.is_flow_frame():
@@ -1398,35 +1461,35 @@ class ReorderBuffer:
             self._flows[key] = _FlowState()
         state = self._flows[key]
 
-        if frame.seq == state.expected_seq:
-            # In-order: deliver this frame + drain consecutive buffered frames
-            ready = [frame]
-            state.expected_seq += 1
-            while state.expected_seq in state.buffer:
-                ready.append(state.buffer.pop(state.expected_seq))
-                state.expected_seq += 1
-            return ready
-        elif frame.seq > state.expected_seq:
-            # Out-of-order: buffer it
-            if frame.seq in state.buffer:
-                raise ProtocolError(
-                    f"stale/duplicate seq: seq {frame.seq} already buffered "
-                    f"(expected >= {state.expected_seq})"
-                )
-            if len(state.buffer) >= self._max_buffer_per_flow:
-                raise ProtocolError(
-                    f"reorder buffer overflow: flow has {len(state.buffer)} "
-                    f"buffered frames (max {self._max_buffer_per_flow}), "
-                    f"expected seq {state.expected_seq} but got seq {frame.seq}"
-                )
+        expected = state.order.expected
+        accepted = _formal.accept(state.order, frame.seq, self._max_buffer_per_flow)
+        if isinstance(accepted, _formal.AcceptedDeliver):
+            # In order: this frame, then every held frame it releases.
             state.buffer[frame.seq] = frame
+            ready = [state.buffer.pop(seq) for seq in accepted.seqs]
+            state.order = accepted.flow
+            return ready
+        if isinstance(accepted, _formal.AcceptedHold):
+            state.buffer[frame.seq] = frame
+            state.order = accepted.flow
             return []
-        else:
-            # Stale or duplicate
+        if isinstance(accepted, _formal.AcceptedDuplicate):
             raise ProtocolError(
-                f"stale/duplicate seq: expected >= {state.expected_seq} "
+                f"stale/duplicate seq: seq {frame.seq} already buffered "
+                f"(expected >= {expected})"
+            )
+        if isinstance(accepted, _formal.AcceptedOverflow):
+            raise ProtocolError(
+                f"reorder buffer overflow: flow has {len(state.buffer)} "
+                f"buffered frames (max {self._max_buffer_per_flow}), "
+                f"expected seq {expected} but got seq {frame.seq}"
+            )
+        if isinstance(accepted, _formal.AcceptedStale):
+            raise ProtocolError(
+                f"stale/duplicate seq: expected >= {expected} "
                 f"but got {frame.seq}"
             )
+        raise RuntimeError(f"BUG: unknown answer to an arriving frame: {accepted!r}")
 
     def cleanup_flow(self, key: FlowKey) -> None:
         """Remove flow state after terminal frame delivery (END/ERR)."""

@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+from capdag import _formal
 from capdag.bifaci.frame import AttributionClass, CancelReason, Frame, FrameType, MessageId
 
 
@@ -60,6 +61,50 @@ class TerminalKind(str, Enum):
     def as_str(self) -> str:
         return self.value
 
+    @classmethod
+    def of_frame(cls, frame_type: FrameType) -> Optional["TerminalKind"]:
+        """The end a frame of this type is, if it is one: END or ERR.
+        Cancellation and a dead master end a request without a frame of its
+        flow. The proved model's decision
+        (``formal/CapDAG/Bifaci/Request.lean``)."""
+        terminal = _formal.terminal_of(frame_type.model())
+        if terminal is None:
+            return None
+        if isinstance(terminal, _formal.TerminalFinished):
+            return cls.END
+        if isinstance(terminal, _formal.TerminalFailed):
+            return cls.ERR
+        if isinstance(terminal, _formal.TerminalCancelled):
+            return cls.CANCELLED
+        if isinstance(terminal, _formal.TerminalMasterDied):
+            return cls.MASTER_DIED
+        raise RuntimeError(f"BUG: unknown terminal {terminal!r}")
+
+
+class Disposition(str, Enum):
+    """Where a routing runtime sends a frame (L6): to its request; nowhere,
+    because it crossed its request's end in flight; or nowhere, because no
+    such request is known — which is the one that means something went wrong.
+    (matches Rust Disposition)"""
+    ROUTE = "route"
+    # A benign post-terminal straggler: counted, never a drop.
+    STRAGGLER = "straggler"
+    # A routing anomaly: a counted ``no_route`` drop.
+    NO_ROUTE = "no_route"
+
+    @classmethod
+    def of(cls, live: bool, ended_lately: bool) -> "Disposition":
+        """The model's decision, given whether the frame's request is live
+        here and whether it ended lately."""
+        disposition = _formal.dispose(live, ended_lately)
+        if isinstance(disposition, _formal.DispositionRoute):
+            return cls.ROUTE
+        if isinstance(disposition, _formal.DispositionStraggler):
+            return cls.STRAGGLER
+        if isinstance(disposition, _formal.DispositionNoRoute):
+            return cls.NO_ROUTE
+        raise RuntimeError(f"BUG: unknown disposition {disposition!r}")
+
 
 class RequestPhase(str, Enum):
     """Live phase of a request. `Terminated` never appears in the active
@@ -69,6 +114,18 @@ class RequestPhase(str, Enum):
     CREATED = "created"
     # At least one flow frame has moved through the runtime.
     STREAMING = "streaming"
+
+    def after(self, frame_type: FrameType) -> "RequestPhase":
+        """The phase once a frame of this type has moved: the model's."""
+        phase = (
+            _formal.PhaseStreaming() if self is RequestPhase.STREAMING else _formal.PhaseCreated()
+        )
+        following = _formal.after(phase, frame_type.model())
+        if isinstance(following, _formal.PhaseCreated):
+            return RequestPhase.CREATED
+        if isinstance(following, _formal.PhaseStreaming):
+            return RequestPhase.STREAMING
+        raise RuntimeError(f"BUG: unknown phase {following!r}")
 
 
 class FrameDirection(Enum):
@@ -168,8 +225,7 @@ class RequestState:
     def record(self, direction: FrameDirection, frame: Frame) -> None:
         """Record a frame's effect on this request's flow stats and phase."""
         self.last_activity = time.monotonic()
-        if frame.is_flow_frame():
-            self.phase = RequestPhase.STREAMING
+        self.phase = self.phase.after(frame.frame_type)
         stats = self.streams.get(frame.stream_id)
         if stats is None:
             # A fresh stream starts with the NEGOTIATED initial window (L10):
@@ -191,16 +247,19 @@ class RequestState:
                 stats.chunks_out += 1
         # A chunk consumes one credit from ITS stream's window regardless of
         # which way it flows past this runtime — a stream's chunks all flow
-        # one direction, and its grants flow the other.
-        if frame.frame_type == FrameType.CHUNK:
-            stats.credit_outstanding -= 1
+        # one direction, and its grants flow the other. What a frame does to
+        # the ledger is the model's decision: one less for a chunk, more by a
+        # grant, and nothing otherwise.
+        granted = frame.credit_count() if frame.frame_type == FrameType.CREDIT else None
+        stats.credit_outstanding = _formal.ledger(
+            stats.credit_outstanding,
+            frame.frame_type.model(),
+            granted if granted is not None else 0,
+        )
         if frame.frame_type == FrameType.STREAM_START and frame.is_unbounded():
             stats.unbounded = True
         elif frame.frame_type == FrameType.STREAM_END:
             stats.ended = True
-        elif frame.frame_type == FrameType.CREDIT:
-            credit_count = frame.credit_count()
-            stats.credit_outstanding += credit_count if credit_count is not None else 0
 
 
 @dataclass
@@ -320,10 +379,16 @@ class RequestTable:
     lock, mirroring Rust's `RwLock<RequestTable>`.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, recent_capacity: Optional[int] = None) -> None:
         self._entries: Dict[RequestKey, RequestState] = {}
         self._rid_index: Dict[MessageId, MessageId] = {}
         self._recent_terminated: Deque[TerminatedSummary] = deque()
+        # How many ended requests the ring keeps: RECENT_TERMINATED_CAP,
+        # except in the model's scripts, which fill a small ring to see the
+        # oldest forgotten.
+        self._recent_capacity: int = (
+            RECENT_TERMINATED_CAP if recent_capacity is None else recent_capacity
+        )
         self._total_registered: int = 0
         self._terminated_by_kind: Dict[str, int] = {}
         # Called with every termination's summary, synchronously under the
@@ -432,7 +497,7 @@ class RequestTable:
         bytes_in = sum(s.bytes_in for s in state.streams.values())
         bytes_out = sum(s.bytes_out for s in state.streams.values())
 
-        if len(self._recent_terminated) == RECENT_TERMINATED_CAP:
+        if len(self._recent_terminated) >= self._recent_capacity:
             self._recent_terminated.popleft()
 
         lifetime_ms = int((time.monotonic() - state.created_at) * 1000)
@@ -494,6 +559,16 @@ class RequestTable:
         """
         rid_str = str(rid)
         return any(t.rid == rid_str for t in self._recent_terminated)
+
+    def disposition(self, rid: MessageId) -> Disposition:
+        """Where a frame for ``rid`` goes: to its live request, nowhere as a
+        benign straggler of a request that ended lately, or nowhere as a
+        ``no_route`` anomaly. (matches Rust RequestTable::disposition)"""
+        return Disposition.of(rid in self._rid_index, self.recently_terminated_rid(rid))
+
+    def total_registered(self) -> int:
+        """How many requests were ever registered here."""
+        return self._total_registered
 
     def record_frame(self, key: RequestKey, direction: FrameDirection, frame: Frame) -> None:
         """Record a frame moving through the runtime for this request.
@@ -615,26 +690,15 @@ class PoolKey:
     pool: str
 
 
-class _PoolSlot:
-    """One pool's admission state: EFFECTIVE capacity (0 = unlimited),
-    active count, and — for singleton pools only, the head of every chain —
-    the FIFO ticket queue. (matches Rust PoolSlot)"""
-
-    def __init__(self) -> None:
-        self.capacity: int = 0
-        self.active: int = 0
-        self.queue: Deque[int] = deque()
-
-    def has_room(self) -> bool:
-        return self.capacity == 0 or self.active < self.capacity
-
-
 class _InstallState:
-    """One install's availability. Outages are an INSTALL-level fact — a
-    process disappears whole, never one pool at a time. (matches Rust
+    """One install's admission state: the model's picture of its pools — each
+    pool's limit, how many requests hold a slot in it, and the line of waiters
+    in order of arrival — and its availability. Outages are an INSTALL-level
+    fact — a process disappears whole, never one pool at a time. (matches Rust
     InstallState)"""
 
     def __init__(self) -> None:
+        self.pools = _formal.empty()
         # ``None`` while the target is available; the monotonic instant it went
         # unavailable otherwise. Kept as an instant rather than a bool so the
         # grace window measures the OUTAGE, not the arrival time of each waiter
@@ -642,30 +706,29 @@ class _InstallState:
         # window.
         self.unavailable_since: Optional[float] = None
 
-    @property
-    def available(self) -> bool:
-        return self.unavailable_since is None
-
     def mark_unavailable(self, now: float) -> None:
         """Mark unavailable, preserving the start of an outage already in
         progress."""
         if self.unavailable_since is None:
             self.unavailable_since = now
 
-    def grace_remaining(self, now: float, grace: float) -> Optional[float]:
-        """Remaining grace for an outage, or ``None`` when available. ``0.0``
-        means the window has expired."""
+    def unavailable_for(self, now: float) -> Optional[int]:
+        """How long the install has been unavailable, in milliseconds;
+        ``None`` while it is available."""
         if self.unavailable_since is None:
             return None
-        return max(0.0, grace - (now - self.unavailable_since))
+        return max(0, int((now - self.unavailable_since) * 1000))
 
 
 class AdmissionPermit:
     """A set of actively owned pool slots — a dispatch's whole chain.
     Released exactly once."""
 
-    def __init__(self, controller: "AdmissionController", chain: List[PoolKey]) -> None:
+    def __init__(
+        self, controller: "AdmissionController", install: AdmissionKey, chain: List[str]
+    ) -> None:
         self._controller = controller
+        self._install = install
         self._chain = chain
         self._released = False
 
@@ -673,19 +736,39 @@ class AdmissionPermit:
         if self._released:
             return
         self._released = True
-        self._controller._release(self._chain)
+        self._controller._release(self._install, self._chain)
+
+
+def _chain_of_one_install(chain: List[PoolKey]) -> Tuple[AdmissionKey, List[str]]:
+    """The pool names of a chain, and the one install they all belong to."""
+    if not chain:
+        raise AdmissionError(
+            "admission chain is empty — a dispatch always has at least its cap's own pool"
+        )
+    install = chain[0].install
+    for key in chain:
+        if key.install != install:
+            raise AdmissionError(
+                f"admission chain spans two installs ('{install.id}' and "
+                f"'{key.install.id}') — a dispatch is admitted through one cartridge's pools"
+            )
+    return install, [key.pool for key in chain]
 
 
 class AdmissionController:
-    """The engine-side pool admission gate (see ``bifaci.pools``): one slot
-    per (install, pool), one availability state per install. A dispatch
-    acquires its cap's whole pool CHAIN atomically."""
+    """The engine-side pool admission gate (see ``bifaci.pools``): one
+    availability state and one line per install. A dispatch acquires its
+    cap's whole pool CHAIN atomically.
+
+    Who is admitted, and when, is the proved model's decision
+    (``formal/CapDAG/Bifaci/Pools.lean``): the request that has waited longest
+    among those whose whole chain has room, in order of arrival across all of
+    the install's caps. The controller keeps the installs, the outage clock,
+    and the waiting and waking."""
 
     def __init__(self) -> None:
         self._condition = threading.Condition()
-        self._slots: Dict[PoolKey, _PoolSlot] = {}
         self._installs: Dict[AdmissionKey, _InstallState] = {}
-        self._tickets = 0
         # ``ADMISSION_UNAVAILABLE_GRACE_SECONDS`` in production. Tests shorten
         # it to drive the expiry path without sleeping through a real minute.
         self.grace = ADMISSION_UNAVAILABLE_GRACE_SECONDS
@@ -701,13 +784,8 @@ class AdmissionController:
                 state = _InstallState()
                 self._installs[install] = state
             state.unavailable_since = None
-            for pool, capacity in pools.items():
-                key = PoolKey(install=install, pool=pool)
-                slot = self._slots.get(key)
-                if slot is None:
-                    slot = _PoolSlot()
-                    self._slots[key] = slot
-                slot.capacity = capacity
+            for pool in sorted(pools):
+                state.pools = _formal.set_capacity(state.pools, pool, pools[pool])
             self._condition.notify_all()
 
     def reconcile_master(self, master_idx: int, available: set) -> None:
@@ -729,14 +807,32 @@ class AdmissionController:
                     state.mark_unavailable(now)
             self._condition.notify_all()
 
+    def active(self, install: AdmissionKey) -> Dict[str, int]:
+        """Per pool of an install: how many requests hold a slot in it (tests
+        and diagnostics)."""
+        with self._condition:
+            state = self._installs.get(install)
+            if state is None:
+                return {}
+            return {pool.name: pool.active for pool in state.pools.pools}
+
+    def waiting(self, install: AdmissionKey) -> List[int]:
+        """The tickets in an install's line, in order of arrival (tests and
+        diagnostics)."""
+        with self._condition:
+            state = self._installs.get(install)
+            if state is None:
+                return []
+            return [waiter.ticket for waiter in state.pools.queue]
+
     def acquire(
         self, chain: List[PoolKey], cancel: Optional[threading.Event] = None
     ) -> AdmissionPermit:
-        """Take a FIFO admission slot across a cap's whole pool CHAIN,
-        waiting for capacity. The chain's FIRST key is the cap's singleton
-        pool — the queue the ticket waits in; admission requires EVERY chain
-        pool to have room, decided in one critical section (no
-        half-admission).
+        """Take an admission slot across a cap's whole pool CHAIN, waiting
+        for capacity. The chain's FIRST key is the cap's singleton pool;
+        admission requires EVERY chain pool to have room, decided in one
+        critical section (no half-admission), and goes to the request that
+        has waited longest among those whose chain has room.
 
         An UNAVAILABLE target (an install-level fact) does not fail the
         caller immediately. The request stays queued for
@@ -748,87 +844,81 @@ class AdmissionController:
         Only when the window expires does the wait fail, and it fails hard.
 
         ``cancel``, when set, abandons the wait (the caller gave up); the
-        ticket is removed so it cannot strand the queue behind a dead head.
+        waiter leaves the line so it cannot strand the requests behind it.
         (matches Rust acquire)
         """
-        if not chain:
-            raise AdmissionError(
-                "admission chain is empty — a dispatch always has at least its cap's own pool"
-            )
-        head = chain[0]
-        install = head.install
+        install, names = _chain_of_one_install(chain)
         with self._condition:
-            for key in chain:
-                if key not in self._slots:
-                    raise AdmissionError(
-                        f"cartridge '{key.install.id}' has no configured admission pool '{key.pool}'"
-                    )
-            ticket = self._tickets
-            self._tickets += 1
-            # Queue even while unavailable: the loop below owns the grace
-            # window, so a request arriving mid-outage gets the same treatment
-            # as one that was already waiting when the outage began.
-            self._slots[head].queue.append(ticket)
+            state = self._installs.get(install)
+            if state is None:
+                raise AdmissionError(
+                    f"cartridge '{install.id}' has no configured admission pool '{names[0]}'"
+                )
+            # Join the line even while unavailable: the loop below owns the
+            # grace window, so a request arriving mid-outage gets the same
+            # treatment as one that was already waiting when the outage began.
+            arrival = _formal.join(state.pools, names)
+            if isinstance(arrival, _formal.PoolsArrivalUnknownPool):
+                raise AdmissionError(
+                    f"cartridge '{install.id}' has no configured admission pool '{arrival.name}'"
+                )
+            if not isinstance(arrival, _formal.PoolsArrivalQueued):
+                raise RuntimeError(
+                    f"BUG: joining the line answered {arrival!r}: admission is a turn taken from it"
+                )
+            state.pools = arrival.state
+            ticket = arrival.ticket
+
+            def leave() -> None:
+                state.pools = _formal.leave(state.pools, ticket)
+                self._condition.notify_all()
 
             while True:
                 if cancel is not None and cancel.is_set():
-                    self._remove_ticket_locked(head, ticket)
+                    leave()
                     raise AdmissionError(
                         f"admission wait for '{install.id}' was cancelled"
                     )
-                head_slot = self._slots.get(head)
-                if head_slot is None:
-                    raise AdmissionError(
-                        f"admission pool for '{install.id}' disappeared while queued"
-                    )
-                state = self._installs.get(install)
-                if state is None:
-                    raise AdmissionError(
-                        f"cartridge '{install.id}' has admission pools but no install "
-                        "state — configure_pools was bypassed"
-                    )
-                chain_has_room = all(self._slots[key].has_room() for key in chain)
-                if state.available and chain_has_room and head_slot.queue and head_slot.queue[0] == ticket:
-                    head_slot.queue.popleft()
-                    for key in chain:
-                        self._slots[key].active += 1
-                    self._condition.notify_all()
-                    return AdmissionPermit(self, list(chain))
+                unavailable_for = state.unavailable_for(time.monotonic())
+                if unavailable_for is None:
+                    admitted = _formal.admit(state.pools, ticket)
+                    if admitted is not None:
+                        state.pools = admitted
+                        self._condition.notify_all()
+                        return AdmissionPermit(self, install, names)
 
-                remaining = state.grace_remaining(time.monotonic(), self.grace)
-                if remaining is not None and remaining <= 0.0:
+                patience = _formal.patience(unavailable_for, int(self.grace * 1000))
+                if isinstance(patience, _formal.PatienceExhausted):
                     # Outage outlived the window — the target is gone, not slow.
-                    self._remove_ticket_locked(head, ticket)
+                    leave()
                     raise AdmissionError(
                         f"cartridge '{install.id}' was unavailable for longer than "
                         f"{int(self.grace)}s while this request waited for capacity"
                     )
-                # Available: wait for capacity. Mid-outage: wait no longer than
-                # what is left of the window — a timeout there is not an error,
-                # the next iteration re-reads the slot and decides. A cancellable
-                # wait polls, because ``Condition`` cannot select on an Event.
+                if isinstance(patience, _formal.PatienceAtMost):
+                    # Outage still inside its window: wait, but no longer than
+                    # what is left of it — a timeout there is not an error, the
+                    # next iteration asks again and decides.
+                    remaining: Optional[float] = patience.remaining / 1000.0
+                elif isinstance(patience, _formal.PatienceUnbounded):
+                    # The target is there: wait for this request's turn.
+                    remaining = None
+                else:
+                    raise RuntimeError(f"BUG: unknown patience {patience!r}")
+                # A cancellable wait polls, because ``Condition`` cannot select
+                # on an Event.
                 if cancel is not None:
                     poll = 0.02 if remaining is None else min(0.02, remaining)
                     self._condition.wait(poll)
                 else:
                     self._condition.wait(remaining)
 
-    def _remove_ticket_locked(self, key: PoolKey, ticket: int) -> None:
-        """Drop a ticket from its singleton queue so an abandoned waiter
-        cannot strand the queue behind it. Caller must hold the condition."""
-        slot = self._slots.get(key)
-        if slot is None:
-            return
-        try:
-            slot.queue.remove(ticket)
-        except ValueError:
-            pass
-        self._condition.notify_all()
-
-    def _release(self, chain: List[PoolKey]) -> None:
+    def _release(self, install: AdmissionKey, chain: List[str]) -> None:
         with self._condition:
-            for key in chain:
-                slot = self._slots.get(key)
-                if slot is not None and slot.active > 0:
-                    slot.active -= 1
+            state = self._installs.get(install)
+            if state is None:
+                raise RuntimeError(
+                    f"BUG: admission permit references an unknown install '{install.id}'"
+                )
+            state.pools = _formal.release(state.pools, chain)
             self._condition.notify_all()

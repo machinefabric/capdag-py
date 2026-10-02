@@ -633,6 +633,27 @@ def _required_hello_limit(value: Optional[int], name: str) -> int:
     return value
 
 
+def _negotiated_initial_credit(ours: int, theirs: int) -> int:
+    """The credit window both ends start every stream with (L9): the smaller
+    of the two proposals, decided by the proved model. A proposal of zero is a
+    handshake failure — under a zero window no chunk could be sent and, with
+    nothing consumed, none would ever be granted: every stream would deadlock
+    at its first chunk."""
+    from capdag.bifaci.credit import negotiate_initial_credit
+
+    if ours < 0 or theirs < 0:
+        raise HandshakeError(
+            f"Protocol violation: initial_credit is negative (ours {ours}, theirs {theirs})"
+        )
+    window = negotiate_initial_credit(ours, theirs)
+    if window is None:
+        raise HandshakeError(
+            f"Protocol violation: initial_credit negotiates to zero (ours {ours}, "
+            f"theirs {theirs}) — a stream needs a window of at least one chunk"
+        )
+    return window
+
+
 def handshake(
     reader: FrameReader,
     writer: FrameWriter,
@@ -699,7 +720,7 @@ def handshake(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
-        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
+        initial_credit=_negotiated_initial_credit(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Update both reader and writer with negotiated limits
@@ -766,7 +787,7 @@ def handshake_accept(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
-        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
+        initial_credit=_negotiated_initial_credit(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Send our HELLO with manifest
@@ -1025,7 +1046,7 @@ async def handshake_async(
         max_frame=min(DEFAULT_MAX_FRAME, their_max_frame),
         max_chunk=min(DEFAULT_MAX_CHUNK, their_max_chunk),
         max_reorder_buffer=min(DEFAULT_MAX_REORDER_BUFFER, their_max_reorder_buffer),
-        initial_credit=min(DEFAULT_INITIAL_CREDIT, their_initial_credit),
+        initial_credit=_negotiated_initial_credit(DEFAULT_INITIAL_CREDIT, their_initial_credit),
     )
 
     # Update both reader and writer with negotiated limits

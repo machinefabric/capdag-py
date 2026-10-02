@@ -63,6 +63,11 @@ def test_1521_declared_states_materialize_every_pool():
     assert declarations.chain_for(generate) == [generate, "gpu", POOL_ALL]
     # And the same chain derived from the materialized states.
     assert chain_from_states(states, generate) == [generate, "gpu", POOL_ALL]
+    # A map that does not cover the cap is refused naming what is missing,
+    # not answered with the part of the chain that happens to be there.
+    uncovered = {name: state for name, state in states.items() if name != POOL_ALL}
+    with pytest.raises(ValueError, match=POOL_ALL):
+        chain_from_states(uncovered, generate)
 
 
 # TEST1522: pool declarations are validated hard — reserved name, a pool

@@ -539,7 +539,7 @@ class InProcessCartridgeHost:
                     writer.write(frame)
                 except Exception:
                     break
-                if frame.frame_type in (FrameType.END, FrameType.ERR):
+                if frame.frame_type.is_terminal():
                     seq_assigner.remove(FlowKey.from_frame(frame))
 
         writer_thread = threading.Thread(target=writer_loop, daemon=True)

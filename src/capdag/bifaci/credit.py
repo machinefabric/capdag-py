@@ -23,9 +23,19 @@ with an error; grants never block.
 """
 
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
+from capdag import _formal
 from capdag.bifaci.frame import Frame, FrameType, MessageId
+
+
+def negotiate_initial_credit(ours: int, theirs: int) -> Optional[int]:
+    """The credit window two ends start every stream with (L9): the smaller of
+    the two proposals, decided by the proved model. ``None`` when the window
+    would be zero — under a zero window no chunk could be sent and, with
+    nothing consumed, none would ever be granted: every stream would stop at
+    its first chunk, for good."""
+    return _formal.negotiate(ours, theirs)
 
 
 class CreditClosed(Exception):
@@ -56,14 +66,27 @@ class CreditGate:
     - ``grant(n)`` when a CREDIT frame arrives: wakes waiters.
     - ``close(reason)`` on request terminal/cancel: releases all waiters with
       ``CreditClosed`` (L13 — a credit-blocked sender must never hang).
+
+    What an acquire, a grant and a close do to the window is the proved
+    model's decision (``formal/CapDAG/Bifaci/Credit.lean``); the gate keeps
+    the window and wakes whoever waits on it.
     """
 
     def __init__(self, initial_credit: int):
         self._condition = threading.Condition()
-        # Chunks the sender may still emit before waiting.
-        self._available = initial_credit
-        # Set when the gate is closed; all current and future acquires fail.
-        self._closed_reason: Optional[str] = None
+        self._state = _formal.gate_opened(initial_credit)
+
+    def _acquire_locked(self, n: int) -> bool:
+        """Ask the model for `n` credits. Caller holds the condition."""
+        answer = _formal.acquire(self._state, n)
+        if isinstance(answer, _formal.AcquireAcquired):
+            self._state = answer.gate
+            return True
+        if isinstance(answer, _formal.AcquireWait):
+            return False
+        if isinstance(answer, _formal.AcquireClosed):
+            raise CreditClosed(answer.reason)
+        raise RuntimeError(f"BUG: unknown answer to an acquire: {answer!r}")
 
     def acquire(self, n: int) -> None:
         """Acquire `n` credits, blocking if the window is exhausted.
@@ -72,11 +95,8 @@ class CreditGate:
             CreditClosed: If the gate closes before (or while) waiting.
         """
         with self._condition:
-            while self._closed_reason is None and self._available < n:
+            while not self._acquire_locked(n):
                 self._condition.wait()
-            if self._closed_reason is not None:
-                raise CreditClosed(self._closed_reason)
-            self._available -= n
 
     def try_acquire(self, n: int) -> bool:
         """Non-waiting acquire. Returns False when the window is exhausted.
@@ -85,12 +105,7 @@ class CreditGate:
             CreditClosed: If the gate is closed.
         """
         with self._condition:
-            if self._closed_reason is not None:
-                raise CreditClosed(self._closed_reason)
-            if self._available >= n:
-                self._available -= n
-                return True
-            return False
+            return self._acquire_locked(n)
 
     def blocking_acquire(self, n: int) -> None:
         """Blocking acquire for non-async/FFI-adjacent call sites.
@@ -108,27 +123,92 @@ class CreditGate:
         """Replenish the window by `n` chunks and wake all waiters.
         Grants after close are no-ops."""
         with self._condition:
-            if self._closed_reason is not None:
-                return  # grants after close are no-ops
-            self._available += n
+            self._state = _formal.grant(self._state, n)
             self._condition.notify_all()
 
     def close(self, reason: str) -> None:
         """Close the gate: all current and future acquires fail with `CreditClosed`."""
         with self._condition:
-            if self._closed_reason is None:
-                self._closed_reason = reason
+            self._state = _formal.close(self._state, reason)
             self._condition.notify_all()
 
     def available(self) -> int:
         """Currently available credit (diagnostic/stats)."""
         with self._condition:
-            return self._available
+            return self._state.available
 
     def is_closed(self) -> bool:
         """Whether the gate has been closed."""
         with self._condition:
-            return self._closed_reason is not None
+            return self._state.closed is not None
+
+
+class CreditWindow:
+    """The receiving end of one stream's credit window: what is left of what
+    the sender was granted, and what this end has consumed and not yet granted
+    back.
+
+    - ``arrive()`` for each CHUNK: ``False`` is a CREDIT_VIOLATION — the
+      sender sent past its window (L12).
+    - ``consumed()`` once the chunk is consumed: the grant that is now due,
+      ``0`` when the batch has not built up yet (L10: half the window, at
+      least 1).
+    - ``flush()`` when nothing more will be consumed for a while: whatever is
+      pending is granted, so a sender never waits on a batch that will not
+      fill.
+    - ``continued()`` for a chunk that only continues an item: granted back at
+      once, since nothing can consume it before the item is whole.
+
+    Every decision is the proved model's
+    (``formal/CapDAG/Bifaci/Credit.lean``).
+    """
+
+    def __init__(self, initial_credit: int):
+        self._lock = threading.Lock()
+        self._state = _formal.window_opened(initial_credit)
+
+    def arrive(self) -> bool:
+        """Account for one arriving CHUNK. ``False``: the chunk is beyond the
+        granted window, and the window is unchanged."""
+        with self._lock:
+            arrival = _formal.window_arrive(self._state)
+            if isinstance(arrival, _formal.CreditArrivalAccepted):
+                self._state = arrival.window
+                return True
+            if isinstance(arrival, _formal.CreditArrivalViolation):
+                return False
+            raise RuntimeError(f"BUG: unknown answer to an arrival: {arrival!r}")
+
+    def _granted(self, step) -> int:
+        self._state = step.window
+        return step.grant
+
+    def consumed(self) -> int:
+        """Account for one consumed chunk; the grant now due (0: none yet)."""
+        with self._lock:
+            return self._granted(_formal.consume(self._state))
+
+    def flush(self) -> int:
+        """The grant for everything consumed and not yet granted (0: nothing
+        is pending)."""
+        with self._lock:
+            return self._granted(_formal.flush(self._state))
+
+    def continued(self) -> int:
+        """Account for a chunk that continues an item; the grant that gives it
+        back at once."""
+        with self._lock:
+            return self._granted(_formal.continued(self._state))
+
+    def remaining(self) -> int:
+        """How many more chunks the sender may send before a grant."""
+        with self._lock:
+            return self._state.remaining
+
+    def pending(self) -> int:
+        """How many chunks were consumed and not yet granted back."""
+        with self._lock:
+            return self._state.pending
 
 
 class CreditRouter:
@@ -170,19 +250,16 @@ class CreditRouter:
         if credits is None:
             return False
         with self._lock:
-            exact = self._gates.get((frame.id, frame.stream_id))
-            if exact is not None:
-                exact.grant(credits)
-                return True
-            if frame.stream_id is None:
-                # No stream_id on the grant: match the request's sole gate if exactly one.
-                matches: List[CreditGate] = [
-                    g for (r, _sid), g in self._gates.items() if r == frame.id
-                ]
-                if len(matches) == 1:
-                    matches[0].grant(credits)
-                    return True
-            return False
+            # Which of the request's streams the grant is for is the model's
+            # decision: the one it names, or — naming none — the only one
+            # there is.
+            streams = [sid for (rid, sid) in self._gates if rid == frame.id]
+            target = _formal.grant_target(streams, frame.stream_id)
+            if target is None:
+                return False
+            gate = self._gates[(frame.id, target.value)]
+        gate.grant(credits)
+        return True
 
     def __len__(self) -> int:
         """Number of registered gates (diagnostic/stats)."""

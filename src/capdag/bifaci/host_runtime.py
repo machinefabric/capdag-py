@@ -913,7 +913,7 @@ class CartridgeHost:
                 if entry is not None:
                     self._send_to_cartridge(entry.cartridge_idx, frame)
 
-            elif frame.frame_type in (FrameType.END, FrameType.ERR):
+            elif frame.frame_type.is_terminal():
                 entry = self._request_routing.get(id_key)
                 if entry is not None:
                     self._send_to_cartridge(entry.cartridge_idx, frame)
@@ -1876,7 +1876,7 @@ class CartridgeHostRuntime:
             self._account_unrouted(rid, frame_type)
             return None
 
-        is_terminal = frame_type in (FrameType.END, FrameType.ERR)
+        is_terminal = frame_type.is_terminal()
         if is_terminal:
             if routed_via_incoming:
                 if key in self.incoming_response_done:
@@ -1921,10 +1921,15 @@ class CartridgeHostRuntime:
         rid a terminal just released is a BENIGN straggler (counted per
         frame type, never a drop); a rid this host never routed is a
         genuine ``no_route`` drop."""
-        if self.recently_released_rid(rid):
+        from capdag.bifaci.request_state import Disposition
+
+        disposition = Disposition.of(False, self.recently_released_rid(rid))
+        if disposition is Disposition.STRAGGLER:
             self.stragglers.record(frame_type)
-            return
-        self.drops.record(DropReason.NO_ROUTE, frame_type)
+        elif disposition is Disposition.NO_ROUTE:
+            self.drops.record(DropReason.NO_ROUTE, frame_type)
+        else:
+            raise RuntimeError("BUG: a frame with no routing entry cannot be routed")
 
     def record_response_terminal(self, xid, rid) -> None:
         """Record that the handler's RESPONSE terminal (END/ERR) has passed

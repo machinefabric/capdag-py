@@ -3285,6 +3285,11 @@ def _pool_declarations(pools=None, capacities=None):
     return PoolDeclarations(pools=pools or {}, capacities=capacities or {})
 
 
+def _admitted_on_arrival(pools, pattern, request="req"):
+    """A request for `pattern` arrives: whether it was admitted at once."""
+    return pools.arrive(pattern, request) is None
+
+
 # TEST1527: RuntimePools materializes one singleton per registered pattern,
 # every declared shared pool, and `all` — and a declaration referencing a
 # cap no handler serves is a hard cartridge-author error, never a silently
@@ -3314,15 +3319,15 @@ def test_1528_singleton_queue_isolation():
     pools = RuntimePools(
         [POOL_CAP_A, POOL_CAP_B], _pool_declarations(None, {POOL_CAP_A: 1})
     )
-    assert pools.try_admit(POOL_CAP_A), "first dispatch admits"
-    assert not pools.try_admit(POOL_CAP_A), "singleton capacity 1 is full"
-    assert pools.enqueue(POOL_CAP_A, "req-a") == 1, "queue position is 1-based"
-    assert pools.try_admit(POOL_CAP_B), "a saturated sibling must not block this cap"
-    assert pools.pop_admissible() is None, "nothing admissible while the singleton is full"
+    assert _admitted_on_arrival(pools, POOL_CAP_A), "first dispatch admits"
+    assert pools.arrive(POOL_CAP_A, "req-a") == 1, \
+        "singleton capacity 1 is full; queue position is 1-based"
+    assert _admitted_on_arrival(pools, POOL_CAP_B), "a saturated sibling must not block this cap"
+    assert pools.admit_next() is None, "nothing admissible while the singleton is full"
     pools.release(POOL_CAP_A)
-    admitted = pools.pop_admissible()
+    admitted = pools.admit_next()
     assert admitted is not None, "the release must admit the queued request"
-    assert admitted[0] == POOL_CAP_A
+    assert admitted == (POOL_CAP_A, "req-a")
 
 
 # TEST1529: admission across a shared pool's members on release is
@@ -3332,15 +3337,16 @@ def test_1529_shared_pool_release_admits_in_global_arrival_order():
         [POOL_CAP_A, POOL_CAP_B],
         _pool_declarations({"gpu": [POOL_CAP_A, POOL_CAP_B]}, {"gpu": 1}),
     )
-    assert pools.try_admit(POOL_CAP_A), "gpu slot taken"
-    # B arrives before A — the global ticket must remember that even though
-    # "cap:pool-a" sorts first.
-    pools.enqueue(POOL_CAP_B, "req-b")
-    pools.enqueue(POOL_CAP_A, "req-a")
+    assert _admitted_on_arrival(pools, POOL_CAP_A), "gpu slot taken"
+    # B arrives before A — the order of arrival must be remembered even
+    # though "cap:pool-a" sorts first.
+    assert pools.arrive(POOL_CAP_B, "req-b") == 1
+    assert pools.arrive(POOL_CAP_A, "req-a") == 1, \
+        "a position is among the requests waiting on the same cap"
     pools.release(POOL_CAP_A)
-    first = pools.pop_admissible()
+    first = pools.admit_next()
     assert first is not None and first[0] == POOL_CAP_B, "arrival order, not cap order"
-    assert pools.pop_admissible() is None, "gpu capacity 1 admits exactly one"
+    assert pools.admit_next() is None, "gpu capacity 1 admits exactly one"
 
 
 # TEST1530: the operator's desired batch applies atomically — one unknown
@@ -3355,9 +3361,9 @@ def test_1530_apply_desired_is_atomic_and_immediate():
     assert pools.snapshot()[POOL_CAP_A].configured == 1, "a refused batch applies NOTHING"
 
     pools.apply_desired({POOL_CAP_A: 2})
-    assert pools.try_admit(POOL_CAP_A)
-    assert pools.try_admit(POOL_CAP_A), "raise admits immediately"
-    assert not pools.try_admit(POOL_CAP_A), "raised bound still bounds"
+    assert _admitted_on_arrival(pools, POOL_CAP_A)
+    assert _admitted_on_arrival(pools, POOL_CAP_A), "raise admits immediately"
+    assert not _admitted_on_arrival(pools, POOL_CAP_A), "raised bound still bounds"
 
 
 # TEST1531: `available` is the cartridge's self-report — effective =
@@ -3372,9 +3378,8 @@ def test_1531_available_self_report_and_snapshot_queued_attribution():
     )
     # Self-limit gpu to 1 (model loading): effective = min(2, 1) = 1.
     pools.set_available("gpu", 1)
-    assert pools.try_admit(POOL_CAP_A)
-    assert not pools.try_admit(POOL_CAP_B), "the self-report must bound admission"
-    pools.enqueue(POOL_CAP_B, "req-b")
+    assert _admitted_on_arrival(pools, POOL_CAP_A)
+    assert pools.arrive(POOL_CAP_B, "req-b") == 1, "the self-report must bound admission"
 
     snapshot = pools.snapshot()
     assert snapshot["gpu"].available == 1
@@ -3383,7 +3388,8 @@ def test_1531_available_self_report_and_snapshot_queued_attribution():
     assert snapshot["all"].queued == 0, "an unlimited chain pool blocks nobody"
 
     pools.set_available("gpu", 0)
-    assert pools.try_admit(POOL_CAP_B), "clearing the self-limit (0 = unlimited) restores min(configured, inf) = 2"
+    assert pools.admit_next() == (POOL_CAP_B, "req-b"), \
+        "clearing the self-limit (0 = unlimited) restores min(configured, inf) = 2: the request it held back goes"
     with pytest.raises(ValueError, match="cap:ghost"):
         pools.set_available("cap:ghost", 1)
 
