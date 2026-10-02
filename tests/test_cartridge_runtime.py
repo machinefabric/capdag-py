@@ -3235,6 +3235,11 @@ def test_7053_over_window_chunk_is_credit_violation():
         raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=2),
     )
     stream = package.recv()
+    # The premise is that nothing is consumed while the three chunks arrive,
+    # so no grant can extend the window. The demux runs on its own thread:
+    # the request's end is when it has seen all three, and consuming before
+    # that grants credit back and makes the third chunk legitimate.
+    assert package.recv() is None, "the request has one stream and then ends"
     item0 = stream.recv()
     assert not isinstance(item0, Exception), "chunk 0 is within the window"
     item1 = stream.recv()
