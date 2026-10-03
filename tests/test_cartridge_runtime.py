@@ -3206,17 +3206,21 @@ def test_7063_pending_grants_flush_before_blocking():
     t = threading.Thread(target=consumer, daemon=True)
     t.start()
 
-    # The flushed grant must arrive even though 8 < batch(16).
+    # Everything consumed is granted by the time the consumer blocks, though
+    # 8 < batch(16). In one grant or several: the consumer can outpace the
+    # demux thread, find the queue empty for a moment, and flush what it had
+    # consumed so far — legally. What may not happen is consumption left
+    # ungranted while the consumer waits.
     deadline = time.time() + 2.0
-    grant = None
+    granted = 0
     while time.time() < deadline:
-        credits = [f for f in mock_writer.frames if f.frame_type == FrameType.CREDIT]
-        if credits:
-            grant = credits[0]
+        granted = sum(
+            f.credit_count() for f in list(mock_writer.frames) if f.frame_type == FrameType.CREDIT
+        )
+        if granted >= 8:
             break
         time.sleep(0.01)
-    assert grant is not None, "pending grants must flush before blocking (L10 corollary)"
-    assert grant.credit_count() == 8, "the full pending consumption is granted on flush"
+    assert granted == 8, f"pending grants must flush before blocking (L10 corollary): granted {granted} of 8"
 
 
 # TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
