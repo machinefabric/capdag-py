@@ -553,6 +553,21 @@ class RuntimePools:
             )
         return self.waiting.pop(waiter.ticket)
 
+    def remove_queued(self, matches: Callable[[Any], bool]) -> Optional[Any]:
+        """Take a request out of line — a cancel of a request whose handler
+        has not started. It holds no pool slots, so nothing is released.
+        ``matches`` picks it by its queued payload; returns that payload, or
+        ``None`` when no request in line matches. (matches Rust
+        RuntimePools::remove_queued)"""
+        from capdag import _formal
+
+        for ticket, (_, request) in self.waiting.items():
+            if matches(request):
+                self.state = _formal.leave(self.state, ticket)
+                del self.waiting[ticket]
+                return request
+        return None
+
     def apply_desired(self, desired: Dict[str, int]) -> None:
         """Apply an operator's desired ``configured`` values (heartbeat
         probe). The whole batch is validated first — an unknown pool
@@ -644,6 +659,22 @@ class StreamError(RuntimeError):
     exception type with a descriptive message rather than separate variants,
     consistent with this codebase's exception-per-concern idiom."""
     pass
+
+
+#: Why frames stopped before their END (see ``StreamAbandoned``).
+ABANDONED = "the frames stopped before their END: the request was cancelled or its connection closed"
+
+
+class StreamAbandoned(StreamError):
+    """Frames stopped before their END: a request's input, ended by the
+    runtime because the request was cancelled or the connection closed, or a
+    peer's response, cut short the same way. Every stream still open fails
+    with it, and so does the input package — input cut short never looks like
+    input that finished, so a handler cannot answer with whatever part had
+    arrived. (matches Rust StreamError::Abandoned)"""
+
+    def __init__(self) -> None:
+        super().__init__(ABANDONED)
 
 
 class RemoteError(StreamError):
@@ -1125,10 +1156,58 @@ class PeerResponse:
 class PendingPeerRequest:
     """Internal struct to track pending peer requests (cartridge invoking host caps).
     The reader loop forwards response frames to the queue."""
-    def __init__(self):
+    def __init__(self, rid: Optional["MessageId"] = None, origin: Optional[str] = None):
         # Bounded queue for response frames (buffer up to 64 frames)
         self.queue: queue.Queue = queue.Queue(maxsize=64)
         self.ended: bool = False  # True after END frame (close channel)
+        # This call's own request id.
+        self.rid = rid
+        # The request whose handler made this call (its id's string); a
+        # cancel of that request cancels the call. None outside a request.
+        self.origin = origin
+
+
+class TerminalClaim:
+    """Who ends a request: its handler or a cancel — exactly one of them.
+
+    A request has one terminal frame. Its handler's completion sends END (or
+    its ERR); a cancel's ERR is sent once the handler has exited. Without a
+    decision both were sent: a handler that finished just as a cancel arrived
+    had its END followed by the cancel's ERR, and a handler that noticed the
+    cancel and failed had its own ERR followed by the cancel's. Whichever
+    claims first ends the request; the other sends nothing. (matches Rust
+    TerminalClaim)"""
+
+    _OPEN, _BY_HANDLER, _BY_CANCEL = range(3)
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._state = TerminalClaim._OPEN
+
+    def _claim(self, by: int) -> bool:
+        with self._lock:
+            if self._state != TerminalClaim._OPEN:
+                return False
+            self._state = by
+            return True
+
+    def for_handler(self) -> bool:
+        """The handler finished: may it send its terminal?"""
+        return self._claim(TerminalClaim._BY_HANDLER)
+
+    def for_cancel(self) -> bool:
+        """A cancel arrived: will its ERR be the terminal?"""
+        return self._claim(TerminalClaim._BY_CANCEL)
+
+
+@dataclass
+class RunningRequest:
+    """A request whose handler has started and not yet returned: what a
+    cancel acts on. When the cancel wins the terminal, ``cancelled`` holds its
+    reason and its ERR is sent once the handler returns."""
+    terminal: TerminalClaim
+    routing_id: Optional["MessageId"]
+    cancelled: Optional[Any] = None
 
 
 @dataclass
@@ -1161,10 +1240,14 @@ class PeerInvokerImpl:
         max_chunk: Optional[int] = None,
         credit_router: Optional[CreditRouter] = None,
         initial_credit: int = DEFAULT_INITIAL_CREDIT,
+        origin: Optional[str] = None,
     ):
         self.writer = writer
         self.pending_requests = pending_requests
         self.pending_lock = threading.Lock()
+        # The request whose handler holds this invoker (its id's string),
+        # recorded on every call it makes.
+        self.origin = origin
         self.max_chunk = max_chunk if max_chunk is not None else DEFAULT_MAX_CHUNK
         # Router that delivers inbound CREDIT grants to this cartridge's
         # outgoing peer-argument streams (L14 — peer args are credited too).
@@ -1190,7 +1273,7 @@ class PeerInvokerImpl:
         request_id = MessageId.new_uuid()
         request_id_str = request_id.to_string()
 
-        pending_req = PendingPeerRequest()
+        pending_req = PendingPeerRequest(rid=request_id, origin=self.origin)
 
         with self.pending_lock:
             self.pending_requests[request_id_str] = pending_req
@@ -2228,7 +2311,9 @@ def demux_multi_stream(
     this thread is still draining earlier ones. The loop below blocks on
     `raw_rx.get()` exactly like the Rust reference's `for frame in raw_rx`
     over a crossbeam receiver — it terminates on an explicit END/ERR frame,
-    matching the wire protocol rather than relying on the queue being closed.
+    matching the wire protocol. A ``None`` is the runtime ending the frames
+    before their END (the request was cancelled): every open stream, and the
+    package, fail with ``StreamAbandoned``.
 
     Mirrors the Rust reference's `demux_multi_stream` (this mirror has no
     FilePathContext-driven CBOR-mode file materialization, so that branch of
@@ -2262,7 +2347,14 @@ def demux_multi_stream(
             stream_channels.clear()
 
         while True:
-            frame: Frame = raw_rx.get()
+            frame: Optional[Frame] = raw_rx.get()
+
+            if frame is None:
+                for tx in stream_channels.values():
+                    tx.put(StreamAbandoned())
+                _close_all_open_streams()
+                streams_queue.put(StreamAbandoned())
+                break
 
             if frame.frame_type == FrameType.STREAM_START:
                 stream_id = frame.stream_id
@@ -2893,6 +2985,9 @@ def demux_peer_response(
         # payloads are RFC 8742 fragments — decode at item granularity.
         seq: Optional[SeqReassembly] = None
         nonlocal fragment_grants
+        # Whether the response reached its END (or its ERR): a queue that
+        # ends without one was cut short.
+        ended = False
         for frame in iter(raw_frames.get, None):
             if frame.frame_type == FrameType.STREAM_START:
                 if frame.is_sequence:
@@ -2955,8 +3050,10 @@ def demux_peer_response(
                         f"sequence stream ended mid-item: {len(seq.buf)} trailing bytes "
                         "do not form a complete CBOR item"
                     )))
+                ended = True
                 break
             elif frame.frame_type == FrameType.ERR:
+                ended = True
                 # Keep the peer's declared code/class/message structural —
                 # never folded into prose (docs/failure-taxonomy.md).
                 code = frame.error_code()
@@ -2971,6 +3068,11 @@ def demux_peer_response(
                     RemoteError(code, attribution_class, message, frame.attribution_arg_urn())
                 ))
                 break
+        if not ended:
+            # The response's frames stopped before its END: the peer call was
+            # cancelled, or the connection ended. A cut-short response never
+            # reads as complete.
+            item_queue.put(PeerResponseItem.data_err(StreamAbandoned()))
         # Signal end of stream
         item_queue.put(None)
 
@@ -3849,6 +3951,13 @@ class CartridgeRuntime:
         # Track active handler threads for cleanup
         active_handlers: List[threading.Thread] = []
 
+        # Every request whose handler has started and not yet returned, by
+        # request id: what a cancel acts on. Registered before the handler's
+        # thread starts, so a cancel never finds a started request missing;
+        # removed when the handler returns.
+        running: Dict[str, RunningRequest] = {}
+        running_lock = threading.Lock()
+
         # Routes inbound CREDIT frames to the gates of streams local senders
         # are writing (protocol v4 flow control, both directions). Gates
         # register when an emitter/OutputStream starts a credited stream;
@@ -3862,7 +3971,11 @@ class CartridgeRuntime:
         # that body. A chain frees the instant a handler finishes (not on
         # the next stdin frame) — the finishing handler itself drains the
         # oldest admissible queued request (global arrival order).
-        def _spawn_thread(target_fn: Callable[[], None]) -> None:
+        def _spawn_thread(request_id: MessageId, routing_id: Optional[MessageId], target_fn: Callable[[], None]) -> None:
+            with running_lock:
+                running[request_id.to_string()] = RunningRequest(
+                    terminal=TerminalClaim(), routing_id=routing_id,
+                )
             thread = threading.Thread(target=target_fn, daemon=True)
             thread.start()
             active_handlers.append(thread)
@@ -3893,15 +4006,32 @@ class CartridgeRuntime:
                     sync_writer.write(dequeued_log)
                 except Exception:
                     pass
-                _spawn_thread(qfn)
+                _spawn_thread(qrid, qxid, qfn)
 
         with self._pools_lock:
             self._pools_changed = _admit_waiting
 
+        def _terminal(request_id: MessageId) -> TerminalClaim:
+            with running_lock:
+                return running[request_id.to_string()].terminal
+
         def _on_handler_done(request_id: MessageId, pattern: str) -> None:
             """Called by a handler thread right after it finishes (success or
-            error) — releases its whole pool chain, releases its credit
-            waiters (L13), and starts everyone in line who can now go."""
+            error) — sends the cancel's ERR when a cancel ended the request,
+            releases its whole pool chain, releases its credit waiters (L13),
+            and starts everyone in line who can now go."""
+            with running_lock:
+                done = running.pop(request_id.to_string())
+            if done.cancelled is not None:
+                reason = done.cancelled
+                err_frame = Frame.err(
+                    request_id, reason.terminal_code(), reason.terminal_class(), reason.terminal_message(),
+                )
+                err_frame.routing_id = done.routing_id
+                try:
+                    sync_writer.write(err_frame)
+                except Exception as write_err:
+                    print(f"[CartridgeRuntime] Failed to write cancel ERR: {write_err}", file=sys.stderr)
             credit_router.close_request(request_id, "END")
             with self._pools_lock:
                 self._pools.release(pattern)
@@ -3933,7 +4063,7 @@ class CartridgeRuntime:
                 # It waits behind whoever could already go: start them.
                 _admit_waiting()
             else:
-                _spawn_thread(target_fn)
+                _spawn_thread(request_id, routing_id, target_fn)
 
         # Process requests - main loop stays responsive
         while True:
@@ -4049,13 +4179,14 @@ class CartridgeRuntime:
                         code, attribution_class, message, arg_urn = _classify_handler_error(derive_err)
                         err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
                         err_frame.routing_id = routing_id
-                        try:
-                            sync_writer.write(err_frame)
-                        except Exception as write_err:
-                            print(
-                                f"[CartridgeRuntime] Failed to write error response: {write_err}",
-                                file=sys.stderr,
-                            )
+                        if _terminal(request_id).for_handler():
+                            try:
+                                sync_writer.write(err_frame)
+                            except Exception as write_err:
+                                print(
+                                    f"[CartridgeRuntime] Failed to write error response: {write_err}",
+                                    file=sys.stderr,
+                                )
                         # Release credit waiters and the pool chain exactly
                         # like a completed handler (L13) — a failed derivation
                         # must not leak the chain.
@@ -4072,7 +4203,9 @@ class CartridgeRuntime:
                     peer_invoker = PeerInvokerImpl(
                         sync_writer, pending_peer_requests, max_chunk,
                         credit_router=credit_router, initial_credit=initial_credit,
+                        origin=request_id.to_string(),
                     )
+                    terminal = _terminal(request_id)
 
                     try:
                         # Input streams are credited (L14): the handler's
@@ -4112,10 +4245,13 @@ class CartridgeRuntime:
                         try:
                             dispatch_op(factory(), input_package, emitter, peer_invoker)
 
-                            # Finalize: STREAM_END + END (seq assigned by
-                            # SyncFrameWriter). END carries the handler's
-                            # declared final progress (L3/L5).
-                            emitter.finalize()
+                            # A cancel that claimed the request first ends it
+                            # with its own ERR, sent once this returns.
+                            if terminal.for_handler():
+                                # Finalize: STREAM_END + END (seq assigned by
+                                # SyncFrameWriter). END carries the handler's
+                                # declared final progress (L3/L5).
+                                emitter.finalize()
 
                         except Exception as e:
                             # The ERR frame carries the failure's DECLARED
@@ -4126,10 +4262,11 @@ class CartridgeRuntime:
                             code, attribution_class, message, arg_urn = _classify_handler_error(e)
                             err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
                             err_frame.routing_id = routing_id  # Propagate XID
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception as write_err:
-                                print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                            if terminal.for_handler():
+                                try:
+                                    sync_writer.write(err_frame)
+                                except Exception as write_err:
+                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
                     finally:
                         # The request is over: its feeds are closed (a
                         # handler that consumed them already saw their end)
@@ -4167,8 +4304,10 @@ class CartridgeRuntime:
 
             elif frame.frame_type == FrameType.CANCEL:
                 # The attribution rides in meta like an ERR's (12.2 §Cancel);
-                # an unattributed Cancel is still a cancel.
+                # an unattributed Cancel is still a cancel. (matches the Rust
+                # runtime's Cancel arm)
                 target_rid = frame.id
+                key = target_rid.to_string()
                 reason = frame.cancel_reason()
                 assert reason is not None
                 # Close any live feeds the request holds so a capture source
@@ -4177,19 +4316,73 @@ class CartridgeRuntime:
                     feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
                 for handle in feeds:
                     handle.close()
-                # Abort semantics: Python handler threads cannot be killed —
-                # the runtime cannot abort a running handler mid-flight.
-                # This is the documented py divergence (parity README,
-                # divergence at objects never morphisms): the handler runs
-                # to completion; its request state is torn down when it
-                # finishes. Announce loudly rather than pretending.
-                print(
-                    f"[CartridgeRuntime] CANCEL rid={target_rid} "
-                    f"code={reason.terminal_code()} class={reason.terminal_class().as_str()} "
-                    f"force={reason.force_kill}: python handlers cannot be aborted "
-                    f"mid-flight; the handler runs to completion (documented divergence)",
-                    file=sys.stderr,
-                )
+
+                # Case 1: queued on its singleton pool — take it out of line
+                # (it holds no pool slots) and answer with the cancel's ERR.
+                with self._pools_lock:
+                    queued = self._pools.remove_queued(lambda request: request[0] == target_rid)
+                if queued is not None:
+                    with active_requests_lock:
+                        active_requests.pop(key, None)
+                    err_frame = Frame.err(
+                        target_rid, reason.terminal_code(), reason.terminal_class(),
+                        f"{reason.terminal_message()} (while queued)",
+                    )
+                    err_frame.routing_id = queued[1]
+                    try:
+                        sync_writer.write(err_frame)
+                    except Exception as write_err:
+                        print(f"[CartridgeRuntime] Failed to write cancel ERR: {write_err}", file=sys.stderr)
+                    continue
+
+                # Case 2: its handler is running — a cooperative cancel (a
+                # Python thread cannot be aborted, and need not be). The
+                # handler may already have ended the request and not yet
+                # returned: then a cancel's ERR would be a second terminal,
+                # and the cancel adds nothing. Otherwise the cancel ends it:
+                # its input stops (a reader of it gets StreamAbandoned), its
+                # credit waiters and peer calls are released, and its ERR is
+                # sent when the handler returns.
+                with running_lock:
+                    target = running.get(key)
+                    claimed = target is not None and target.terminal.for_cancel()
+                    if claimed:
+                        target.cancelled = reason
+                if target is None:
+                    # Case 3: unknown — already ended, or never seen.
+                    print(f"[CartridgeRuntime] Cancel for unknown rid={target_rid} — ignoring", file=sys.stderr)
+                    continue
+                if not claimed:
+                    print(
+                        f"[CartridgeRuntime] Cancel for rid={target_rid} whose handler already ended it — nothing to send",
+                        file=sys.stderr,
+                    )
+                    continue
+                with active_requests_lock:
+                    ar = active_requests.pop(key, None)
+                if ar is not None:
+                    ar.raw_queue.put(None)
+                # A cancelled producer must not hang on credit (L13, L17).
+                credit_router.close_request(target_rid, reason.terminal_code())
+                # Its peer calls end under the SAME reason — a peer of a
+                # cancelled request is collateral of the same failure. Their
+                # response queues end without an END, so a reader of one gets
+                # StreamAbandoned.
+                with pending_lock:
+                    peers = [
+                        (peer_key, pending)
+                        for peer_key, pending in pending_peer_requests.items()
+                        if pending.origin == key
+                    ]
+                    for peer_key, _ in peers:
+                        del pending_peer_requests[peer_key]
+                for peer_key, pending in peers:
+                    try:
+                        sync_writer.write(Frame.cancel(pending.rid, reason))
+                    except Exception as write_err:
+                        print(f"[CartridgeRuntime] Failed to write peer Cancel: {write_err}", file=sys.stderr)
+                    pending.queue.put(None)
+                print(f"[CartridgeRuntime] Cancelled in-flight request (cooperative): rid={target_rid}", file=sys.stderr)
 
             elif frame.frame_type == FrameType.HEARTBEAT:
                 # The heartbeat is the capacity CONFIG channel: a probe may

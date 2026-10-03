@@ -50,6 +50,8 @@ from capdag.bifaci.cartridge_runtime import (
     write_gated,
     RuntimePools,
     demux_peer_response,
+    StreamAbandoned,
+    TerminalClaim,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
@@ -3317,6 +3319,29 @@ def test_1527_runtime_pools_materialization_and_declaration_resolution():
         RuntimePools([POOL_CAP_A], _pool_declarations({"gpu": ["cap:ghost"]}))
 
 
+# TEST376: a request taken out of line — cancelled before its handler started —
+# leaves the pools as if it had never queued: it held no slot, so nothing is
+# released, and the request behind it is admitted when the slot frees, never
+# stranded behind a waiter that is gone. A request that is not in line is not
+# found.
+def test_376_a_request_taken_out_of_line_strands_nobody():
+    pools = RuntimePools([POOL_CAP_A], _pool_declarations(None, {POOL_CAP_A: 1}))
+    assert _admitted_on_arrival(pools, POOL_CAP_A, "running")
+    assert pools.arrive(POOL_CAP_A, "cancelled") == 1
+    assert pools.arrive(POOL_CAP_A, "behind") == 2
+
+    assert pools.remove_queued(lambda request: request == "cancelled") == "cancelled"
+    assert pools.remove_queued(lambda request: request == "cancelled") is None, "it is out of line"
+    assert pools.remove_queued(lambda request: request == "running") is None, \
+        "a request that holds a slot is not in line"
+    assert pools.snapshot()[POOL_CAP_A].queued == 1, "only the request behind it still waits"
+    assert pools.admit_next() is None, "the slot is still held"
+
+    pools.release(POOL_CAP_A)
+    assert pools.admit_next() == (POOL_CAP_A, "behind"), "the request behind is admitted"
+    assert pools.admit_next() is None
+
+
 # TEST1528: singleton queues are ISOLATED — saturating one cap queues its
 # requests without touching a sibling cap's admission, and a release admits
 # the queued request.
@@ -3904,3 +3929,92 @@ def test_11884_raw_write_also_starts_the_output(capsysbinary):
 
     with pytest.raises(_RuntimeError):
         emitter.start()
+
+
+def _chunk(rid, stream_id, value, index=0):
+    payload = cbor2.dumps(value)
+    return Frame.chunk(rid, stream_id, index, payload, index, compute_checksum(payload))
+
+
+# TEST351: frames cut short before their END are an error, not a stream that
+# finished. A cancel stops the request's input, and the demux took the stopped
+# input for the end of every stream: a handler saw its input end normally and
+# answered with whatever part had arrived. A peer response cut short the same
+# way read as a complete response.
+def test_351_frames_cut_short_are_an_error():
+    rid = MessageId.new_uuid()
+
+    # A request's input, stopped mid-stream (the runtime's None).
+    raw = queue.Queue()
+    raw.put(Frame.stream_start(rid, "arg0", "media:enc=utf-8"))
+    raw.put(_chunk(rid, "arg0", b"part"))
+    package = demux_multi_stream(raw)
+    stream = package.recv()
+    assert stream.recv_data() == b"part"
+    raw.put(None)
+    assert isinstance(stream.recv_data(), StreamAbandoned), "an open stream whose input stopped errors"
+    assert isinstance(package.recv(), StreamAbandoned), "and so does the package"
+
+    # The same input with its END is a stream that finished.
+    raw = queue.Queue()
+    for frame in (
+        Frame.stream_start(rid, "arg0", "media:enc=utf-8"),
+        _chunk(rid, "arg0", b"part"),
+        Frame.stream_end(rid, "arg0", 1),
+        Frame.end(rid),
+    ):
+        raw.put(frame)
+    package = demux_multi_stream(raw)
+    stream = package.recv()
+    assert stream.recv_data() == b"part"
+    assert stream.recv_data() is None, "a stream that reached STREAM_END ends"
+    assert package.recv() is None, "an input that reached END ends"
+
+    # A peer response, stopped before its END.
+    raw = queue.Queue()
+    raw.put(Frame.stream_start(rid, "r", "media:enc=utf-8"))
+    raw.put(_chunk(rid, "r", b"part"))
+    raw.put(None)
+    response = demux_peer_response(raw)
+    first = response.recv()
+    assert first.is_data and first.data_error is None, "the part that arrived is delivered"
+    cut = response.recv()
+    assert cut.is_data and isinstance(cut.data_error, StreamAbandoned), "a peer response cut short errors"
+    assert response.recv() is None
+
+    # A peer response that reached its END is complete.
+    raw = queue.Queue()
+    for frame in (
+        Frame.stream_start(rid, "r", "media:enc=utf-8"),
+        _chunk(rid, "r", b"part"),
+        Frame.stream_end(rid, "r", 1),
+        Frame.end(rid),
+        None,
+    ):
+        raw.put(frame)
+    response = demux_peer_response(raw)
+    assert response.recv().data_error is None
+    assert response.recv() is None, "nothing follows a response that ended"
+
+
+# TEST373: a request's terminal is claimed exactly once, by its handler or by
+# a cancel. Both used to send: a handler finishing just as a cancel arrived had
+# its END followed by the cancel's ERR. Whoever claims first ends the request,
+# however many try at once.
+def test_373_a_terminal_is_claimed_exactly_once():
+    for _ in range(200):
+        claim = TerminalClaim()
+        barrier = threading.Barrier(2)
+        handler_won = []
+
+        def handler():
+            barrier.wait()
+            handler_won.append(claim.for_handler())
+
+        thread = threading.Thread(target=handler)
+        thread.start()
+        barrier.wait()
+        cancel_won = claim.for_cancel()
+        thread.join()
+        assert handler_won[0] != cancel_won, "exactly one of them ends the request"
+        assert not claim.for_handler() and not claim.for_cancel(), "and nobody after"

@@ -10,8 +10,11 @@ test runs the host in a daemon thread and drives it from the test thread.
 """
 
 import json
+import queue
 import socket
 import threading
+
+import pytest
 
 import cbor2
 
@@ -19,6 +22,7 @@ from capdag.bifaci.in_process_host import (
     FrameHandler,
     InProcessCartridgeHost,
     InProcessHostIdentity,
+    INPUT_ENDED_WITHOUT_END,
     ResponseWriter,
     accumulate_input,
 )
@@ -463,3 +467,137 @@ def test_660_closest_specificity_routing():
         cap_table, 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"'
     )
     assert result == 1  # specific handler
+
+
+class AnswersAnywayHandler(FrameHandler):
+    """Answers however its input ended: at END, or when the host closed its
+    input. It stands for every handler that does not check — the host, not the
+    handler, is what keeps a request to one terminal. Sets ``answered`` once it
+    has sent its answer."""
+
+    def __init__(self):
+        self.answered = threading.Event()
+
+    def handle_request(self, cap_urn, input_q, output, peer):
+        while True:
+            frame = input_q.get()
+            if frame is None or frame.frame_type == FrameType.END:
+                break
+        output.emit_response("media:", b"an answer")
+        self.answered.set()
+
+
+# TEST344: input that does not reach its END is refused, not returned as the
+# request's arguments.
+#
+# The host closes a handler's input when the request is cancelled or its
+# connection ends, and forwards an ERR from upstream. Each was accumulated as
+# if the request were complete, so a handler answered a request that no longer
+# existed, with whatever part of its input had arrived.
+def test_344_accumulate_refuses_input_that_never_ended():
+    rid = MessageId.new_uuid()
+    payload = cbor_bytes_payload(b"part")
+    start = Frame.stream_start(rid, "arg0", "media:text")
+    chunk = Frame.chunk(rid, "arg0", 0, payload, 0, compute_checksum(payload))
+
+    closed = queue.Queue()
+    for frame in (start, chunk, None):
+        closed.put(frame)
+    with pytest.raises(ValueError) as refused:
+        accumulate_input(closed)
+    assert str(refused.value) == INPUT_ENDED_WITHOUT_END
+
+    failed = queue.Queue()
+    failed.put(start)
+    failed.put(Frame.err(rid, "UPSTREAM_DIED", AttributionClass.INTERNAL, "the producer failed"))
+    with pytest.raises(ValueError) as refused:
+        accumulate_input(failed)
+    assert "UPSTREAM_DIED" in str(refused.value) and "the producer failed" in str(refused.value)
+
+    complete = queue.Queue()
+    for frame in (start, chunk, Frame.stream_end(rid, "arg0", 1), Frame.end(rid, None)):
+        complete.put(frame)
+    args, _ = accumulate_input(complete)
+    assert [a.value for a in args] == [b"part"]
+
+
+# TEST345: once a request has its terminal, the host sends nothing more for it.
+#
+# Two ways a request ended and more followed: a CANCEL arriving after the
+# handler finished, answered with a second terminal; and a CANCEL while input
+# was open, after which a handler that answers anyway sent its response around
+# the cancel's ERR. The ERR must be that request's only frame.
+def test_345_a_request_ends_once():
+    cap_urn = 'cap:in="media:text";echo;out="media:text"'
+
+    def frames_for(script):
+        """Run ``script`` against a fresh host; every frame the host sent for
+        the request, up to the connection's end."""
+        handler = AnswersAnywayHandler()
+        host = InProcessCartridgeHost(
+            InProcessHostIdentity.for_test("in-process-test"), [("answers", [make_test_cap(cap_urn)], handler)]
+        )
+        host_read, host_write, test_read, test_write, host_socks, test_socks = make_host_conn()
+        host_thread = threading.Thread(target=lambda: host.run(host_read, host_write), daemon=True)
+        host_thread.start()
+        reader = FrameReader(test_read)
+        writer = FrameWriter(test_write)
+        notify = reader.read()
+        assert notify is not None and notify.frame_type == FrameType.RELAY_NOTIFY
+
+        rid = MessageId.new_uuid()
+        req = Frame.req(rid, cap_urn, b"", "application/cbor")
+        req.routing_id = MessageId(1)
+        writer.write(req)
+        writer.write(Frame.stream_start(rid, "arg0", "media:text"))
+        seen = script(rid, writer, reader, handler.answered)
+        # The script is done writing: the host ends, and everything it sent is
+        # read to the connection's end.
+        test_write.close()
+        test_socks[0].shutdown(socket.SHUT_WR)
+        host_thread.join(timeout=10)
+        assert not host_thread.is_alive(), "the host ends when its input does"
+        close_socks(host_socks)
+        while True:
+            frame = reader.read()
+            if frame is None:
+                break
+            seen.append(frame)
+        close_socks(test_socks)
+        return [f for f in seen if f.id == rid]
+
+    def cancel_for(rid):
+        cancel = Frame.cancel(MessageId(0), CancelReason.user())
+        cancel.id = rid
+        cancel.routing_id = MessageId(1)
+        return cancel
+
+    # A CANCEL after the handler finished: the request's END stands alone.
+    def after_end(rid, writer, reader, answered):
+        writer.write(Frame.end(rid, None))
+        assert answered.wait(10)
+        seen = []
+        while True:
+            frame = reader.read()
+            assert frame is not None
+            seen.append(frame)
+            if frame.id == rid and frame.frame_type == FrameType.END:
+                break
+        writer.write(cancel_for(rid))
+        return seen
+
+    finished = frames_for(after_end)
+    assert finished[-1].frame_type == FrameType.END
+    assert not [f for f in finished if f.frame_type == FrameType.ERR], "a cancel after END adds no terminal"
+
+    # A CANCEL while input is open: its ERR is the request's only frame.
+    def cancelled_open(rid, writer, reader, answered):
+        writer.write(cancel_for(rid))
+        assert answered.wait(10), "the handler answered"
+        return []
+
+    cancelled = frames_for(cancelled_open)
+    assert len(cancelled) == 1, cancelled
+    assert cancelled[0].frame_type == FrameType.ERR
+    assert cancelled[0].error_code() == "CANCELLED"
+

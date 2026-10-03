@@ -45,3 +45,5 @@ diffs/.wsb/
 .wsb/
 diffs/
 .scrap/
+# An unpacked source distribution (`capdag-<version>/`) is a build product, never source.
+/capdag-[0-9]*/

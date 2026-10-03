@@ -221,13 +221,25 @@ class InProcessPeerInvoker(PeerInvoker):
 # =============================================================================
 
 
+INPUT_ENDED_WITHOUT_END = (
+    "the request's input ended before its END: the request was cancelled or its "
+    "connection closed"
+)
+"""Why a request's input stopped before its END: the host closed it, because
+the request was cancelled or the connection ended. Its arguments are
+incomplete, and answering them would answer a request that no longer exists."""
+
+
 def accumulate_input(input_q: "queue.Queue") -> Tuple[List[CapArgumentValue], Optional[dict]]:
     """Accumulate all input streams from a frame queue into CapArgumentValues.
 
     Reads frames until END. CBOR-decodes chunk payloads to extract raw bytes.
     Returns ``(args, meta)`` where ``meta`` is the stream metadata from the
     first input stream's STREAM_START frame. Raises ValueError on CBOR decode
-    failure (protocol violation).
+    failure (protocol violation), and when the input does not reach its END:
+    an ERR from upstream, or the host closing the input because the request
+    was cancelled or its connection ended. Incomplete input is never returned
+    as if it were the request's arguments.
     """
     streams: List[Tuple[str, str, bytearray]] = []  # (stream_id, media_urn, data)
     active: Dict[str, int] = {}
@@ -236,7 +248,7 @@ def accumulate_input(input_q: "queue.Queue") -> Tuple[List[CapArgumentValue], Op
     while True:
         frame = input_q.get()
         if frame is None:
-            break
+            raise ValueError(INPUT_ENDED_WITHOUT_END)
         ft = frame.frame_type
         if ft == FrameType.STREAM_START:
             sid = frame.stream_id or ""
@@ -270,6 +282,11 @@ def accumulate_input(input_q: "queue.Queue") -> Tuple[List[CapArgumentValue], Op
             pass
         elif ft == FrameType.END:
             break
+        elif ft == FrameType.ERR:
+            raise ValueError(
+                "the request failed upstream before its input was complete: "
+                f"{frame.error_code()}: {frame.error_message()}"
+            )
         # ignore other frame types
 
     args = [
@@ -296,12 +313,17 @@ class IdentityHandler(FrameHandler):
         while True:
             frame = input_q.get()
             if frame is None:
-                break
+                # Input that stopped before its END belongs to a request that
+                # was cancelled or whose connection closed: nothing to answer.
+                return
             if frame.frame_type == FrameType.CHUNK:
                 if frame.payload is not None:
                     data.extend(frame.payload)
             elif frame.frame_type == FrameType.END:
                 break
+            elif frame.frame_type == FrameType.ERR:
+                # The request failed upstream: it is over, and has no answer.
+                return
             # STREAM_START, STREAM_END — skip
 
         # Echo back as a single stream (raw bytes, no CBOR encode)
@@ -528,19 +550,26 @@ class InProcessCartridgeHost:
         write_tx: "queue.Queue" = queue.Queue()
 
         def writer_loop():
+            # The cartridge runtime's terminal gate: whether a frame is
+            # written, and whether it ends its flow, is the proved model's
+            # decision (L4). A handler still emitting after a Cancel's ERR, or
+            # a Cancel arriving after the handler's END, produces
+            # post-terminal frames, and those are suppressed, never written.
+            from capdag.bifaci.cartridge_runtime import write_gated
+            from capdag.bifaci.stats import StragglerCounters, TerminatedFlows
+
             writer = FrameWriter(local_write)
             seq_assigner = SeqAssigner()
+            terminated = TerminatedFlows(1024)
+            stragglers = StragglerCounters()
             while True:
                 frame = write_tx.get()
                 if frame is None:
                     break
-                seq_assigner.assign(frame)
                 try:
-                    writer.write(frame)
+                    write_gated(frame, writer, seq_assigner, terminated, stragglers)
                 except Exception:
                     break
-                if frame.frame_type.is_terminal():
-                    seq_assigner.remove(FlowKey.from_frame(frame))
 
         writer_thread = threading.Thread(target=writer_loop, daemon=True)
         writer_thread.start()
@@ -675,6 +704,23 @@ class InProcessCartridgeHost:
                     reason = frame.cancel_reason()
                     assert reason is not None
 
+                    # Terminal ERR in the cancel's own attribution, queued
+                    # BEFORE the handler learns of the cancel: a handler that
+                    # saw its input close first could fail and queue its own
+                    # ERR ahead of this one, and the cancel's attribution
+                    # would be the frame suppressed. Whatever the stopping
+                    # handler emits after it — or the whole ERR, when the
+                    # handler had already sent its END — is a post-terminal
+                    # frame the writer suppresses (L4).
+                    err = Frame.err(
+                        target_rid,
+                        reason.terminal_code(),
+                        reason.terminal_class(),
+                        reason.terminal_message(),
+                    )
+                    err.routing_id = xid
+                    write_tx.put(err)
+
                     if target_rid in active:
                         # Signal handler input is done.
                         active[target_rid].put(None)
@@ -690,16 +736,6 @@ class InProcessCartridgeHost:
                         for peer_rid in to_cancel:
                             del pending_peer_requests[peer_rid]
                             write_tx.put(Frame.cancel(peer_rid, reason))
-
-                    # Terminal ERR in the cancel's own attribution.
-                    err = Frame.err(
-                        target_rid,
-                        reason.terminal_code(),
-                        reason.terminal_class(),
-                        reason.terminal_message(),
-                    )
-                    err.routing_id = xid
-                    write_tx.put(err)
 
                 elif ft == FrameType.HEARTBEAT:
                     # The heartbeat is the capacity CONFIG channel (see the
