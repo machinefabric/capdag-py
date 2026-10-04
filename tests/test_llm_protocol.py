@@ -140,3 +140,17 @@ def test_0010_backend_for_model_spec_candle():
     assert backend_for_model_spec("hf:meta-llama/Llama-3.1-8B-Instruct") == BACKEND_CANDLE
     assert backend_for_model_spec("hf:microsoft/phi-2") == BACKEND_CANDLE
     assert backend_for_model_spec("hf:google/gemma-2b") == BACKEND_CANDLE
+
+
+def test_12483_a_request_with_a_field_it_does_not_have_is_refused():
+    """TEST12483: a request is read strictly; a field it does not have is refused by name."""
+    import pytest
+
+    for field in ("json_schema", "grammar"):
+        with pytest.raises(ValueError) as refused:
+            LlmGenerationRequest.from_dict({"prompt": "p", "model_spec": "m", field: {}})
+        assert field in str(refused.value) and "constraint" in str(refused.value)
+    governed = LlmGenerationRequest.from_dict(
+        {"prompt": "p", "model_spec": "m", "constraint": {"type": "json_schema", "schema": {"type": "object"}}}
+    )
+    assert governed.constraint is not None

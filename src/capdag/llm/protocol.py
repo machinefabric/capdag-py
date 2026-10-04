@@ -31,6 +31,7 @@ and only the second falls through to the model's own default.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -130,8 +131,6 @@ class LlmGenerationRequest:
     top_p: Optional[float] = None
     min_p: Optional[float] = None
     seed: Optional[int] = None
-    grammar: Optional[str] = None
-    json_schema: Optional[Any] = None
     constraint: Optional["ConstraintSpec"] = None
     chat_template: Optional[str] = None
     stop_sequences: Optional[list[str]] = None
@@ -192,8 +191,6 @@ class LlmGenerationRequest:
                 "top_p": self.top_p,
                 "min_p": self.min_p,
                 "seed": self.seed,
-                "grammar": self.grammar,
-                "json_schema": self.json_schema,
                 "constraint": self.constraint.to_dict() if self.constraint else None,
                 "chat_template": self.chat_template,
                 "stop_sequences": self.stop_sequences,
@@ -208,6 +205,16 @@ class LlmGenerationRequest:
 
     @classmethod
     def from_dict(cls, record: dict[str, Any]) -> "LlmGenerationRequest":
+        # Read strictly, as the reference does: a field this record does not
+        # have is refused, never dropped. Top-level `json_schema` and
+        # `grammar` were read by nothing, and a request that set one was
+        # generated unconstrained — the constraint goes in `constraint`.
+        unknown = sorted(set(record) - {f.name for f in dataclasses.fields(cls)})
+        if unknown:
+            raise ValueError(
+                f"an LLM generation request has no field {', '.join(unknown)}; "
+                f"a constraint goes in 'constraint'"
+            )
         constraint = record.get("constraint")
         return cls(
             prompt=record["prompt"],
@@ -221,8 +228,6 @@ class LlmGenerationRequest:
             top_p=record.get("top_p"),
             min_p=record.get("min_p"),
             seed=record.get("seed"),
-            grammar=record.get("grammar"),
-            json_schema=record.get("json_schema"),
             constraint=ConstraintSpec.from_dict(constraint) if constraint else None,
             chat_template=record.get("chat_template"),
             stop_sequences=record.get("stop_sequences"),
