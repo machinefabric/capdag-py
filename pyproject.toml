@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
-version = "1.446.0"
+version = "1.447.51"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
@@ -17,7 +17,7 @@ requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
     "lungo-py==1.86.160",
-    "tagged-urn==1.77.39",
+    "tagged-urn==1.79.39",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.
