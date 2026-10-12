@@ -437,7 +437,7 @@ def test_608_media_urns_for_extension_populated():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     spec = StoredMediaDef(
-        urn="media:ext=pdf",
+        urn="media:document;ext=pdf",
         media_type="application/pdf",
         title="PDF Document",
         extensions=["pdf"],
@@ -459,7 +459,7 @@ def test_608_media_urns_for_extension_populated():
 def test_609_get_extension_mappings():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
-    for urn_str, ext in [("media:ext=pdf", "pdf"), ("media:ext=epub", "epub")]:
+    for urn_str, ext in [("media:document;ext=pdf", "pdf"), ("media:document;ext=epub", "epub")]:
         spec = StoredMediaDef(
             urn=urn_str,
             media_type="application/octet-stream",
@@ -513,7 +513,7 @@ def test_618_registry_creation():
 # TEST616: Verify StoredMediaDef converts to MediaDef preserving all fields
 def test_616_stored_media_def_to_def():
     spec = StoredMediaDef(
-        urn="media:ext=pdf",
+        urn="media:document;ext=pdf",
         media_type="application/pdf",
         title="PDF Document",
         profile_uri="https://capdag.com/schema/pdf",
@@ -522,7 +522,7 @@ def test_616_stored_media_def_to_def():
     )
 
     d = spec.to_dict()
-    assert d["urn"] == "media:ext=pdf"
+    assert d["urn"] == "media:document;ext=pdf"
     assert d["media_type"] == "application/pdf"
     assert d["title"] == "PDF Document"
     assert d["description"] == "PDF document data"

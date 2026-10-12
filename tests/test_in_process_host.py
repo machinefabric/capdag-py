@@ -303,7 +303,7 @@ def test_6750_no_handler_returns_err():
     _ = reader.read()
 
     rid = MessageId.new_uuid()
-    req = Frame.req(rid, 'cap:in="media:ext=pdf";unknown;out="media:text"', b"", "application/cbor")
+    req = Frame.req(rid, 'cap:in="media:document;ext=pdf";unknown;out="media:text"', b"", "application/cbor")
     req.routing_id = MessageId(1)
     writer.write(req)
 
@@ -320,7 +320,7 @@ def test_6750_no_handler_returns_err():
 
 # TEST6751: InProcessCartridgeHost manifest includes identity cap and handler caps
 def test_6751_manifest_includes_all_caps():
-    cap_urn = 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"'
+    cap_urn = 'cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"'
     cap = make_test_cap(cap_urn)
     host = InProcessCartridgeHost(
         InProcessHostIdentity.for_test("thumb-host"),
@@ -432,7 +432,7 @@ def test_659_handler_error_returns_err_frame():
 
 # TEST660: InProcessCartridgeHost closest-specificity routing prefers specific over identity
 def test_660_closest_specificity_routing():
-    specific_urn = 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"'
+    specific_urn = 'cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"'
     generic_urn = 'cap:in="media:image";thumbnail;out="media:ext=png;image"'
 
     specific_cap = make_test_cap(specific_urn)
@@ -464,7 +464,7 @@ def test_660_closest_specificity_routing():
     # Request for pdf thumbnail should match specific (pdf, specificity 3) over
     # generic (image, specificity 2).
     result = InProcessCartridgeHost.find_handler_for_cap(
-        cap_table, 'cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"'
+        cap_table, 'cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"'
     )
     assert result == 1  # specific handler
 

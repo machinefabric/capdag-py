@@ -84,7 +84,7 @@ def test_767_argument_info_serialization():
 # TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information
 def test_768_path_argument_requirements_structure():
     requirements = PathArgumentRequirements(
-        source_media_urn="media:ext=pdf",
+        source_media_urn="media:document;ext=pdf",
         target_media_urn="media:ext=png;image",
         steps=[
             StepArgumentRequirements(
@@ -162,8 +162,8 @@ def test_769_path_with_required_slot():
 # TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
 def test_991_detects_duplicate_cap_urns():
     caps = [
-        _make_test_cap("disbind", "media:ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
-        _make_test_cap("disbind", "media:ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF Again"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF Again"),
     ]
 
     try:
@@ -173,15 +173,15 @@ def test_991_detects_duplicate_cap_urns():
         message = str(exc)
         assert "Duplicate cap_urn detected" in message
         assert "disbind" in message
-        assert "media:ext=pdf" in message
+        assert "media:document;ext=pdf" in message
 
 
 # TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations
 def test_880_no_duplicates_with_unique_caps():
     caps = [
-        _make_test_cap("extract_metadata", "media:ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract Metadata"),
-        _make_test_cap("extract_outline", "media:ext=pdf", "media:document-outline;enc=utf-8;record", "Extract Outline"),
-        _make_test_cap("disbind", "media:ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
+        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract Metadata"),
+        _make_test_cap("extract_outline", "media:document;ext=pdf", "media:document-outline;enc=utf-8;record", "Extract Outline"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 3
@@ -190,8 +190,8 @@ def test_880_no_duplicates_with_unique_caps():
 # TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection
 def test_992_different_ops_same_types_not_duplicates():
     caps = [
-        _make_test_cap("disbind", "media:ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind"),
-        _make_test_cap("grind", "media:ext=pdf", "media:disbound-pages;enc=utf-8;list", "Grind"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind"),
+        _make_test_cap("grind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Grind"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2
@@ -200,7 +200,7 @@ def test_992_different_ops_same_types_not_duplicates():
 # TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name
 def test_993_same_op_different_input_types_not_duplicates():
     caps = [
-        _make_test_cap("extract_metadata", "media:ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract PDF Metadata"),
+        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract PDF Metadata"),
         _make_test_cap("extract_metadata", "media:enc=utf-8;ext=txt", "media:enc=utf-8;file-metadata;record", "Extract TXT Metadata"),
     ]
 
@@ -211,8 +211,8 @@ def test_993_same_op_different_input_types_not_duplicates():
 def test_994_input_arg_first_cap_auto_resolved_from_input():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
-        "media:ext=pdf",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         True,
@@ -225,8 +225,8 @@ def test_994_input_arg_first_cap_auto_resolved_from_input():
 def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
-        "media:ext=pdf",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         1,
         True,
@@ -235,8 +235,8 @@ def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
     assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
 
     resolution = builder.determine_resolution_with_io_check(
-        "media:ext=pdf",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         2,
         True,
@@ -250,7 +250,7 @@ def test_996_output_arg_auto_resolved():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         "media:ext=png;image",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         True,
@@ -264,7 +264,7 @@ def test_997_file_path_type_fallback_first_cap():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         True,
@@ -278,7 +278,7 @@ def test_998_file_path_type_fallback_subsequent_cap():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         MEDIA_FILE_PATH,
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         1,
         True,
@@ -294,7 +294,7 @@ def test_1009_non_io_arg_with_default_has_default():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         True,
@@ -308,7 +308,7 @@ def test_886_optional_non_io_arg_with_default_has_default():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         "media:integer",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         False,
@@ -322,7 +322,7 @@ def test_1012_non_io_arg_without_default_requires_user_input():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         "media:string",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         True,
@@ -336,7 +336,7 @@ def test_1015_optional_non_io_arg_without_default_requires_user_input():
     builder = _test_builder()
     resolution = builder.determine_resolution_with_io_check(
         "media:boolean",
-        "media:ext=pdf",
+        "media:document;ext=pdf",
         "media:ext=png;image",
         0,
         False,

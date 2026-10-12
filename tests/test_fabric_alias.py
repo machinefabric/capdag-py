@@ -67,7 +67,7 @@ def test_1880_alias_name_normalization_rules():
 
 # TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 def test_1881_token_urn_vs_alias_detection():
-    assert token_is_urn('cap:in="media:ext=pdf";extract;out="media:enc=utf-8"')
+    assert token_is_urn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"')
     assert token_is_urn("media:fmt=json;record")
     assert not token_is_urn("pdf2text")
     assert is_alias_token("pdf2text")
@@ -140,9 +140,9 @@ async def test_1889_resolve_alias_typed_enforces_kind():
 async def test_1890_get_cap_via_alias_and_type_mismatch():
     registry = FabricRegistry.new_for_test()
     cap = _build_cap(
-        'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
         "extract",
-        ["media:ext=pdf"],
+        ["media:document;ext=pdf"],
         "media:enc=utf-8",
     )
     canonical = cap.urn_string()
@@ -173,9 +173,9 @@ async def test_1891_get_media_def_via_alias_and_type_mismatch():
     assert spec.urn == "media:fmt=json;record"
 
     cap = _build_cap(
-        'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
         "extract",
-        ["media:ext=pdf"],
+        ["media:document;ext=pdf"],
         "media:enc=utf-8",
     )
     canonical = cap.urn_string()
@@ -201,8 +201,8 @@ async def test_1892_unknown_alias_is_not_found():
 
 
 def _extract_with_alias_registry():
-    extract_urn = 'cap:extract;in="media:ext=pdf";out="media:enc=utf-8;ext=txt"'
-    cap = _build_cap(extract_urn, "extract", ["media:ext=pdf"], "media:enc=utf-8;ext=txt")
+    extract_urn = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'
+    cap = _build_cap(extract_urn, "extract", ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt")
     canonical = cap.urn_string()
     registry = FabricRegistry.new_for_test()
     registry.add_caps_to_cache([cap])
@@ -223,8 +223,8 @@ def test_1883_cap_position_alias_resolves_to_cap():
 # TEST1884: a local header alias shadows a fabric alias of the same name.
 def test_1884_local_header_shadows_cap_alias():
     registry, _ = _extract_with_alias_registry()
-    other_urn = 'cap:other;in="media:ext=pdf";out="media:enc=utf-8;ext=txt"'
-    other = _build_cap(other_urn, "other", ["media:ext=pdf"], "media:enc=utf-8;ext=txt")
+    other_urn = 'cap:other;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'
+    other = _build_cap(other_urn, "other", ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt")
     other_canonical = other.urn_string()
     registry.add_caps_to_cache([other])
     notation = f"[pdf2text {other_urn}]\n[doc -> pdf2text -> txt]"
@@ -235,9 +235,9 @@ def test_1884_local_header_shadows_cap_alias():
 # TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error.
 def test_1885_cap_position_alias_to_media_is_error():
     cap = _build_cap(
-        'cap:extract;in="media:ext=pdf";out="media:enc=utf-8;ext=txt"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"',
         "extract",
-        ["media:ext=pdf"],
+        ["media:document;ext=pdf"],
         "media:enc=utf-8;ext=txt",
     )
     registry = FabricRegistry.new_for_test()
@@ -310,7 +310,7 @@ def test_1895_display_alias_for_urn():
     # `media:fmt=json;record`.
     assert registry.display_alias_for_urn("media:record;fmt=json") == "json"
     # A real URN with no alias -> None.
-    assert registry.display_alias_for_urn("media:enc=utf-8;ext=pdf") is None
+    assert registry.display_alias_for_urn("media:document;enc=utf-8;ext=pdf") is None
     # A non-URN (no cap:/media: prefix) -> None, never a crash.
     assert registry.display_alias_for_urn("int2str") is None
 

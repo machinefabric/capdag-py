@@ -4,7 +4,7 @@ from capdag import CapQuery, CapUrn, MatchGrade, MediaUrn
 
 
 def _pages() -> CapUrn:
-    return CapUrn.from_string('cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;ext=txt;page"')
+    return CapUrn.from_string('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt;page"')
 
 
 def _to_jpeg() -> CapUrn:
@@ -14,7 +14,7 @@ def _to_jpeg() -> CapUrn:
 
 
 def _some_image() -> CapUrn:
-    return CapUrn.from_string('cap:render;in="media:ext=pdf";out="media:image"')
+    return CapUrn.from_string('cap:render;in="media:document;ext=pdf";out="media:image"')
 
 
 def _passes_through() -> CapUrn:
@@ -43,7 +43,7 @@ def test_12368_a_question_may_leave_a_side_unknown():
     assert not wants_image.admits(_passes_through()), "media: out promises no image"
 
     # What can a pdf become? Whatever takes a pdf — or takes anything.
-    has_pdf = CapQuery.consuming(MediaUrn.from_string("media:ext=pdf"))
+    has_pdf = CapQuery.consuming(MediaUrn.from_string("media:document;ext=pdf"))
     assert has_pdf.admits(_pages()) and has_pdf.admits(_some_image())
     assert has_pdf.admits(_passes_through()), "it takes anything, a pdf included"
     assert not has_pdf.admits(_to_jpeg()), "a png converter does not take a pdf"
@@ -51,7 +51,7 @@ def test_12368_a_question_may_leave_a_side_unknown():
 
     # Both sides stated is the typed call.
     pdf_to_image = CapQuery.between(
-        MediaUrn.from_string("media:ext=pdf"), MediaUrn.from_string("media:image")
+        MediaUrn.from_string("media:document;ext=pdf"), MediaUrn.from_string("media:image")
     )
     assert pdf_to_image.admits(_some_image())
     assert not pdf_to_image.admits(_pages()) and not pdf_to_image.admits(_to_jpeg())

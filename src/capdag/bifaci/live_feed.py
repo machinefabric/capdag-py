@@ -275,7 +275,7 @@ MEDIA_FEED_FRAMES = "media:feed-frames"
 #: runtime implements only the synthetic backend; the hardware families are
 #: named so their absence is a HARD, named error, never a silent empty feed.
 MICROPHONE_REFERENCE = "media:audio;live;microphone"
-MICROPHONE_CONTENT = "media:audio-frames;pcm"
+MICROPHONE_CONTENT = "media:audio;audio-frames;pcm"
 WEBCAM_REFERENCE = "media:image;live;webcam"
 WEBCAM_CONTENT = "media:image;video-frame"
 

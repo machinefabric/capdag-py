@@ -321,7 +321,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                     "pdf",
                     caps=[
                         _make_cap(
-                            'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
+                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
                             title="Disbind PDF",
                             aliases=["disbind"],
                         )
@@ -355,8 +355,8 @@ def test_328_cartridge_repo_server_get_by_category():
 # whose tags appear in different declared order than the cap's still
 # resolves because the predicate is order-independent.
 def test_329_cartridge_repo_server_get_by_cap():
-    declared_urn = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
-    request_urn = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
 
     server = CartridgeRepoServer(_make_registry(release_entries={
         "pdfcartridge": _make_registry_entry(
@@ -402,8 +402,8 @@ def test_330_cartridge_repo_client_update_cache():
 # propagated from the source cartridge.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
-    declared_urn = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
-    request_urn = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
 
     info = _make_cartridge_info(
         id="pdfcartridge",
@@ -447,7 +447,7 @@ def test_332_cartridge_repo_client_get_cartridge():
 # TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
-    cap1 = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    cap1 = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
     cap2 = 'cap:in="media:enc=utf-8;ext=txt";disbind;out="media:disbound-page;enc=utf-8;list"'
     repo.update_cache(
         "https://example.com/cartridges",
@@ -566,7 +566,7 @@ def test_632_deserialize_minimal_registry_cap():
 def test_633_deserialize_rich_registry_cap():
     cap = RegistryCap.from_dict(
         {
-            "urn": 'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
+            "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
             "title": "Disbind PDF",
             "aliases": ["disbind"],
             "cap_description": "Extract each PDF page as plain page text.",
@@ -576,7 +576,7 @@ def test_633_deserialize_rich_registry_cap():
                     "required": True,
                     "is_sequence": False,
                     "sources": [
-                        {"stdin": "media:ext=pdf"},
+                        {"stdin": "media:document;ext=pdf"},
                         {"position": 0},
                     ],
                     "arg_description": "Path to the PDF file to process",
@@ -594,7 +594,7 @@ def test_633_deserialize_rich_registry_cap():
     assert cap.args is not None
     assert len(cap.args) == 1
     assert cap.args[0].media_urn == "media:enc=utf-8;file-path"
-    assert cap.args[0].sources[0].stdin == "media:ext=pdf"
+    assert cap.args[0].sources[0].stdin == "media:document;ext=pdf"
     assert cap.args[0].sources[1].position == 0
     assert cap.output is not None
     assert cap.output.media_urn == "media:enc=utf-8;page"
@@ -609,12 +609,12 @@ def test_634_deserialize_cap_group():
             "caps": [
                 {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
             ],
-            "adapter_urns": ["media:ext=pdf"],
+            "adapter_urns": ["media:document;ext=pdf"],
         }
     )
     assert group.name == "pdf-formats"
     assert len(group.caps) == 1
-    assert group.adapter_urns == ["media:ext=pdf"]
+    assert group.adapter_urns == ["media:document;ext=pdf"]
 
 
 # TEST635: CartridgeInfo deserializes the wire shape exactly as returned by /api/cartridges (camelCase top-level + snake_case cap_groups). Null camelCase string fields fall back to empty.
@@ -637,12 +637,12 @@ def test_635_deserialize_cartridge_info_wire_shape():
                     "caps": [
                         {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]},
                         {
-                            "urn": 'cap:in="media:ext=pdf";disbind;out="media:enc=utf-8;page"',
+                            "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
                             "title": "Disbind PDF Into Page Text",
                             "aliases": ["disbind"],
                         },
                     ],
-                    "adapter_urns": ["media:ext=pdf"],
+                    "adapter_urns": ["media:document;ext=pdf"],
                 }
             ],
             "categories": [],
@@ -699,7 +699,7 @@ def test_637_deserialize_full_registry_response():
                             "caps": [
                                 {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
                             ],
-                            "adapter_urns": ["media:ext=pdf"],
+                            "adapter_urns": ["media:document;ext=pdf"],
                         }
                     ],
                     "categories": [],
@@ -724,7 +724,7 @@ def test_637_deserialize_full_registry_response():
                                 {
                                     "urn": 'cap:in="media:ext=jpeg;image";convert-image;out="media:ext=png;image"',
                                     "title": "Convert JPEG to PNG",
-                                    "aliases": ["convert-image"],
+                                    "aliases": ["convert-image-jpeg-to-png"],
                                 }
                             ],
                             "adapter_urns": [

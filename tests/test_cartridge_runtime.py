@@ -539,9 +539,9 @@ def test_272_extract_effective_payload_multiple_args():
 # TEST273: Test extract_effective_payload with binary data in CBOR value (not just text)
 def test_273_extract_effective_payload_binary_value():
     binary_data = bytes(range(256))
-    args = [{"media_urn": "media:ext=pdf", "value": binary_data}]
+    args = [{"media_urn": "media:document;ext=pdf", "value": binary_data}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:ext=pdf";process;out=media:void', "Test", "process", [])
+    cap = create_test_cap('cap:in="media:document;ext=pdf";process;out=media:void', "Test", "process", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     result_arr = cbor2.loads(result)
     assert result_arr[0]["value"] == binary_data
@@ -578,14 +578,14 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
     test_file.write_bytes(b"PDF binary content 336")
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process PDF",
         "process",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -602,7 +602,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
             received_payload.append(collect_input_bytes(req.take_input()))
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
-    runtime.register_op('cap:in="media:ext=pdf";process;out=media:void', CollectBytesOp)
+    runtime.register_op('cap:in="media:document;ext=pdf";process;out=media:void', CollectBytesOp)
 
     # Simulate CLI invocation through the full runtime CLI flow.
     cli_args = [str(test_file)]
@@ -668,14 +668,14 @@ def test_338_file_path_via_cli_flag(tmp_path):
     test_file.write_bytes(b"PDF via flag 338")
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process",
         "process",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 CliFlagSource("--file"),
             ]
         )]
@@ -734,14 +734,14 @@ def test_340_file_not_found_clear_error():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";test;out=media:void',
+        'cap:in="media:document;ext=pdf";test;out=media:void',
         "Test",
         "test",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1048,14 +1048,14 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     test_file.write_bytes(test_content)
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:document;ext=pdf";process;out="media:enc=utf-8;result"',
         "Process PDF",
         "process",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1073,7 +1073,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op(
-        'cap:in="media:ext=pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:document;ext=pdf";process;out="media:enc=utf-8;result"',
         CollectBytesOp,
     )
 
@@ -1427,14 +1427,14 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
     test_file.write_bytes(pdf_content)
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process",
         "process",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1463,14 +1463,14 @@ def test_361_cli_mode_file_path(tmp_path):
     test_file.write_bytes(pdf_content)
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process",
         "process",
         [CapArg(
             media_urn="media:enc=utf-8;file-path",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
                 PositionSource(0),
             ]
         )]
@@ -1487,7 +1487,7 @@ def test_361_cli_mode_file_path(tmp_path):
     effective = extract_effective_payload(payload, "application/cbor", cap, True)
     arr = cbor2.loads(effective)
     assert len(arr) == 1
-    assert arr[0]["media_urn"] == "media:ext=pdf"
+    assert arr[0]["media_urn"] == "media:document;ext=pdf"
     assert arr[0]["value"] == pdf_content
 
 
@@ -1501,14 +1501,14 @@ def test_362_cli_mode_piped_binary():
 
     # Create cap that accepts stdin
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process",
         "process",
         [CapArg(
-            media_urn="media:ext=pdf",
+            media_urn="media:document;ext=pdf",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
             ]
         )]
     )
@@ -1534,7 +1534,7 @@ def test_362_cli_mode_piped_binary():
     media_urn = arg_map.get("media_urn")
     value = arg_map.get("value")
 
-    assert media_urn == "media:ext=pdf", "Media URN should match cap in_spec"
+    assert media_urn == "media:document;ext=pdf", "Media URN should match cap in_spec"
     assert value == pdf_content, "Binary content should be preserved exactly"
 
 
@@ -1558,14 +1558,14 @@ def test_363_cbor_mode_chunked_content():
         def metadata(self): return OpMetadata.builder("StreamingOp").build()
 
     cap = create_test_cap(
-        'cap:in="media:ext=pdf";process;out=media:void',
+        'cap:in="media:document;ext=pdf";process;out=media:void',
         "Process",
         "process",
         [CapArg(
-            media_urn="media:ext=pdf",
+            media_urn="media:document;ext=pdf",
             required=True,
             sources=[
-                StdinSource("media:ext=pdf"),
+                StdinSource("media:document;ext=pdf"),
             ]
         )]
     )
@@ -1576,7 +1576,7 @@ def test_363_cbor_mode_chunked_content():
 
     # Build CBOR payload
     from capdag.cap.caller import CapArgumentValue
-    args = [CapArgumentValue(media_urn="media:ext=pdf", value=pdf_content)]
+    args = [CapArgumentValue(media_urn="media:document;ext=pdf", value=pdf_content)]
     payload_bytes = cbor2.dumps([
         {
             "media_urn": arg.media_urn,
@@ -2322,7 +2322,7 @@ def test_8137_main_input_fallback_resolves_live_reference():
 def test_8138_main_input_fallback_content_mismatch_rejected():
     from capdag.bifaci.cartridge_runtime import demux_multi_stream
 
-    ctx, _providers, _handles = _blind_live_feed_ctx("media:audio-frames;pcm")
+    ctx, _providers, _handles = _blind_live_feed_ctx("media:audio;audio-frames;pcm")
     raw_queue = queue.Queue()
     rid = MessageId.new_uuid()
     _send_live_reference(raw_queue, rid, "{}")
@@ -2340,7 +2340,7 @@ def test_8126_derive_response_media_per_effect():
     from capdag.bifaci.cartridge_runtime import derive_response_media
 
     assert (
-        derive_response_media('cap:extract;in="media:ext=pdf";out="media:record"')
+        derive_response_media('cap:extract;in="media:document;ext=pdf";out="media:record"')
         == "media:record"
     ), "effect=declared derives the declared out="
     assert (

@@ -66,8 +66,15 @@ MEDIA_BMP = "media:ext=bmp;image"
 MEDIA_TIFF = "media:ext=tiff;image"
 # Media URN for WebP image data
 MEDIA_WEBP = "media:ext=webp;image"
-# Media URN for audio data (wav, mp3, flac, etc.)
-MEDIA_AUDIO = "media:audio;ext=wav"
+# The mediums. Each is the type every format of that medium conforms to
+# (`media:ext=png;image` is a `media:image`), and what an abstract cap over
+# per-format caps declares.
+# Media URN for an image in any format (png, jpeg, webp, etc.)
+MEDIA_IMAGE = "media:image"
+# Media URN for audio in any format (wav, mp3, flac, raw frames, etc.)
+MEDIA_AUDIO = "media:audio"
+# Media URN for a document in any format (pdf, docx, epub, etc.)
+MEDIA_DOCUMENT = "media:document"
 # Media URN for WAV audio data
 MEDIA_WAV = "media:audio;ext=wav"
 # Media URN for MP3 audio data
@@ -84,7 +91,7 @@ MEDIA_M4A = "media:audio;ext=m4a"
 MEDIA_AIFF = "media:audio;ext=aiff"
 # Media URN for Opus audio data
 MEDIA_OPUS = "media:audio;ext=opus"
-# Media URN for video data (mp4, webm, mov, etc.)
+# Media URN for a video in any container (mp4, webm, mov, etc.)
 MEDIA_VIDEO = "media:video"
 # Media URN for MP4 video data
 MEDIA_MP4 = "media:ext=mp4;video"
@@ -101,9 +108,9 @@ MEDIA_AUDIO_SPEECH = "media:audio;ext=wav;speech"
 
 # Document types (PRIMARY naming - type IS the format)
 # Media URN for PDF documents
-MEDIA_PDF = "media:ext=pdf"
+MEDIA_PDF = "media:document;ext=pdf"
 # Media URN for EPUB documents
-MEDIA_EPUB = "media:ext=epub"
+MEDIA_EPUB = "media:document;ext=epub"
 
 # Text format types (PRIMARY naming - type IS the format)
 # Media URN for Markdown text
@@ -246,7 +253,7 @@ MEDIA_FABRIC_DEFVER = "media:defver;enc=utf-8"
 # looks up the `ext` tag) resolves correctly.
 def file_media_urn_for_ext(ext: str) -> str:
     """Helper to build a bare file media URN for a given extension — a file of
-    the given type with no content-format or encoding claim (e.g. media:ext=pdf)."""
+    the given type with no content-format or encoding claim (e.g. media:document;ext=pdf)."""
     return f"media:ext={ext}"
 
 
@@ -356,8 +363,8 @@ class MediaUrn:
 
         - Empty input -> media: (universal type)
         - Single input -> returned as-is
-        - [media:ext=pdf, media:ext=pdf] -> media:ext=pdf
-        - [media:ext=pdf, media:ext=png;image] -> media: (no common tags)
+        - [media:document;ext=pdf, media:document;ext=pdf] -> media:document;ext=pdf
+        - [media:document;ext=pdf, media:ext=png;image] -> media: (no common tags)
         - [media:fmt=json, media:fmt=csv] -> media:enc=utf-8
         """
         from tagged_urn import TaggedUrn
@@ -413,7 +420,7 @@ class MediaUrn:
     def meets(self, other: "MediaUrn") -> bool:
         """Whether this media type and ``other`` COULD describe the same value:
         not a guarantee (``conforms_to``), and not excluded. ``media:ext`` meets
-        ``media:ext=pdf``; ``media:ext=pdf`` does not meet ``media:ext=png``."""
+        ``media:document;ext=pdf``; ``media:document;ext=pdf`` does not meet ``media:ext=png``."""
         return self._urn.meets(other._urn)
 
     def satisfies(self, pattern: "MediaUrn") -> bool:

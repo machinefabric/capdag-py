@@ -15,6 +15,8 @@ from capdag import (
     MEDIA_OBJECT,
     MEDIA_IDENTITY,
     MEDIA_PNG,
+    MEDIA_IMAGE,
+    MEDIA_DOCUMENT,
     MEDIA_JSON,
     MEDIA_PDF,
     MEDIA_AVAILABILITY_OUTPUT,
@@ -187,7 +189,7 @@ def test_073_extension_helpers():
 # TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 def test_074_media_urn_matching():
     # A more-specific URN must conform to a less-specific URN with the
-    # same tags-minus-one. media:ext=pdf carries the keyed ext tag plus
+    # same tags-minus-one. media:document;ext=pdf carries the keyed ext tag plus
     # nothing else, so it conforms to the bare-prefix media: top URN.
     pdf_listing = MediaUrn.from_string(MEDIA_PDF)
     top_requirement = MediaUrn.from_string("media:")
@@ -277,7 +279,7 @@ def test_306_availability_and_path_output_distinct():
     assert avail_urn.to_string() != path_urn.to_string()
 
 
-# TEST546: is_image returns true only when image marker tag is present
+# TEST546: is_image returns true only when image marker tag is present; a format conforms to its own medium and to no other
 def test_546_is_image():
     assert MediaUrn.from_string(MEDIA_PNG).is_image()
     assert MediaUrn.from_string("media:ext=jpg;image").is_image()
@@ -286,6 +288,20 @@ def test_546_is_image():
     assert not MediaUrn.from_string(MEDIA_STRING).is_image()
     assert not MediaUrn.from_string(MEDIA_AUDIO).is_image()
     assert not MediaUrn.from_string(MEDIA_VIDEO).is_image()
+
+    # The medium itself, and what its formats are to it.
+    image = MediaUrn.from_string(MEDIA_IMAGE)
+    document = MediaUrn.from_string(MEDIA_DOCUMENT)
+    png = MediaUrn.from_string(MEDIA_PNG)
+    pdf = MediaUrn.from_string(MEDIA_PDF)
+    assert image.is_image()
+    assert not document.is_image()
+    assert png.conforms_to(image)
+    assert pdf.conforms_to(document)
+    assert not png.conforms_to(document)
+    assert not pdf.conforms_to(image)
+    # The medium is wider than any one format of it.
+    assert not image.conforms_to(png)
 
 
 # TEST547: is_audio returns true only when audio marker tag is present
@@ -424,14 +440,14 @@ def test_558_predicate_constant_consistency():
 
 # TEST852: LUB of identical URNs returns the same URN
 def test_852_lub_identical():
-    pdf = MediaUrn.from_string("media:ext=pdf")
+    pdf = MediaUrn.from_string("media:document;ext=pdf")
     lub = MediaUrn.least_upper_bound([pdf, pdf])
     assert lub.is_equivalent(pdf)
 
 
 # TEST853: LUB of URNs with no common tags returns media: (universal)
 def test_853_lub_no_common_tags():
-    pdf = MediaUrn.from_string("media:ext=pdf")
+    pdf = MediaUrn.from_string("media:document;ext=pdf")
     png = MediaUrn.from_string("media:ext=png;image")
     lub = MediaUrn.least_upper_bound([pdf, png])
     universal = MediaUrn.from_string("media:")
@@ -469,7 +485,7 @@ def test_856_lub_empty():
 
 # TEST857: LUB of single input returns that input
 def test_857_lub_single():
-    pdf = MediaUrn.from_string("media:ext=pdf")
+    pdf = MediaUrn.from_string("media:document;ext=pdf")
     lub = MediaUrn.least_upper_bound([pdf])
     assert lub.is_equivalent(pdf)
 

@@ -44,10 +44,10 @@ def _media(s: str) -> MediaUrn:
 @pytest.mark.asyncio
 async def test_1256_parse_simple_machine():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:ext=pdf"], "media:enc=utf-8;ext=txt"),
+        ('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt"),
     ])
     notation = (
-        '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'
+        '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'
         "[A -> extract -> B]"
     )
     graph = await parse_machine_to_cap_dag(notation, registry)
@@ -55,7 +55,7 @@ async def test_1256_parse_simple_machine():
     assert len(graph.edges) == 1
 
     node_a = _media(graph.nodes["A"])
-    assert node_a.is_equivalent(_media("media:ext=pdf"))
+    assert node_a.is_equivalent(_media("media:document;ext=pdf"))
 
     node_b = _media(graph.nodes["B"])
     assert node_b.is_equivalent(_media("media:enc=utf-8;ext=txt"))
@@ -65,12 +65,12 @@ async def test_1256_parse_simple_machine():
 @pytest.mark.asyncio
 async def test_1257_parse_two_step_chain():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:ext=pdf"], "media:enc=utf-8;ext=txt"),
+        ('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt"),
         ('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"',
          ["media:enc=utf-8;ext=txt"], "media:embedding-vector;enc=utf-8;record"),
     ])
     notation = (
-        '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'
+        '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'
         '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]'
         "[A -> extract -> B]"
         "[B -> embed -> C]"
@@ -110,17 +110,17 @@ async def test_1262_invalid_machine_notation():
 @pytest.mark.asyncio
 async def test_1258_parse_fan_out():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"',
-         ["media:ext=pdf"], "media:enc=utf-8;file-metadata;record"),
-        ('cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"',
-         ["media:ext=pdf"], "media:document-outline;enc=utf-8;record"),
-        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
-         ["media:ext=pdf"], "media:ext=png;image;thumbnail"),
+        ('cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"',
+         ["media:document;ext=pdf"], "media:enc=utf-8;file-metadata;record"),
+        ('cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"',
+         ["media:document;ext=pdf"], "media:document-outline;enc=utf-8;record"),
+        ('cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
+         ["media:document;ext=pdf"], "media:ext=png;image;thumbnail"),
     ])
     notation = (
-        '[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]'
-        '[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]'
-        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
+        '[meta cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]'
+        '[outline cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]'
+        '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
         "[doc -> meta -> metadata]"
         "[doc -> outline -> outline_data]"
         "[doc -> thumb -> thumbnail]"
@@ -134,15 +134,15 @@ async def test_1258_parse_fan_out():
 @pytest.mark.asyncio
 async def test_1259_parse_fan_in():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
-         ["media:ext=pdf"], "media:ext=png;image;thumbnail"),
+        ('cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"',
+         ["media:document;ext=pdf"], "media:ext=png;image;thumbnail"),
         ('cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"',
          ["media:enc=utf-8;model-spec"], "media:enc=utf-8;model-spec"),
         ('cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"',
          ["media:ext=png;image", "media:enc=utf-8;model-spec"], "media:enc=utf-8;image-description"),
     ])
     notation = (
-        '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
+        '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]'
         '[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]'
         '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]'
         "[doc -> thumb -> thumbnail]"
@@ -197,13 +197,13 @@ async def test_1263_cycle_detection():
 @pytest.mark.asyncio
 async def test_1264_incompatible_media_types_at_shared_node():
     registry = _build_registry([
-        ('cap:in="media:void";produce-pdf;out="media:ext=pdf"',
-         ["media:void"], "media:ext=pdf"),
+        ('cap:in="media:void";produce-pdf;out="media:document;ext=pdf"',
+         ["media:void"], "media:document;ext=pdf"),
         ('cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt"',
          ["media:audio;ext=wav"], "media:enc=utf-8;ext=txt"),
     ])
     notation = (
-        '[produce cap:in="media:void";produce-pdf;out="media:ext=pdf"]'
+        '[produce cap:in="media:void";produce-pdf;out="media:document;ext=pdf"]'
         '[transcribe cap:in="media:audio;ext=wav";transcribe;out="media:enc=utf-8;ext=txt"]'
         "[A -> produce -> B]"
         "[B -> transcribe -> C]"
@@ -226,13 +226,13 @@ async def test_1264_incompatible_media_types_at_shared_node():
 @pytest.mark.asyncio
 async def test_1265_compatible_media_urns_at_shared_node():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"',
-         ["media:ext=pdf"], "media:ext=png;image"),
+        ('cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"',
+         ["media:document;ext=pdf"], "media:ext=png;image"),
         ('cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record"',
          ["media:bytes;ext=png;image"], "media:embedding-vector;enc=utf-8;record"),
     ])
     notation = (
-        '[thumb cap:in="media:ext=pdf";thumbnail;out="media:ext=png;image"]'
+        '[thumb cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"]'
         '[embed_image cap:in="media:bytes;ext=png;image";embed-image;out="media:embedding-vector;enc=utf-8;record"]'
         "[A -> thumb -> B]"
         "[B -> embed_image -> C]"
@@ -304,10 +304,10 @@ async def test_1268_structure_match_both_opaque():
 @pytest.mark.asyncio
 async def test_1269_parse_multiline_machine():
     registry = _build_registry([
-        ('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
-         ["media:ext=pdf"], "media:enc=utf-8;ext=txt"),
+        ('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+         ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt"),
     ])
-    notation = '\n[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]\n'
+    notation = '\n[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]\n'
     result = await parse_machine_to_cap_dag(notation, registry)
     assert result is not None, "Multi-line parse failed"
 

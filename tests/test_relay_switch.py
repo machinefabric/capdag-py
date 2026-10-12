@@ -410,7 +410,7 @@ def test_429_find_master_for_cap():
     assert "cap:double;in=media:void;out=media:void" in cap_list
 
 
-# TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
+# TEST437: find_master_for_cap with preferred_cap routes to generic handler With is_dispatchable semantics: - Generic candidate (in=media:) CAN dispatch specific request (in="media:document;ext=pdf") because media: (wildcard) accepts any input type - Preference routes to preferred among dispatchable candidates
 def test_437_preferred_cap_routes_to_generic():
     engine_read1, slave_write1 = socket.socketpair()
     slave_read1, engine_write1 = socket.socketpair()
@@ -430,7 +430,7 @@ def test_437_preferred_cap_routes_to_generic():
     def slave2_thread():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        send_notify(writer, make_manifest('cap:in=\"media:ext=pdf\";out=media:'), Limits.default())
+        send_notify(writer, make_manifest('cap:in=\"media:document;ext=pdf\";out=media:'), Limits.default())
         done2.set()
         complete_identity_verification(reader, writer)
 
@@ -445,7 +445,7 @@ def test_437_preferred_cap_routes_to_generic():
     ])
 
     assert switch._find_master_for_cap(
-        'cap:in=\"media:ext=pdf\";out=media:',
+        'cap:in=\"media:document;ext=pdf\";out=media:',
         preferred_cap=CAP_GENERIC,
     ) == 0
 
@@ -486,11 +486,11 @@ def test_438_preferred_cap_falls_back_when_not_comparable():
 
     assert switch._find_master_for_cap(
         'cap:in=\"media:text\";out=media:text',
-        preferred_cap='cap:in=\"media:ext=pdf\";out=\"media:ext=pdf\"',
+        preferred_cap='cap:in=\"media:document;ext=pdf\";out=\"media:document;ext=pdf\"',
     ) == 0
 
 
-# TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
+# TEST439: Generic candidate CAN dispatch specific request (but only matches if no more specific candidate exists) With is_dispatchable: generic candidate (in=media:) CAN handle specific request (in="media:document;ext=pdf") because media: accepts any input type. With preference, can route to generic even when more specific exists.
 def test_439_generic_candidate_can_dispatch_specific_request():
     engine_read1, slave_write1 = socket.socketpair()
     slave_read1, engine_write1 = socket.socketpair()
@@ -510,7 +510,7 @@ def test_439_generic_candidate_can_dispatch_specific_request():
     def slave2_thread():
         reader = FrameReader(slave_read2.makefile('rb'))
         writer = FrameWriter(slave_write2.makefile('wb'))
-        send_notify(writer, make_manifest('cap:in=\"media:ext=pdf\";out=media:'), Limits.default())
+        send_notify(writer, make_manifest('cap:in=\"media:document;ext=pdf\";out=media:'), Limits.default())
         done2.set()
         complete_identity_verification(reader, writer)
 
@@ -524,9 +524,9 @@ def test_439_generic_candidate_can_dispatch_specific_request():
         SocketPair(id="test-master-11", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
     ])
 
-    assert switch._find_master_for_cap('cap:in=\"media:ext=pdf\";out=media:') == 1
+    assert switch._find_master_for_cap('cap:in=\"media:document;ext=pdf\";out=media:') == 1
     assert switch._find_master_for_cap(
-        'cap:in=\"media:ext=pdf\";out=media:',
+        'cap:in=\"media:document;ext=pdf\";out=media:',
         preferred_cap=CAP_GENERIC,
     ) == 0
 
@@ -898,7 +898,7 @@ def test_666_preferred_cap_routing():
     done2 = threading.Event()
 
     generic_cap = CAP_GENERIC
-    specific_cap = 'cap:in="media:ext=pdf";out=media:'
+    specific_cap = 'cap:in="media:document;ext=pdf";out=media:'
 
     def slave1_thread():
         reader = FrameReader(slave_read1.makefile("rb"))
@@ -924,7 +924,7 @@ def test_666_preferred_cap_routing():
         SocketPair(id="test-master-23", read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb")),
     ])
 
-    request = 'cap:in="media:ext=pdf";out=media:'
+    request = 'cap:in="media:document;ext=pdf";out=media:'
     assert switch._find_master_for_cap(request) == 1
     assert switch._find_master_for_cap(request, preferred_cap=specific_cap) == 1
     assert switch._find_master_for_cap(request, preferred_cap=generic_cap) == 0

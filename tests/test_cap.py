@@ -511,9 +511,9 @@ def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
     arg = CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
-        sources=[StdinSource("media:ext=pdf;pdf-stream")],
+        sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
-    assert arg.stream_urn() == "media:ext=pdf;pdf-stream"
+    assert arg.stream_urn() == "media:document;ext=pdf;pdf-stream"
     assert arg.stream_urn() != arg.media_urn
 
 
@@ -522,11 +522,11 @@ def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
 # spec — even when the two strings list their tags in a different order.
 # Compared by tagged-URN equivalence, never as strings.
 def test_8104_cap_arg_is_main_input_true_when_stdin_urn_equivalent_to_in_spec():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
-        sources=[StdinSource("media:pdf-stream;ext=pdf")],  # same tags, different order
+        sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
     assert arg.is_main_input(in_spec)
     # Confirm the raw strings genuinely differ (proves the comparison is
@@ -538,7 +538,7 @@ def test_8104_cap_arg_is_main_input_true_when_stdin_urn_equivalent_to_in_spec():
 # no Stdin source, and False when it has a Stdin source whose URN does not
 # match in_spec.
 def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
 
     no_stdin_arg = CapArg(
         media_urn="media:max-tokens;numeric",
@@ -559,7 +559,7 @@ def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
 # of is_main_input — mirrors the Rust reference's `unwrap_or(false)`
 # fail-soft on MediaUrn parse failure.
 def test_8106_cap_arg_is_main_input_false_on_unparseable_stdin_urn():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
@@ -601,9 +601,9 @@ def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn(
     arg = CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
-        sources=[StdinSource("media:ext=pdf;pdf-stream")],
+        sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
-    assert arg.stream_urn() == "media:ext=pdf;pdf-stream"
+    assert arg.stream_urn() == "media:document;ext=pdf;pdf-stream"
     assert arg.stream_urn() != arg.media_urn
 
 
@@ -624,33 +624,33 @@ def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source()
 # in a different order — the comparison is the MediaUrn equivalence
 # predicate, never a string comparison.
 def test_7102_is_main_input_true_on_tag_order_insensitive_equivalence_to_in_spec():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
         media_urn="media:enc=utf-8;file-path",
         required=True,
-        sources=[StdinSource("media:pdf-stream;ext=pdf")],  # same tags, different order
+        sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
     assert arg.is_main_input(in_spec)
     # The raw strings genuinely differ — proves the match is equivalence,
     # not string equality.
-    assert in_spec.to_string() != "media:pdf-stream;ext=pdf"
+    assert in_spec.to_string() != "media:pdf-stream;document;ext=pdf"
 
 
 # TEST7103: is_main_input() is False for cli_flag-only and position-only args
 # (no Stdin source means never the main input, whatever the declared slot URN
 # says), and False when the Stdin URN is not equivalent to in=.
 def test_7103_is_main_input_false_without_equivalent_stdin_source():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
 
     cli_flag_only = CapArg(
-        media_urn="media:ext=pdf;pdf-stream",  # slot URN even matches in= — irrelevant
+        media_urn="media:document;ext=pdf;pdf-stream",  # slot URN even matches in= — irrelevant
         required=True,
         sources=[CliFlagSource("--input")],
     )
     assert not cli_flag_only.is_main_input(in_spec)
 
     position_only = CapArg(
-        media_urn="media:ext=pdf;pdf-stream",
+        media_urn="media:document;ext=pdf;pdf-stream",
         required=True,
         sources=[PositionSource(0)],
     )
@@ -669,7 +669,7 @@ def test_7103_is_main_input_false_without_equivalent_stdin_source():
 # is the main input, and partitioning the remaining args by
 # required-without-default vs has-default yields the expected sets.
 def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
-    in_spec = MediaUrn.from_string("media:ext=pdf;pdf-stream")
+    in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
 
     args = [
         CapArg(
@@ -677,7 +677,7 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
             required=True,
             # Main input may ALSO be delivered by cli-flag; stdin is the
             # defining route.
-            sources=[StdinSource("media:pdf-stream;ext=pdf"), CliFlagSource("--input")],
+            sources=[StdinSource("media:pdf-stream;document;ext=pdf"), CliFlagSource("--input")],
         ),
         CapArg(
             media_urn="media:enc=utf-8;question",

@@ -126,9 +126,9 @@ def test_150_cap_manifest_json_serialization():
     cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     cap.add_arg(CapArg(
-        media_urn="media:ext=pdf",
+        media_urn="media:document;ext=pdf",
         required=True,
-        sources=[StdinSource("media:ext=pdf")],
+        sources=[StdinSource("media:document;ext=pdf")],
     ))
     cap.add_arg(CapArg(
         media_urn="media:chunk-size;numeric",
@@ -395,7 +395,7 @@ def test_7152_empty_adapter_urns_is_omitted():
     )
 
     # A group that DOES claim adapters still writes them.
-    claiming = CapGroup(name="default", caps=[], adapter_urns=["media:ext=pdf"])
-    assert claiming.to_dict()["adapter_urns"] == ["media:ext=pdf"], (
+    claiming = CapGroup(name="default", caps=[], adapter_urns=["media:document;ext=pdf"])
+    assert claiming.to_dict()["adapter_urns"] == ["media:document;ext=pdf"], (
         "a non-empty adapter_urns must be written"
     )

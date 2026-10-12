@@ -129,7 +129,7 @@ def test_736_topological_order_complex_dag():
 
 # TEST737: Tests linear_chain() with exactly one capability Verifies that a single-element chain produces a valid plan with input_slot, cap, and output
 def test_737_linear_chain_single_cap():
-    plan = MachinePlan.linear_chain(["cap:only"], "media:ext=pdf", "media:ext=png;image", ["source_file"])
+    plan = MachinePlan.linear_chain(["cap:only"], "media:document;ext=pdf", "media:ext=png;image", ["source_file"])
     assert len(plan.nodes) == 3
     assert len(plan.edges) == 2
     plan.validate()
@@ -137,7 +137,7 @@ def test_737_linear_chain_single_cap():
 
 # TEST738: Tests linear_chain() with empty capability list Verifies that an empty chain produces a plan with zero nodes and edges
 def test_738_linear_chain_empty():
-    plan = MachinePlan.linear_chain([], "media:ext=pdf", "media:ext=png;image", [])
+    plan = MachinePlan.linear_chain([], "media:document;ext=pdf", "media:ext=png;image", [])
     assert len(plan.nodes) == 0
     assert len(plan.edges) == 0
 
@@ -182,7 +182,7 @@ def test_743_execution_node_type_serialization():
 
 # TEST744: Tests MachinePlan serialization and deserialization to/from JSON Verifies that complete plans with nodes and edges correctly round-trip through JSON
 def test_744_plan_serialization():
-    plan = MachinePlan.single_cap("cap:test", "media:ext=pdf", "media:ext=png;image", "input_file")
+    plan = MachinePlan.single_cap("cap:test", "media:document;ext=pdf", "media:ext=png;image", "input_file")
     payload = json.dumps(plan.to_dict())
     assert "cap:test" in payload
     assert "input_slot" in payload
@@ -236,7 +236,7 @@ def test_748_cap_node_split():
 
 # TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None
 def test_749_get_node():
-    plan = MachinePlan.single_cap("cap:test", "media:ext=pdf", "media:ext=png;image", "doc_path")
+    plan = MachinePlan.single_cap("cap:test", "media:document;ext=pdf", "media:ext=png;image", "doc_path")
     assert plan.get_node("cap_0") is not None
     assert plan.get_node("input_slot") is not None
     assert plan.get_node("output") is not None
@@ -245,7 +245,7 @@ def test_749_get_node():
 
 def _build_foreach_plan_with_collect():
     plan = MachinePlan("ForEach test plan")
-    plan.add_node(MachineNode.input_slot("input_slot", "input", "media:ext=pdf", InputCardinality.SINGLE))
+    plan.add_node(MachineNode.input_slot("input_slot", "input", "media:document;ext=pdf", InputCardinality.SINGLE))
     plan.add_node(MachineNode.cap("cap_0", 'cap:in=media:pdf;out="media:pdf-page;list"'))
     plan.add_node(MachineNode.for_each("foreach_0", "cap_0", "body_cap_0", "body_cap_1"))
     plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:enc=utf-8;text"'))
@@ -279,7 +279,7 @@ def _build_foreach_plan_with_collect():
 
 def _build_foreach_plan_unclosed():
     plan = MachinePlan("Unclosed ForEach test plan")
-    plan.add_node(MachineNode.input_slot("input_slot", "input", "media:ext=pdf", InputCardinality.SINGLE))
+    plan.add_node(MachineNode.input_slot("input_slot", "input", "media:document;ext=pdf", InputCardinality.SINGLE))
     plan.add_node(MachineNode.cap("cap_0", 'cap:in=media:pdf;out="media:pdf-page;list"'))
     plan.add_node(MachineNode.for_each("foreach_0", "cap_0", "body_cap_0", "body_cap_0"))
     plan.add_node(
@@ -406,7 +406,7 @@ def test_934_find_first_foreach():
 
 # TEST935: find_first_foreach returns None for linear plans
 def test_935_find_first_foreach_linear():
-    plan = MachinePlan.linear_chain(["cap:a", "cap:b"], "media:ext=pdf", "media:ext=png;image", ["input_a", "input_b"])
+    plan = MachinePlan.linear_chain(["cap:a", "cap:b"], "media:document;ext=pdf", "media:ext=png;image", ["input_a", "input_b"])
     assert plan.find_first_foreach() is None
 
 
@@ -415,7 +415,7 @@ def test_936_has_foreach():
     foreach_plan = _build_foreach_plan_with_collect()
     assert foreach_plan.has_foreach()
 
-    linear_plan = MachinePlan.linear_chain(["cap:a"], "media:ext=pdf", "media:ext=png;image", ["input_a"])
+    linear_plan = MachinePlan.linear_chain(["cap:a"], "media:document;ext=pdf", "media:ext=png;image", ["input_a"])
     assert not linear_plan.has_foreach()
 
     standalone_collect_plan = MachinePlan("collect_only")

@@ -42,7 +42,7 @@ def test_668_resolve_slot_with_populated_byte_slot_values():
     binding = ArgumentBinding.slot("media:numeric;width")
     result = resolve_binding(
         binding, ctx,
-        'cap:in="media:ext=pdf";resize;out="media:ext=pdf"',
+        'cap:in="media:document;ext=pdf";resize;out="media:document;ext=pdf"',
         "step_0",
         None, True,
     )
@@ -81,7 +81,7 @@ def test_671_resolve_optional_slot_no_value_returns_none():
 
 # TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve.
 def test_1105_two_steps_same_cap_urn_different_slot_values():
-    cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
+    cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;list;question"
     slot_values = {
         f"step_0:{slot_name}": b"Is this a contract?",
@@ -108,7 +108,7 @@ def test_1105_two_steps_same_cap_urn_different_slot_values():
 
 # TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 def test_1106_slot_falls_through_to_cap_settings_shared():
-    cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
+    cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;language"
     cap_settings = {
         cap_urn: {slot_name: "en"},
@@ -128,7 +128,7 @@ def test_1106_slot_falls_through_to_cap_settings_shared():
 
 # TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback.
 def test_1107_slot_value_overrides_cap_settings_per_step():
-    cap_urn = 'cap:in="media:ext=pdf";make-decision;out="media:bool;enc=utf-8"'
+    cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool;enc=utf-8"'
     slot_name = "media:enc=utf-8;language"
     slot_values = {
         f"step_0:{slot_name}": b"fr",
@@ -182,7 +182,7 @@ def test_1108_resolve_all_passes_node_id():
 
 # TEST1109: Slot key uses node_id, NOT cap_urn — a slot_value keyed by cap_urn must not match.
 def test_1109_slot_key_uses_node_id_not_cap_urn():
-    cap_urn = 'cap:in="media:ext=pdf";resize;out="media:ext=pdf"'
+    cap_urn = 'cap:in="media:document;ext=pdf";resize;out="media:document;ext=pdf"'
     slot_name = "media:numeric;width"
     # Deliberately key by cap_urn (the OLD format) — should NOT match
     slot_values = {
@@ -233,7 +233,7 @@ def test_795_argument_bindings_unresolved_slots():
 
 # TEST796: Tests resolve_binding resolves InputFilePath to current file path Verifies InputFilePath binding resolves to file path bytes with InputFile source
 def test_796_resolve_input_file_path():
-    files = [CapInputFile("/path/to/file.pdf", "media:ext=pdf")]
+    files = [CapInputFile("/path/to/file.pdf", "media:document;ext=pdf")]
     ctx = _empty_context(input_files=files)
     result = resolve_binding(
         ArgumentBinding.input_file_path(),
@@ -281,7 +281,7 @@ def test_798_resolve_previous_output():
 
 # TEST799: Tests StrandInput single constructor creates valid Single cardinality input Verifies single() wraps one file with Single cardinality and validates correctly
 def test_799_machine_input_single():
-    input_file = CapInputFile("/path/to/file.pdf", "media:ext=pdf")
+    input_file = CapInputFile("/path/to/file.pdf", "media:document;ext=pdf")
     strand_input = StrandInput.single(input_file)
     assert len(strand_input.files) == 1
     assert strand_input.cardinality.value == "single"
@@ -291,10 +291,10 @@ def test_799_machine_input_single():
 # TEST800: Tests StrandInput sequence constructor creates valid Sequence cardinality input Verifies sequence() wraps multiple files with Sequence cardinality
 def test_800_machine_input_vector():
     files = [
-        CapInputFile("/path/1.pdf", "media:ext=pdf"),
-        CapInputFile("/path/2.pdf", "media:ext=pdf"),
+        CapInputFile("/path/1.pdf", "media:document;ext=pdf"),
+        CapInputFile("/path/2.pdf", "media:document;ext=pdf"),
     ]
-    strand_input = StrandInput.sequence(files, "media:ext=pdf")
+    strand_input = StrandInput.sequence(files, "media:document;ext=pdf")
     assert len(strand_input.files) == 2
     assert strand_input.cardinality.value == "sequence"
     assert strand_input.is_valid()
@@ -305,7 +305,7 @@ def test_801_cap_input_file_deserialization_from_dry_context():
     payload = [
         {
             "file_path": "/fixtures/aws_in_action.pdf",
-            "media_urn": "media:ext=pdf",
+            "media_urn": "media:document;ext=pdf",
             "source_id": "1b964d3b-f409-4f51-8684-884348ec2501",
             "source_type": "listing",
         }
@@ -318,7 +318,7 @@ def test_801_cap_input_file_deserialization_from_dry_context():
 # TEST802: Tests CapInputFile deserializes from compact JSON via serde_json::Value Verifies deserialization through Value intermediate works correctly
 def test_802_cap_input_file_deserialization_via_value():
     payload = json.loads(
-        '[{"file_path":"/path/to/file.pdf","media_urn":"media:ext=pdf","source_id":"abc123","source_type":"listing"}]'
+        '[{"file_path":"/path/to/file.pdf","media_urn":"media:document;ext=pdf","source_id":"abc123","source_type":"listing"}]'
     )
     files = [CapInputFile.from_dict(item) for item in payload]
     assert len(files) == 1
@@ -329,34 +329,34 @@ def test_802_cap_input_file_deserialization_via_value():
 def test_803_machine_input_invalid_single():
     strand_input = StrandInput(
         files=[
-            CapInputFile("/path/1.pdf", "media:ext=pdf"),
-            CapInputFile("/path/2.pdf", "media:ext=pdf"),
+            CapInputFile("/path/1.pdf", "media:document;ext=pdf"),
+            CapInputFile("/path/2.pdf", "media:document;ext=pdf"),
         ],
-        expected_media_urn="media:ext=pdf",
-        cardinality=StrandInput.single(CapInputFile("/tmp/x.pdf", "media:ext=pdf")).cardinality,
+        expected_media_urn="media:document;ext=pdf",
+        cardinality=StrandInput.single(CapInputFile("/tmp/x.pdf", "media:document;ext=pdf")).cardinality,
     )
     assert not strand_input.is_valid()
 
 
 # TEST957: Tests CapInputFile constructor creates file with correct path and media URN Verifies new() initializes file_path, media_urn and leaves metadata/source_id as None
 def test_957_cap_input_file_new():
-    file = CapInputFile("/path/to/file.pdf", "media:ext=pdf")
+    file = CapInputFile("/path/to/file.pdf", "media:document;ext=pdf")
     assert file.file_path == "/path/to/file.pdf"
-    assert file.media_urn == "media:ext=pdf"
+    assert file.media_urn == "media:document;ext=pdf"
     assert file.metadata is None
     assert file.source_id is None
 
 
 # TEST958: Tests CapInputFile from_listing sets source metadata correctly Verifies from_listing() populates source_id and source_type as Listing
 def test_958_cap_input_file_from_listing():
-    file = CapInputFile.from_listing("listing-123", "/path/to/file.pdf", "media:ext=pdf")
+    file = CapInputFile.from_listing("listing-123", "/path/to/file.pdf", "media:document;ext=pdf")
     assert file.source_id == "listing-123"
     assert file.source_type == SourceEntityType.LISTING
 
 
 # TEST959: Tests CapInputFile extracts filename from full path correctly Verifies filename() returns just the basename without directory path
 def test_959_cap_input_file_filename():
-    file = CapInputFile("/path/to/document.pdf", "media:ext=pdf")
+    file = CapInputFile("/path/to/document.pdf", "media:document;ext=pdf")
     assert file.filename() == "document.pdf"
 
 
