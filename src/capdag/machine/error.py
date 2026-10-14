@@ -580,6 +580,28 @@ class SourceDoesNotConformToMachineInputError(_AtStatement):
         self.source_urn = source_urn
 
 
+class UncachedMediaDefError(MachineAbstractionError):
+    """A node's media has no cached definition: the render payload has no
+    title for it, and a title is never made up from a URN."""
+
+    def __init__(self, media_urn: str):
+        super().__init__(
+            f"media URN '{media_urn}' has no cached spec — cannot emit a display title for render payload"
+        )
+        self.media_urn = media_urn
+
+
+class UncachedCapError(MachineAbstractionError):
+    """A step's cap has no cached definition: the render payload has no title
+    for it."""
+
+    def __init__(self, cap_urn: str):
+        super().__init__(
+            f"cap URN '{cap_urn}' has no cached definition — cannot emit a display title for render payload"
+        )
+        self.cap_urn = cap_urn
+
+
 class NodeMediaConflictError(MachineAbstractionError):
     """The wirings that touch a node give it URNs that are not on one
     specialization chain."""

@@ -59,6 +59,8 @@ from capdag.machine.error import (
     NoCapabilityStepsError,
     NodeAliasCollisionError,
     NodeMediaConflictError,
+    UncachedCapError,
+    UncachedMediaDefError,
     NoEdgesError,
     NoMainOutputError,
     OutputTakenTwiceError,
@@ -175,6 +177,8 @@ __all__ = [
     "AmbiguousMachineMembersError",
     "SourceDoesNotConformToMachineInputError",
     "NodeMediaConflictError",
+    "UncachedCapError",
+    "UncachedMediaDefError",
     # Graph types
     "NodeId",
     "BindingSource",

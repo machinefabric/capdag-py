@@ -58,6 +58,7 @@ from tests.test_machine_notation import (
     SERIES,
     binding_named,
     notation_registry,
+    titled_registry,
 )
 
 # Two inputs of ONE type — `series`, and `bench` — and two outputs: `cmp`, and
@@ -167,7 +168,7 @@ def test_12803_an_included_machine_is_its_steps_written_in():
         assert edge.included_as == [], "a step the machine wrote itself"
 
     # The graph view is told the same.
-    payload = json.loads(inlined.to_render_payload_json())
+    payload = json.loads(inlined.to_render_payload_json(titled_registry()))
     came_through = [
         edge for edge in payload["strands"][0]["edges"] if edge["included_as"] == ["analyse#1"]
     ]

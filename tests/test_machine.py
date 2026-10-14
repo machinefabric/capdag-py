@@ -536,6 +536,16 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
     # Different output URN → not equivalent
     assert not m1.strands()[0].is_equivalent(m2.strands()[0])
 
+    # The same step over nodes that differ in one URN: the steps alone do not
+    # make two strands one.
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;ext=txt")]
+    scanned = [_media("media:document;ext=pdf;scanned"), _media("media:enc=utf-8;ext=txt")]
+    plain = resolve_pre_interned(nodes, [_wiring(_cap_urn(urn_extract), [0], 1)], reg, 0)
+    other = resolve_pre_interned(scanned, [_wiring(_cap_urn(urn_extract), [0], 1)], reg, 0)
+    assert not plain.is_equivalent(other)
+    assert not other.is_equivalent(plain)
+    assert plain.is_equivalent(resolve_pre_interned(list(nodes), [_wiring(_cap_urn(urn_extract), [0], 1)], reg, 0))
+
 
 # =============================================================================
 # TEST6710: A cap step fed by a sequence-producing predecessor maps per item
@@ -946,8 +956,13 @@ def test_1175_empty_machine_serializes_to_empty_string():
     assert notation == ""
 
 
-# TEST1176: Rendering payload JSON includes strand anchor metadata for a populated machine.
+# TEST1176: Rendering payload JSON includes strand anchor metadata for a
+# populated machine, and the title of every node and step; a title that is not
+# cached is refused, never made up from a URN.
 def test_1176_render_payload_json_includes_strand_with_anchors():
+    from capdag.fabric.registry import StoredMediaDef
+    from capdag.machine.error import UncachedCapError, UncachedMediaDefError
+
     import capdag.machine.serializer  # ensure to_render_payload_json is attached
     extract_urn = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
     embed_urn = "cap:embed;in=\"media:enc=utf-8;ext=txt\";out=\"media:record;vec\""
@@ -959,7 +974,25 @@ def test_1176_render_payload_json_includes_strand_with_anchors():
         (embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record"),
     ])
     machine = Machine.from_strand(strand, reg)
-    payload = machine.to_render_payload_json()
+    # No media definition is cached: there is no title for the first node.
+    with pytest.raises(UncachedMediaDefError):
+        machine.to_render_payload_json(reg)
+    titles = {
+        "media:document;ext=pdf": "PDF",
+        "media:enc=utf-8;ext=txt": "Plain Text",
+        "media:vec;record": "Vector",
+    }
+    for urn, title in titles.items():
+        reg.add_spec(StoredMediaDef(urn=urn, media_type="application/json", title=title))
+    payload = machine.to_render_payload_json(reg)
+    for title in ("PDF", "Plain Text", "Vector", "cap"):
+        assert f'"title":"{title}"' in payload, payload
+    # A cap with no cached definition has no title either.
+    no_caps = _registry_with([])
+    for urn, title in titles.items():
+        no_caps.add_spec(StoredMediaDef(urn=urn, media_type="application/json", title=title))
+    with pytest.raises(UncachedCapError):
+        machine.to_render_payload_json(no_caps)
     assert payload.startswith('{"strands":[')
     assert '"nodes":[' in payload
     assert '"edges":[' in payload
@@ -973,7 +1006,7 @@ def test_1176_render_payload_json_includes_strand_with_anchors():
 def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
     import capdag.machine.serializer  # ensure to_render_payload_json is attached
     machine = Machine.from_resolved_strands([])
-    payload = machine.to_render_payload_json()
+    payload = machine.to_render_payload_json(_registry_with([]))
     assert payload == '{"strands":[]}'
 
 

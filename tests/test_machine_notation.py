@@ -120,14 +120,24 @@ def score_cap():
 def notation_registry():
     """The caps above and the media definitions their constants are held to:
     a window of 1 to 365, a label that is a string of three allowed words,
-    tags and references that are strings."""
+    tags that are strings, and references of at most twelve bytes."""
     registry = registry_of([compare_cap(), fetch_cap(), publish_cap(), mean_cap(), score_cap()])
     registry.add_spec(media_def(WINDOW, {"min": 1.0, "max": 365.0}, {"type": "integer"}))
     registry.add_spec(
         media_def(LABEL, {"allowed_values": ["mean", "median", "max"]}, {"type": "string"})
     )
     registry.add_spec(media_def(TAG, None, {"type": "string"}))
-    registry.add_spec(media_def(REFERENCE))
+    registry.add_spec(media_def(REFERENCE, {"max_length": 12}))
+    return registry
+
+
+def titled_registry():
+    """The notation registry with a media definition, and so a title, for
+    every media a node of the tests' machines holds: what a render payload
+    needs."""
+    registry = notation_registry()
+    for urn in (SERIES, BENCHMARK, COMPARISON, RESIDUALS, NOTE, "media:mean;numeric", "media:numeric;score"):
+        registry.add_spec(media_def(urn))
     return registry
 
 
@@ -339,6 +349,28 @@ def test_12738_a_constant_is_bound_and_validated():
     # The bounds themselves are allowed.
     machine_of("[(path, window=1) -> compare -> result]")
     machine_of("[(path, window=365) -> compare -> result]")
+
+    # A string's length is its UTF-8 bytes: six two-byte characters fill a
+    # reference of twelve, and a seventh breaks it.
+    machine_of('[(reference="éééééé") -> fetch -> s]')
+    assert "maximum length 12" in refused('[(reference="ééééééé") -> fetch -> s]')
+
+    # A schema's required properties are held: a benchmark written as an
+    # object says its points.
+    with_benchmark_schema = notation_registry()
+    with_benchmark_schema.add_spec(
+        media_def(
+            BENCHMARK,
+            None,
+            {"type": "object", "required": ["points"], "properties": {"points": {"type": "array"}}},
+        )
+    )
+    parse_machine(HEADERS + '[(path, benchmark={"points": [1, 2]}) -> compare -> r]', with_benchmark_schema)
+    missing = resolution_error(
+        '[(path, benchmark={"scale": 2}) -> compare -> r]', registry=with_benchmark_schema
+    )
+    assert isinstance(missing, ConstantFailsValidationError), repr(missing)
+    assert "schema" in str(missing)
 
     # A constant is not a node. One input feeding two args, and the same input
     # feeding one of them beside a constant for the other, have the same nodes
@@ -602,7 +634,7 @@ def test_12743_render_payload_carries_names_constants_and_outputs():
     machine = machine_of(
         '[(path, window=20, label="max") -> compare{retry=2, on_error=absent} -> (result, residuals=res)]'
     )
-    payload = json.loads(machine.to_render_payload_json())
+    payload = json.loads(machine.to_render_payload_json(titled_registry()))
     assert len(payload["strands"]) == 1
     strand = payload["strands"][0]
     assert len(strand["edges"]) == 1
@@ -610,6 +642,7 @@ def test_12743_render_payload_carries_names_constants_and_outputs():
     assert edge["retry"] == 2
     assert edge["on_error"] == "absent"
     assert edge["alias"] == "edge_0"
+    assert edge["title"] == "compare", "the cap's title"
     assert edge["is_loop"] is False
     assert edge["included_as"] == [], "a step the machine wrote itself"
     assert "target_node" not in edge, "one target is not the shape any more"
@@ -632,7 +665,9 @@ def test_12743_render_payload_carries_names_constants_and_outputs():
     assert sorted(o["output_name"] for o in edge["outputs"]) == ["comparison", "residuals"]
     assert sorted(strand["output_anchor_nodes"]) == sorted(o["node"] for o in edge["outputs"])
     # An empty machine draws nothing.
-    assert Machine.from_resolved_strands([]).to_render_payload_json() == '{"strands":[]}'
+    for node in strand["nodes"]:
+        assert node["title"] == node["urn"], "the media definition's title"
+    assert Machine.from_resolved_strands([]).to_render_payload_json(registry_of([])) == '{"strands":[]}'
 
 
 # TEST12833: an output that carries the input holds the input's type, not the

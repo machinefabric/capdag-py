@@ -182,6 +182,9 @@ def test_12735_a_step_policy():
     # A policy that says `fail` in so many words is the default, and writes
     # nothing.
     assert StepPolicy(on_error=ON_ERROR_FAIL).is_default()
+    # Either key said is no default.
+    assert not StepPolicy(on_error=ON_ERROR_ABSENT).is_default()
+    assert not StepPolicy(retry=1).is_default()
     assert StepPolicy(on_error=ON_ERROR_FAIL) == StepPolicy()
     assert both != StepPolicy(retry=2)
     assert both != StepPolicy(retry=3, on_error=ON_ERROR_ABSENT)

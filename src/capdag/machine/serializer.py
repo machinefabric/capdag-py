@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, List
 
 from capdag.machine.constant import constant_text
+from capdag.machine.error import UncachedCapError, UncachedMediaDefError
 from capdag.machine.graph import Machine, MachineEdge
 
 #: Each statement wrapped in ``[...]``: the canonical, single-line form used
@@ -188,24 +189,38 @@ def _text(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def to_render_payload_json(graph: Machine, registry=None) -> str:
+def to_render_payload_json(graph: Machine, registry) -> str:
     """Serialize the machine to the JSON payload a graph view draws from::
 
-        {"strands":[{"nodes":[{"id","urn"}],
-                     "edges":[{"alias","cap_urn","is_loop","retry","on_error","included_as",
+        {"strands":[{"nodes":[{"id","urn","title"}],
+                     "edges":[{"alias","cap_urn","title","is_loop","retry","on_error","included_as",
                                "assignment":[{"cap_arg_media_urn","arg_name",
                                               "source_node"|"constant"}],
                                "outputs":[{"output_media_urn","output_name","node"}]}],
                      "input_anchor_nodes":[...],"output_anchor_nodes":[...]}]}
 
     Node names are those of the canonical notation, so a notation string and
-    its render payload share node identities. Each step is labelled
-    ``edge_N``, or — with a registry — by the cap's display alias when one is
-    registered.
+    its render payload share node identities; each step is its canonical
+    ``edge_N``. Each node carries the title of its cached media definition and
+    each step the title of its cached cap definition. One that is not cached
+    is refused (``UncachedMediaDefError``, ``UncachedCapError``): a title is
+    never made up from a URN.
     """
     if graph.is_empty():
         return '{"strands":[]}'
-    plans = _serialization_plan(graph, registry)
+    plans = _serialization_plan(graph, None)
+
+    def media_title(urn: str) -> str:
+        spec = registry.get_cached_media_def(urn)
+        if spec is None:
+            raise UncachedMediaDefError(urn)
+        return spec.title
+
+    def cap_title(urn: str) -> str:
+        cap = registry.get_cached_cap(urn)
+        if cap is None:
+            raise UncachedCapError(urn)
+        return cap.title
 
     def listed(items: List[str]) -> str:
         return "[" + ",".join(items) + "]"
@@ -213,7 +228,13 @@ def to_render_payload_json(graph: Machine, registry=None) -> str:
     strands: List[str] = []
     for strand, plan in zip(graph.strands(), plans):
         nodes = [
-            '{"id":' + _text(plan.node_names[node_id]) + ',"urn":' + _text(urn.to_string()) + "}"
+            '{"id":'
+            + _text(plan.node_names[node_id])
+            + ',"urn":'
+            + _text(urn.to_string())
+            + ',"title":'
+            + _text(media_title(urn.to_string()))
+            + "}"
             for node_id, urn in enumerate(strand.nodes())
         ]
         edges: List[str] = []
@@ -251,6 +272,8 @@ def to_render_payload_json(graph: Machine, registry=None) -> str:
                 + _text(plan.edge_tokens[index])
                 + ',"cap_urn":'
                 + _text(edge.cap_urn.to_string())
+                + ',"title":'
+                + _text(cap_title(edge.cap_urn.to_string()))
                 + ',"is_loop":'
                 + ("true" if edge.is_loop else "false")
                 + ',"retry":'
