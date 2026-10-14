@@ -73,10 +73,10 @@ from capdag.bifaci.stats import (
     TerminatedFlows,
 )
 from capdag.cap.caller import CapArgumentValue
-from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource
+from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource, OUTPUT_CARRIES_INPUT
 from capdag.urn.cap_urn import CapUrn
 from capdag.bifaci.manifest import CapManifest
-from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH
+from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_IDENTITY, MEDIA_VOID
 
 
 class RuntimeError(Exception):
@@ -196,6 +196,16 @@ class MissingArgumentError(RuntimeError):
 class UnknownSubcommandError(RuntimeError):
     """Unknown subcommand"""
     pass
+
+
+class UnknownOutputError(RuntimeError):
+    """A handler asked for an output its cap does not declare: the definition
+    and the handler disagree about what the cap produces."""
+
+    def __init__(self, cap_urn: str, output: str) -> None:
+        self.cap_urn = cap_urn
+        self.output = output
+        super().__init__(f"Cap '{cap_urn}' declares no output '{output}'")
 
 
 class ManifestError(RuntimeError):
@@ -938,19 +948,23 @@ class NoPeerInvoker:
 
 
 class PeerResponseItem:
-    """A single item from a peer response — either decoded data or a LOG frame.
+    """A single item from a peer response — decoded data of the peer's MAIN
+    output, decoded data of another output its cap declares, or a LOG frame.
 
     PeerResponse.recv() yields these interleaved in arrival order. Handlers
     match on each variant to decide how to react (e.g., forward progress, accumulate data).
     """
 
-    def __init__(self, *, data=None, log=None):
+    def __init__(self, *, data=None, log=None, output: Optional[str] = None):
         if data is not None and log is not None:
             raise ValueError("PeerResponseItem must be either Data or Log, not both")
         if data is None and log is None:
             raise ValueError("PeerResponseItem must be either Data or Log")
+        if output is not None and data is None:
+            raise ValueError("only a data item belongs to an output")
         self._data = data
         self._log = log
+        self._output = output
 
     @staticmethod
     def data_ok(value, meta: Optional[dict] = None) -> "PeerResponseItem":
@@ -963,13 +977,37 @@ class PeerResponseItem:
         return PeerResponseItem(data=("err", error, meta))
 
     @staticmethod
+    def output_ok(output: str, value, meta: Optional[dict] = None) -> "PeerResponseItem":
+        """Create an item of an output other than the peer's main one."""
+        return PeerResponseItem(data=("ok", value, meta), output=output)
+
+    @staticmethod
+    def output_err(output: str, error: Exception, meta: Optional[dict] = None) -> "PeerResponseItem":
+        """Create an error item of an output other than the peer's main one."""
+        return PeerResponseItem(data=("err", error, meta), output=output)
+
+    @staticmethod
     def log_frame(frame: Frame) -> "PeerResponseItem":
         """Create a Log item with a LOG frame."""
         return PeerResponseItem(log=frame)
 
     @property
     def is_data(self) -> bool:
-        return self._data is not None
+        """Whether this is an item of the peer's MAIN output: the cap's answer."""
+        return self._data is not None and self._output is None
+
+    @property
+    def is_output(self) -> bool:
+        """Whether this is an item of an output OTHER than the peer's main one.
+        A caller that wants only the cap's answer ignores these; the
+        collectors do."""
+        return self._output is not None
+
+    @property
+    def output(self) -> Optional[str]:
+        """The media URN of the output this item belongs to, as its stream
+        named it. None for an item of the main output and for a LOG item."""
+        return self._output
 
     @property
     def is_log(self) -> bool:
@@ -977,7 +1015,8 @@ class PeerResponseItem:
 
     @property
     def data_value(self):
-        """Get the decoded data value. Raises if this is an error or LOG item."""
+        """Get the decoded value of a data item, of whichever output. Raises
+        if this is an error or LOG item."""
         if self._data is None:
             raise ValueError("Not a Data item")
         kind, val, _meta = self._data
@@ -987,7 +1026,7 @@ class PeerResponseItem:
 
     @property
     def data_error(self) -> Optional[Exception]:
-        """Get the error if this is a Data(Err) item, None otherwise."""
+        """Get the error if this is an error item (of whichever output), None otherwise."""
         if self._data is None:
             return None
         kind, val, _meta = self._data
@@ -995,7 +1034,7 @@ class PeerResponseItem:
 
     @property
     def data_meta(self) -> Optional[dict]:
-        """Get the per-item metadata of a Data item, None if absent or not a Data item."""
+        """Get the per-item metadata of a data item, None if absent or not a data item."""
         if self._data is None:
             return None
         _kind, _val, meta = self._data
@@ -1014,13 +1053,17 @@ class PeerResponse:
     LOG frames are delivered in real-time as they arrive (not buffered until data starts).
     Collection helpers reject LOG frames so source diagnostics cannot be
     silently discarded. Callers that accept diagnostics must drain recv().
+
+    The queue carries each item with the grants of the stream it came on
+    (``(item, grants)``; grants None for a LOG item and in an uncredited
+    context), and ``None`` at the end.
     """
 
-    def __init__(self, q: queue.Queue, grants: Optional[InputGrantEmitter] = None):
+    def __init__(self, q: queue.Queue):
         self._queue = q
-        # Consumption grants for the responding peer's output window
-        # (L10/L14). None = uncredited context (synthetic test responses).
-        self._grants = grants
+        # Consumption grants for the responding peer's output windows
+        # (L10/L14), one per response stream seen so far.
+        self._grants: List[InputGrantEmitter] = []
 
     def recv(self) -> Optional[PeerResponseItem]:
         """Receive the next item (data or LOG) from the peer response.
@@ -1028,16 +1071,26 @@ class PeerResponse:
 
         Data consumption replenishes the responding peer's output window —
         a slow consumer naturally throttles the producer (L10). About to
-        block: flushes any pending grant first (L10 deadlock-freedom rule).
+        block: flushes any pending grant first (L10 deadlock-freedom rule) —
+        the responding peer may be stalled on exactly this credit, on any of
+        its streams.
         """
         try:
-            item = self._queue.get_nowait()
+            entry = self._queue.get_nowait()
         except queue.Empty:
-            if self._grants is not None:
-                self._grants.flush()
-            item = self._queue.get()
-        if item is not None and item.is_data and item.data_error is None and self._grants is not None:
-            self._grants.consumed()
+            for grants in self._grants:
+                grants.flush()
+            entry = self._queue.get()
+        if entry is None:
+            return None
+        item, grants = entry
+        if grants is not None:
+            if not any(known is grants for known in self._grants):
+                self._grants.append(grants)
+            # An item of any output was consumed from its stream: that
+            # stream's window is what is replenished.
+            if not item.is_log and item.data_error is None:
+                grants.consumed()
         return item
 
     def collect_bytes_forwarding(
@@ -1094,6 +1147,8 @@ class PeerResponse:
             err = item.data_error
             if err is not None:
                 raise err
+            if item.is_output:
+                continue  # another output of the peer's cap: not what is collected
             value = item.data_value
             if isinstance(value, bytes):
                 result.extend(value)
@@ -1120,6 +1175,8 @@ class PeerResponse:
             err = item.data_error
             if err is not None:
                 raise err
+            if item.is_output:
+                continue  # another output of the peer's cap: not what is collected
             value = item.data_value
             if isinstance(value, bytes):
                 result.extend(value)
@@ -1147,6 +1204,8 @@ class PeerResponse:
             err = item.data_error
             if err is not None:
                 raise err
+            if item.is_output:
+                continue  # another output of the peer's cap: not the cap's answer
             if has_value:
                 raise PeerResponseError("Peer response contained more than one value")
             value = item.data_value
@@ -1353,6 +1412,31 @@ class CliStreamEmitter:
         #: Whether anything has gone to stdout yet. A `start` after the first
         #: emission is a defect in the handler, and frame mode would refuse it.
         self._emitted = False
+        #: The output this stream is, when it is not the cap's main one. A
+        #: command line has one standard output, and it carries the main
+        #: output: what a handler writes to another output is accepted and
+        #: not printed.
+        self.output: Optional[str] = None
+
+    def naming_output(self, output: str) -> "CliStreamEmitter":
+        """Make this the stream of an output other than the cap's main one.
+        Its data is not printed."""
+        self.output = output
+        return self
+
+    def output_urn(self) -> Optional[str]:
+        """The output this stream names: None for the main output's stream."""
+        return self.output
+
+    def is_started(self) -> bool:
+        """A command line has no stream framing: there is nothing to open for
+        an output nobody wrote to. Every stream is as started as it will ever
+        be."""
+        return True
+
+    def close(self) -> None:
+        """A command line has no stream framing: nothing ends a stream but the
+        process."""
 
     @classmethod
     def without_ndjson(cls):
@@ -1391,7 +1475,7 @@ class CliStreamEmitter:
     def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
         """Begin a stream that makes no length promise.
 
-        The distinction is a frame-mode one: `finalize()` sends STREAM_END with
+        The distinction is a frame-mode one: `close()` sends STREAM_END with
         no chunk_count. CLI mode promises no length either way — stdout ends
         when the process does — so this is `start` with the same contract.
         """
@@ -1404,6 +1488,8 @@ class CliStreamEmitter:
         NO FALLBACK - fail hard if unsupported type.
         """
         self._emitted = True
+        if self.output is not None:
+            return
         stdout = sys.stdout.buffer
 
         if isinstance(value, bytes):
@@ -1429,6 +1515,8 @@ class CliStreamEmitter:
     def write(self, data: bytes) -> None:
         """In CLI mode, write raw bytes to stdout"""
         self._emitted = True
+        if self.output is not None:
+            return
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
 
@@ -1463,8 +1551,9 @@ class ThreadSafeEmitter:
     """Thread-safe implementation of StreamEmitter using Protocol v2 stream multiplexing.
 
     Automatically sends STREAM_START before the first emission, then CHUNK frames
-    with stream_id. Caller MUST call finalize() after handler returns to send
-    STREAM_END + END.
+    with stream_id. One of these is the stream of ONE output of a request: the
+    runtime ends every output once the handler returns (`ResponseOutputs.finish`)
+    and then the request, with the END frame `end_frame()` builds.
 
     Seq is assigned centrally by the SyncFrameWriter's SeqAssigner — this emitter
     does NOT track seq itself. This matches the Rust cartridge_runtime writer thread
@@ -1524,6 +1613,27 @@ class ThreadSafeEmitter:
         # runtime after the handler returns to stamp the END frame (L3/L5).
         self._final_status_lock = threading.Lock()
         self._final_status: Optional[FinalStatus] = None
+        # The output this stream names in its STREAM_START: the media URN of
+        # an output other than the cap's main one. None on the main output's
+        # stream, which names none.
+        self.output: Optional[str] = None
+        # Whether STREAM_END was sent.
+        self.closed = False
+
+    def naming_output(self, output: str) -> "ThreadSafeEmitter":
+        """Make this the stream of an output other than the cap's main one:
+        the declared output `output` identifies. Its STREAM_START names it."""
+        self.output = output
+        return self
+
+    def output_urn(self) -> Optional[str]:
+        """The output this stream names: None for the main output's stream."""
+        return self.output
+
+    def is_started(self) -> bool:
+        """Whether this stream's STREAM_START was sent."""
+        with self.stream_lock:
+            return self.stream_started
 
     def _check_mode(self, is_sequence: bool) -> None:
         """Fail hard on mixing write-mode (write/emit_cbor) and sequence-mode
@@ -1564,6 +1674,8 @@ class ThreadSafeEmitter:
                     )
                 if meta is not None:
                     start_frame.meta = dict(meta)
+                if self.output is not None:
+                    start_frame.for_output(self.output)
                 start_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
                 self.writer.write(start_frame)
 
@@ -1578,7 +1690,7 @@ class ThreadSafeEmitter:
 
     def start_unbounded(self, is_sequence: bool = False, meta: Optional[dict] = None) -> None:
         """Send STREAM_START for an UNBOUNDED response — one that makes no
-        length promise (L16). `finalize()` then sends STREAM_END without a
+        length promise (L16). `close()` then sends STREAM_END without a
         chunk_count. Must be called (if at all) before the first emission."""
         self._ensure_stream_started(is_sequence=is_sequence, meta=meta, unbounded=True)
 
@@ -1743,24 +1855,23 @@ class ThreadSafeEmitter:
 
     def flush(self) -> None:
         """Ship any coalesced-but-unsent bytes to the wire now. ``close()``
-        and ``finalize()`` call this; handlers only need it for explicit
-        mid-stream latency barriers."""
+        calls this; handlers only need it for explicit mid-stream latency
+        barriers."""
         batch = self._coalesce.take()
         if batch is not None:
             self._write_coalesced_batch(batch)
 
-    def finalize(self) -> None:
-        """Send STREAM_END + END to complete the response.
-        Must be called exactly once after the handler returns.
-        If handler never emitted, sends STREAM_START first for protocol consistency.
-        Seq assigned by SyncFrameWriter for all frames.
+    def close(self) -> None:
+        """End this stream: its coalesced tail, then its STREAM_END. A stream
+        nothing was written to is opened first, in write mode. Exactly once.
 
-        The END frame carries the terminal metadata (L3/L5): the handler's
-        declared final status (via `finish()`), or the 1.0 default. Final
-        progress rides IN the terminal frame — it cannot race it.
+        This ends ONE output. The request is ended by the runtime, with
+        `end_frame()`, once every output has been.
         """
-        # Ensure STREAM_START was sent (even if handler emitted nothing)
-        self._ensure_stream_started()
+        with self.stream_lock:
+            if self.closed:
+                raise HandlerError(f"stream {self.stream_id} is already closed")
+        self._ensure_stream_started(is_sequence=bool(self._is_sequence_mode))
 
         # Coalesced tail bytes ship BEFORE the STREAM_END that promises the
         # chunk count — flushing here is what makes coalescing lossless.
@@ -1774,14 +1885,20 @@ class ThreadSafeEmitter:
             stream_end = Frame.stream_end(self.request_id, self.stream_id, self.chunk_index)
         stream_end.routing_id = self.routing_id  # Propagate XID from incoming REQ
         self.writer.write(stream_end)
+        with self.stream_lock:
+            self.closed = True
 
-        # END (seq assigned by SyncFrameWriter) — carries the final progress.
+    def end_frame(self) -> Frame:
+        """The END that closes the whole request. It carries the terminal
+        metadata (L3/L5): the handler's declared final status (via
+        `finish()`), or the 1.0 default. Final progress rides IN the terminal
+        frame — it cannot race it."""
         declared = self.take_final_status()
         progress = declared.progress if declared is not None else 1.0
         message = declared.message if declared is not None else None
         end_frame = Frame.end_ok_with(self.request_id, None, progress, message)
         end_frame.routing_id = self.routing_id  # Propagate XID from incoming REQ
-        self.writer.write(end_frame)
+        return end_frame
 
     def write(self, data: bytes) -> None:
         """Write raw bytes as output, split into max_chunk-sized CHUNK frames.
@@ -1927,17 +2044,165 @@ class ProgressSender:
 # OP-BASED HANDLER SYSTEM — handlers implement ops.Op[None]
 # =============================================================================
 
+@dataclass
+class _ResponseOutput:
+    """One output a request answers on (13.2 §Outputs), and its stream."""
+    #: The output's media URN: its identity, and — for an output other than
+    #: the main one — what its STREAM_START names.
+    urn: MediaUrn
+    #: A required output the handler never wrote to is sent as an empty value
+    #: when the handler returns; an optional one is not sent — it did not fire.
+    required: bool
+    #: The declared cardinality, which an empty stream opened by the runtime
+    #: states in the handler's place.
+    is_sequence: bool
+    stream: Any
+
+
+class ResponseOutputs:
+    """The outputs of the cap a request is for: its main output and every
+    other output its definition declares, each with a stream of its own.
+
+    A cap answers with one stream per output it declares. The stream of its
+    main output names none — it is the cap's answer; the stream of another
+    output names the output it is (STREAM_START key 21).
+    """
+
+    def __init__(self, cap_urn: str, main: _ResponseOutput, others: List[_ResponseOutput]) -> None:
+        self.cap_urn = cap_urn
+        self._main = main
+        self._others = others
+
+    @classmethod
+    def for_cap(
+        cls,
+        cap_urn: str,
+        manifest: Optional[CapManifest],
+        open: Callable[[str], Any],
+    ) -> "ResponseOutputs":
+        """The outputs of `cap_urn` as `manifest` defines it.
+
+        `open` builds one stream from the media label its STREAM_START
+        carries. The main output carries the label the cap URN's effect
+        derives (`derive_response_media`) and names no output; another output
+        carries its own media URN, or the cap's declared input when it
+        carries the input, and names itself. A cap served without a
+        definition in the manifest (a built-in the cartridge did not
+        advertise) answers on the one output its URN states.
+        """
+        try:
+            cap = CapUrn.from_string(cap_urn)
+        except Exception as e:
+            raise CapUrnError(f"'{cap_urn}': {e}")
+
+        def parse(urn: str) -> MediaUrn:
+            try:
+                return MediaUrn.from_string(urn)
+            except Exception as e:
+                raise HandlerError(
+                    f"cap '{cap_urn}' declares an output that is not a media URN ('{urn}'): {e}"
+                )
+
+        definition = None
+        if manifest is not None:
+            definition = next((c for c in manifest.all_caps() if c.urn == cap), None)
+        declared_main = definition.main_output() if definition is not None else None
+        out_spec = str(cap.out_spec())
+        out_is_void = parse(out_spec).is_equivalent(parse(MEDIA_VOID))
+
+        main = _ResponseOutput(
+            urn=parse(declared_main.media_urn if declared_main is not None else out_spec),
+            # A cap whose `out=` is void has no output: its stream exists for
+            # progress and logs, and is never opened on the handler's behalf.
+            required=not out_is_void and not (declared_main is not None and declared_main.optional),
+            is_sequence=declared_main.is_sequence if declared_main is not None else False,
+            stream=open(derive_response_media(cap_urn)),
+        )
+
+        others: List[_ResponseOutput] = []
+        for output in (definition.get_outputs() if definition is not None else []):
+            if output is declared_main:
+                continue
+            label = str(cap.in_spec()) if output.carries == OUTPUT_CARRIES_INPUT else output.media_urn
+            others.append(_ResponseOutput(
+                urn=parse(output.media_urn),
+                required=not output.optional,
+                is_sequence=output.is_sequence,
+                stream=open(label).naming_output(output.media_urn),
+            ))
+        return cls(cap_urn, main, others)
+
+    @classmethod
+    def undeclared(cls, stream: Any) -> "ResponseOutputs":
+        """One undeclared output on a stream built elsewhere: what a request
+        has when it is made from a bare stream (`Request(...)`). Nothing is
+        known of the output, so nothing is sent for it unless the handler
+        writes."""
+        return cls(
+            "",
+            _ResponseOutput(
+                urn=MediaUrn.from_string(MEDIA_IDENTITY),
+                required=False,
+                is_sequence=False,
+                stream=stream,
+            ),
+            [],
+        )
+
+    def main(self) -> Any:
+        """The main output's stream."""
+        return self._main.stream
+
+    def _all(self) -> List[_ResponseOutput]:
+        return [self._main] + self._others
+
+    def stream_for(self, media_urn: str) -> Any:
+        """The stream of the output `media_urn` identifies, by tagged-URN
+        equivalence — the way an input stream is found. Raises
+        UnknownOutputError for a URN the cap does not declare."""
+        try:
+            wanted = MediaUrn.from_string(media_urn)
+        except Exception:
+            raise UnknownOutputError(self.cap_urn, media_urn)
+        for output in self._all():
+            if output.urn.is_equivalent(wanted):
+                return output.stream
+        raise UnknownOutputError(self.cap_urn, media_urn)
+
+    def finish(self) -> None:
+        """End every output once the handler has returned successfully: a
+        stream the handler wrote to is closed; a required output it never
+        wrote to is opened and closed empty, in its declared cardinality; an
+        optional one it never wrote to sends nothing."""
+        for output in self._all():
+            if not output.stream.is_started():
+                if not output.required:
+                    continue
+                output.stream.start(output.is_sequence, None)
+            output.stream.close()
+
+
 class Request:
     """Bundles capdag I/O for WetContext. Op handlers extract this from WetContext
-    to access streaming input, output emitter, and peer invocation.
+    to access streaming input, the output streams, and peer invocation.
     """
 
     def __init__(self, input_package: "InputPackage", emitter: "StreamEmitter", peer: "PeerInvoker"):
+        """A request that has the one output `emitter` is."""
         self._input = input_package
-        self._emitter = emitter
+        self._outputs = ResponseOutputs.undeclared(emitter)
         self._peer = peer
         self._consumed = False
         self._lock = threading.Lock()
+
+    @classmethod
+    def with_outputs(
+        cls, input_package: "InputPackage", outputs: ResponseOutputs, peer: "PeerInvoker",
+    ) -> "Request":
+        """A request that answers on the declared outputs of its cap."""
+        request = cls(input_package, outputs.main(), peer)
+        request._outputs = outputs
+        return request
 
     def take_input(self) -> "InputPackage":
         """Take the input package. Can only be called once — second call raises error."""
@@ -1948,8 +2213,16 @@ class Request:
             return self._input
 
     def emitter(self) -> "StreamEmitter":
-        """Access the output stream emitter."""
-        return self._emitter
+        """The main output's stream: the output whose media URN is the cap
+        URN's `out=`."""
+        return self._outputs.main()
+
+    def output_for(self, media_urn: str) -> "StreamEmitter":
+        """The stream of the declared output `media_urn` identifies
+        (tagged-URN equivalence). The main output's URN gives the same stream
+        as `emitter()`. A URN the cap does not declare is an
+        UnknownOutputError."""
+        return self._outputs.stream_for(media_urn)
 
     def peer(self) -> "PeerInvoker":
         """Access the peer invoker."""
@@ -2362,6 +2635,17 @@ def demux_multi_stream(
                     streams_queue.put(StreamError("STREAM_START missing stream_id"))
                     break
                 media_urn = frame.media_urn or ""
+                # A request stream is an argument. Only a response stream says
+                # which output it is: one that does so here was routed or
+                # built wrong, and is not read as an argument.
+                named = frame.output_urn()
+                if named is not None:
+                    _close_all_open_streams()
+                    streams_queue.put(StreamError(
+                        f"request stream '{stream_id}' names an output ('{named}'): "
+                        "a request stream is an argument"
+                    ))
+                    break
 
                 if live_feed_ctx is not None and live_feed_ctx.is_live_feed(media_urn):
                     lf_accumulators[stream_id] = (media_urn, [])
@@ -2909,10 +3193,11 @@ class AdapterSelectionOp(Op):
 def dispatch_op(
     op: Op,
     input_package: "InputPackage",
-    emitter: "StreamEmitter",
+    outputs: ResponseOutputs,
     peer: "PeerInvoker",
 ) -> None:
     """Dispatch an Op with a Request via WetContext. Bridges sync handler threads to async Op.perform.
+    Ends every output on success (see `ResponseOutputs.finish`).
 
     `input_package` is the live, incrementally-delivered stream bundle
     produced by `demux_multi_stream()` — NOT a pre-buffered frame queue
@@ -2920,7 +3205,7 @@ def dispatch_op(
 
     Raises HandlerError on Op failure.
     """
-    req = Request(input_package, emitter, peer)
+    req = Request.with_outputs(input_package, outputs, peer)
     dry = DryContext()
     wet = WetContext()
     wet.insert_ref(WET_KEY_REQUEST, req)
@@ -2928,6 +3213,41 @@ def dispatch_op(
         asyncio.run(op.perform(dry, wet))
     except Exception as e:
         raise HandlerError(str(e))
+    outputs.finish()
+
+
+@dataclass
+class _PeerStream:
+    """One stream of a peer response."""
+    #: The output the stream named. None: the main output's stream.
+    output: Optional[str]
+    #: Sequence reassembly, for a stream started with is_sequence=True.
+    #: Sequence frame payloads are RFC 8742 fragments — decoded at item
+    #: granularity.
+    seq: Optional[SeqReassembly]
+    #: The grants that credit this stream, by name. None in an uncredited
+    #: context.
+    grants: Optional[InputGrantEmitter]
+
+    def ok(self, value, meta: Optional[dict]) -> Tuple[PeerResponseItem, Optional[InputGrantEmitter]]:
+        if self.output is None:
+            return (PeerResponseItem.data_ok(value, meta), self.grants)
+        return (PeerResponseItem.output_ok(self.output, value, meta), self.grants)
+
+    def err(self, error: Exception) -> Tuple[PeerResponseItem, Optional[InputGrantEmitter]]:
+        if self.output is None:
+            return (PeerResponseItem.data_err(error), self.grants)
+        return (PeerResponseItem.output_err(self.output, error), self.grants)
+
+    def ended_mid_item(self) -> Optional[Tuple[PeerResponseItem, Optional[InputGrantEmitter]]]:
+        """The error a sequence stream that stopped inside an item ends with."""
+        seq, self.seq = self.seq, None
+        if seq is None or len(seq.buf) == 0:
+            return None
+        return self.err(PeerResponseError(
+            f"sequence stream ended mid-item: {len(seq.buf)} trailing bytes "
+            "do not form a complete CBOR item"
+        ))
 
 
 def demux_peer_response(
@@ -2939,117 +3259,150 @@ def demux_peer_response(
     """Demux a raw frame queue into a PeerResponse that yields PeerResponseItems,
     LIVE — items are delivered as frames arrive, never buffered to completion
     (protocol v4, L16). Spawns a background thread that reads frames from the
-    raw queue and converts them into PeerResponseItems (Data or Log). Returns
-    immediately so LOG frames can be consumed before data arrives (critical
-    for keeping the engine's activity timer alive during long peer calls).
+    raw queue and converts them into PeerResponseItems. Returns immediately so
+    LOG frames can be consumed before data arrives (critical for keeping the
+    engine's activity timer alive during long peer calls).
 
-    This mirrors the Rust reference's `demux_single_stream()`, including
-    item-granular sequence reassembly (SeqReassembly): a sequence-mode
-    response (`is_sequence=True` on STREAM_START) CBOR-encodes each item once
+    A response has one stream per output the callee's cap answers on. The
+    stream that names no output is its MAIN output: its items are the
+    response's data. A stream that names an output yields items tagged with
+    it, so a caller that never heard of the callee's other outputs still reads
+    the cap's answer and nothing else. The response ends at the request's END
+    or ERR — not at a stream's end, which only ends that stream.
+
+    Sequence reassembly is item-granular (SeqReassembly): a sequence-mode
+    stream (`is_sequence=True` on STREAM_START) CBOR-encodes each item once
     and splits it across CHUNK frames as raw RFC 8742 fragments — decoding
-    each frame independently corrupts any item bigger than one chunk (the bug
-    class that broke cap→cap forwarding of rendered page images). A sequence
-    that ends mid-item is a hard decode error, never a silently dropped
-    partial item.
+    each frame independently corrupts any item bigger than one chunk. A
+    sequence that ends mid-item is a hard decode error, never a silently
+    dropped partial item.
 
     When `writer` and `request_id` are both supplied, data consumption emits
-    batched RESPONSE-direction CREDIT grants (L10/L14) — a slow consumer
-    naturally throttles the responding peer's output; continuation fragments
-    of a sequence item are credited back immediately on arrival (fragment
-    grants), matching the handler-input demux's fragment crediting. Mirrors
-    the Rust reference's response-side crediting: consumption is granted, but
-    (unlike the handler-input demux) the response side is not window-checked
-    for violations.
+    batched RESPONSE-direction CREDIT grants (L10/L14), each NAMING THE STREAM
+    it credits: a callee answers on one stream per output, and a grant that
+    names none reaches a callee with several only by guessing. Continuation
+    fragments of a sequence item are credited back immediately on arrival.
+    Consumption is granted, but (unlike the handler-input demux) the response
+    side is not window-checked for violations: the callee's send window was
+    negotiated on ITS link, which this side cannot see.
     """
     item_queue: queue.Queue = queue.Queue(maxsize=256)
-    grants: Optional[InputGrantEmitter] = None
-    if writer is not None and request_id is not None:
-        # The window batches grants only — arrivals are not checked here,
-        # because the responder's window was negotiated on another link.
-        grants = InputGrantEmitter(
+    credited = writer is not None and request_id is not None
+
+    def _grants_for(stream_id: str) -> Optional[InputGrantEmitter]:
+        if not credited:
+            return None
+        return InputGrantEmitter(
             writer=writer,
             rid=request_id,
             xid=None,
-            stream_id=None,
+            stream_id=stream_id,
             direction=CreditDirection.RESPONSE,
             window=CreditWindow(initial_credit),
         )
-    # Fragment crediting for sequence-mode responses (same scheme as
-    # `demux_multi_stream`): the caller grants one frame per consumed ITEM,
-    # so continuation fragments are credited back on arrival here.
-    fragment_grants = grants
+
+    def _protocol(message: str) -> Tuple[PeerResponseItem, None]:
+        return (PeerResponseItem.data_err(ProtocolError(message)), None)
 
     def _demux_worker():
-        # Sequence reassembly for the single response stream (None until a
-        # STREAM_START with is_sequence=True arrives). Sequence frame
-        # payloads are RFC 8742 fragments — decode at item granularity.
-        seq: Optional[SeqReassembly] = None
-        nonlocal fragment_grants
-        # Whether the response reached its END (or its ERR): a queue that
-        # ends without one was cut short.
+        streams: Dict[str, _PeerStream] = {}
+        # Whether the response reached its end: its END, its ERR, or a frame
+        # that broke the protocol. A queue that ends without one was cut
+        # short.
         ended = False
         for frame in iter(raw_frames.get, None):
             if frame.frame_type == FrameType.STREAM_START:
-                if frame.is_sequence:
-                    seq = SeqReassembly(fragment_grants=fragment_grants)
-                    fragment_grants = None
+                stream_id = frame.stream_id
+                if stream_id is None:
+                    item_queue.put(_protocol("STREAM_START missing stream_id"))
+                    ended = True
+                    break
+                if stream_id in streams:
+                    item_queue.put(_protocol(f"a second STREAM_START for stream '{stream_id}'"))
+                    ended = True
+                    break
+                grants = _grants_for(stream_id)
+                # Fragment crediting for sequence-mode streams (same scheme as
+                # `demux_multi_stream`): the caller grants one frame per
+                # consumed ITEM, so continuation fragments are credited back
+                # on arrival here.
+                seq = SeqReassembly(fragment_grants=grants) if frame.is_sequence else None
+                streams[stream_id] = _PeerStream(output=frame.output_urn(), seq=seq, grants=grants)
             elif frame.frame_type == FrameType.CHUNK:
-                if frame.payload:
-                    payload = frame.payload
-                    # Verify checksum
-                    expected_checksum = frame.checksum
-                    if expected_checksum is None:
-                        item_queue.put(PeerResponseItem.data_err(
-                            PeerResponseError("CHUNK frame missing required checksum field")
-                        ))
-                        continue
-                    actual = compute_checksum(payload)
-                    if actual != expected_checksum:
-                        item_queue.put(PeerResponseItem.data_err(
-                            PeerResponseError(f"Checksum mismatch: expected={expected_checksum}, actual={actual}")
-                        ))
-                        continue
-                    chunk_meta = frame.meta
-                    if seq is not None:
-                        if len(seq.buf) == 0:
-                            seq.item_meta = chunk_meta
-                        elif seq.fragment_grants is not None:
-                            seq.fragment_grants.continued()
-                        seq.buf.extend(payload)
-                        while True:
-                            status, a, b = try_decode_sequence_item(bytes(seq.buf))
-                            if status == "ok":
-                                value, consumed = a, b
-                                del seq.buf[:consumed]
-                                meta = seq.item_meta
-                                seq.item_meta = None
-                                item_queue.put(PeerResponseItem.data_ok(value, meta))
-                                if len(seq.buf) == 0:
-                                    break
-                            elif status == "prefix":
+                # A chunk belongs to the stream that was started under its
+                # id; one for a stream that never started is not data of any
+                # output.
+                stream = streams.get(frame.stream_id) if frame.stream_id is not None else None
+                if stream is None:
+                    item_queue.put(_protocol(
+                        f"CHUNK for a stream that was not started ('{frame.stream_id or ''}')"
+                    ))
+                    ended = True
+                    break
+                if not frame.payload:
+                    continue
+                payload = frame.payload
+                # Verify checksum
+                expected_checksum = frame.checksum
+                if expected_checksum is None:
+                    item_queue.put(stream.err(
+                        PeerResponseError("CHUNK frame missing required checksum field")
+                    ))
+                    continue
+                actual = compute_checksum(payload)
+                if actual != expected_checksum:
+                    item_queue.put(stream.err(
+                        PeerResponseError(f"Checksum mismatch: expected={expected_checksum}, actual={actual}")
+                    ))
+                    continue
+                chunk_meta = frame.meta
+                seq = stream.seq
+                if seq is not None:
+                    if len(seq.buf) == 0:
+                        seq.item_meta = chunk_meta
+                    elif seq.fragment_grants is not None:
+                        seq.fragment_grants.continued()
+                    seq.buf.extend(payload)
+                    while True:
+                        status, a, b = try_decode_sequence_item(bytes(seq.buf))
+                        if status == "ok":
+                            value, consumed = a, b
+                            del seq.buf[:consumed]
+                            meta = seq.item_meta
+                            seq.item_meta = None
+                            item_queue.put(stream.ok(value, meta))
+                            if len(seq.buf) == 0:
                                 break
-                            else:
-                                item_queue.put(PeerResponseItem.data_err(
-                                    PeerResponseError(f"CBOR decode error: {a}")
-                                ))
-                                seq.buf.clear()
-                                break
+                        elif status == "prefix":
+                            break
+                        else:
+                            item_queue.put(stream.err(PeerResponseError(f"CBOR decode error: {a}")))
+                            seq.buf.clear()
+                            break
+                else:
+                    try:
+                        value = cbor2.loads(payload)
+                    except Exception as e:
+                        item_queue.put(stream.err(PeerResponseError(f"CBOR decode error: {e}")))
                     else:
-                        try:
-                            value = cbor2.loads(payload)
-                            item_queue.put(PeerResponseItem.data_ok(value, chunk_meta))
-                        except Exception as e:
-                            item_queue.put(PeerResponseItem.data_err(
-                                PeerResponseError(f"CBOR decode error: {e}")
-                            ))
+                        item_queue.put(stream.ok(value, chunk_meta))
             elif frame.frame_type == FrameType.LOG:
-                item_queue.put(PeerResponseItem.log_frame(frame))
-            elif frame.frame_type in (FrameType.STREAM_END, FrameType.END):
-                if seq is not None and len(seq.buf) > 0:
-                    item_queue.put(PeerResponseItem.data_err(PeerResponseError(
-                        f"sequence stream ended mid-item: {len(seq.buf)} trailing bytes "
-                        "do not form a complete CBOR item"
-                    )))
+                item_queue.put((PeerResponseItem.log_frame(frame), None))
+            elif frame.frame_type == FrameType.STREAM_END:
+                # The end of one stream. The response goes on until END.
+                stream = streams.get(frame.stream_id) if frame.stream_id is not None else None
+                if stream is not None:
+                    unfinished = stream.ended_mid_item()
+                    if unfinished is not None:
+                        item_queue.put(unfinished)
+            elif frame.frame_type == FrameType.END:
+                # A stream the peer never ended, with part of an item still
+                # held, ended mid-item with the request — reported in a fixed
+                # order.
+                for stream_id in sorted(streams):
+                    unfinished = streams[stream_id].ended_mid_item()
+                    if unfinished is not None:
+                        item_queue.put(unfinished)
                 ended = True
                 break
             elif frame.frame_type == FrameType.ERR:
@@ -3060,26 +3413,27 @@ def demux_peer_response(
                 attribution_class = frame.attribution_class()
                 message = frame.error_message()
                 if code is None or message is None:
-                    item_queue.put(PeerResponseItem.data_err(
-                        ProtocolError("ERR frame missing required text code or message")
-                    ))
+                    item_queue.put(_protocol("ERR frame missing required text code or message"))
                     break
-                item_queue.put(PeerResponseItem.data_err(
-                    RemoteError(code, attribution_class, message, frame.attribution_arg_urn())
+                item_queue.put((
+                    PeerResponseItem.data_err(
+                        RemoteError(code, attribution_class, message, frame.attribution_arg_urn())
+                    ),
+                    None,
                 ))
                 break
         if not ended:
             # The response's frames stopped before its END: the peer call was
             # cancelled, or the connection ended. A cut-short response never
             # reads as complete.
-            item_queue.put(PeerResponseItem.data_err(StreamAbandoned()))
+            item_queue.put((PeerResponseItem.data_err(StreamAbandoned()), None))
         # Signal end of stream
         item_queue.put(None)
 
     thread = threading.Thread(target=_demux_worker, daemon=True)
     thread.start()
 
-    return PeerResponse(item_queue, grants=grants)
+    return PeerResponse(item_queue)
 
 
 def find_stream(
@@ -3870,12 +4224,19 @@ class CartridgeRuntime:
 
         frames.put(Frame.end(request_id, None))
 
-        emitter = CliStreamEmitter()
         peer = NoPeerInvoker()
 
         try:
+            # The same outputs as the wire path: the command line is a
+            # debugging surface for the same contract. It has one standard
+            # output, and that carries the cap's main output; another output
+            # is a stream the handler may write to, and its data is not
+            # printed.
+            outputs = ResponseOutputs.for_cap(
+                cap.urn_string(), self.manifest, lambda _label: CliStreamEmitter(),
+            )
             input_package = demux_multi_stream(frames)  # Uncredited: CLI mode has no wire peer.
-            dispatch_op(factory(), input_package, emitter, peer)
+            dispatch_op(factory(), input_package, outputs, peer)
         except Exception as e:
             # CLI mode still owes the caller the real failure identity
             # (docs/failure-taxonomy.md).
@@ -4163,14 +4524,31 @@ class CartridgeRuntime:
                     cap_urn=cap_urn,
                 ):
                     import uuid as _uuid
-                    response_stream_id = f"resp-{_uuid.uuid4().hex[:8]}"
-                    # The response label is DERIVED from the cap's declared
-                    # effect — not chosen by the op — so an honest lib-runtime
-                    # cartridge satisfies the engine's effect audit by
-                    # construction. An underivable label is a broken cap
-                    # declaration: fail the request, never fall back.
+                    response_stream_prefix = f"resp-{_uuid.uuid4().hex[:8]}"
+                    opened: List[ThreadSafeEmitter] = []
+
+                    def open_stream(label: str) -> ThreadSafeEmitter:
+                        # SyncFrameWriter assigns seq centrally for all frames.
+                        # routing_id (XID) is propagated from incoming REQ to
+                        # all response frames. Output is credited (L9): the
+                        # receiver's consumption grants each stream's window.
+                        stream = ThreadSafeEmitter(
+                            sync_writer, request_id, f"{response_stream_prefix}-{len(opened)}",
+                            label, routing_id, max_chunk,
+                            credit_router=credit_router, initial_credit=initial_credit,
+                        )
+                        opened.append(stream)
+                        return stream
+
+                    # One stream per output the cap declares, each naming its
+                    # output. The main output's label is DERIVED from the
+                    # cap's declared effect — not chosen by the op — so an
+                    # honest lib-runtime cartridge satisfies the engine's
+                    # effect audit by construction. An underivable label is a
+                    # broken cap declaration: fail the request, never fall
+                    # back.
                     try:
-                        response_media = derive_response_media(cap_urn)
+                        outputs = ResponseOutputs.for_cap(cap_urn, self.manifest, open_stream)
                     except Exception as derive_err:
                         print(
                             f"[CartridgeRuntime] response media derivation FAILED: cap={cap_urn} error={derive_err}",
@@ -4192,14 +4570,7 @@ class CartridgeRuntime:
                         # must not leak the chain.
                         _on_handler_done(request_id, pattern)
                         return
-                    # SyncFrameWriter assigns seq centrally for all frames.
-                    # routing_id (XID) is propagated from incoming REQ to all response frames.
-                    # Output is credited (L9): the receiver's consumption
-                    # grants this stream's window.
-                    emitter = ThreadSafeEmitter(
-                        sync_writer, request_id, response_stream_id, response_media, routing_id, max_chunk,
-                        credit_router=credit_router, initial_credit=initial_credit,
-                    )
+                    emitter = outputs.main()
                     peer_invoker = PeerInvokerImpl(
                         sync_writer, pending_peer_requests, max_chunk,
                         credit_router=credit_router, initial_credit=initial_credit,
@@ -4243,15 +4614,18 @@ class CartridgeRuntime:
                             live_feed_ctx=lf_ctx,
                         )
                         try:
-                            dispatch_op(factory(), input_package, emitter, peer_invoker)
+                            # Every output is ended when the op returns —
+                            # a required one it never wrote to is sent
+                            # empty, an optional one it never wrote to is not
+                            # sent.
+                            dispatch_op(factory(), input_package, outputs, peer_invoker)
 
                             # A cancel that claimed the request first ends it
                             # with its own ERR, sent once this returns.
                             if terminal.for_handler():
-                                # Finalize: STREAM_END + END (seq assigned by
-                                # SyncFrameWriter). END carries the handler's
-                                # declared final progress (L3/L5).
-                                emitter.finalize()
+                                # END (seq assigned by SyncFrameWriter) carries
+                                # the handler's declared final progress (L3/L5).
+                                sync_writer.write(emitter.end_frame())
 
                         except Exception as e:
                             # The ERR frame carries the failure's DECLARED

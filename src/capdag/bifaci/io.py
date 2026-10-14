@@ -175,6 +175,11 @@ def encode_frame(frame: Frame) -> bytes:
     if frame.unbounded is not None:
         frame_map[Keys.UNBOUNDED] = frame.unbounded
 
+    # A response stream that is not the cap's main output names the output
+    # it is.
+    if frame.output is not None:
+        frame_map[Keys.OUTPUT] = frame.output
+
     try:
         return cbor2.dumps(frame_map)
     except Exception as e:
@@ -312,6 +317,21 @@ def decode_frame(data: bytes) -> Frame:
     unbounded_raw = lookup.get(Keys.UNBOUNDED)
     unbounded = bool(unbounded_raw) if unbounded_raw is not None else None
 
+    # Which output a response stream is. Present and not a text string is a
+    # malformed frame, not an absent name: a stream that says which output it
+    # is must be readable.
+    output = lookup.get(Keys.OUTPUT) if Keys.OUTPUT in lookup else None
+    if Keys.OUTPUT in lookup and not isinstance(output, str):
+        raise InvalidFrameError(
+            f"output (key {Keys.OUTPUT}) must be a text string, got {type(output).__name__}"
+        )
+    # Only a STREAM_START says which output it is; the stream's other frames
+    # are tied to it by stream_id.
+    if output is not None and frame_type != FrameType.STREAM_START:
+        raise InvalidFrameError(
+            f"{frame_type.name} frame carries output (key {Keys.OUTPUT}), which only STREAM_START may"
+        )
+
     # Validate required fields based on frame type
     if frame_type == FrameType.CHUNK:
         if chunk_index is None:
@@ -347,6 +367,7 @@ def decode_frame(data: bytes) -> Frame:
         force_kill=force_kill,
         credit=credit,
         unbounded=unbounded,
+        output=output,
     )
 
 

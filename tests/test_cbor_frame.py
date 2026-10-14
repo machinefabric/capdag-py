@@ -357,10 +357,10 @@ def test_198_limits_default():
     assert limits.initial_credit == 32, "default initial_credit = 32 chunks"
 
 
-# TEST199: Test PROTOCOL_VERSION is 4
+# TEST199: Test PROTOCOL_VERSION is 5
 def test_199_protocol_version_constant():
     """Test PROTOCOL_VERSION constant"""
-    assert PROTOCOL_VERSION == 4
+    assert PROTOCOL_VERSION == 5
 
 
 # TEST200: Test integer key constants match the protocol specification
@@ -1888,3 +1888,57 @@ def test_8112_half_precision_progress_survives_decode_encode_relay_hop():
     at_engine = decode_frame(forwarded)
     assert at_engine.log_level() == "progress"
     assert at_engine.log_progress() == 0.5, "progress must reach the engine as a number"
+
+
+# TEST12718: the STREAM_START of a response stream that is not the cap's main
+# output names the output it is, beside the type of what it carries; the name
+# round-trips through CBOR under key 21, the main output's stream and a
+# request stream carry none, and no other frame type may carry one.
+def test_12718_stream_start_names_its_output():
+    import cbor2
+    from capdag.bifaci.io import InvalidFrameError, decode_frame, encode_frame
+
+    rid = MessageId.new_uuid()
+
+    def round_trip(frame: Frame) -> Frame:
+        return decode_frame(encode_frame(frame))
+
+    # Two outputs of one cap may carry the same type: the name tells them apart.
+    kept = Frame.stream_start(rid, "s1", "media:enc=utf-8", False).for_output("media:enc=utf-8;kept")
+    dropped = Frame.stream_start(rid, "s2", "media:enc=utf-8", False).for_output("media:dropped;enc=utf-8")
+    kept_back, dropped_back = round_trip(kept), round_trip(dropped)
+    assert kept_back.output_urn() == "media:enc=utf-8;kept"
+    assert dropped_back.output_urn() == "media:dropped;enc=utf-8"
+    assert kept_back.media_urn == dropped_back.media_urn == "media:enc=utf-8", \
+        "the data's type is its own field"
+
+    # The unbounded form keeps both.
+    feed_back = round_trip(
+        Frame.stream_start_unbounded(rid, "s3", "media:tick", True).for_output("media:tick")
+    )
+    assert feed_back.is_unbounded()
+    assert feed_back.output_urn() == "media:tick"
+
+    # The main output's stream and a request stream name no output, and the
+    # key is not written.
+    encoded = encode_frame(Frame.stream_start(rid, "s4", "media:enc=utf-8"))
+    assert Keys.OUTPUT == 21
+    assert 21 not in cbor2.loads(encoded), "a STREAM_START that names no output does not carry key 21"
+    assert decode_frame(encoded).output_urn() is None
+
+    # Only a STREAM_START may name an output.
+    chunk = Frame.chunk(rid, "s1", 0, b"x", 0, compute_checksum(b"x"))
+    chunk.output = kept.output
+    with pytest.raises(InvalidFrameError) as refusal:
+        decode_frame(encode_frame(chunk))
+    assert "output" in str(refusal.value) and "only STREAM_START may" in str(refusal.value)
+
+    # Key 21 that is not text is a malformed frame, not a stream that names
+    # no output.
+    entries = cbor2.loads(encode_frame(kept))
+    assert entries[21] == "media:enc=utf-8;kept"
+    for malformed in [7, b"media:enc=utf-8;kept", None]:
+        entries[21] = malformed
+        with pytest.raises(InvalidFrameError) as refusal:
+            decode_frame(cbor2.dumps(entries))
+        assert "text" in str(refusal.value), str(refusal.value)

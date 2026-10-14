@@ -36,8 +36,10 @@ Each frame is a CBOR map with integer keys:
 - CANCEL (12): Cancel a specific in-flight request by RID
 - CREDIT (13): Grant per-stream flow-control credit, in CHUNK units (protocol v4)
 
-Protocol v4 adds two integer keys: 19 (credit grant, CREDIT frames) and
-20 (unbounded flag, STREAM_START frames).
+Protocol v4 added two integer keys: 19 (credit grant, CREDIT frames) and
+20 (unbounded flag, STREAM_START frames). Protocol v5 adds key 21: the output
+a response stream is, on the STREAM_START of a stream that is not the cap's
+main output.
 
 A Cancel frame is attributed like an ERR frame, through ``meta``:
 ``meta.code`` / ``meta.attribution_class`` / ``meta.message`` say WHY the
@@ -52,10 +54,12 @@ from enum import Enum, IntEnum
 from dataclasses import dataclass
 
 
-# Protocol version 4 requires explicit handler capacity and strict diagnostic
-# attribution in addition to credit-based flow control and terminal metadata.
+# Protocol version 5: a cap may answer with one stream per declared output.
+# The stream of its main output names none; the stream of another output
+# names the output it is (key 21). It keeps explicit handler capacity, strict
+# diagnostic attribution, credit-based flow control and terminal metadata.
 # Every other version is rejected during handshake.
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 
 # Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
 # Larger payloads automatically use CHUNK frames
@@ -517,6 +521,7 @@ class Frame:
         force_kill: Optional[bool] = None,
         credit: Optional[int] = None,
         unbounded: Optional[bool] = None,
+        output: Optional[str] = None,
     ):
         """Create a new frame
 
@@ -547,6 +552,12 @@ class Frame:
             unbounded: Whether the stream makes no length promise (no chunk_count on
                        STREAM_END, receivers must consume incrementally). Present on
                        STREAM_START frames only.
+            output: Which output of the cap this response stream is, when it is not
+                    the main one: that output's media URN. The stream of a cap's MAIN
+                    output (the one the cap URN's ``out=`` states) carries none, and
+                    neither does a request stream, which is an argument. ``media_urn``
+                    says what the data is; two outputs may carry one type, and this
+                    says which of them the stream is. STREAM_START frames only.
         """
         self.version = version
         self.frame_type = frame_type
@@ -569,6 +580,7 @@ class Frame:
         self.force_kill = force_kill
         self.credit = credit
         self.unbounded = unbounded
+        self.output = output
 
     @classmethod
     def new(cls, frame_type: FrameType, id: MessageId) -> "Frame":
@@ -940,6 +952,18 @@ class Frame:
         Absent flag means bounded.
         """
         return self.unbounded is True
+
+    def for_output(self, output: str) -> "Frame":
+        """Mark this STREAM_START as the stream of an output other than the
+        cap's main one: the output ``output`` identifies (that output's media
+        URN)."""
+        self.output = output
+        return self
+
+    def output_urn(self) -> Optional[str]:
+        """The output this STREAM_START names. None on the main output's
+        stream and on a request stream."""
+        return self.output
 
     @classmethod
     def stream_end(cls, req_id: MessageId, stream_id: str, chunk_count: int) -> "Frame":
@@ -1336,6 +1360,7 @@ class Keys:
     FORCE_KILL = 18     # Whether Cancel should force-kill the cartridge process
     CREDIT = 19         # Flow-control credit grant in CHUNK units (CREDIT frames)
     UNBOUNDED = 20      # Stream makes no length promise (STREAM_START frames)
+    OUTPUT = 21         # The output a response stream is, when not the cap's main one (STREAM_START frames)
 
 
 # =============================================================================

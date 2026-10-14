@@ -43,6 +43,8 @@ from capdag.bifaci.cartridge_runtime import (
     PeerResponseError,
     HandlerError,
     Request,
+    ResponseOutputs,
+    UnknownOutputError,
     WET_KEY_REQUEST,
     dispatch_op,
     OpFactory,
@@ -117,7 +119,7 @@ def invoke_op(factory: OpFactory, frames: queue.Queue, emitter) -> None:
     op = factory()
     peer = NoPeerInvoker()
     input_package = demux_multi_stream(frames)
-    dispatch_op(op, input_package, emitter, peer)
+    dispatch_op(op, input_package, ResponseOutputs.undeclared(emitter), peer)
 
 
 def create_test_cap(urn_str: str, title: str, command: str, args: list):
@@ -2583,6 +2585,7 @@ def test_545_peer_response_returns_data():
 
     # STREAM_END + sentinel
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(Frame.end(req_id, None))
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
@@ -2610,6 +2613,7 @@ def test_839_peer_response_delivers_logs_before_stream_start():
     cbor_payload = cbor2.dumps(data)
     raw_queue.put(Frame.chunk(req_id, "s1", 0, cbor_payload, 0, compute_checksum(cbor_payload)))
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(Frame.end(req_id, None))
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
@@ -2664,6 +2668,7 @@ def test_840_peer_response_collect_bytes_rejects_unhandled_logs():
 
     # STREAM_END + sentinel
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(Frame.end(req_id, None))
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
@@ -2691,6 +2696,7 @@ def test_841_peer_response_collect_value_rejects_unhandled_logs():
 
     # STREAM_END + sentinel
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(Frame.end(req_id, None))
     raw_queue.put(None)
 
     response = demux_peer_response(raw_queue)
@@ -3258,27 +3264,26 @@ def test_7053_over_window_chunk_is_credit_violation():
 # -----------------------------------------------------------------------
 # END-carries-final-progress (L3/L5) — not individually numbered in the
 # Rust diff (covered there at the E2E/interop level), exercised here at the
-# unit level since `ThreadSafeEmitter.finalize()` is the mirror's direct
+# unit level since `ThreadSafeEmitter.end_frame()` is the mirror's direct
 # equivalent of the Rust reference's spawn_handler END construction.
 # -----------------------------------------------------------------------
 
 def test_end_carries_handler_declared_final_progress():
     emitter, mock_writer = make_mock_emitter()
     emitter.finish(0.42, "custom done")
-    emitter.finalize()
-    end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
-    assert len(end_frames) == 1
-    assert end_frames[0].final_progress() == pytest.approx(0.42)
-    assert end_frames[0].final_message() == "custom done"
+    end = emitter.end_frame()
+    assert end.frame_type == FrameType.END
+    assert end.final_progress() == pytest.approx(0.42)
+    assert end.final_message() == "custom done"
+    assert mock_writer.frames == [], "the runtime sends the END, once every output has ended"
 
 
 def test_end_defaults_to_progress_one_without_finish():
-    emitter, mock_writer = make_mock_emitter()
-    emitter.finalize()
-    end_frames = [f for f in mock_writer.frames if f.frame_type == FrameType.END]
-    assert len(end_frames) == 1
-    assert end_frames[0].final_progress() == pytest.approx(1.0)
-    assert end_frames[0].final_message() is None
+    emitter, _mock_writer = make_mock_emitter()
+    end = emitter.end_frame()
+    assert end.frame_type == FrameType.END
+    assert end.final_progress() == pytest.approx(1.0)
+    assert end.final_message() is None
 
 
 # -----------------------------------------------------------------------
@@ -3677,6 +3682,7 @@ def test_7118_collect_bytes_forwarding_preserves_peer_side_channels():
     payload = cbor2.dumps("payload")
     raw_queue.put(Frame.chunk(req_id, "s1", 0, payload, 0, compute_checksum(payload)))
     raw_queue.put(Frame.stream_end(req_id, "s1", 1))
+    raw_queue.put(Frame.end(req_id, None))
     raw_queue.put(None)
 
     emitter = _RecordingEmitter()

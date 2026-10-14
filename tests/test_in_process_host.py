@@ -143,6 +143,9 @@ def test_6748_routes_req_to_handler():
     assert resp_ss.frame_type == FrameType.STREAM_START
     assert resp_ss.id == rid
     assert resp_ss.stream_id == "result"
+    # What a handler answers with is its cap's main output: the stream names
+    # no output.
+    assert resp_ss.output_urn() is None
 
     resp_chunk = reader.read()
     assert resp_chunk.frame_type == FrameType.CHUNK

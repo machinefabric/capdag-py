@@ -388,10 +388,10 @@ def test_472_handshake_negotiates_reorder_buffer():
     assert result.limits.max_reorder_buffer == 32
 
 
-_V4_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
+_HANDSHAKE_TEST_MANIFEST = b'{"name":"test","version":"1.0","channel":"release","description":"Test","cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
 
 
-def _run_v4_handshake(cartridge_limits: Limits):
+def _run_handshake(cartridge_limits: Limits):
     """Run a real host<->cartridge handshake over paired BytesIO buffers.
     The cartridge side proposes `cartridge_limits` in its HELLO.
     Returns (host HandshakeResult, cartridge-negotiated Limits).
@@ -421,7 +421,7 @@ def _run_v4_handshake(cartridge_limits: Limits):
         Frame.hello_with_manifest(
             cartridge_limits.max_frame,
             cartridge_limits.max_chunk,
-            _V4_TEST_MANIFEST,
+            _HANDSHAKE_TEST_MANIFEST,
             {},
             cartridge_limits.max_reorder_buffer,
             cartridge_limits.initial_credit,
@@ -445,15 +445,15 @@ def _run_v4_handshake(cartridge_limits: Limits):
     return host_result, cart_negotiated
 
 
-# TEST7000: v4 handshake negotiates all limits and required handler capacity.
-def test_7000_v4_handshake_negotiates_all_four_limits():
+# TEST7000: the handshake negotiates all limits and required handler capacity.
+def test_7000_handshake_negotiates_all_four_limits():
     cartridge_limits = Limits(
         max_frame=2_000_000,
         max_chunk=128_000,
         max_reorder_buffer=32,
         initial_credit=16,
     )
-    host_result, cart_negotiated = _run_v4_handshake(cartridge_limits)
+    host_result, cart_negotiated = _run_handshake(cartridge_limits)
 
     assert host_result.limits.max_frame == 2_000_000, "min(3.5MB, 2MB)"
     assert host_result.limits.max_chunk == 128_000, "min(256KB, 128KB)"
@@ -465,15 +465,18 @@ def test_7000_v4_handshake_negotiates_all_four_limits():
     assert cart_negotiated.max_reorder_buffer == 32
 
 
-# TEST7001: HELLO carrying protocol version 2 is rejected at handshake with a version-mismatch error
-def test_7001_handshake_rejects_version_2():
+# TEST7001: HELLO carrying another protocol version is rejected at handshake
+# with a version-mismatch error naming both — the version this one replaced
+# included: a cartridge built for it does not name its response streams'
+# outputs, and nothing downstream could read it.
+def test_7001_handshake_rejects_another_version():
     host_to_cartridge = io.BytesIO()
     cartridge_to_host = io.BytesIO()
 
     host_writer = FrameWriter.new(host_to_cartridge)
     host_reader = FrameReader.new(cartridge_to_host)
 
-    # Fake v2 cartridge: replies to the host HELLO with a version=2 HELLO.
+    # A cartridge of the previous protocol: replies to the host HELLO with a version=4 HELLO.
     host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT))
     host_to_cartridge.seek(0)
     cartridge_reader = FrameReader.new(host_to_cartridge)
@@ -482,9 +485,9 @@ def test_7001_handshake_rejects_version_2():
     assert _host_hello is not None
 
     hello = Frame.hello_with_manifest(
-        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _V4_TEST_MANIFEST, {})
-    hello.version = 2
-    hello.meta["version"] = 2
+        DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _HANDSHAKE_TEST_MANIFEST, {})
+    hello.version = 4
+    hello.meta["version"] = 4
     cartridge_writer.write(hello)
 
     cartridge_to_host.seek(0)
@@ -493,7 +496,7 @@ def test_7001_handshake_rejects_version_2():
 
     msg = str(exc_info.value)
     assert "version" in msg, f"error must name the version mismatch: {msg}"
-    assert "2" in msg and "4" in msg, f"error must state both versions: {msg}"
+    assert "ours 5" in msg and "theirs 4" in msg, f"error must state both versions: {msg}"
 
 
 # TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals
@@ -505,7 +508,7 @@ def test_7002_initial_credit_negotiated_minimum():
         max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
         initial_credit=8,
     )
-    host_result, cart_negotiated = _run_v4_handshake(smaller)
+    host_result, cart_negotiated = _run_handshake(smaller)
     assert host_result.limits.initial_credit == 8
     assert cart_negotiated.initial_credit == 8
 
@@ -516,7 +519,7 @@ def test_7002_initial_credit_negotiated_minimum():
         max_reorder_buffer=DEFAULT_MAX_REORDER_BUFFER,
         initial_credit=128,
     )
-    host_result, cart_negotiated = _run_v4_handshake(larger)
+    host_result, cart_negotiated = _run_handshake(larger)
     assert host_result.limits.initial_credit == 32
     assert cart_negotiated.initial_credit == 32
 
