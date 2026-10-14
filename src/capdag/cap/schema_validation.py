@@ -51,6 +51,29 @@ class MediaUrnNotResolvedError(SchemaValidationError):
         self.error = error
 
 
+def schema_violations(schema: Any, value: Any) -> list:
+    """Compile an inline JSON Schema and hold a value to it, returning what
+    it breaks, described (empty when it breaks nothing). This is the one
+    reading of a media definition's schema: what an argument value and an
+    output are held to at run time, and what a constant written in a machine
+    is held to when the machine is resolved."""
+    if not JSONSCHEMA_AVAILABLE:
+        raise ImportError(
+            "jsonschema package is required for schema validation. "
+            "Install with: pip install jsonschema"
+        )
+    try:
+        Draft7Validator.check_schema(schema)
+        validator = Draft7Validator(schema)
+    except Exception as error:
+        return [f"Failed to compile schema: {error}"]
+    violations = []
+    for error in validator.iter_errors(value):
+        where = "/".join(str(part) for part in error.absolute_path) or "(root)"
+        violations.append(f"{where}: {error.message}")
+    return violations
+
+
 class SchemaValidator:
     """Schema validator with caching for performance"""
 

@@ -233,11 +233,9 @@ class ArgumentBinding:
         return ArgumentBinding(ArgumentBinding.INPUT_MEDIA_URN)
 
     @staticmethod
-    def previous_output(node_id: str, output_field: Optional[str] = None) -> ArgumentBinding:
-        data: Dict[str, Any] = {"node_id": node_id}
-        if output_field is not None:
-            data["output_field"] = output_field
-        return ArgumentBinding(ArgumentBinding.PREVIOUS_OUTPUT, data)
+    def previous_output(node_id: str) -> ArgumentBinding:
+        """The whole value another node produced."""
+        return ArgumentBinding(ArgumentBinding.PREVIOUS_OUTPUT, {"node_id": node_id})
 
     @staticmethod
     def cap_default() -> ArgumentBinding:
@@ -295,10 +293,6 @@ class ArgumentBinding:
         return self._data["node_id"]
 
     @property
-    def output_field(self) -> Optional[str]:
-        return self._data.get("output_field")
-
-    @property
     def setting_urn(self) -> str:
         return self._data["setting_urn"]
 
@@ -328,6 +322,10 @@ class ArgumentBinding:
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> ArgumentBinding:
         kind = d["type"]
+        if kind == ArgumentBinding.PREVIOUS_OUTPUT:
+            # A previous output is the whole value of a node: its node is all
+            # the binding says.
+            return ArgumentBinding.previous_output(d["node_id"])
         data = {k: v for k, v in d.items() if k != "type"}
         return ArgumentBinding(kind, data)
 
@@ -568,15 +566,7 @@ def resolve_binding(
         node_id = binding.node_id
         if node_id not in context.previous_outputs:
             raise InternalError(f"No previous output for node {node_id!r}")
-        output_val = context.previous_outputs[node_id]
-        output_field = binding.output_field
-        if output_field is not None:
-            if not isinstance(output_val, dict) or output_field not in output_val:
-                raise InternalError(
-                    f"Output field {output_field!r} not found in output of node {node_id!r}"
-                )
-            output_val = output_val[output_field]
-        value = _json_value_to_bytes(output_val)
+        value = _json_value_to_bytes(context.previous_outputs[node_id])
         return ResolvedArgument("", value, ArgumentSource.PREVIOUS_OUTPUT)
 
     elif binding.kind == ArgumentBinding.CAP_DEFAULT:

@@ -1,186 +1,143 @@
-"""Orchestrator types — error types, resolved graph, and registry trait.
+"""Orchestrator types — the errors of turning a plan into steps, and the
+steps themselves.
 
-Mirrors Rust's orchestrator/types.rs exactly.
+Mirrors the reference's ``orchestrator/types.rs``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 from capdag.cap.definition import Cap
-from capdag.planner.cardinality import InputStructure
+from capdag.planner.live_cap_fab import StepToken
+from capdag.planner.policy import StepPolicy
 
 
 # --- Error hierarchy ---
 
 class ParseOrchestrationError(Exception):
-    """Base class for all orchestration parse errors."""
+    """Base class for all orchestration errors."""
     pass
 
 
-class MachineSyntaxParseFailedError(ParseOrchestrationError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"Machine notation parse failed: {message}")
-
-
 class CapNotFoundError(ParseOrchestrationError):
+    """A cap URN is not in the registry."""
+
     def __init__(self, cap_urn: str) -> None:
         self.cap_urn = cap_urn
         super().__init__(f"Cap URN '{cap_urn}' not found in registry")
 
 
-class NodeMediaConflictError(ParseOrchestrationError):
-    def __init__(self, node: str, existing: str, required_by_cap: str) -> None:
-        self.node = node
-        self.existing = existing
-        self.required_by_cap = required_by_cap
-        super().__init__(
-            f"Node '{node}' has conflicting media URNs: "
-            f"existing='{existing}', required_by_cap='{required_by_cap}'"
-        )
-
-
-class NotADagError(ParseOrchestrationError):
-    def __init__(self, cycle_nodes: List[str]) -> None:
-        self.cycle_nodes = cycle_nodes
-        super().__init__(
-            f"Graph is not a DAG, contains cycle involving nodes: {cycle_nodes}"
-        )
-
-
 class InvalidGraphError(ParseOrchestrationError):
+    """The plan or graph is not one that can be run as asked."""
+
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(f"Invalid graph: {message}")
 
 
-class CapUrnParseError(ParseOrchestrationError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"Failed to parse Cap URN: {message}")
-
-
-class MediaUrnParseError(ParseOrchestrationError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"Failed to parse Media URN: {message}")
-
-
-class FabricRegistryError(ParseOrchestrationError):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(f"Registry error: {message}")
-
-
-class StructureMismatchError(ParseOrchestrationError):
-    def __init__(self, node: str, source_structure: InputStructure,
-                 expected_structure: InputStructure) -> None:
-        self.node = node
-        self.source_structure = source_structure
-        self.expected_structure = expected_structure
-        super().__init__(
-            f"Structure mismatch at node '{node}': source is "
-            f"{source_structure.value} but cap expects {expected_structure.value}"
-        )
-
-
 # --- Data types ---
 
-class ResolvedEdge:
-    """A resolved edge in the orchestration graph.
+@dataclass(frozen=True)
+class StepSource:
+    """What one input of a step is sent: one node's value as it is
+    (:meth:`of_node`), or several nodes' values gathered, in order, into one
+    sequence (:meth:`gather`) — a single value contributes one item, a
+    sequence its items. A gather with no members is an empty sequence."""
 
-    Each edge represents a cap transformation from one node to another,
-    with the full cap definition and media URN strings resolved.
-    """
+    #: Which of the two this is.
+    is_gather: bool
+    #: The nodes read, in order: the one node, or the gather's members.
+    members: Tuple[str, ...]
 
-    __slots__ = ("from_node", "to_node", "cap_urn", "cap", "in_media", "out_media")
+    @staticmethod
+    def of_node(node: str) -> "StepSource":
+        """The source that sends one node's value as it is."""
+        return StepSource(is_gather=False, members=(node,))
 
-    def __init__(
-        self,
-        from_node: str,
-        to_node: str,
-        cap_urn: str,
-        cap: Cap,
-        in_media: str,
-        out_media: str,
-    ) -> None:
-        self.from_node = from_node
-        self.to_node = to_node
-        self.cap_urn = cap_urn
-        self.cap = cap
-        self.in_media = in_media
-        self.out_media = out_media
+    @staticmethod
+    def gather(members: List[str]) -> "StepSource":
+        """The source that gathers ``members``, in order."""
+        return StepSource(is_gather=True, members=tuple(members))
 
-    def __repr__(self) -> str:
-        return f"ResolvedEdge({self.from_node!r} -> {self.to_node!r}, cap={self.cap_urn!r})"
+    @property
+    def node(self) -> str:
+        """The node whose value is sent, when this is not a gather."""
+        if self.is_gather:
+            raise ValueError("a gather is several nodes, not one")
+        return self.members[0]
 
-
-def _mermaid_escape(s: str) -> str:
-    """Escape a string for use in Mermaid labels."""
-    return (s
-            .replace("\\", "\\\\")
-            .replace('"', "#quot;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;"))
+    def nodes(self) -> List[str]:
+        """Every node this source reads, in order."""
+        return list(self.members)
 
 
+@dataclass(frozen=True)
+class StepInput:
+    """One input stream of a step."""
+
+    #: The URN the stream is delivered under: the cap's ``in=`` for its main
+    #: input, the arg's stream URN for any other. A cartridge tells its
+    #: inputs apart by this.
+    stream_urn: str
+    source: StepSource
+
+
+@dataclass(frozen=True)
+class StepOutput:
+    """An output of a step other than its main one that something takes."""
+
+    #: The output's media URN in the cap's definition: what its response
+    #: stream names.
+    output_media_urn: str
+    #: The node its value is stored at.
+    node: str
+
+
+@dataclass
+class ResolvedStep:
+    """One step of a resolved graph: one invocation of a cap."""
+
+    #: Stable per-step identity carried from the originating strand step (via
+    #: the plan's Cap node). The key by which a run's live progress maps back
+    #: to the graph element a client rendered.
+    token_id: StepToken
+    #: The step's node: where its MAIN output is stored.
+    node: str
+    #: Cap URN string.
+    cap_urn: str
+    #: Resolved cap definition.
+    cap: Cap
+    #: The streams the step is sent, besides the values its args are given by
+    #: the run. None for a step nothing is wired into.
+    inputs: List[StepInput]
+    #: The outputs other than the main one that something takes.
+    outputs: List[StepOutput]
+    #: The media URN of the main output, from the cap definition.
+    out_media: str
+    #: What the step does when it fails.
+    policy: StepPolicy = field(default_factory=StepPolicy)
+
+    def source_nodes(self) -> List[str]:
+        """Every node the step reads, in input order."""
+        return [node for step_input in self.inputs for node in step_input.source.nodes()]
+
+    def produced_nodes(self) -> List[str]:
+        """Every node the step produces: its own, then its other taken
+        outputs'."""
+        return [self.node] + [output.node for output in self.outputs]
+
+
+@dataclass
 class ResolvedGraph:
-    """A fully resolved orchestration graph.
+    """Steps with the cap definitions they run, wired by the nodes they read
+    and produce. A node no step of the graph produces is an input of the
+    graph: its value is supplied when the graph is run."""
 
-    Contains nodes (name → media URN) and edges (resolved cap transformations).
-    """
-
-    __slots__ = ("nodes", "edges", "graph_name")
-
-    def __init__(
-        self,
-        nodes: Dict[str, str],
-        edges: List[ResolvedEdge],
-        graph_name: Optional[str] = None,
-    ) -> None:
-        self.nodes = nodes
-        self.edges = edges
-        self.graph_name = graph_name
-
-    def to_mermaid(self) -> str:
-        """Generate Mermaid graph LR flowchart."""
-        out = "graph LR\n"
-
-        targets: Set[str] = {e.to_node for e in self.edges}
-        sources: Set[str] = {e.from_node for e in self.edges}
-
-        for name, media_urn in self.nodes.items():
-            is_input = name in sources and name not in targets
-            is_output = name in targets and name not in sources
-            esc_name = _mermaid_escape(name)
-            esc_urn = _mermaid_escape(media_urn)
-
-            if is_input:
-                out += f'    {name}(["{esc_name}<br/><small>{esc_urn}</small>"])\n'
-            elif is_output:
-                out += f'    {name}(("{esc_name}<br/><small>{esc_urn}</small>"))\n'
-            else:
-                out += f'    {name}["{esc_name}<br/><small>{esc_urn}</small>"]\n'
-
-        out += "\n"
-
-        seen_edges: Set[Tuple[str, str, str]] = set()
-        for edge in self.edges:
-            key = (edge.from_node, edge.to_node, edge.cap_urn)
-            if key in seen_edges:
-                continue
-            seen_edges.add(key)
-            title = _mermaid_escape(edge.cap.title)
-            urn = _mermaid_escape(edge.cap_urn)
-            out += f'    {edge.from_node} -->|"{title}<br/><small>{urn}</small>"| {edge.to_node}\n'
-
-        return out
-
-    def __repr__(self) -> str:
-        return f"ResolvedGraph(nodes={len(self.nodes)}, edges={len(self.edges)})"
-
-
-# FabricRegistryTrait is gone. The orchestrator parser and plan converter take
-# FabricRegistry directly. Tests use FabricRegistry.new_for_test() +
-# ensure_identity_cap() / add_caps_to_cache() instead of a hand-built mock.
+    #: Map from node name to the media URN it holds.
+    nodes: Dict[str, str]
+    #: The steps, in the order they were asked for.
+    steps: List[ResolvedStep]
+    #: The name of the plan the graph came from.
+    graph_name: Optional[str] = None

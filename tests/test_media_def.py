@@ -666,3 +666,71 @@ async def test_6283_resolve_custom_with_schema():
 # publisher (capfab) regression suite, not the cap library. They
 # were deleted from the Rust and Go mirrors for the same reason;
 # this Python deletion brings the mirror back into parity.
+
+
+# TEST12835: the one decision of whether a value breaks a media definition's
+# validation. A rule applies to the values it is about and passes the rest:
+# min and max to numbers, the length rules to strings and arrays, pattern and
+# allowed values to strings. The first rule broken is named; a pattern that is
+# no regular expression is a defect of the definition, not of the value.
+def test_12835_a_value_is_held_to_the_rules_that_are_about_it():
+    import pytest
+    from capdag.media.spec import MediaValidation
+
+    range_of = MediaValidation(min=1, max=365)
+    assert range_of.violation(1) is None
+    assert range_of.violation(365.0) is None
+    assert range_of.violation(0) == "minimum value 1"
+    assert range_of.violation(365.5) == "maximum value 365"
+    assert range_of.violation(0.5) == "minimum value 1"
+    assert range_of.violation(366) == "maximum value 365"
+    # A bound is named as a number is written: a whole one without a point.
+    assert MediaValidation(min=1.0).violation(0) == "minimum value 1"
+    assert MediaValidation(max=0.5).violation(1) == "maximum value 0.5"
+    # A range says nothing of what is not a number — a truth value included.
+    assert range_of.violation("0") is None
+    assert range_of.violation([0]) is None
+    assert range_of.violation(None) is None
+    assert range_of.violation(False) is None
+
+    length = MediaValidation(min_length=2, max_length=3)
+    assert length.violation("ab") is None
+    assert length.violation("abc") is None
+    assert length.violation("a") == "minimum length 2"
+    assert length.violation("abcd") == "maximum length 3"
+    # A string's length is its bytes.
+    assert length.violation("éé") == "maximum length 3"
+    # An array has a length too, and the rule says which it measured.
+    assert length.violation(["a", "b"]) is None
+    assert length.violation(["a"]) == "minimum array length 2"
+    assert length.violation([1, 2, 3, 4]) == "maximum array length 3"
+    # A number has none.
+    assert length.violation(12345) is None
+
+    pattern = MediaValidation(pattern="^[a-z]+$")
+    assert pattern.violation("abc") is None
+    assert pattern.violation("abc1") == "pattern '^[a-z]+$'"
+    assert pattern.violation(1) is None, "a pattern is about strings"
+    # A pattern is searched for, not anchored unless it says so.
+    assert MediaValidation(pattern="b").violation("abc") is None
+    with pytest.raises(ValueError, match=r"Invalid regex pattern '\('"):
+        MediaValidation(pattern="(").violation("x")
+    # The defect is the definition's only when the rule is applied.
+    assert MediaValidation(pattern="(").violation(1) is None
+
+    allowed = MediaValidation(allowed_values=["mean", "median"])
+    assert allowed.violation("median") is None
+    assert allowed.violation("mode") == 'allowed values: ["mean", "median"]'
+    assert allowed.violation(3) is None, "allowed values are about strings"
+    # A list that allows nothing is a rule that refuses every string.
+    assert MediaValidation(allowed_values=[]).violation("mean") == "allowed values: []"
+
+    # The first rule broken is the one named: the range before the length,
+    # the length before the pattern, the pattern before the allowed values.
+    every = MediaValidation(min_length=3, pattern="^x", allowed_values=["xyz"])
+    assert every.violation("ab") == "minimum length 3"
+    assert every.violation("abc") == "pattern '^x'"
+    assert every.violation("xab") == 'allowed values: ["xyz"]'
+    assert every.violation("xyz") is None
+    # No rule, nothing broken.
+    assert MediaValidation().violation("anything") is None

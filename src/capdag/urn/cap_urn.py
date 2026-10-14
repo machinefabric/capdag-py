@@ -769,30 +769,31 @@ class CapUrn:
     def __hash__(self) -> int:
         return hash((self.in_urn, self.out_urn, self.effect, tuple(sorted(self.tags.items()))))
 
-    def _cmp_key(self) -> tuple:
-        """Return a comparison key for structural total ordering.
+    #: Where each effect stands in the order of caps: as the reference
+    #: declares them, the unspecified effect last.
+    _EFFECT_ORDER = {
+        CapEffect.DECLARED.value: 0,
+        CapEffect.NONE.value: 1,
+        CapEffect.PATCH.value: 2,
+        CapEffect.ANY.value: 3,
+    }
 
-        Ordering routes through the canonical string forms of the parsed
-        MediaUrn values for `in` / `out` (which are already canonicalized
-        at construction time), then the sorted tag items — exactly mirroring
-        the Rust `Ord` impl and Go `Less()`.
-
-        Using canonical strings rather than re-parsing through MediaUrn is
-        safe because `CapUrn.__init__` always canonicalizes `in_urn` /
-        `out_urn` on construction.  The sorted-tags tuple produces the same
-        lexicographic order as Rust's `BTreeMap<String,String>::cmp`.
-
-        This MUST NOT use the full `to_string()` form — that would collapse
-        the three comparison axes (in, out, tags) into one opaque string and
-        give wrong results for URNs whose canonical representations differ
-        only in tag ordering.
-        """
+    def ordering_key(self) -> tuple:
+        """The key cap URNs are ordered by: `in=` and `out=` as media URNs
+        (see ``MediaUrn.ordering_key``), then the effect, then the remaining
+        tags as (key, stored value) pairs in key order. This is the
+        reference's structural order, not the order of the canonical text:
+        the text would fold the four axes into one string and order them by
+        whatever characters happen to meet."""
         return (
-            self.in_media_urn()._cmp_key(),
-            self.out_media_urn()._cmp_key(),
-            self.effect,
+            self.in_media_urn().ordering_key(),
+            self.out_media_urn().ordering_key(),
+            self._EFFECT_ORDER[self.effect],
             tuple(sorted(self.tags.items())),
         )
+
+    def _cmp_key(self) -> tuple:
+        return self.ordering_key()
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, CapUrn):

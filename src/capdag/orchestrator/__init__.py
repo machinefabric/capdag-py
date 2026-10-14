@@ -1,32 +1,27 @@
-"""Orchestrator module — machine notation parsing, DAG validation, plan conversion, and CBOR utilities.
+"""Orchestrator module — plan conversion and CBOR utilities.
 
-Mirrors Rust's orchestrator module. Provides:
-- Machine notation → validated ResolvedGraph (parse_machine_to_cap_dag)
-- MachinePlan → ResolvedGraph (plan_to_resolved_graph)
-- DAG cycle detection (validate_dag)
+Mirrors the reference's orchestrator module. Provides:
+- the steps of a MachinePlan as a ResolvedGraph (steps_to_resolved_graph,
+  plan_to_resolved_graph)
 - CBOR array/sequence splitting and assembly
+- how a run's progress maps into the range of its part
 """
 
 from capdag.orchestrator.types import (
     ParseOrchestrationError,
-    MachineSyntaxParseFailedError,
     CapNotFoundError,
-    NodeMediaConflictError,
-    NotADagError,
     InvalidGraphError,
-    CapUrnParseError,
-    MediaUrnParseError,
-    FabricRegistryError,
-    StructureMismatchError,
-    ResolvedEdge,
+    StepSource,
+    StepInput,
+    StepOutput,
+    ResolvedStep,
     ResolvedGraph,
 )
 
-from capdag.orchestrator.validation import validate_dag
-
-from capdag.orchestrator.parser import parse_machine_to_cap_dag
-
-from capdag.orchestrator.plan_converter import plan_to_resolved_graph
+from capdag.orchestrator.plan_converter import (
+    steps_to_resolved_graph,
+    plan_to_resolved_graph,
+)
 
 from capdag.orchestrator.cbor_util import (
     CborUtilError,
@@ -50,23 +45,16 @@ from capdag.orchestrator.executor import (
 __all__ = [
     # Error types
     "ParseOrchestrationError",
-    "MachineSyntaxParseFailedError",
     "CapNotFoundError",
-    "NodeMediaConflictError",
-    "NotADagError",
     "InvalidGraphError",
-    "CapUrnParseError",
-    "MediaUrnParseError",
-    "FabricRegistryError",
-    "StructureMismatchError",
     # Data types
-    "ResolvedEdge",
+    "StepSource",
+    "StepInput",
+    "StepOutput",
+    "ResolvedStep",
     "ResolvedGraph",
-    # Validation
-    "validate_dag",
-    # Parser
-    "parse_machine_to_cap_dag",
     # Plan converter
+    "steps_to_resolved_graph",
     "plan_to_resolved_graph",
     # CBOR utilities
     "CborUtilError",

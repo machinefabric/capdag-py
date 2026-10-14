@@ -592,8 +592,16 @@ class MediaUrn:
     def __repr__(self) -> str:
         return f"MediaUrn('{self.to_string()}')"
 
-    def _cmp_key(self) -> tuple:
+    def ordering_key(self) -> tuple:
+        """The key media URNs are ordered by: the prefix, then the tags as
+        (key, stored value) pairs in key order. This is the reference's
+        structural order — NOT the order of the canonical text, which differs
+        wherever one key is the beginning of another (`file` and `file-path`).
+        Everything canonical that sorts by URN sorts by this."""
         return (self._urn.prefix, tuple(sorted(self._urn.tags.items())))
+
+    def _cmp_key(self) -> tuple:
+        return self.ordering_key()
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MediaUrn):

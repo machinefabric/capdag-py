@@ -1,70 +1,118 @@
-"""Anchor-realization for MachineStrands.
+"""Anchor realization for MachineStrands.
 
-Turns either a planner-produced Strand (linear cap-step sequence, one
-source per step) or a parser-produced wiring set (potentially
-multi-source per wiring) into a fully-resolved MachineStrand.
+Turns either a planner-produced Strand or a parser-produced wiring set into a
+fully resolved MachineStrand: a connected sub-graph whose every edge has an
+explicit source-to-cap-arg assignment and names the outputs it takes,
+anchored by the input root URNs and output leaf URNs of the strand.
 
-Resolution requires FabricRegistry access to look up each cap's full
-argument list (cap.args) so the matching algorithm has the per-arg
-media URN identities to match against.
+Binding a wiring's members
+--------------------------
 
-Source-to-cap-arg matching:
-    For each edge, run a minimum-cost bipartite matching:
-    - Sources: the URNs feeding this edge.
-    - Cap arguments: the cap's stdin args (identified by slot media_urn).
-    - Cost of pairing source s with arg a: spec(s) - spec(a) if s.conforms_to(a).
-    - The minimum-cost assignment must be unique; ties raise AmbiguousMachineNotationError.
+Members that name an arg bind first, each to the arg of that name; the source
+must conform to what that arg ACCEPTS. A name written more than once gathers,
+and only a sequence arg may be gathered into. A constant is held to the
+validation of the arg's media definition.
+
+The members that name no arg are matched by type over the args no name
+bound, by minimum-cost assignment in two phases of strict precedence:
+
+- Cost of pairing source s with arg a: spec(s) - spec(a) if s conforms to
+  what a accepts — how much more the source says than the arg asks;
+  otherwise the pair is impossible.
+- Phase 1 — product: each source claims a distinct arg. Whenever such an
+  assignment exists, this phase decides.
+- Phase 2 — gather: only when no such assignment exists, a sequence arg may
+  absorb several conforming sources (scalar args still take at most one).
+- The minimum-cost assignment of the deciding phase must be unique: a tie is
+  ``AmbiguousMachineNotationError``. Where a member stands in its group is
+  never a tiebreaker (it only fixes the item order within one gathered arg).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from capdag.urn.cap_urn import CapUrn
-from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
-from capdag.machine.graph import EdgeAssignmentBinding, MachineEdge, MachineStrand, NodeId
+from capdag.machine.constant import constant_text
 from capdag.machine.error import (
     AmbiguousMachineNotationError,
+    ArgBoundTwiceError,
+    CapDoesNotDeclareInputError,
+    ConstantFailsValidationError,
     CyclicMachineStrandError,
     DisconnectedStrandError,
+    MainInputUnboundError,
     NoCapabilityStepsError,
+    NoMainOutputError,
+    OutputTakenTwiceError,
+    RuntimeMediaInferenceError,
+    SourceDoesNotConformToArgError,
+    UndecidedMember,
+    UnknownArgNameError,
     UnknownCapError,
+    UnknownOutputNameError,
     UnmatchedSourceInCapArgsError,
 )
+from capdag.machine.graph import (
+    BindingSource,
+    EdgeAssignmentBinding,
+    EdgeOutput,
+    MachineEdge,
+    MachineStrand,
+    NodeId,
+)
+from capdag.machine.iteration import (
+    CyclicSteps,
+    MemberShape,
+    OutputShape,
+    StepShape,
+    iteration_of,
+)
+from capdag.planner.policy import StepPolicy
+from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
 
 if TYPE_CHECKING:
     from capdag.cap.registry import FabricRegistry
-    from capdag.planner.live_cap_fab import Strand
+    from capdag.planner.live_cap_fab import StepToken, Strand
 
 
+@dataclass
+class WiringTarget:
+    """An output taken: the output's NAME in the cap definition (without a
+    name, the main output) and the node it goes to."""
+
+    node: NodeId
+    name: Optional[str] = None
+
+
+@dataclass
 class PreInternedWiring:
-    """One wiring after source/target slots have been pre-interned into NodeIds.
+    """One wiring after the caller has pre-interned its source and target
+    slots into NodeIds against a parallel nodes list.
 
-    The resolver consumes this shape via resolve_pre_interned and does NOT
-    do any URN-based interning of its own. Two distinct NodeIds whose
-    underlying URNs are is_equivalent stay distinct — this is what the
-    notation parser needs to honor the user's node-name identity contract.
+    The resolver does no URN-based interning of its own: two distinct NodeIds
+    whose URNs are equivalent stay distinct, which is what lets the notation
+    parser honor the identity of node names.
     """
 
-    __slots__ = ("token_id", "cap_urn", "source_node_ids", "target_node_id")
-
-    def __init__(
-        self,
-        cap_urn: CapUrn,
-        source_node_ids: List[NodeId],
-        target_node_id: NodeId,
-        token_id: str = "",
-    ):
-        # The originating resolved-strand step's stable identity, carried
-        # onto the resulting MachineEdge (see MachineEdge.token_id).
-        self.token_id = token_id
-        self.cap_urn = cap_urn
-        # Source NodeIds in the order the upstream layer wrote them. Position
-        # carries no semantics — the matching below re-derives per-arg
-        # identity from URNs.
-        self.source_node_ids = source_node_ids
-        # Target NodeId.
-        self.target_node_id = target_node_id
+    #: The originating step's stable identity, carried onto the resulting
+    #: MachineEdge (see ``MachineEdge.token_id``).
+    token_id: "StepToken"
+    cap_urn: CapUrn
+    #: Members that say which arg they are for, by the arg's NAME in the cap
+    #: definition. They bind first, in the order written.
+    named_sources: List[Tuple[str, BindingSource]] = field(default_factory=list)
+    #: Members that name no arg. Position carries no semantics — the matching
+    #: assigns each to a cap arg no named member bound.
+    source_node_ids: List[NodeId] = field(default_factory=list)
+    #: The outputs taken. Empty: a sink.
+    targets: List[WiringTarget] = field(default_factory=list)
+    #: What the step does when it fails.
+    policy: StepPolicy = StepPolicy()
+    #: The machine steps this step was included through, outermost first;
+    #: empty for a step the machine wrote itself.
+    included_as: List[str] = field(default_factory=list)
 
 
 def resolve_strand(
@@ -72,18 +120,13 @@ def resolve_strand(
     registry: "FabricRegistry",
     strand_index: int,
 ) -> MachineStrand:
-    """Resolve a planner-produced Strand into a single MachineStrand.
+    """Convert a planner-produced Strand into a single MachineStrand.
 
-    Walks the strand step-by-step. Each `Cap` step declares ALL of its
-    data-flow inputs explicitly (`step.inputs`, a list of `CapInput`
-    naming each input's producer by that producer step's stable
-    `token_id`, or the sentinel `ArgSourceRef.strand_input()` for the
-    strand's own input anchor). There is no positional predecessor
-    assumption — every input names its producer explicitly, so fan-out and
-    convergence are both expressible. `ForEach`/`Collect` steps are elided:
-    `is_loop` is not carried on the wiring; it is derived from cardinality
-    in `resolve_pre_interned`, the single source of truth shared with path
-    search.
+    Every cap step names each of its inputs' producers explicitly (the
+    strand's input, or another step's token) — there is no positional
+    predecessor assumption, so fan-out and convergence both wire correctly.
+    ForEach and Collect steps are elided here; ``is_loop`` is derived from
+    cardinality in ``resolve_pre_interned``.
 
     Raises MachineAbstractionError on resolution failure.
     """
@@ -92,61 +135,65 @@ def resolve_strand(
     nodes: List[MediaUrn] = []
     pre_interned: List[PreInternedWiring] = []
 
-    # Producer of each node, by producing step's stable `token_id` → its
-    # output NodeId. Explicit input sources resolve against this — no
-    # positional predecessor assumption, so fan-out and convergence both
-    # wire correctly.
+    # Producer of each node, by the producing step's stable token → its
+    # output NodeId.
     producer_node: Dict[str, NodeId] = {}
     # The single shared strand input anchor node, allocated on first
-    # StrandInput reference and refined to the most specific consuming
-    # from_spec.
+    # reference and refined to the most specific consuming from_spec.
     strand_input_node: Optional[NodeId] = None
 
     for step in strand.steps:
-        if step.step_type == StrandStepType.CAP:
-            if not step.inputs:
-                raise DisconnectedStrandError(strand_index)
-
-            source_node_ids: List[NodeId] = []
-            for cap_input in step.inputs:
-                source = cap_input.source
-                if source.is_strand_input():
-                    if strand_input_node is not None:
-                        if step.from_spec.specificity() > nodes[strand_input_node].specificity():
-                            nodes[strand_input_node] = step.from_spec
-                        source_id = strand_input_node
-                    else:
-                        source_id = len(nodes)
-                        nodes.append(step.from_spec)
-                        strand_input_node = source_id
+        if step.step_type != StrandStepType.CAP:
+            # Cardinality transitions are elided — caps name their producers
+            # directly, and is_loop is derived from cardinality in
+            # resolve_pre_interned, so these steps carry no wiring here.
+            continue
+        source_node_ids: List[NodeId] = []
+        for cap_input in step.inputs:
+            source = cap_input.source
+            if source.is_strand_input():
+                if strand_input_node is not None:
+                    if step.from_spec.specificity() > nodes[strand_input_node].specificity():
+                        nodes[strand_input_node] = step.from_spec
+                    source_id = strand_input_node
                 else:
-                    if source.token_id not in producer_node:
-                        raise DisconnectedStrandError(strand_index)
-                    source_id = producer_node[source.token_id]
-                source_node_ids.append(source_id)
+                    source_id = len(nodes)
+                    nodes.append(step.from_spec)
+                    strand_input_node = source_id
+            else:
+                if source.token_id not in producer_node:
+                    raise DisconnectedStrandError(strand_index)
+                source_id = producer_node[source.token_id]
+            source_node_ids.append(source_id)
 
-            # Target: always a fresh position.
-            target_id = len(nodes)
-            nodes.append(step.to_spec)
+        # Target: always a fresh position.
+        target_id = len(nodes)
+        nodes.append(step.to_spec)
 
-            pre_interned.append(PreInternedWiring(
+        pre_interned.append(
+            PreInternedWiring(
+                token_id=step.token_id,
                 cap_urn=step.cap_urn,
                 source_node_ids=source_node_ids,
-                target_node_id=target_id,
-                token_id=step.token_id,
-            ))
-
-            producer_node[step.token_id] = target_id
-
-        # StrandStepType.FOR_EACH / COLLECT: elided — cardinality transitions
-        # are implicit. Caps name their producers directly, and `is_loop` is
-        # derived from cardinality in resolve_pre_interned, so these steps
-        # carry no wiring here.
+                # A strand step produces its cap's main output.
+                targets=[WiringTarget(node=target_id)],
+            )
+        )
+        producer_node[step.token_id] = target_id
 
     if not pre_interned:
         raise NoCapabilityStepsError()
 
     return resolve_pre_interned(nodes, pre_interned, registry, strand_index)
+
+
+def _must_media(text: str, what: str) -> MediaUrn:
+    try:
+        return MediaUrn.from_string(text)
+    except Exception as error:
+        raise AssertionError(
+            f"cap registry invariant: {what} is a valid MediaUrn: {text!r}: {error}"
+        ) from error
 
 
 def resolve_pre_interned(
@@ -158,368 +205,583 @@ def resolve_pre_interned(
     """Resolve a pre-interned wiring set into a MachineStrand.
 
     The caller has already allocated NodeIds for every distinct data
-    position. This function:
-    1. Per-wiring source-to-cap-arg matching (bipartite, uniqueness required).
-    2. Cycle detection via Kahn's algorithm.
-    3. Canonical edge ordering with structural tiebreaker.
-    4. Anchor computation (input roots / output leaves).
+    position.
 
-    Raises MachineAbstractionError on any failure.
+    Steps:
+      0. The outputs each wiring takes, and with them the cardinality of
+         every node.
+      1. Per-wiring binding of sources to cap args.
+      2. Which steps map (``iteration_of``).
+      3. Cycle detection and canonical edge ordering.
+      4. Anchor computation (NodeIds with no producer / no consumer in the
+         strand).
     """
+    return _resolve_wirings(nodes, None, wirings, registry, strand_index)
+
+
+def resolve_named_wirings(
+    nodes: List[MediaUrn],
+    node_names: List[str],
+    wirings: List[PreInternedWiring],
+    registry: "FabricRegistry",
+    strand_index: int,
+) -> MachineStrand:
+    """``resolve_pre_interned`` for wirings read from notation: ``node_names``
+    is the name the text gave each node, indexed by NodeId, so that a refusal
+    about a member can say which member."""
+    if len(nodes) != len(node_names):
+        raise AssertionError("every node of a strand read from notation has a name")
+    return _resolve_wirings(nodes, node_names, wirings, registry, strand_index)
+
+
+def _resolve_wirings(
+    nodes: List[MediaUrn],
+    node_names: Optional[List[str]],
+    wirings: List[PreInternedWiring],
+    registry: "FabricRegistry",
+    strand_index: int,
+) -> MachineStrand:
     if not wirings:
         raise NoCapabilityStepsError()
 
-    # Cardinality of every node, derived from the single canonical rule
-    # (`Cap.sequence_shape`): a node holds a sequence iff the cap that
-    # PRODUCES it has a sequence output; root nodes (never a wiring target)
-    # are scalar. This is exactly the `is_sequence` state
-    # `planner.live_cap_fab` threads through a path, evaluated over the
-    # resolved graph so `is_loop` is DERIVED from cardinality, never
-    # authored. It replaces the retired `LOOP` keyword.
-    node_is_sequence: List[bool] = [False] * len(nodes)
+    # Step 0: the outputs each wiring takes, by the names its targets wrote,
+    # and with them the cardinality of every node.
+    #
+    # A node holds a sequence, IN THE SCOPE IT LIVES IN, iff the output that
+    # produces it is declared a sequence: one run of the step yields a
+    # sequence. (A node a mapped step produces has one such value per item;
+    # what it is from outside the map is the iteration structure's to say.)
+    # An input of the machine is one value: notation has no run shape.
+    node_is_sequence = [False] * len(nodes)
+    definitions = []
+    wiring_outputs: List[List[EdgeOutput]] = []
     for wiring in wirings:
-        cap_urn_str = str(wiring.cap_urn)
-        cap = registry.get_cached_cap(cap_urn_str)
-        if cap is None:
-            raise UnknownCapError(cap_urn_str)
+        cap_urn = wiring.cap_urn.to_string()
+        definition = registry.get_cached_cap(cap_urn)
+        if definition is None:
+            raise UnknownCapError(cap_urn)
+        definitions.append(definition)
+        outputs: List[EdgeOutput] = []
+        for target in wiring.targets:
+            if target.name is None:
+                # The unnamed target takes the main output.
+                output = definition.main_output()
+                if output is None:
+                    raise NoMainOutputError(strand_index, cap_urn)
+            else:
+                output = definition.output_named(target.name)
+                if output is None:
+                    raise UnknownOutputNameError(
+                        strand_index,
+                        cap_urn,
+                        target.name,
+                        [each.name for each in definition.get_outputs()],
+                    )
+            output_media_urn = _must_media(output.media_urn, "every output media_urn")
+            if any(taken.output_media_urn.is_equivalent(output_media_urn) for taken in outputs):
+                raise OutputTakenTwiceError(strand_index, cap_urn, output.name)
+            node_is_sequence[target.node] = output.is_sequence
+            outputs.append(EdgeOutput(output_media_urn, output.name, target.node))
+        # Canonical order, like the assignment's.
+        outputs.sort(key=lambda each: each.output_media_urn.ordering_key())
+        wiring_outputs.append(outputs)
 
-        _input_is_sequence, output_is_sequence = cap.sequence_shape()
-        node_is_sequence[wiring.target_node_id] = output_is_sequence
-
-    indexed_edges: List[MachineEdge] = []
-
-    for wiring in wirings:
-        cap_urn_str = str(wiring.cap_urn)
-        cap = registry.get_cached_cap(cap_urn_str)
-        if cap is None:
-            raise UnknownCapError(cap_urn_str)
-
-        cap_in_spec = MediaUrn.from_string(cap.urn.in_spec())
+    # Step 1: per-wiring binding of sources to cap args. Named members bind
+    # first; the rest are matched by type over the args no name bound.
+    void = _must_media(MEDIA_VOID, "media:void")
+    shapes: List[StepShape] = []
+    assignments: List[List[EdgeAssignmentBinding]] = []
+    for index, wiring in enumerate(wirings):
+        definition = definitions[index]
+        cap_urn = wiring.cap_urn.to_string()
+        args = definition.get_args()
+        try:
+            cap_in_spec = MediaUrn.from_string(definition.urn.in_spec())
+        except Exception as error:
+            raise RuntimeMediaInferenceError(
+                strand_index,
+                cap_urn,
+                definition.urn.in_spec(),
+                f"cap `in=` is not a valid media URN: {error}",
+            ) from error
         primary_arg_index: Optional[int] = None
-        if not cap_in_spec.is_equivalent(MediaUrn.from_string(MEDIA_VOID)):
-            primary_arg_index = next(
-                (
-                    index
-                    for index, arg in enumerate(cap.args)
-                    if arg.is_main_input(cap_in_spec)
-                ),
-                None,
-            )
+        if not cap_in_spec.is_equivalent(void):
+            for arg_index, arg in enumerate(args):
+                if arg.is_main_input(cap_in_spec):
+                    primary_arg_index = arg_index
+                    break
             if primary_arg_index is None:
-                raise ValueError(
-                    "cap registry invariant: every non-void cap declares its main input"
+                raise CapDoesNotDeclareInputError(strand_index, cap_urn)
+
+        # Every arg, by what it ACCEPTS (the type a source must conform to:
+        # its stdin source URN for the main input, its `accepts` when it
+        # gives one, its own URN otherwise) and by its SLOT (its media_urn,
+        # the identity a binding records and the URN its stream is delivered
+        # under). How an arg is supplied on a command line plays no part:
+        # every arg can be bound by a wiring.
+        arg_accepts = [_must_media(arg.accepted_urn(), "what every arg accepts") for arg in args]
+        arg_slots = [_must_media(arg.media_urn, "every cap arg media_urn") for arg in args]
+
+        # Named members bind first.
+        bindings: List[EdgeAssignmentBinding] = []
+        named_count = [0] * len(args)
+        for name, source in wiring.named_sources:
+            arg_index = next((i for i, arg in enumerate(args) if arg.name == name), None)
+            if arg_index is None:
+                raise UnknownArgNameError(
+                    strand_index, cap_urn, name, [arg.name for arg in args]
+                )
+            if source.is_constant:
+                _check_constant(registry, cap_urn, args[arg_index], source.constant, strand_index)
+            else:
+                source_urn = nodes[source.node]
+                if not source_urn.conforms_to(arg_accepts[arg_index]):
+                    raise SourceDoesNotConformToArgError(
+                        strand_index,
+                        cap_urn,
+                        name,
+                        arg_accepts[arg_index].to_string(),
+                        source_urn.to_string(),
+                    )
+            named_count[arg_index] += 1
+            bindings.append(
+                EdgeAssignmentBinding(arg_slots[arg_index], args[arg_index].name, source)
+            )
+        for arg_index, count in enumerate(named_count):
+            if count > 1 and not args[arg_index].is_sequence:
+                raise ArgBoundTwiceError(strand_index, cap_urn, args[arg_index].name, count)
+
+        # The unnamed members are matched by type over the args no name bound.
+        free = [i for i in range(len(args)) if named_count[i] == 0]
+        free_accepts = [arg_accepts[i] for i in free]
+        free_is_sequence = [args[i].is_sequence for i in free]
+        # The main input, when no named member bound it.
+        must_bind = free.index(primary_arg_index) if primary_arg_index in free else None
+        source_urns = [nodes[node_id] for node_id in wiring.source_node_ids]
+
+        if source_urns:
+            try:
+                matched = match_sources_to_args(
+                    source_urns, free_accepts, free_is_sequence, must_bind
+                )
+            except MatchFailure as failure:
+                if not failure.ambiguous:
+                    raise UnmatchedSourceInCapArgsError(
+                        strand_index, cap_urn, source_urns[failure.source].to_string()
+                    ) from failure
+                # Which members the types leave open, by the names the text
+                # gave them, and the args each could go to.
+                members = [
+                    UndecidedMember(
+                        node=(
+                            node_names[wiring.source_node_ids[source]]
+                            if node_names is not None
+                            else ""
+                        ),
+                        source_urn=source_urns[source].to_string(),
+                        could_be=tuple(args[free[arg]].name for arg in on),
+                    )
+                    for source, on in failure.undecided
+                ]
+                raise AmbiguousMachineNotationError(strand_index, cap_urn, members) from failure
+            # The matching answers in URNs. Each accepted URN is translated
+            # back to its slot identity, and each source URN to its position
+            # among the wiring's unnamed sources, walking the positions not
+            # yet taken so that two sources that share a URN stay two.
+            consumed = [False] * len(wiring.source_node_ids)
+            for arg_urn, source_urn in matched:
+                arg_at = next(
+                    (i for i, accepts in enumerate(free_accepts) if accepts.is_equivalent(arg_urn)),
+                    None,
+                )
+                source_at = next(
+                    (
+                        position
+                        for position, node_id in enumerate(wiring.source_node_ids)
+                        if not consumed[position] and nodes[node_id].is_equivalent(source_urn)
+                    ),
+                    None,
+                )
+                if arg_at is None or source_at is None:
+                    raise AssertionError("the matching answered in a URN it was not given")
+                consumed[source_at] = True
+                bindings.append(
+                    EdgeAssignmentBinding(
+                        arg_slots[free[arg_at]],
+                        args[free[arg_at]].name,
+                        BindingSource.of_node(wiring.source_node_ids[source_at]),
+                    )
                 )
 
-        # Build two parallel lists:
-        # - stdin_arg_urns: the per-arg stream URN to match against (what upstream
-        #   caps produce)
-        # - stdin_arg_slot_urns: the slot identity (cap arg's outer media_urn) for
-        #   bindings
-        #
-        # Wiring sources are matched against EVERY arg by its stream URN (its Stdin
-        # source URN if it declares one, else its declared URN — a cap may have no
-        # stdin at all). ALL args are producer-feedable: a producer is anything that
-        # supplies a value (a prior cap's output, config, a literal, …), so every arg
-        # is a candidate. The Hungarian matcher assigns each source to the arg it
-        # conforms to; args no source matches take their value from config/defaults;
-        # genuine ambiguity is a hard failure (in match_sources_to_args). `stdin_*`
-        # names are historical — these are the per-arg stream and slot URNs.
-        stdin_arg_urns: List[MediaUrn] = []
-        stdin_arg_slot_urns: List[MediaUrn] = []
+        # The bindings are in the order they were made: the named ones as
+        # written, then the matched ones. To keep the canonical equivalence
+        # comparison stable, re-sort by slot identity; the sort is stable, so
+        # several bindings gathered onto one arg keep their declaration order
+        # — the gathered sequence's item order.
+        bindings.sort(key=lambda binding: binding.cap_arg_media_urn.ordering_key())
 
-        for arg in cap.args:
-            stream_urn = MediaUrn.from_string(arg.stream_urn())
-            slot_urn = MediaUrn.from_string(arg.media_urn)
-            stdin_arg_urns.append(stream_urn)
-            stdin_arg_slot_urns.append(slot_urn)
+        # A cap that takes an input is given it.
+        if primary_arg_index is not None:
+            main_slot = arg_slots[primary_arg_index]
+            if not any(b.cap_arg_media_urn.is_equivalent(main_slot) for b in bindings):
+                raise MainInputUnboundError(strand_index, cap_urn, args[primary_arg_index].name)
 
-        # Pull source URNs from the nodes table.
-        source_urns: List[MediaUrn] = [nodes[sid] for sid in wiring.source_node_ids]
+        # What the step is given, as far as iteration is concerned: each node
+        # and whether the arg it is bound to takes a sequence. A constant is
+        # one value wherever the step runs.
+        shape = StepShape()
+        for binding in bindings:
+            if binding.source.is_constant:
+                continue
+            for arg_index, slot in enumerate(arg_slots):
+                if slot.is_equivalent(binding.cap_arg_media_urn):
+                    shape.members.append(
+                        MemberShape(
+                            node=binding.source.node,
+                            arg_is_sequence=args[arg_index].is_sequence,
+                        )
+                    )
+                    break
+        for output in wiring_outputs[index]:
+            shape.outputs.append(
+                OutputShape(node=output.node, is_sequence=node_is_sequence[output.node])
+            )
+        shapes.append(shape)
+        assignments.append(bindings)
 
-        # Run minimum-cost bipartite matching.
-        # Returns (matched_stdin_urn, source_urn) pairs sorted by stdin_urn.
-        sorted_assignment = match_sources_to_args(
-            source_urns, stdin_arg_urns, cap_urn_str, strand_index
+    # Step 2: which steps map. Iteration is DERIVED from cardinality, never
+    # authored (docs 09 §Iteration); iteration_of is the one place the rule
+    # is computed. Notation has no run, so an input of the machine is one
+    # value here.
+    try:
+        iteration = iteration_of(shapes, lambda _node: False)
+    except CyclicSteps as cyclic:
+        raise CyclicMachineStrandError(strand_index) from cyclic
+
+    indexed_edges = [
+        MachineEdge(
+            cap_urn=wiring.cap_urn,
+            assignment=assignments[index],
+            outputs=wiring_outputs[index],
+            token_id=wiring.token_id,
+            policy=wiring.policy,
+            included_as=list(wiring.included_as),
+            is_loop=iteration.steps()[index].maps,
+        )
+        for index, wiring in enumerate(wirings)
+    ]
+
+    # Step 3: canonical edge order. The steps are acyclic: every one of them
+    # was placed above.
+    edges = [indexed_edges[index] for index in _topo_sort(indexed_edges, nodes)]
+
+    # Step 4: anchor computation.
+    produced = {node for edge in edges for node in edge.output_nodes()}
+    consumed_nodes = {node for edge in edges for node in edge.source_nodes()}
+    # Every node is a source or an output of some step — that is what makes
+    # it a node of the strand. One nothing produces is an input of the
+    # strand; one nothing consumes is an output of it.
+    input_anchor_ids: List[NodeId] = []
+    output_anchor_ids: List[NodeId] = []
+    for node_id in range(len(nodes)):
+        if node_id not in produced and node_id not in consumed_nodes:
+            raise AssertionError(
+                f"node {node_id} of strand {strand_index} is touched by no wiring"
+            )
+        if node_id not in produced:
+            input_anchor_ids.append(node_id)
+        if node_id not in consumed_nodes:
+            output_anchor_ids.append(node_id)
+    # Sort anchors by canonical (URN, NodeId) order so the result is stable
+    # across node-allocation orders that yield equivalent strands.
+    by_urn_then_id = lambda node_id: (nodes[node_id].ordering_key(), node_id)  # noqa: E731
+    input_anchor_ids.sort(key=by_urn_then_id)
+    output_anchor_ids.sort(key=by_urn_then_id)
+
+    return MachineStrand(nodes, edges, input_anchor_ids, output_anchor_ids, node_is_sequence)
+
+
+def _check_constant(registry, cap_urn: str, arg, value: Any, strand_index: int) -> None:
+    """Hold a constant to the validation of the arg it is bound to: the rules
+    and the schema the arg's media definition declares. A constant is a value
+    like any other the arg is given; it is known when the machine is
+    resolved, so that is when it is checked."""
+    from capdag.cap.schema_validation import schema_violations
+    from capdag.media.spec import MediaValidation
+
+    def refused(reason: str) -> ConstantFailsValidationError:
+        return ConstantFailsValidationError(
+            strand_index, cap_urn, arg.name, constant_text(value), reason
         )
 
-        # Build EdgeAssignmentBindings. For each (matched_stdin_urn, source_urn) pair,
-        # find the slot identity by looking up matched_stdin_urn in stdin_arg_urns.
-        # Map source_urn back to its NodeId (walk unconsumed positions to handle
-        # duplicate URNs across different NodeIds).
-        bindings: List[EdgeAssignmentBinding] = []
-        consumed_positions = [False] * len(wiring.source_node_ids)
-
-        for matched_stdin_urn, source_urn in sorted_assignment:
-            # Find the slot identity for this matched stdin URN.
-            slot_urn: Optional[MediaUrn] = None
-            for stdin_u, slot_u in zip(stdin_arg_urns, stdin_arg_slot_urns):
-                if stdin_u.is_equivalent(matched_stdin_urn):
-                    slot_urn = slot_u
-                    break
-            assert slot_urn is not None, (
-                "matching returned a stdin URN not in the cap's stdin args list"
-            )
-
-            # Find the source NodeId by URN equivalence (unconsumed positions only).
-            chosen_pos: Optional[int] = None
-            for pos, sid in enumerate(wiring.source_node_ids):
-                if consumed_positions[pos]:
-                    continue
-                if nodes[sid].is_equivalent(source_urn):
-                    chosen_pos = pos
-                    break
-            assert chosen_pos is not None, (
-                "matching returned a source URN not in the wiring's source positions"
-            )
-            consumed_positions[chosen_pos] = True
-            bindings.append(EdgeAssignmentBinding(
-                cap_arg_media_urn=slot_urn,
-                source=wiring.source_node_ids[chosen_pos],
-            ))
-
-        # Re-sort bindings by slot identity (cap_arg_media_urn) for canonical form.
-        bindings.sort(key=lambda b: str(b.cap_arg_media_urn))
-
-        # Derive `is_loop` from cardinality — the single ForEach rule
-        # (`Cap.needs_foreach`): the primary data input (the arg whose stdin
-        # matches `in=`)
-        # carries a sequence but this cap consumes it as a scalar, so it maps
-        # per-item. The primary stdin source node is the binding feeding the
-        # main arg's slot. A void-input cap has no main arg and never
-        # loops.
-        primary_stdin_source_is_sequence = False
-        if primary_arg_index is not None:
-            primary_slot = stdin_arg_slot_urns[primary_arg_index]
-            for b in bindings:
-                if b.cap_arg_media_urn.is_equivalent(primary_slot):
-                    primary_stdin_source_is_sequence = node_is_sequence[b.source]
-                    break
-        is_loop = cap.needs_foreach(primary_stdin_source_is_sequence)
-
-        indexed_edges.append(MachineEdge(
-            cap_urn=wiring.cap_urn,
-            assignment=bindings,
-            target=wiring.target_node_id,
-            is_loop=is_loop,
-            token_id=wiring.token_id,
-        ))
-
-    # Cycle detection + canonical edge order.
-    canonical_order = _topo_sort(indexed_edges, nodes, strand_index)
-    edges = [indexed_edges[i] for i in canonical_order]
-
-    # Anchor computation.
-    produced_node_ids: set = set()
-    consumed_node_ids: set = set()
-    for e in edges:
-        produced_node_ids.add(e.target)
-        for b in e.assignment:
-            consumed_node_ids.add(b.source)
-
-    input_anchor_ids: List[NodeId] = [
-        i for i in range(len(nodes))
-        if i not in produced_node_ids and i in consumed_node_ids
-    ]
-    output_anchor_ids: List[NodeId] = [
-        i for i in range(len(nodes))
-        if i not in consumed_node_ids and i in produced_node_ids
-    ]
-
-    # Sort anchors by canonical (URN string, NodeId) for stable output.
-    input_anchor_ids.sort(key=lambda i: (str(nodes[i]), i))
-    output_anchor_ids.sort(key=lambda i: (str(nodes[i]), i))
-
-    return MachineStrand(
-        nodes=nodes,
-        edges=edges,
-        input_anchor_ids=input_anchor_ids,
-        output_anchor_ids=output_anchor_ids,
-    )
+    # Without the definition there is nothing to hold the constant to, and a
+    # constant nobody checked is not bound.
+    definition = registry.get_cached_media_def(arg.media_urn)
+    if definition is None:
+        raise refused(
+            f"the media definition of '{arg.media_urn}' is not available, "
+            "so the constant cannot be validated"
+        )
+    validation = definition.validation
+    if validation is not None:
+        if not isinstance(validation, MediaValidation):
+            validation = MediaValidation.from_dict(validation)
+        try:
+            rule = validation.violation(value)
+        except ValueError as error:
+            raise refused(str(error)) from error
+        if rule is not None:
+            raise refused("it breaks the rule: " + rule)
+    if definition.schema is not None:
+        details = schema_violations(definition.schema, value)
+        if details:
+            raise refused("it does not match the schema: " + "; ".join(details))
 
 
-# =============================================================================
-# Source-to-cap-arg matching
-# =============================================================================
+class MatchFailure(Exception):
+    """Why the unnamed members of a wiring could not be placed. It speaks in
+    positions — of the sources and args the matching was given — because what
+    a source or an arg is CALLED is its caller's to say."""
+
+    def __init__(
+        self,
+        source: int = 0,
+        undecided: Optional[List[Tuple[int, List[int]]]] = None,
+    ):
+        #: The types leave more than one answer, and `undecided` says about
+        #: which sources. Otherwise the source at `source` fits no arg left
+        #: for it.
+        self.ambiguous = undecided is not None
+        self.source = source
+        #: Each source the minimum-cost assignments place differently, and the
+        #: args they place it on, in the order the args were given.
+        self.undecided: List[Tuple[int, List[int]]] = list(undecided or [])
+        super().__init__(
+            "the types leave more than one answer"
+            if self.ambiguous
+            else f"source {source} fits no arg left for it"
+        )
+
 
 def match_sources_to_args(
     sources: List[MediaUrn],
     args: List[MediaUrn],
-    cap_urn: str,
-    strand_index: int,
+    arg_is_sequence: List[bool],
+    must_bind: Optional[int],
 ) -> List[Tuple[MediaUrn, MediaUrn]]:
-    """Match a wiring's source URNs to a cap's stdin arg URNs by minimum-cost bipartite matching.
+    """Match a wiring's sources to a cap's args by minimum total
+    specificity-distance, with a uniqueness requirement.
 
-    Returns matched pairs as (cap_arg_media_urn, source_urn), sorted by
-    cap_arg_media_urn. Fails hard on:
-    - Any source not conforming to any arg (UnmatchedSourceInCapArgsError).
-    - More sources than args (pigeonhole — at least one is unmatched).
-    - Multiple minimum-cost matchings (AmbiguousMachineNotationError).
+    Two phases, in strict precedence order:
+
+    1. Product — each source claims a distinct arg. It wins whenever such an
+       assignment exists, including the hard failure on tied minimum-cost
+       assignments.
+    2. Gather — only when no such assignment exists (more sources than args,
+       or a Hall violation): a sequence arg may absorb several conforming
+       sources; a scalar arg still takes at most one. The minimum-cost such
+       assignment must be unique.
+
+    ``must_bind`` is the index of the arg an assignment MUST bind — the cap's
+    main input, when these sources are what can feed it — or None.
+
+    Returns pairs ``(arg, source)`` sorted by arg URN (stably: several sources
+    gathered into one arg keep their declaration order, which fixes the
+    gathered sequence's item order). Raises ``MatchFailure``.
     """
-    n_sources = len(sources)
-    n_args = len(args)
+    has_sequence_arg = any(arg_is_sequence)
 
-    if n_sources > n_args:
-        # Pigeonhole: find first source with no candidate and report it.
-        for source in sources:
-            if not any(source.conforms_to(a) for a in args):
-                raise UnmatchedSourceInCapArgsError(strand_index, cap_urn, str(source))
-        # All sources have at least one candidate but count > slots.
-        raise UnmatchedSourceInCapArgsError(strand_index, cap_urn, str(sources[0]))
+    def fits_something(source: MediaUrn) -> bool:
+        return any(source.conforms_to(arg) for arg in args)
 
-    # Build cost matrix. cost[s][a] = distance if source[s] conforms to args[a], else None.
-    cost: List[List[Optional[int]]] = [[None] * n_args for _ in range(n_sources)]
-    for s_idx, source in enumerate(sources):
-        for a_idx, arg in enumerate(args):
-            if source.conforms_to(arg):
-                distance = source.specificity() - arg.specificity()
-                cost[s_idx][a_idx] = distance
-        # Per-source: must have at least one candidate.
-        if all(cost[s_idx][a] is None for a in range(n_args)):
-            raise UnmatchedSourceInCapArgsError(strand_index, cap_urn, str(source))
+    if len(sources) > len(args) and not has_sequence_arg:
+        # Pigeonhole: at least one source has no arg slot and no sequence arg
+        # exists to gather the surplus. The first source with no candidate
+        # arg is the one named; when every source has one, at least one of
+        # them MUST end up unmatched, and the first stands for it.
+        for position, source in enumerate(sources):
+            if not fits_something(source):
+                raise MatchFailure(source=position)
+        raise MatchFailure(source=0)
 
-    # Brute-force enumerate all injections of sources into args with defined cost.
-    best_cost: List[Optional[int]] = [None]
-    best_assignments: List[List[int]] = []
-    current: List[int] = [0] * n_sources
-    used: List[bool] = [False] * n_args
+    # cost[s][a] is the distance when sources[s] conforms to args[a], else
+    # None: the pairing cannot be made.
+    cost: List[List[Optional[int]]] = []
+    for position, source in enumerate(sources):
+        if not fits_something(source):
+            raise MatchFailure(source=position)
+        row: List[Optional[int]] = []
+        for arg in args:
+            if not source.conforms_to(arg):
+                row.append(None)
+                continue
+            # The specificity distance: how much more the source says than
+            # the arg asks. It is never negative — refining never scores
+            # lower (04 §Predicates, tagScore_monotone).
+            distance = source.specificity() - arg.specificity()
+            if distance < 0:
+                raise AssertionError(
+                    "a source that conforms to an arg is never less specific than it: "
+                    f"{source} conforms to {arg}"
+                )
+            row.append(distance)
+        cost.append(row)
 
-    _enumerate_matchings(cost, 0, current, used, best_cost, best_assignments)
+    # An assignment binds the arg that MUST be bound. A cap that takes an
+    # input is given it, so a way of placing the sources that leaves the main
+    # input out is not an assignment at all; it does not tie with one that
+    # is. This is what makes `series -> compare -> result` resolve when
+    # `compare` has a second arg that accepts a series: the lone source is
+    # the main input. It is a constraint, not a tiebreak: two sources that
+    # both fit the main input and the other arg still tie.
+    if must_bind is not None and not any(row[must_bind] is not None for row in cost):
+        must_bind = None
 
-    if best_cost[0] is None:
-        # Hall's theorem violation: no valid injection exists.
-        raise UnmatchedSourceInCapArgsError(strand_index, cap_urn, str(sources[0]))
+    # Phase 1: product.
+    if len(sources) <= len(args):
+        best = _assignments(cost, must_bind, [False] * len(args))
+        if best:
+            # A tie among minimum-cost assignments is a hard ambiguity; it
+            # never falls through to gather, which would mask it.
+            return _one_assignment(best, sources, args)
 
-    if len(best_assignments) != 1:
-        raise AmbiguousMachineNotationError(strand_index, cap_urn)
+    # Phase 2: gather.
+    if not has_sequence_arg:
+        # Every source has a candidate, but the candidates cannot all be
+        # claimed by distinct args (a Hall violation). The first source
+        # stands for the one that goes unmatched.
+        raise MatchFailure(source=0)
+    best = _assignments(cost, must_bind, arg_is_sequence)
+    if not best:
+        raise MatchFailure(source=0)
+    return _one_assignment(best, sources, args)
 
-    # Convert unique assignment into (cap_arg_urn, source_urn) pairs sorted by cap_arg_urn.
-    assignment = best_assignments[0]
-    pairs: List[Tuple[MediaUrn, MediaUrn]] = [
-        (args[assignment[s_idx]], sources[s_idx])
-        for s_idx in range(n_sources)
-    ]
-    pairs.sort(key=lambda p: str(p[0]))
-    return pairs
+
+def _one_assignment(
+    best: List[List[int]], sources: List[MediaUrn], args: List[MediaUrn]
+) -> List[Tuple[MediaUrn, MediaUrn]]:
+    """The one minimum-cost assignment, as pairs — or, when several tie, a
+    failure naming the sources they disagree about."""
+    if len(best) == 1:
+        pairs = [(args[arg], sources[source]) for source, arg in enumerate(best[0])]
+        # Stable, and the pairs are in source order.
+        pairs.sort(key=lambda pair: pair[0].ordering_key())
+        return pairs
+    undecided: List[Tuple[int, List[int]]] = []
+    for source in range(len(sources)):
+        placed = sorted({assignment[source] for assignment in best})
+        if len(placed) >= 2:
+            undecided.append((source, placed))
+    raise MatchFailure(undecided=undecided)
 
 
-def _enumerate_matchings(
+def _assignments(
     cost: List[List[Optional[int]]],
-    s_idx: int,
-    current: List[int],
-    used: List[bool],
-    best_cost: List[Optional[int]],
-    best_assignments: List[List[int]],
-) -> None:
-    """Recursively enumerate all injections of sources into args with defined cost.
+    must_bind: Optional[int],
+    can_gather: List[bool],
+) -> List[List[int]]:
+    """Every source→arg assignment of minimum total cost. ``can_gather[a]``
+    gives arg ``a`` unbounded capacity (a sequence arg in the gather phase);
+    otherwise the arg is claimed by at most one source. Empty when there is
+    no assignment."""
+    arg_count = len(cost[0]) if cost else 0
+    best_cost: Optional[int] = None
+    best: List[List[int]] = []
+    current = [0] * len(cost)
+    used = [False] * arg_count
 
-    Tracks the minimum total cost and all assignments achieving it.
+    def place(source: int) -> None:
+        nonlocal best_cost, best
+        if source == len(cost):
+            # A placement that leaves out the arg that must be bound is not
+            # an assignment.
+            if must_bind is not None and must_bind not in current:
+                return
+            total = sum(cost[at][arg] for at, arg in enumerate(current))  # type: ignore[misc]
+            if best_cost is None or total < best_cost:
+                best_cost = total
+                best = [list(current)]
+            elif total == best_cost:
+                best.append(list(current))
+            return
+        for arg in range(arg_count):
+            if (used[arg] and not can_gather[arg]) or cost[source][arg] is None:
+                continue
+            was_used = used[arg]
+            used[arg] = True
+            current[source] = arg
+            place(source + 1)
+            used[arg] = was_used
+
+    place(0)
+    return best
+
+
+def _edge_order_key(edge: MachineEdge, nodes: List[MediaUrn]):
+    """The canonical structural order of edges that are ready together:
+
+    1. cap URN, structurally
+    2. assignment (element-wise: the arg's slot URN, then the source — a node
+       by its URN, a constant by its text, after every node), a shorter
+       assignment that is a prefix of a longer one first
+    3. outputs (element-wise: the output's URN, then the URN of the node it
+       goes to), likewise
+    4. the is_loop flag
     """
-    n_sources = len(cost)
-    if s_idx == n_sources:
-        total = sum(cost[s][current[s]] for s in range(n_sources))  # type: ignore[misc]
-        if best_cost[0] is None:
-            best_cost[0] = total
-            best_assignments.clear()
-            best_assignments.append(list(current))
-        elif total < best_cost[0]:
-            best_cost[0] = total
-            best_assignments.clear()
-            best_assignments.append(list(current))
-        elif total == best_cost[0]:
-            best_assignments.append(list(current))
-        return
 
-    for a_idx in range(len(cost[s_idx])):
-        if used[a_idx]:
-            continue
-        if cost[s_idx][a_idx] is None:
-            continue
-        used[a_idx] = True
-        current[s_idx] = a_idx
-        _enumerate_matchings(cost, s_idx + 1, current, used, best_cost, best_assignments)
-        used[a_idx] = False
+    def source_key(source: BindingSource):
+        if source.is_constant:
+            return (True, constant_text(source.constant))
+        return (False, nodes[source.node].ordering_key())
+
+    assignment = tuple(
+        (binding.cap_arg_media_urn.ordering_key(),) + source_key(binding.source)
+        for binding in edge.assignment
+    )
+    outputs = tuple(
+        (output.output_media_urn.ordering_key(), nodes[output.node].ordering_key())
+        for output in edge.outputs
+    )
+    # A tuple compares element-wise and then by length, which is the order
+    # above. URNs are ordered by their parts (``ordering_key``), never by
+    # their text.
+    return (edge.cap_urn.ordering_key(), assignment, outputs, edge.is_loop)
 
 
-# =============================================================================
-# Topological sort with structural tiebreaker
-# =============================================================================
+def _topo_sort(edges: List[MachineEdge], nodes: List[MediaUrn]) -> List[int]:
+    """Kahn's algorithm over the resolved data-flow dependency graph,
+    returning the canonical ordering of edge indices.
 
-def _topo_sort(
-    edges: List[MachineEdge],
-    nodes: List[MediaUrn],
-    strand_index: int,
-) -> List[int]:
-    """Kahn's algorithm over the resolved data-flow dependency graph.
-
-    Edge B depends on edge A iff some binding in B.assignment has
-    source == A.target (NodeId equality). Returns a canonical ordering of
-    edge indices. Raises CyclicMachineStrandError if the graph has a cycle.
+    Edge B depends on edge A iff B is given a node A produces. The edges it
+    is given are acyclic: steps that wait on one another are refused when the
+    steps are placed (``iteration_of``), before any edge is made of them.
     """
-    n = len(edges)
-    if n == 0:
-        return []
-
-    # Map: NodeId → list of edge indices that produce this NodeId as target.
+    count = len(edges)
     producers_of: Dict[NodeId, List[int]] = {}
-    for idx, e in enumerate(edges):
-        producers_of.setdefault(e.target, []).append(idx)
+    for index, edge in enumerate(edges):
+        for node in edge.output_nodes():
+            producers_of.setdefault(node, []).append(index)
 
-    # Build indegree and successors.
-    indegree = [0] * n
-    successors: List[List[int]] = [[] for _ in range(n)]
+    indegree = [0] * count
+    successors: List[List[int]] = [[] for _ in range(count)]
+    for b_index, b in enumerate(edges):
+        for source in b.source_nodes():
+            for a_index in producers_of.get(source, []):
+                successors[a_index].append(b_index)
+                indegree[b_index] += 1
 
-    for b_idx, b in enumerate(edges):
-        for binding in b.assignment:
-            for a_idx in producers_of.get(binding.source, []):
-                if a_idx == b_idx:
-                    continue
-                successors[a_idx].append(b_idx)
-                indegree[b_idx] += 1
-
+    keys = [_edge_order_key(edge, nodes) for edge in edges]
+    # Sorting is stable: edges with one key stay in the order they were given.
+    ready = sorted((i for i in range(count) if indegree[i] == 0), key=lambda i: keys[i])
     result: List[int] = []
-    ready: List[int] = [i for i in range(n) if indegree[i] == 0]
-    _sort_ready(ready, edges, nodes)
-
     while ready:
-        idx = ready.pop(0)
-        result.append(idx)
-        for succ in successors[idx]:
-            indegree[succ] -= 1
-            if indegree[succ] == 0:
-                ready.append(succ)
-                _sort_ready(ready, edges, nodes)
-
-    if len(result) < n:
-        raise CyclicMachineStrandError(strand_index)
-
+        index = ready.pop(0)
+        result.append(index)
+        for successor in successors[index]:
+            indegree[successor] -= 1
+            if indegree[successor] == 0:
+                ready.append(successor)
+                ready.sort(key=lambda i: keys[i])
+    if len(result) < count:
+        raise AssertionError(f"{count - len(result)} of {count} placed steps wait on one another")
     return result
-
-
-def _sort_ready(
-    ready: List[int],
-    edges: List[MachineEdge],
-    nodes: List[MediaUrn],
-) -> None:
-    """Sort the ready set in canonical structural order for deterministic Kahn output.
-
-    Order:
-    1. cap URN (string sort, mirrors Rust CapUrn::Ord)
-    2. assignment vec element-wise (cap_arg_media_urn string, then source URN string)
-    3. target node URN string
-    4. is_loop flag
-    """
-    def key(i: int):
-        e = edges[i]
-        assignment_key = tuple(
-            (str(b.cap_arg_media_urn), str(nodes[b.source]))
-            for b in e.assignment
-        )
-        return (
-            str(e.cap_urn),
-            assignment_key,
-            len(e.assignment),
-            str(nodes[e.target]),
-            e.is_loop,
-        )
-
-    ready.sort(key=key)

@@ -15,7 +15,9 @@ Canonical form: `<media-type>; profile=<url>`
 Example: `text/plain; profile=https://capdag.com/schema/str`
 """
 
+import json
 import os
+import re
 from typing import List, Optional, Any, Dict
 
 from capdag.urn.media_urn import MediaUrn
@@ -150,6 +152,19 @@ PROFILE_CAPDAG_QUESTIONS_ARRAY = "https://capdag.com/schema/questions-array"
 # =============================================================================
 
 
+def _number_text(value) -> str:
+    """A bound as a rule names it: a whole number without a decimal point,
+    any other in plain decimal digits."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    from decimal import Decimal
+
+    text = format(Decimal(repr(float(value))), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 class MediaValidation:
     """Validation rules for media types
 
@@ -172,6 +187,51 @@ class MediaValidation:
         self.max_length = max_length
         self.pattern = pattern
         self.allowed_values = allowed_values
+
+    def violation(self, value: Any) -> Optional[str]:
+        """The first of these rules ``value`` breaks, described, or None when
+        it breaks none. Raises ``ValueError`` when a rule itself cannot be
+        applied (a pattern that is not a regular expression): a defect in the
+        media definition, not in the value.
+
+        A rule applies to the values it is about and passes the rest: ``min``
+        and ``max`` to numbers, the length rules to strings and arrays,
+        ``pattern`` and ``allowed_values`` to strings. This is the one
+        decision of whether a value satisfies a media definition's validation
+        — what an argument value is held to at run time and what a constant
+        written in a machine is held to when the machine is resolved.
+        """
+        is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        if is_number:
+            if self.min is not None and value < self.min:
+                return f"minimum value {_number_text(self.min)}"
+            if self.max is not None and value > self.max:
+                return f"maximum value {_number_text(self.max)}"
+        # Length, for strings and arrays. A string's length is its bytes, as
+        # every implementation measures it.
+        length = None
+        kind = ""
+        if isinstance(value, str):
+            length = len(value.encode("utf-8"))
+        elif isinstance(value, (list, tuple)):
+            length, kind = len(value), "array "
+        if length is not None:
+            if self.min_length is not None and length < self.min_length:
+                return f"minimum {kind}length {self.min_length}"
+            if self.max_length is not None and length > self.max_length:
+                return f"maximum {kind}length {self.max_length}"
+        if self.pattern is not None and isinstance(value, str):
+            try:
+                compiled = re.compile(self.pattern)
+            except re.error as error:
+                raise ValueError(f"Invalid regex pattern '{self.pattern}': {error}") from error
+            if compiled.search(value) is None:
+                return f"pattern '{self.pattern}'"
+        if self.allowed_values is not None and isinstance(value, str):
+            if value not in self.allowed_values:
+                quoted = ", ".join(json.dumps(each, ensure_ascii=False) for each in self.allowed_values)
+                return f"allowed values: [{quoted}]"
+        return None
 
     def is_empty(self) -> bool:
         """Check if all validation fields are empty/None"""

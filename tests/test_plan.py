@@ -9,20 +9,24 @@ from capdag.planner.cardinality import InputCardinality
 from capdag.planner.plan import (
     EdgeType,
     ExecutionNodeType,
+    ForEachSource,
     MachineNode,
     MachinePlan,
     MachinePlanEdge,
     MachineResult,
-    MergeStrategy,
+    MapRun,
     NodeExecutionResult,
     BodyOutcome,
 )
 from capdag.planner.error import InternalError
+from capdag.planner.live_cap_fab import StepToken
+from capdag.planner.policy import ON_ERROR_ABSENT, ON_ERROR_FAIL, StepPolicy
 
 
 # TEST6525: Body outcomes preserve explicit null attribution coordinates and preview fields in JSON.
 def test_6525_body_outcome_serialization_preserves_attribution_shape():
-    encoded = BodyOutcome(body_index=0, foreach_token_id=None, success=True).to_dict()
+    outcome = BodyOutcome(body_index=0, foreach_token_id=None, success=True)
+    encoded = outcome.to_dict()
 
     assert "foreach_token_id" in encoded and encoded["foreach_token_id"] is None
     assert "failed_token_id" in encoded and encoded["failed_token_id"] is None
@@ -30,8 +34,27 @@ def test_6525_body_outcome_serialization_preserves_attribution_shape():
     assert "item_preview_text" in encoded and encoded["item_preview_text"] is None
     assert encoded["item_byte_count"] == 0
 
+    # What is written is read back, and a coordinate left out is not an
+    # outcome: each is required, though it may be null.
+    assert BodyOutcome.from_dict(json.loads(json.dumps(encoded))).to_dict() == encoded
+    for coordinate in ["foreach_token_id", "failed_token_id", "failed_arg_urn"]:
+        missing = {key: value for key, value in encoded.items() if key != coordinate}
+        with pytest.raises(ValueError, match=coordinate):
+            BodyOutcome.from_dict(missing)
+
     with pytest.raises(ValueError, match="linear BodyOutcome must use body_index 0"):
         BodyOutcome(body_index=1, foreach_token_id=None, success=True)
+    with pytest.raises(ValueError, match="linear BodyOutcome must use body_index 0"):
+        BodyOutcome.from_dict({**encoded, "body_index": 1})
+
+    # The runs a body is inside are written as a list, empty for a body of
+    # the machine's own map; a linear outcome is inside no map.
+    assert encoded["enclosing"] == []
+    outer = MapRun(foreach_token_id=StepToken.parse("tok-outer"), body_index=2)
+    with pytest.raises(ValueError, match="a linear BodyOutcome is inside no map"):
+        BodyOutcome(body_index=0, foreach_token_id=None, success=True, enclosing=[outer])
+    with pytest.raises(ValueError, match="a linear BodyOutcome is inside no map"):
+        BodyOutcome.from_dict({**encoded, "enclosing": [outer.to_dict()]})
 
     foreach = BodyOutcome(
         body_index=3,
@@ -40,6 +63,22 @@ def test_6525_body_outcome_serialization_preserves_attribution_shape():
     )
     assert foreach.to_dict()["foreach_token_id"] == "tok-foreach"
     assert foreach.to_dict()["body_index"] == 3
+    decoded = BodyOutcome.from_dict(json.loads(json.dumps(foreach.to_dict())))
+    assert (decoded.body_index, decoded.foreach_token_id, decoded.enclosing) == (3, "tok-foreach", [])
+    # An outcome written before a body could be inside another map says so by
+    # leaving the list out.
+    without = {key: value for key, value in foreach.to_dict().items() if key != "enclosing"}
+    assert BodyOutcome.from_dict(without).enclosing == []
+
+    # A body of a map opened inside another names the run it is inside.
+    nested = BodyOutcome(body_index=3, foreach_token_id="tok-foreach", success=True, enclosing=[outer])
+    assert nested.to_dict()["enclosing"] == [{"foreach_token_id": "tok-outer", "body_index": 2}]
+    assert BodyOutcome.from_dict(json.loads(json.dumps(nested.to_dict()))).enclosing == [outer]
+    # A run that names no map is not a run.
+    for not_a_run in [{"body_index": 2}, {"foreach_token_id": "", "body_index": 2},
+                      {"foreach_token_id": "tok-outer"}, {"foreach_token_id": "tok-outer", "body_index": -1}]:
+        with pytest.raises(ValueError):
+            MapRun.from_dict(not_a_run)
 
 
 # TEST728: Tests MachineNode helper methods for identifying node types (cap, fan-out, fan-in) Verifies is_cap(), is_fan_out(), is_fan_in(), and cap_urn() correctly classify node types
@@ -50,26 +89,30 @@ def test_728_cap_node_helpers():
     assert not cap_node.is_fan_in()
     assert cap_node.get_cap_urn() == "cap:test"
 
-    foreach_node = MachineNode.for_each("foreach", "input", "body", "body")
+    foreach_node = MachineNode.for_each(
+        "foreach", [ForEachSource(node="input", item="item")], ["item", "body"]
+    )
     assert not foreach_node.is_cap()
     assert foreach_node.is_fan_out()
     assert not foreach_node.is_fan_in()
     assert foreach_node.get_cap_urn() is None
 
-    collect_node = MachineNode.collect("collect", ["a"])
+    collect_node = MachineNode.collect("collect", ["a"], "media:")
     assert not collect_node.is_cap()
     assert not collect_node.is_fan_out()
     assert collect_node.is_fan_in()
 
 
-# TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, JsonField) Verifies that edge constructors produce correct EdgeType variants
+# TEST729: Tests creation and classification of different edge types (Direct, Iteration, Collection, Arg) Verifies that edge constructors produce correct EdgeType variants
 def test_729_edge_types():
-    assert MachinePlanEdge.direct("a", "b").edge_type.kind == EdgeType.DIRECT
+    direct = MachinePlanEdge.direct("a", "b")
+    assert direct.edge_type.kind == EdgeType.DIRECT
     assert MachinePlanEdge.iteration("foreach", "body").edge_type.kind == EdgeType.ITERATION
     assert MachinePlanEdge.collection("body", "collect").edge_type.kind == EdgeType.COLLECTION
-    json_field = MachinePlanEdge.json_field("a", "b", "data")
-    assert json_field.edge_type.kind == EdgeType.JSON_FIELD
-    assert json_field.edge_type.field == "data"
+    arg = MachinePlanEdge.arg("a", "b", "media:data")
+    assert arg.edge_type.kind == EdgeType.ARG
+    assert arg.edge_type.arg_urn == "media:data"
+    assert direct.edge_type.arg_urn is None, "only an arg edge names an argument"
 
 
 # TEST734: Tests topological sort detects self-referencing cycles (A→A) Verifies that self-loops are recognized as cycles and produce an error
@@ -156,28 +199,116 @@ def test_739_node_execution_result_success():
     assert result.error is None
 
 
-# TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that edge types like Direct and JsonField correctly round-trip through serde_json
+# TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that every edge type round-trips by its name, and that a kind this library does not carry is refused
 def test_742_edge_type_serialization():
     payload = json.dumps(EdgeType.direct().to_dict())
     assert payload == '"direct"'
     direct = EdgeType.from_dict(json.loads(payload))
     assert direct.kind == EdgeType.DIRECT
 
-    json_field_payload = json.dumps(EdgeType.json_field("data").to_dict())
-    assert "json_field" in json_field_payload
-    assert "data" in json_field_payload
+    for written, edge_type in [
+        ('"direct"', EdgeType.direct()),
+        ('"iteration"', EdgeType.iteration()),
+        ('"collection"', EdgeType.collection()),
+        ('{"arg": {"arg_urn": "media:data"}}', EdgeType.arg("media:data")),
+    ]:
+        assert json.dumps(edge_type.to_dict()) == written
+        assert EdgeType.from_dict(json.loads(written)) == edge_type, written
+    # Two arg edges are the same edge type when they name the same arg.
+    assert EdgeType.arg("media:data") != EdgeType.arg("media:other")
+    assert EdgeType.arg("media:data") != EdgeType.direct()
+    # An arg edge that names no argument is not one.
+    with pytest.raises(ValueError):
+        EdgeType.from_dict({"arg": {}})
+
+    # An edge carries the whole value: a part of it is not something an edge
+    # can be asked for, in either of the forms that once said so — and a kind
+    # nothing has is no kind, whatever it carries.
+    for retired in ['{"json_field":{"field":"data"}}', '{"json_path":{"path":"a.b"}}',
+                    '"json_field"', '"sideways"', '"arg"', '{"sideways":{"arg_urn":"media:data"}}',
+                    '{"type":"json_field","field":"data"}']:
+        with pytest.raises(ValueError):
+            EdgeType.from_dict(json.loads(retired))
+
+
+def _token(text: str) -> StepToken:
+    return StepToken.parse(text)
 
 
 # TEST743: Tests ExecutionNodeType enum serialization and deserialization to/from JSON Verifies that node types like Cap and ForEach correctly serialize with their fields
 def test_743_execution_node_type_serialization():
-    cap_node = ExecutionNodeType.cap("cap:test", ArgumentBindings())
-    payload = json.dumps(cap_node.to_dict())
-    assert "cap" in payload
-    assert "cap:test" in payload
+    def back(node: ExecutionNodeType) -> ExecutionNodeType:
+        return ExecutionNodeType.from_dict(json.loads(json.dumps(node.to_dict())))
 
-    foreach_node = ExecutionNodeType.for_each("input", "body", "body")
-    foreach_payload = json.dumps(foreach_node.to_dict())
-    assert "for_each" in foreach_payload
+    cap_node = ExecutionNodeType.cap("cap:test", ArgumentBindings(), token_id=_token("tok-cap-test"))
+    written = cap_node.to_dict()
+    assert written["node_type"] == "cap"
+    assert written["cap_urn"] == "cap:test"
+    assert written["token_id"] == "tok-cap-test", "a step node carries its identity"
+    assert "policy" not in written, "the default policy is not written"
+    assert back(cap_node).token_id == cap_node.token_id
+    # A step that wrote a policy carries it.
+    cap_node.policy = StepPolicy(retry=2, on_error=ON_ERROR_ABSENT)
+    assert cap_node.to_dict()["policy"] == {"retry": 2, "on_error": "absent"}
+    assert back(cap_node).policy == cap_node.policy
+    # A policy is written whole: retries alone still say what a failure does.
+    assert StepPolicy(retry=1).to_dict() == {"retry": 1, "on_error": "fail"}
+    assert StepPolicy.from_dict({"retry": 3}) == StepPolicy(retry=3, on_error=ON_ERROR_FAIL), \
+        "a field left out is its default"
+
+    foreach_node = ExecutionNodeType.for_each(
+        [ForEachSource(node="input", item="item")], ["item", "body"], token_id=_token("tok-foreach")
+    )
+    assert foreach_node.to_dict() == {
+        "node_type": "for_each",
+        "token_id": "tok-foreach",
+        "sources": [{"node": "input", "item": "item"}],
+        "body": ["item", "body"],
+    }
+    assert back(foreach_node) == foreach_node
+    assert back(foreach_node).sources == [ForEachSource(node="input", item="item")]
+
+    output_node = MachineNode.cap_output("o", "tok-cap-test", "media:residuals", "residuals", False).node_type
+    assert output_node.to_dict() == {
+        "node_type": "cap_output",
+        "cap_node": "tok-cap-test",
+        "output_media_urn": "media:residuals",
+        "output_name": "residuals",
+        "carries_input": False,
+    }
+    assert back(output_node) == output_node
+    carrying = MachineNode.cap_output("o", "route", "media:dropped", "no", True).node_type
+    assert back(carrying).carries_input is True
+
+    item_node = MachineNode.item("item", "each", "input", "media:page").node_type
+    assert item_node.to_dict() == {
+        "node_type": "item", "foreach": "each", "source": "input", "media_urn": "media:page",
+    }
+    assert back(item_node) == item_node
+
+    gather = MachineNode.collect("g", ["a", "b"], "media:summary").node_type
+    assert gather.to_dict() == {
+        "node_type": "collect", "input_nodes": ["a", "b"], "output_media_urn": "media:summary",
+    }
+    assert back(gather) == gather
+
+    # A node type nothing produces is not read, nor is a node missing a field
+    # its kind has, nor a map in the shape it once had.
+    for refused in [
+        '{"node_type":"merge","input_nodes":["a"],"merge_strategy":"concat"}',
+        '{"node_type":"split","input_node":"a","output_count":2}',
+        '{"node_type":"for_each","input_node":"a","body_entry":"b","body_exit":"b"}',
+        '{"node_type":"for_each","token_id":"t","sources":[{"node":"a","item":"i"}]}',
+        '{"node_type":"for_each","token_id":"t","sources":[{"node":"a"}],"body":[]}',
+        '{"node_type":"collect","input_nodes":["a"]}',
+        '{"node_type":"cap","cap_urn":"cap:test"}',
+        '{"node_type":"cap","token_id":"","cap_urn":"cap:test"}',
+        '{"node_type":"cap","token_id":"t","cap_urn":"cap:test","policy":{"on_error":"shrug"}}',
+        '{"node_type":"item","foreach":"each","source":"input"}',
+        '{"cap_urn":"cap:test"}',
+    ]:
+        with pytest.raises(ValueError):
+            ExecutionNodeType.from_dict(json.loads(refused))
 
 
 # TEST744: Tests MachinePlan serialization and deserialization to/from JSON Verifies that complete plans with nodes and edges correctly round-trip through JSON
@@ -192,46 +323,12 @@ def test_744_plan_serialization():
     assert len(round_trip.edges) == len(plan.edges)
 
 
-# TEST745: Tests MergeStrategy enum serialization to JSON Verifies that merge strategies like Concat and ZipWith serialize to correct string values
-def test_745_merge_strategy_serialization():
-    assert json.dumps(MergeStrategy.CONCAT.value) == '"concat"'
-    assert json.dumps(MergeStrategy.ZIP_WITH.value) == '"zip_with"'
-
-
 # TEST746: Tests creation of Output node type that references a source node Verifies that MachineNode::output() correctly constructs an Output node with name and source
 def test_746_cap_node_output():
     output = MachineNode.output("out", "result", "source")
     assert output.node_type.kind == ExecutionNodeType.OUTPUT
     assert output.node_type.output_name == "result"
     assert output.node_type.source_node == "source"
-
-
-# TEST747: Tests creation and validation of Merge node that combines multiple inputs Verifies that Merge nodes with multiple input nodes and a strategy can be added to plans
-def test_747_cap_node_merge():
-    plan = MachinePlan("merge_test")
-    merge_node = MachineNode(
-        "merge",
-        ExecutionNodeType.merge(["a", "b"], MergeStrategy.CONCAT),
-        description="Merge outputs",
-    )
-    plan.nodes["a"] = MachineNode.cap("a", "cap:a")
-    plan.nodes["b"] = MachineNode.cap("b", "cap:b")
-    plan.nodes["merge"] = merge_node
-    plan.edges.append(MachinePlanEdge.direct("a", "merge"))
-    plan.edges.append(MachinePlanEdge.direct("b", "merge"))
-    plan.validate()
-
-
-# TEST748: Tests creation of Split node that distributes input to multiple outputs Verifies that Split nodes correctly specify an input node and output count
-def test_748_cap_node_split():
-    split_node = MachineNode(
-        "split",
-        ExecutionNodeType.split("input", 3),
-        description="Split input",
-    )
-    assert split_node.node_type.kind == ExecutionNodeType.SPLIT
-    assert split_node.node_type.input_node == "input"
-    assert split_node.node_type.output_count == 3
 
 
 # TEST749: Tests get_node() method for looking up nodes by ID in a plan Verifies that existing nodes are found and non-existent nodes return None
@@ -243,206 +340,164 @@ def test_749_get_node():
     assert plan.get_node("nonexistent") is None
 
 
-def _build_foreach_plan_with_collect():
+def _build_foreach_plan() -> MachinePlan:
+    """A plan with a map and a fold after it: input_slot → cap_0 (a sequence)
+    → map over it [ body_cap_0 → body_cap_1 ] → cap_post (takes the sequence
+    of body_cap_1 over the runs) → output."""
     plan = MachinePlan("ForEach test plan")
     plan.add_node(MachineNode.input_slot("input_slot", "input", "media:document;ext=pdf", InputCardinality.SINGLE))
-    plan.add_node(MachineNode.cap("cap_0", 'cap:in=media:pdf;out="media:pdf-page;list"'))
-    plan.add_node(MachineNode.for_each("foreach_0", "cap_0", "body_cap_0", "body_cap_1"))
+    plan.add_node(MachineNode.cap("cap_0", 'cap:in="media:document;ext=pdf";out="media:pdf-page;list"'))
+    plan.add_node(MachineNode.for_each(
+        "foreach_0",
+        [ForEachSource(node="cap_0", item="foreach_0_item_0")],
+        ["foreach_0_item_0", "body_cap_0", "body_cap_1"],
+    ))
+    plan.add_node(MachineNode.item("foreach_0_item_0", "foreach_0", "cap_0", "media:pdf-page"))
     plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:enc=utf-8;text"'))
-    plan.add_node(
-        MachineNode.cap(
-            "body_cap_1",
-            'cap:in="media:enc=utf-8;text";out="media:decision;fmt=json;record"',
-        )
-    )
-    collect_node = MachineNode.collect("collect_0", ["body_cap_1"])
-    collect_node.node_type = ExecutionNodeType.collect(
-        ["body_cap_1"], "media:decision;fmt=json;record"
-    )
-    plan.add_node(collect_node)
-    plan.add_node(
-        MachineNode.cap(
-            "cap_post",
-            'cap:in="media:decision;fmt=json;record";out="media:fmt=json"',
-        )
-    )
+    plan.add_node(MachineNode.cap("body_cap_1", 'cap:in="media:enc=utf-8;text";out="media:decision;fmt=json;record"'))
+    plan.add_node(MachineNode.cap("cap_post", 'cap:in="media:decision;fmt=json;record";out="media:fmt=json"'))
     plan.add_node(MachineNode.output("output", "result", "cap_post"))
+
     plan.add_edge(MachinePlanEdge.direct("input_slot", "cap_0"))
     plan.add_edge(MachinePlanEdge.direct("cap_0", "foreach_0"))
-    plan.add_edge(MachinePlanEdge.iteration("foreach_0", "body_cap_0"))
+    plan.add_edge(MachinePlanEdge.iteration("foreach_0", "foreach_0_item_0"))
+    plan.add_edge(MachinePlanEdge.direct("foreach_0_item_0", "body_cap_0"))
     plan.add_edge(MachinePlanEdge.direct("body_cap_0", "body_cap_1"))
-    plan.add_edge(MachinePlanEdge.collection("body_cap_1", "collect_0"))
-    plan.add_edge(MachinePlanEdge.direct("collect_0", "cap_post"))
+    plan.add_edge(MachinePlanEdge.direct("body_cap_1", "cap_post"))
     plan.add_edge(MachinePlanEdge.direct("cap_post", "output"))
     return plan
 
 
-def _build_foreach_plan_unclosed():
-    plan = MachinePlan("Unclosed ForEach test plan")
-    plan.add_node(MachineNode.input_slot("input_slot", "input", "media:document;ext=pdf", InputCardinality.SINGLE))
-    plan.add_node(MachineNode.cap("cap_0", 'cap:in=media:pdf;out="media:pdf-page;list"'))
-    plan.add_node(MachineNode.for_each("foreach_0", "cap_0", "body_cap_0", "body_cap_0"))
-    plan.add_node(
-        MachineNode.cap(
-            "body_cap_0",
-            'cap:in=media:pdf-page;out="media:decision;fmt=json;record"',
-        )
-    )
-    plan.add_node(MachineNode.output("output", "result", "body_cap_0"))
-    plan.add_edge(MachinePlanEdge.direct("input_slot", "cap_0"))
-    plan.add_edge(MachinePlanEdge.direct("cap_0", "foreach_0"))
-    plan.add_edge(MachinePlanEdge.iteration("foreach_0", "body_cap_0"))
-    plan.add_edge(MachinePlanEdge.direct("body_cap_0", "output"))
-    return plan
-
-
-# TEST754: extract_prefix_to with nonexistent node returns error
-def test_754_extract_prefix_nonexistent():
-    with pytest.raises(InternalError):
-        _build_foreach_plan_with_collect().extract_prefix_to("nonexistent")
-
-
-# TEST755: extract_foreach_body extracts body as standalone plan
-def test_755_extract_foreach_body():
-    body = _build_foreach_plan_with_collect().extract_foreach_body("foreach_0", "media:pdf-page")
-    assert len(body.nodes) == 4
-    assert body.get_node("foreach_0_body_input") is not None
-    assert body.get_node("body_cap_0") is not None
-    assert body.get_node("body_cap_1") is not None
-    assert body.get_node("foreach_0_body_output") is not None
-    assert len(body.entry_nodes) == 1
-    assert len(body.output_nodes) == 1
-    body.validate()
-    assert not body.has_foreach()
-    assert body.get_node("foreach_0_body_input").node_type.expected_media_urn == "media:pdf-page"
-    assert body.get_node("foreach_0_body_input").node_type.cardinality == InputCardinality.SINGLE
-    assert len(body.topological_order()) == 4
-
-
-# TEST756: extract_foreach_body for unclosed ForEach (single body cap)
-def test_756_extract_foreach_body_unclosed():
-    body = _build_foreach_plan_unclosed().extract_foreach_body("foreach_0", "media:pdf-page")
-    assert len(body.nodes) == 3
-    assert body.get_node("foreach_0_body_input") is not None
-    assert body.get_node("body_cap_0") is not None
-    assert body.get_node("foreach_0_body_output") is not None
-    body.validate()
-    assert not body.has_foreach()
-
-
-# TEST757: extract_foreach_body fails for non-ForEach node
-def test_757_extract_foreach_body_wrong_type():
-    with pytest.raises(InternalError, match="not a ForEach node"):
-        _build_foreach_plan_with_collect().extract_foreach_body("cap_0", "media:pdf-page")
-
-
-# TEST758: extract_suffix_from extracts collect → cap_post → output
-def test_758_extract_suffix_from():
-    suffix = _build_foreach_plan_with_collect().extract_suffix_from(
-        "collect_0", "media:decision;fmt=json;record"
-    )
-    assert len(suffix.nodes) == 3
-    assert suffix.get_node("collect_0_suffix_input") is not None
-    assert suffix.get_node("cap_post") is not None
-    assert suffix.get_node("output") is not None
-    assert len(suffix.entry_nodes) == 1
-    assert len(suffix.output_nodes) == 1
-    suffix.validate()
-    assert not suffix.has_foreach()
-
-
-# TEST759: extract_suffix_from fails for nonexistent node
-def test_759_extract_suffix_nonexistent():
-    with pytest.raises(InternalError):
-        _build_foreach_plan_with_collect().extract_suffix_from("nonexistent", "media:whatever")
-
-
-# TEST760: Full decomposition roundtrip — prefix + body + suffix cover all cap nodes
-def test_760_decomposition_covers_all_caps():
-    plan = _build_foreach_plan_with_collect()
-    original_caps = {node.id for node in plan.nodes.values() if node.is_cap()}
-    assert len(original_caps) == 4
-    prefix = plan.extract_prefix_to("cap_0")
-    body = plan.extract_foreach_body("foreach_0", "media:pdf-page")
-    suffix = plan.extract_suffix_from("collect_0", "media:decision;fmt=json;record")
-    combined_caps = {node.id for node in prefix.nodes.values() if node.is_cap()}
-    combined_caps.update(node.id for node in body.nodes.values() if node.is_cap())
-    combined_caps.update(node.id for node in suffix.nodes.values() if node.is_cap())
-    assert combined_caps == original_caps
-
-
-# TEST761: Prefix sub-plan can be topologically sorted (is a valid DAG)
-def test_761_prefix_is_dag():
-    prefix = _build_foreach_plan_with_collect().extract_prefix_to("cap_0")
-    prefix.topological_order()
-
-
-# TEST762: Body sub-plan can be topologically sorted (is a valid DAG)
-def test_762_body_is_dag():
-    body = _build_foreach_plan_with_collect().extract_foreach_body("foreach_0", "media:pdf-page")
-    body.topological_order()
-
-
-# TEST763: Suffix sub-plan can be topologically sorted (is a valid DAG)
-def test_763_suffix_is_dag():
-    suffix = _build_foreach_plan_with_collect().extract_suffix_from(
-        "collect_0", "media:decision;fmt=json;record"
-    )
-    suffix.topological_order()
-
-
-# TEST764: extract_prefix_to with InputSlot as target (trivial prefix)
-def test_764_extract_prefix_to_input_slot():
-    prefix = _build_foreach_plan_with_collect().extract_prefix_to("input_slot")
-    assert len(prefix.nodes) == 2
-    prefix.validate()
-
-
-# TEST934: find_first_foreach detects ForEach in a plan
-def test_934_find_first_foreach():
-    plan = _build_foreach_plan_with_collect()
-    assert plan.find_first_foreach() == "foreach_0"
-
-
-# TEST935: find_first_foreach returns None for linear plans
-def test_935_find_first_foreach_linear():
-    plan = MachinePlan.linear_chain(["cap:a", "cap:b"], "media:document;ext=pdf", "media:ext=png;image", ["input_a", "input_b"])
-    assert plan.find_first_foreach() is None
-
-
-# TEST936: has_foreach detects ForEach nodes
+# TEST936: has_foreach detects a map, and a gather alone is not one.
 def test_936_has_foreach():
-    foreach_plan = _build_foreach_plan_with_collect()
+    foreach_plan = _build_foreach_plan()
+    foreach_plan.validate()
     assert foreach_plan.has_foreach()
 
     linear_plan = MachinePlan.linear_chain(["cap:a"], "media:document;ext=pdf", "media:ext=png;image", ["input_a"])
     assert not linear_plan.has_foreach()
 
-    standalone_collect_plan = MachinePlan("collect_only")
-    standalone_collect_plan.add_node(
-        MachineNode.input_slot("input", "input", "media:enc=utf-8", InputCardinality.SINGLE)
-    )
-    standalone_collect_plan.add_node(
-        MachineNode.cap("cap_0", 'cap:in="media:enc=utf-8";summarize;out=media:summary')
-    )
-    collect_node = MachineNode.collect("collect_0", ["cap_0"])
-    collect_node.node_type = ExecutionNodeType.collect(["cap_0"], "media:list;summary")
-    standalone_collect_plan.add_node(collect_node)
-    standalone_collect_plan.add_node(MachineNode.output("output", "result", "collect_0"))
-    assert not standalone_collect_plan.has_foreach()
+    gather_plan = MachinePlan("gather_only")
+    gather_plan.add_node(MachineNode.input_slot("input", "input", "media:enc=utf-8", InputCardinality.SINGLE))
+    gather_plan.add_node(MachineNode.cap("cap_0", 'cap:in="media:enc=utf-8";summarize;out=media:summary'))
+    gather_plan.add_node(MachineNode.collect("collect_0", ["cap_0"], "media:summary"))
+    gather_plan.add_node(MachineNode.output("output", "result", "collect_0"))
+    gather_plan.validate()
+    assert not gather_plan.has_foreach()
 
 
-# TEST937: extract_prefix_to extracts input_slot -> cap_0 as a standalone plan
-def test_937_extract_prefix_to():
-    prefix = _build_foreach_plan_with_collect().extract_prefix_to("cap_0")
-    assert len(prefix.nodes) == 3
-    assert prefix.get_node("input_slot") is not None
-    assert prefix.get_node("cap_0") is not None
-    assert prefix.get_node("cap_0_prefix_output") is not None
-    assert len(prefix.entry_nodes) == 1
-    assert len(prefix.output_nodes) == 1
-    prefix.validate()
-    assert len(prefix.topological_order()) == 3
+# TEST12753: a plan says which map each node runs in — the map whose body
+# lists it — and which nodes are inside a map at any depth.
+def test_12753_a_plan_says_which_map_a_node_runs_in():
+    plan = _build_foreach_plan()
+    enclosing = plan.enclosing_maps()
+    assert enclosing["body_cap_0"] == "foreach_0"
+    assert enclosing["body_cap_1"] == "foreach_0"
+    assert enclosing["foreach_0_item_0"] == "foreach_0"
+    for outside in ["input_slot", "cap_0", "foreach_0", "cap_post", "output"]:
+        assert outside not in enclosing, f"{outside} is the machine's own"
+
+    # A map opened inside the body: its nodes are inside the outer map, and
+    # the outer body lists the inner map, not the inner body.
+    plan.add_node(MachineNode.for_each(
+        "foreach_1",
+        [ForEachSource(node="body_cap_0", item="foreach_1_item_0")],
+        ["foreach_1_item_0", "inner_cap"],
+    ))
+    plan.add_node(MachineNode.item("foreach_1_item_0", "foreach_1", "body_cap_0", "media:enc=utf-8;text"))
+    plan.add_node(MachineNode.cap("inner_cap", 'cap:in="media:enc=utf-8;text";out=media:word'))
+    plan.nodes["foreach_0"].node_type.body.append("foreach_1")
+    plan.validate()
+    enclosing = plan.enclosing_maps()
+    assert enclosing["inner_cap"] == "foreach_1"
+    assert enclosing["foreach_1"] == "foreach_0"
+    assert plan.map_members("foreach_0") == {
+        "body_cap_0", "body_cap_1", "foreach_0_item_0", "foreach_1", "foreach_1_item_0", "inner_cap",
+    }
+    assert plan.map_members("foreach_1") == {"foreach_1_item_0", "inner_cap"}
+    assert plan.map_members("cap_0") == set(), "a step is no map"
+
+
+# TEST12754: a plan whose nodes name what is not there, or name it as what it
+# is not, is refused: a map that iterates nothing, an item its map does not
+# list, a node in two bodies, an output node of something that is not a step,
+# a gather of a missing node.
+def test_12754_a_plan_that_names_what_is_not_there_is_refused():
+    def refused(change, expect: str) -> None:
+        plan = _build_foreach_plan()
+        change(plan)
+        with pytest.raises(InternalError) as error:
+            plan.validate()
+        assert expect in str(error.value), f"expected {expect!r} in: {error.value}"
+
+    def the_map(plan: MachinePlan) -> ExecutionNodeType:
+        return plan.nodes["foreach_0"].node_type
+
+    def relist(plan: MachinePlan, node: str, item: str) -> None:
+        the_map(plan).sources[0] = ForEachSource(node=node, item=item)
+
+    refused(lambda plan: the_map(plan).sources.clear(), "map 'foreach_0' iterates nothing")
+    refused(lambda plan: plan.add_node(MachineNode.for_each("lonely", [], [])), "map 'lonely' iterates nothing")
+    refused(lambda plan: relist(plan, "cap_0", "body_cap_0"), "which is not that")
+    refused(lambda plan: relist(plan, "nowhere", "foreach_0_item_0"),
+            "node 'foreach_0' names source 'nowhere', which is not in the plan")
+    refused(lambda plan: relist(plan, "cap_0", "nowhere"),
+            "node 'foreach_0' names item 'nowhere', which is not in the plan")
+    # The item it lists is an item — of another source, or of another map.
+    refused(lambda plan: relist(plan, "input_slot", "foreach_0_item_0"),
+            "map 'foreach_0' lists 'foreach_0_item_0' as its item of 'input_slot', which is not that")
+    refused(
+        lambda plan: plan.add_node(MachineNode.for_each(
+            "second", [ForEachSource(node="cap_0", item="foreach_0_item_0")], ["foreach_0_item_0"],
+        )),
+        "map 'second' lists 'foreach_0_item_0' as its item of 'cap_0', which is not that",
+    )
+
+    def drop_item_from_body(plan: MachinePlan) -> None:
+        the_map(plan).body[:] = ["body_cap_0", "body_cap_1"]
+
+    refused(drop_item_from_body, "does not list its item 'foreach_0_item_0' in its body")
+
+    def second_map_over_a_body_node(plan: MachinePlan) -> None:
+        plan.add_node(MachineNode.for_each(
+            "second", [ForEachSource(node="cap_0", item="second_item")], ["second_item", "body_cap_1"],
+        ))
+        plan.add_node(MachineNode.item("second_item", "second", "cap_0", "media:pdf-page"))
+
+    refused(second_map_over_a_body_node, "node 'body_cap_1' is in the body of two maps ('foreach_0' and 'second')")
+    refused(lambda plan: the_map(plan).body.append("foreach_0"), "map 'foreach_0' lists itself in its body")
+    refused(lambda plan: plan.add_node(MachineNode.cap_output("o", "input_slot", "media:x", "x", False)),
+            "names 'input_slot' as its step, which is not a step")
+    refused(lambda plan: plan.add_node(MachineNode.cap_output("o", "nowhere", "media:x", "x", False)),
+            "node 'o' names step 'nowhere', which is not in the plan")
+    refused(lambda plan: plan.add_node(MachineNode.collect("g", ["nowhere"], "media:")),
+            "node 'g' names gathered node 'nowhere', which is not in the plan")
+    refused(lambda plan: plan.add_node(MachineNode.output("o2", "result", "nowhere")),
+            "node 'o2' names source 'nowhere', which is not in the plan")
+    refused(lambda plan: plan.add_node(MachineNode.item("stray", "foreach_0", "cap_0", "media:pdf-page")),
+            "item node 'stray' names map 'foreach_0'")
+    refused(lambda plan: plan.add_node(MachineNode.item("stray", "cap_0", "input_slot", "media:pdf-page")),
+            "item node 'stray' names map 'cap_0'")
+    refused(lambda plan: plan.add_node(MachineNode.item("stray", "nowhere", "cap_0", "media:pdf-page")),
+            "node 'stray' names map 'nowhere', which is not in the plan")
+    refused(lambda plan: the_map(plan).body.append("nowhere"),
+            "node 'foreach_0' names body node 'nowhere', which is not in the plan")
+
+    # An item its map lists for another source: nodes are checked in the order
+    # of their ids, so it is the item — which comes first — that is named.
+    def an_item_of_another_source(plan: MachinePlan) -> None:
+        plan.add_node(MachineNode.for_each(
+            "second", [ForEachSource(node="cap_0", item="an_item")], ["an_item"],
+        ))
+        plan.add_node(MachineNode.item("an_item", "second", "input_slot", "media:pdf-page"))
+
+    refused(an_item_of_another_source,
+            "item node 'an_item' names map 'second' and source 'input_slot', and that map does not list it so")
+
+    # A step's other output, of a step: accepted.
+    plan = _build_foreach_plan()
+    plan.add_node(MachineNode.cap_output("o", "cap_0", "media:x", "x", False))
+    plan.validate()
 
 
 # TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly

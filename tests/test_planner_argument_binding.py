@@ -202,16 +202,18 @@ def test_792_argument_binding_requires_input():
     assert not ArgumentBinding.literal(100).requires_input()
 
 
-# TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id and output_field values
+# TEST793: Tests ArgumentBinding PreviousOutput serializes/deserializes correctly Verifies JSON round-trip preserves node_id, and that the value is the whole output
 def test_793_argument_binding_serialization():
-    binding = ArgumentBinding.previous_output("node_0", "result_path")
+    binding = ArgumentBinding.previous_output("node_0")
     payload = binding.to_dict()
-    assert payload["type"] == "previous_output"
-    assert payload["node_id"] == "node_0"
+    assert payload == {"type": "previous_output", "node_id": "node_0"}
     round_trip = ArgumentBinding.from_dict(payload)
     assert round_trip.kind == ArgumentBinding.PREVIOUS_OUTPUT
     assert round_trip.node_id == "node_0"
-    assert round_trip.output_field == "result_path"
+    # A binding is the whole value of the node: a part of it is not something
+    # a binding can be asked for, and one written so is read as the whole.
+    part = ArgumentBinding.from_dict({"type": "previous_output", "node_id": "node_0", "output_field": "path"})
+    assert part.to_dict() == {"type": "previous_output", "node_id": "node_0"}
 
 
 # TEST794: Tests ArgumentBindings add_file_path adds InputFilePath binding Verifies add_file_path() creates binding map entry with InputFilePath variant
@@ -265,9 +267,9 @@ def test_797_resolve_literal():
 
 # TEST798: Tests resolve_binding extracts value from previous node output Verifies PreviousOutput binding fetches field from earlier execution results
 def test_798_resolve_previous_output():
-    ctx = _empty_context(previous_outputs={"node_0": {"result_path": "/output/result.png"}})
+    ctx = _empty_context(previous_outputs={"node_0": "/output/result.png"})
     result = resolve_binding(
-        ArgumentBinding.previous_output("node_0", "result_path"),
+        ArgumentBinding.previous_output("node_0"),
         ctx,
         "cap:test",
         "step_0",

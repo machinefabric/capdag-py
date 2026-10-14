@@ -1,159 +1,206 @@
-"""Convert MachinePlan to ResolvedGraph.
+"""Steps of a MachinePlan as a ResolvedGraph.
 
-Bridges the planner's MachinePlan (node-centric) to the
-orchestrator's ResolvedGraph (edge-centric) format for execution.
-Mirrors Rust's orchestrator/plan_converter.rs exactly.
+The plan is node-centric: steps, the values they read and produce, the maps
+they run in. An executor runs a ResolvedGraph: steps with their cap
+definitions, each saying which nodes its input streams are sent from and which
+nodes its outputs are stored at. This module is the bridge. Mirrors the
+reference's ``orchestrator/plan_converter.rs``.
 
-Conversion strategy:
-- InputSlot nodes become source data nodes
-- Cap nodes become edges from their input source to their output target
-- Output nodes mark terminal data nodes
-- Standalone Collect nodes (output_media_urn set) are transparent pass-throughs
-- ForEach-paired Collect nodes (no output_media_urn) are rejected
-- ForEach/Merge/Split nodes are rejected — the caller must
-  decompose ForEach plans into sub-plans before conversion
+A graph holds only steps. What else a plan has is read through them:
 
-All cap lookups use get_cached_cap: caps must be pre-loaded into the registry
-cache before calling this function.
+- an edge into a step is one of its inputs — the cap's ``in=`` stream for a
+  Direct edge, the named arg's stream for an Arg edge;
+- a Collect wired into a step is that input's gather: its members, in order;
+- a CapOutput of a step is an output of it that something takes.
+
+Maps are not in a graph at all: a map's body runs once per item, and the steps
+of one scope are asked for at a time (:func:`steps_to_resolved_graph`). A node
+a graph's steps read and none of them produces is an input of the graph,
+whatever it is in the plan — an input slot, an item, a step of another scope.
+
+All cap lookups use ``get_cached_cap``: caps must be in the registry cache
+before a plan is converted.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List
 
-from capdag.cap.registry import FabricRegistry
-from capdag.planner.plan import MachinePlan, ExecutionNodeType
+from capdag.fabric.registry import FabricRegistry
+from capdag.planner.plan import EdgeType, ExecutionNodeType, MachinePlan
+from capdag.urn.media_urn import MediaUrn
 
 from capdag.orchestrator.types import (
     CapNotFoundError,
     InvalidGraphError,
-    ResolvedEdge,
     ResolvedGraph,
+    ResolvedStep,
+    StepInput,
+    StepOutput,
+    StepSource,
 )
 
+# How a refusal names an edge kind and a node kind.
+_EDGE_KIND_LABELS = {
+    EdgeType.DIRECT: "Direct",
+    EdgeType.ARG: "Arg",
+    EdgeType.ITERATION: "Iteration",
+    EdgeType.COLLECTION: "Collection",
+}
+_NODE_KIND_LABELS = {
+    ExecutionNodeType.CAP: "Cap",
+    ExecutionNodeType.CAP_OUTPUT: "CapOutput",
+    ExecutionNodeType.FOR_EACH: "ForEach",
+    ExecutionNodeType.ITEM: "Item",
+    ExecutionNodeType.COLLECT: "Collect",
+    ExecutionNodeType.INPUT_SLOT: "InputSlot",
+    ExecutionNodeType.OUTPUT: "Output",
+}
 
-async def plan_to_resolved_graph(
+
+def _cached_cap(registry: FabricRegistry, cap_urn: str):
+    cap = registry.get_cached_cap(cap_urn)
+    if cap is None:
+        raise CapNotFoundError(cap_urn)
+    return cap
+
+
+def steps_to_resolved_graph(
+    plan: MachinePlan,
+    step_ids: List[str],
+    registry: FabricRegistry,
+) -> ResolvedGraph:
+    """The steps ``step_ids`` of ``plan`` (ids of its Cap nodes) as a graph.
+
+    Raises:
+        InvalidGraphError: an id is not a step of the plan, or the plan wires
+            a step in a way no invocation can be given — two sources on one
+            stream, or a map wired straight into a step.
+        CapNotFoundError: a step's cap is not in the registry cache.
+    """
+    nodes: Dict[str, str] = {}
+    steps: List[ResolvedStep] = []
+
+    # A step's other taken outputs: the CapOutput nodes that name it.
+    outputs_of: Dict[str, List[StepOutput]] = {}
+    for node_id in sorted(plan.nodes):
+        nt = plan.nodes[node_id].node_type
+        if nt.kind == ExecutionNodeType.CAP_OUTPUT:
+            outputs_of.setdefault(nt.cap_node, []).append(
+                StepOutput(output_media_urn=nt.output_media_urn, node=node_id)
+            )
+
+    for step_id in step_ids:
+        node = plan.nodes.get(step_id)
+        if node is None:
+            raise InvalidGraphError(f"'{step_id}' is not a node of plan '{plan.name}'")
+        if node.node_type.kind != ExecutionNodeType.CAP:
+            raise InvalidGraphError(f"'{step_id}' is not a step of plan '{plan.name}'")
+        cap_urn = node.node_type.cap_urn
+        cap = _cached_cap(registry, cap_urn)
+
+        # The streams the step is sent, in the order the plan wires them.
+        inputs: List[StepInput] = []
+        taken: List[MediaUrn] = []
+        for edge in plan.edges:
+            if edge.to_node != step_id:
+                continue
+            kind = edge.edge_type.kind
+            if kind == EdgeType.DIRECT:
+                stream_urn = str(cap.urn.in_spec())
+            elif kind == EdgeType.ARG:
+                stream_urn = edge.edge_type.arg_urn
+            else:
+                raise InvalidGraphError(
+                    f"step '{step_id}' has an incoming {_EDGE_KIND_LABELS[kind]} edge from "
+                    f"'{edge.from_node}' — a step is wired by its main input and its args only"
+                )
+            source_node = plan.nodes.get(edge.from_node)
+            if source_node is None:
+                raise InvalidGraphError(
+                    f"step '{step_id}' is wired from '{edge.from_node}', which is not in the plan"
+                )
+            source_kind = source_node.node_type.kind
+            if source_kind == ExecutionNodeType.COLLECT:
+                source = StepSource.gather(source_node.node_type.input_nodes)
+            elif source_kind in (ExecutionNodeType.FOR_EACH, ExecutionNodeType.OUTPUT):
+                raise InvalidGraphError(
+                    f"step '{step_id}' is wired from '{edge.from_node}', which holds no value"
+                )
+            else:
+                source = StepSource.of_node(edge.from_node)
+            try:
+                stream = MediaUrn.from_string(stream_urn)
+            except Exception as error:
+                raise InvalidGraphError(
+                    f"step '{step_id}': input stream URN '{stream_urn}' is not a media URN: {error}"
+                ) from error
+            if any(other.is_equivalent(stream) for other in taken):
+                raise InvalidGraphError(
+                    f"step '{step_id}' is wired twice on input stream '{stream_urn}' — one stream "
+                    f"has one source; several values into one arg are a gather"
+                )
+            taken.append(stream)
+            inputs.append(StepInput(stream_urn=stream_urn, source=source))
+
+        out_media = str(cap.urn.out_spec())
+        nodes[step_id] = out_media
+        outputs = list(outputs_of.get(step_id, []))
+        for output in outputs:
+            nodes[output.node] = output.output_media_urn
+        steps.append(ResolvedStep(
+            token_id=node.node_type.token_id,
+            node=step_id,
+            cap_urn=cap_urn,
+            cap=cap,
+            inputs=inputs,
+            outputs=outputs,
+            out_media=out_media,
+            policy=node.node_type.policy,
+        ))
+
+    # The nodes the graph is given: what its steps read and none produces.
+    for step in steps:
+        for source in step.source_nodes():
+            if source in nodes:
+                continue
+            source_node = plan.nodes.get(source)
+            if source_node is None:
+                raise InvalidGraphError(f"a step reads '{source}', which is not in the plan")
+            nt = source_node.node_type
+            if nt.kind == ExecutionNodeType.INPUT_SLOT:
+                nodes[source] = nt.expected_media_urn
+            elif nt.kind == ExecutionNodeType.ITEM:
+                nodes[source] = nt.media_urn
+            elif nt.kind == ExecutionNodeType.CAP_OUTPUT:
+                nodes[source] = nt.output_media_urn
+            elif nt.kind == ExecutionNodeType.CAP:
+                nodes[source] = str(_cached_cap(registry, nt.cap_urn).urn.out_spec())
+            else:
+                raise InvalidGraphError(
+                    f"a step reads '{source}', which holds no value ({_NODE_KIND_LABELS[nt.kind]})"
+                )
+
+    return ResolvedGraph(nodes=nodes, steps=steps, graph_name=plan.name)
+
+
+def plan_to_resolved_graph(
     plan: MachinePlan,
     registry: FabricRegistry,
 ) -> ResolvedGraph:
-    """Convert a MachinePlan to a ResolvedGraph for execution.
+    """Every step of a plan that has no map, as one graph.
 
-    Transforms the node-centric plan (where caps are nodes) into the
-    edge-centric graph (where caps are edge labels) that execute_dag expects.
-
-    Args:
-        plan: The execution plan from the planner.
-        registry: Cap registry — caps must be pre-loaded in cache.
-
-    Returns:
-        A ResolvedGraph suitable for execute_dag.
-
-    Raises:
-        InvalidGraphError: If the plan contains ForEach/Merge/Split nodes, or a
-            ForEach-paired Collect (output_media_urn is None).
-        CapNotFoundError: If a cap URN cannot be resolved in the cache.
+    A plan with a map is not one graph: its body runs once per item. Asking
+    for it here is refused, naming the map.
     """
-    def lookup_cap(cap_urn: str):
-        cap = registry.get_cached_cap(cap_urn)
-        if cap is None:
-            raise CapNotFoundError(f"Cap not found in registry cache: {cap_urn!r}")
-        return cap
-
-    nodes: Dict[str, str] = {}
-    resolved_edges: List[ResolvedEdge] = []
-
-    # First pass: identify all data nodes and their media URNs
-    for node_id, node in plan.nodes.items():
-        nt = node.node_type
-
-        if nt.kind == ExecutionNodeType.INPUT_SLOT:
-            nodes[node_id] = nt.expected_media_urn
-
-        elif nt.kind == ExecutionNodeType.CAP:
-            cap = lookup_cap(nt.cap_urn)
-            out_media = str(cap.urn.out_spec())
-            nodes[node_id] = out_media
-
-        elif nt.kind == ExecutionNodeType.OUTPUT:
-            source = plan.nodes.get(nt.source_node)
-            if source is not None and source.node_type.kind == ExecutionNodeType.CAP:
-                cap = lookup_cap(source.node_type.cap_urn)
-                nodes[node_id] = str(cap.urn.out_spec())
-
-        elif nt.kind == ExecutionNodeType.COLLECT:
-            output_media_urn = nt.output_media_urn
-            if output_media_urn is not None:
-                # Standalone Collect (scalar→list): pass-through at execution time.
-                # The data flows unchanged, only the type annotation changes.
-                # Register the node with the list media URN so downstream edges
-                # can find data at it.
-                nodes[node_id] = output_media_urn
-            else:
-                # ForEach-paired Collect without output_media_urn should not reach
-                # plan_converter — the plan should have been decomposed first.
-                raise InvalidGraphError(
-                    f"Plan contains ForEach-paired Collect node '{node_id}'. Decompose the plan "
-                    f"using extract_prefix_to/extract_foreach_body/extract_suffix_from "
-                    f"before converting to ResolvedGraph."
-                )
-
-        elif nt.kind == ExecutionNodeType.FOR_EACH:
+    step_ids: List[str] = []
+    for node_id in sorted(plan.nodes):
+        kind = plan.nodes[node_id].node_type.kind
+        if kind == ExecutionNodeType.CAP:
+            step_ids.append(node_id)
+        elif kind == ExecutionNodeType.FOR_EACH:
             raise InvalidGraphError(
-                f"Plan contains ForEach node '{node_id}'. Decompose the plan using "
-                f"extract_prefix_to/extract_foreach_body/extract_suffix_from "
-                f"before converting to ResolvedGraph."
+                f"plan '{plan.name}' has a map ('{node_id}'): its body runs once per item and is "
+                f"not one graph — run its scopes one at a time"
             )
-
-        elif nt.kind == ExecutionNodeType.MERGE:
-            raise InvalidGraphError(
-                f"Plan contains Merge node '{node_id}' which is not yet supported for execution."
-            )
-
-        elif nt.kind == ExecutionNodeType.SPLIT:
-            raise InvalidGraphError(
-                f"Plan contains Split node '{node_id}' which is not yet supported for execution."
-            )
-
-    # Build a map from standalone Collect nodes to their input predecessors.
-    # Standalone Collect is a pass-through: data at the predecessor flows through unchanged.
-    # When an edge's from_node is a standalone Collect, we resolve it to the actual data source.
-    collect_predecessors: Dict[str, str] = {}
-    for edge in plan.edges:
-        to_node = plan.nodes.get(edge.to_node)
-        if to_node is not None:
-            nt = to_node.node_type
-            if nt.kind == ExecutionNodeType.COLLECT and nt.output_media_urn is not None:
-                collect_predecessors[edge.to_node] = edge.from_node
-
-    # Second pass: convert edges that lead INTO Cap nodes into ResolvedEdges
-    for edge in plan.edges:
-        to_node = plan.nodes.get(edge.to_node)
-        if to_node is None:
-            raise CapNotFoundError(f"Node '{edge.to_node}' not found in plan")
-
-        # Only create ResolvedEdges for edges that point to Cap nodes
-        if to_node.node_type.kind == ExecutionNodeType.CAP:
-            cap_urn = to_node.node_type.cap_urn
-            cap = lookup_cap(cap_urn)
-            in_media = str(cap.urn.in_spec())
-            out_media = str(cap.urn.out_spec())
-
-            # If the source is a standalone Collect node, resolve through to the
-            # actual data source. Standalone Collect is transparent — data at the
-            # predecessor flows unchanged through it.
-            from_node = collect_predecessors.get(edge.from_node, edge.from_node)
-
-            resolved_edges.append(ResolvedEdge(
-                from_node=from_node,
-                to_node=edge.to_node,
-                cap_urn=cap_urn,
-                cap=cap,
-                in_media=in_media,
-                out_media=out_media,
-            ))
-
-    return ResolvedGraph(
-        nodes=nodes,
-        edges=resolved_edges,
-        graph_name=plan.name,
-    )
+    return steps_to_resolved_graph(plan, step_ids, registry)

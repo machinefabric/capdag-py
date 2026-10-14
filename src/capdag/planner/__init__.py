@@ -70,13 +70,22 @@ from capdag.planner.collection_input import (
 
 from capdag.planner.plan import (
     ExecutionNodeType,
-    MergeStrategy,
+    ForEachSource,
     MachineNode,
     EdgeType,
     MachinePlanEdge,
     MachinePlan,
     NodeExecutionResult,
+    MapRun,
+    BodyOutcome,
     MachineResult,
+)
+
+from capdag.planner.policy import (
+    StepPolicy,
+    ON_ERROR_FAIL,
+    ON_ERROR_ABSENT,
+    MAX_RETRY,
 )
 
 from capdag.planner.plan_builder import (
@@ -85,14 +94,6 @@ from capdag.planner.plan_builder import (
     StepArgumentRequirements,
     PathArgumentRequirements,
     MachinePlanBuilder,
-)
-
-from capdag.planner.executor import (
-    CapExecutor,
-    CapSettingsProvider,
-    MachineExecutor,
-    apply_edge_type,
-    extract_json_path,
 )
 
 __all__ = [
@@ -145,23 +146,24 @@ __all__ = [
     "CapInputCollection",
     # Plan
     "ExecutionNodeType",
-    "MergeStrategy",
+    "ForEachSource",
     "MachineNode",
     "EdgeType",
     "MachinePlanEdge",
     "MachinePlan",
     "NodeExecutionResult",
+    "MapRun",
+    "BodyOutcome",
     "MachineResult",
+    # Policy
+    "StepPolicy",
+    "ON_ERROR_FAIL",
+    "ON_ERROR_ABSENT",
+    "MAX_RETRY",
     # Plan Builder
     "ArgumentResolution",
     "ArgumentInfo",
     "StepArgumentRequirements",
     "PathArgumentRequirements",
     "MachinePlanBuilder",
-    # Executor
-    "CapExecutor",
-    "CapSettingsProvider",
-    "MachineExecutor",
-    "apply_edge_type",
-    "extract_json_path",
 ]

@@ -1,53 +1,108 @@
 """Execution plan data structures for machines.
 
-This module defines the DAG-based execution plan that represents
-a sequence of cap operations. Mirrors Rust's planner/plan.rs exactly.
+A plan is node-centric: steps, the values they read and produce, and the maps
+they run in. Mirrors the reference's ``planner/plan.rs``.
 
 Key types:
-- ExecutionNodeType: discriminated union of node kinds (Cap, ForEach, Collect, etc.)
+- ExecutionNodeType: one of the kinds a plan node is (a step, an output of a
+  step, a map, an item of a map, a gather, an input slot, an output)
 - MachineNode: a node in the execution plan
-- EdgeType: how data flows between nodes
+- EdgeType: how one node is wired into another
 - MachinePlanEdge: a directed edge in the plan
 - MachinePlan: the complete execution DAG
-- NodeExecutionResult / MachineResult: execution output
+- NodeExecutionResult / BodyOutcome / MachineResult: what a run reports
 """
 
 from __future__ import annotations
 
 from collections import deque
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set
 
-from capdag.planner.argument_binding import ArgumentBindings, ArgumentBinding
+from capdag.planner.argument_binding import ArgumentBindings
 from capdag.planner.cardinality import InputCardinality
-from capdag.planner.error import InternalError, InvalidPathError
+from capdag.planner.error import InternalError
+from capdag.planner.live_cap_fab import StepToken
+from capdag.planner.policy import StepPolicy
 
 
 # NodeId is just a string alias
 NodeId = str
 
 
-class MergeStrategy(Enum):
-    """Strategy for merging multiple inputs."""
-    CONCAT = "concat"
-    ZIP_WITH = "zip_with"
-    FIRST_SUCCESS = "first_success"
-    ALL_SUCCESSFUL = "all_successful"
+def _require_fields(data: Dict[str, Any], kind: str, *names: str) -> None:
+    """Refuse a node that leaves out a field its kind has: a node read with a
+    part of it missing is not the node that was written."""
+    for name in names:
+        if name not in data:
+            raise ValueError(f"a {kind} node is missing field `{name}`")
+
+
+def _string(data: Dict[str, Any], kind: str, name: str) -> str:
+    value = data[name]
+    if not isinstance(value, str):
+        raise ValueError(f"field `{name}` of a {kind} node is a string, not {value!r}")
+    return value
+
+
+def _strings(data: Dict[str, Any], kind: str, name: str) -> List[str]:
+    value = data[name]
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"field `{name}` of a {kind} node is a list of strings, not {value!r}")
+    return list(value)
+
+
+@dataclass(frozen=True)
+class ForEachSource:
+    """One sequence a map iterates."""
+
+    #: The node that holds the sequence, as the map's own scope sees it.
+    node: NodeId
+    #: The Item node the body is given each item as.
+    item: NodeId
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"node": self.node, "item": self.item}
+
+    @staticmethod
+    def from_dict(data: Any) -> "ForEachSource":
+        if not isinstance(data, dict):
+            raise ValueError(f"a map source is an object, not {data!r}")
+        for name in ("node", "item"):
+            if not isinstance(data.get(name), str):
+                raise ValueError(f"a map source is missing field `{name}`")
+        return ForEachSource(node=data["node"], item=data["item"])
 
 
 class ExecutionNodeType:
-    """Discriminated union of execution node types.
+    """What a plan node is. Uses a ``kind`` field to tell the kinds apart,
+    matching the reference's ``serde(tag = "node_type")`` representation.
 
-    Uses a `kind` field to distinguish variants, matching Rust's
-    serde(tag = "node_type") representation.
+    - ``CAP``: one step — one invocation of a cap. Carries the step's stable
+      identity (``token_id``), its ``cap_urn``, its ``arg_bindings``, an
+      optional ``preferred_cap`` and its ``policy``.
+    - ``CAP_OUTPUT``: one output of a step other than its main one, as a node
+      of its own. A step's main output is the step's node; every other output
+      something takes is one of these.
+    - ``FOR_EACH``: a map. Its body runs once per item of its sources, zipped:
+      run ``i`` is given item ``i`` of every source, and sources of unequal
+      length fail the run. What a body node produces is, from outside the map,
+      the sequence of it over the runs in item order.
+    - ``ITEM``: what one run of a map's body is given of one of the map's
+      sources.
+    - ``COLLECT``: a gather — several values delivered to one sequence arg as
+      one sequence, in order. A single value contributes one item, a sequence
+      its items; a member that is absent contributes none.
+    - ``INPUT_SLOT``: an entry point for a value the run is given.
+    - ``OUTPUT``: a terminal node marking a result.
     """
 
     # Kind constants
     CAP = "cap"
+    CAP_OUTPUT = "cap_output"
     FOR_EACH = "for_each"
+    ITEM = "item"
     COLLECT = "collect"
-    MERGE = "merge"
-    SPLIT = "split"
     INPUT_SLOT = "input_slot"
     OUTPUT = "output"
 
@@ -60,41 +115,56 @@ class ExecutionNodeType:
     # --- Factory methods ---
 
     @staticmethod
-    def cap(cap_urn: str, arg_bindings: Optional[ArgumentBindings] = None,
-            preferred_cap: Optional[str] = None) -> ExecutionNodeType:
+    def cap(
+        cap_urn: str,
+        arg_bindings: Optional[ArgumentBindings] = None,
+        preferred_cap: Optional[str] = None,
+        token_id: Optional[StepToken] = None,
+        policy: Optional[StepPolicy] = None,
+    ) -> ExecutionNodeType:
+        """A step. With no ``token_id`` a fresh one is minted: that is for a
+        plan not derived from a resolved strand. A run whose progress must map
+        back to a rendered strand passes the strand step's token."""
         return ExecutionNodeType(ExecutionNodeType.CAP, {
+            "token_id": token_id if token_id is not None else StepToken.mint(),
             "cap_urn": cap_urn,
-            "arg_bindings": arg_bindings or ArgumentBindings(),
+            "arg_bindings": arg_bindings if arg_bindings is not None else ArgumentBindings(),
             "preferred_cap": preferred_cap,
+            "policy": policy if policy is not None else StepPolicy(),
         })
 
     @staticmethod
-    def for_each(input_node: str, body_entry: str, body_exit: str) -> ExecutionNodeType:
-        return ExecutionNodeType(ExecutionNodeType.FOR_EACH, {
-            "input_node": input_node,
-            "body_entry": body_entry,
-            "body_exit": body_exit,
-        })
-
-    @staticmethod
-    def collect(input_nodes: List[str], output_media_urn: Optional[str] = None) -> ExecutionNodeType:
-        return ExecutionNodeType(ExecutionNodeType.COLLECT, {
-            "input_nodes": input_nodes,
+    def cap_output(cap_node: str, output_media_urn: str, output_name: str,
+                   carries_input: bool = False) -> ExecutionNodeType:
+        return ExecutionNodeType(ExecutionNodeType.CAP_OUTPUT, {
+            "cap_node": cap_node,
             "output_media_urn": output_media_urn,
+            "output_name": output_name,
+            "carries_input": carries_input,
         })
 
     @staticmethod
-    def merge(input_nodes: List[str], merge_strategy: MergeStrategy = MergeStrategy.CONCAT) -> ExecutionNodeType:
-        return ExecutionNodeType(ExecutionNodeType.MERGE, {
-            "input_nodes": input_nodes,
-            "merge_strategy": merge_strategy,
+    def for_each(sources: List[ForEachSource], body: List[str],
+                 token_id: Optional[StepToken] = None) -> ExecutionNodeType:
+        return ExecutionNodeType(ExecutionNodeType.FOR_EACH, {
+            "token_id": token_id if token_id is not None else StepToken.mint(),
+            "sources": list(sources),
+            "body": list(body),
         })
 
     @staticmethod
-    def split(input_node: str, output_count: int) -> ExecutionNodeType:
-        return ExecutionNodeType(ExecutionNodeType.SPLIT, {
-            "input_node": input_node,
-            "output_count": output_count,
+    def item(foreach: str, source: str, media_urn: str) -> ExecutionNodeType:
+        return ExecutionNodeType(ExecutionNodeType.ITEM, {
+            "foreach": foreach,
+            "source": source,
+            "media_urn": media_urn,
+        })
+
+    @staticmethod
+    def collect(input_nodes: List[str], output_media_urn: str) -> ExecutionNodeType:
+        return ExecutionNodeType(ExecutionNodeType.COLLECT, {
+            "input_nodes": list(input_nodes),
+            "output_media_urn": output_media_urn,
         })
 
     @staticmethod
@@ -116,6 +186,13 @@ class ExecutionNodeType:
     # --- Data accessors ---
 
     @property
+    def token_id(self) -> StepToken:
+        """Cap, ForEach: the stable identity of the step or the map. A run's
+        progress is reported under it, so it maps back to the graph element a
+        client rendered."""
+        return self._data["token_id"]
+
+    @property
     def cap_urn(self) -> str:
         return self._data["cap_urn"]
 
@@ -128,32 +205,70 @@ class ExecutionNodeType:
         return self._data.get("preferred_cap")
 
     @property
-    def input_node(self) -> str:
-        return self._data["input_node"]
+    def policy(self) -> StepPolicy:
+        """Cap: what the step does when it fails — how many further attempts a
+        retryable failure gets, and whether a failure that stands leaves the
+        step's outputs absent instead of failing the run."""
+        return self._data["policy"]
+
+    @policy.setter
+    def policy(self, policy: StepPolicy) -> None:
+        if self.kind != ExecutionNodeType.CAP:
+            raise AttributeError(f"a {self.kind} node has no policy")
+        self._data["policy"] = policy
 
     @property
-    def body_entry(self) -> str:
-        return self._data["body_entry"]
+    def cap_node(self) -> str:
+        """CapOutput: the step whose output this is."""
+        return self._data["cap_node"]
 
     @property
-    def body_exit(self) -> str:
-        return self._data["body_exit"]
+    def carries_input(self) -> bool:
+        """CapOutput: the output carries the step's input, type unchanged,
+        rather than its own URN (a router's outputs)."""
+        return self._data["carries_input"]
+
+    @property
+    def output_media_urn(self) -> str:
+        """CapOutput: the output's media URN in the cap's definition (its
+        identity, and what its response stream names). Collect: the element
+        type of the gathered sequence."""
+        return self._data["output_media_urn"]
+
+    @property
+    def sources(self) -> List[ForEachSource]:
+        """ForEach: the sequences the map zips, each with the node the body is
+        given its item as. At least one."""
+        return self._data["sources"]
+
+    @property
+    def body(self) -> List[str]:
+        """ForEach: every node that runs once per item — the item nodes, the
+        steps, the outputs and gathers that belong to them, and the maps
+        opened inside this one (whose own bodies are theirs, not listed
+        here)."""
+        return self._data["body"]
+
+    @property
+    def foreach(self) -> str:
+        """Item: the map this is an item of."""
+        return self._data["foreach"]
+
+    @property
+    def source(self) -> str:
+        """Item: the source node whose item it is."""
+        return self._data["source"]
+
+    @property
+    def media_urn(self) -> str:
+        """Item: the item's media URN — the element type of the source
+        sequence."""
+        return self._data["media_urn"]
 
     @property
     def input_nodes(self) -> List[str]:
+        """Collect: the nodes gathered, in the order they are delivered."""
         return self._data["input_nodes"]
-
-    @property
-    def output_media_urn(self) -> Optional[str]:
-        return self._data.get("output_media_urn")
-
-    @property
-    def merge_strategy(self) -> MergeStrategy:
-        return self._data["merge_strategy"]
-
-    @property
-    def output_count(self) -> int:
-        return self._data["output_count"]
 
     @property
     def slot_name(self) -> str:
@@ -169,6 +284,8 @@ class ExecutionNodeType:
 
     @property
     def output_name(self) -> str:
+        """Output: the result's name. CapOutput: the output's name in the
+        cap's definition (a label; unique per cap)."""
         return self._data["output_name"]
 
     @property
@@ -178,35 +295,116 @@ class ExecutionNodeType:
     # --- Serialization ---
 
     def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {"node_type": self.kind}
-        for k, v in self._data.items():
-            if v is None:
-                continue
-            if isinstance(v, ArgumentBindings):
-                d[k] = v.to_dict()
-            elif isinstance(v, InputCardinality):
-                d[k] = v.value
-            elif isinstance(v, MergeStrategy):
-                d[k] = v.value
-            else:
-                d[k] = v
-        return d
+        """The node as the reference writes it: the kind under ``node_type``
+        and the kind's fields beside it."""
+        data = self._data
+        written: Dict[str, Any] = {"node_type": self.kind}
+        if self.kind == ExecutionNodeType.CAP:
+            written["token_id"] = str(data["token_id"])
+            written["cap_urn"] = data["cap_urn"]
+            written["arg_bindings"] = data["arg_bindings"].to_dict()
+            if data.get("preferred_cap") is not None:
+                written["preferred_cap"] = data["preferred_cap"]
+            if not data["policy"].is_default():
+                written["policy"] = data["policy"].to_dict()
+        elif self.kind == ExecutionNodeType.CAP_OUTPUT:
+            written["cap_node"] = data["cap_node"]
+            written["output_media_urn"] = data["output_media_urn"]
+            written["output_name"] = data["output_name"]
+            written["carries_input"] = data["carries_input"]
+        elif self.kind == ExecutionNodeType.FOR_EACH:
+            written["token_id"] = str(data["token_id"])
+            written["sources"] = [source.to_dict() for source in data["sources"]]
+            written["body"] = list(data["body"])
+        elif self.kind == ExecutionNodeType.ITEM:
+            written["foreach"] = data["foreach"]
+            written["source"] = data["source"]
+            written["media_urn"] = data["media_urn"]
+        elif self.kind == ExecutionNodeType.COLLECT:
+            written["input_nodes"] = list(data["input_nodes"])
+            written["output_media_urn"] = data["output_media_urn"]
+        elif self.kind == ExecutionNodeType.INPUT_SLOT:
+            written["slot_name"] = data["slot_name"]
+            written["expected_media_urn"] = data["expected_media_urn"]
+            written["cardinality"] = data["cardinality"].value
+        elif self.kind == ExecutionNodeType.OUTPUT:
+            written["output_name"] = data["output_name"]
+            written["source_node"] = data["source_node"]
+        else:
+            raise ValueError(f"a node of no kind a plan has: {self.kind!r}")
+        return written
 
     @staticmethod
-    def from_dict(d: Dict[str, Any]) -> ExecutionNodeType:
+    def from_dict(d: Any) -> ExecutionNodeType:
+        """Read a node. A node type this library does not know is refused, and
+        so is a node missing a field its kind has."""
+        if not isinstance(d, dict):
+            raise ValueError(f"a plan node is an object, not {d!r}")
+        if "node_type" not in d:
+            raise ValueError("a plan node is missing field `node_type`")
         kind = d["node_type"]
-        raw = {k: v for k, v in d.items() if k != "node_type"}
-        data: Dict[str, Any] = {}
-        for key, value in raw.items():
-            if key == "arg_bindings":
-                data[key] = ArgumentBindings.from_dict(value)
-            elif key == "cardinality":
-                data[key] = InputCardinality(value)
-            elif key == "merge_strategy":
-                data[key] = MergeStrategy(value)
-            else:
-                data[key] = value
-        return ExecutionNodeType(kind, data)
+        if kind == ExecutionNodeType.CAP:
+            _require_fields(d, kind, "token_id", "cap_urn")
+            bindings = d.get("arg_bindings")
+            policy = d.get("policy")
+            return ExecutionNodeType.cap(
+                cap_urn=_string(d, kind, "cap_urn"),
+                arg_bindings=ArgumentBindings.from_dict(bindings) if bindings is not None else None,
+                preferred_cap=d.get("preferred_cap"),
+                token_id=StepToken.parse(_string(d, kind, "token_id")),
+                policy=StepPolicy.from_dict(policy) if policy is not None else None,
+            )
+        if kind == ExecutionNodeType.CAP_OUTPUT:
+            _require_fields(d, kind, "cap_node", "output_media_urn", "output_name")
+            return ExecutionNodeType.cap_output(
+                cap_node=_string(d, kind, "cap_node"),
+                output_media_urn=_string(d, kind, "output_media_urn"),
+                output_name=_string(d, kind, "output_name"),
+                carries_input=bool(d.get("carries_input", False)),
+            )
+        if kind == ExecutionNodeType.FOR_EACH:
+            _require_fields(d, kind, "token_id", "sources", "body")
+            if not isinstance(d["sources"], list):
+                raise ValueError(f"field `sources` of a {kind} node is a list, not {d['sources']!r}")
+            return ExecutionNodeType.for_each(
+                sources=[ForEachSource.from_dict(source) for source in d["sources"]],
+                body=_strings(d, kind, "body"),
+                token_id=StepToken.parse(_string(d, kind, "token_id")),
+            )
+        if kind == ExecutionNodeType.ITEM:
+            _require_fields(d, kind, "foreach", "source", "media_urn")
+            return ExecutionNodeType.item(
+                foreach=_string(d, kind, "foreach"),
+                source=_string(d, kind, "source"),
+                media_urn=_string(d, kind, "media_urn"),
+            )
+        if kind == ExecutionNodeType.COLLECT:
+            _require_fields(d, kind, "input_nodes", "output_media_urn")
+            return ExecutionNodeType.collect(
+                input_nodes=_strings(d, kind, "input_nodes"),
+                output_media_urn=_string(d, kind, "output_media_urn"),
+            )
+        if kind == ExecutionNodeType.INPUT_SLOT:
+            _require_fields(d, kind, "slot_name", "expected_media_urn", "cardinality")
+            return ExecutionNodeType.input_slot(
+                slot_name=_string(d, kind, "slot_name"),
+                expected_media_urn=_string(d, kind, "expected_media_urn"),
+                cardinality=InputCardinality(d["cardinality"]),
+            )
+        if kind == ExecutionNodeType.OUTPUT:
+            _require_fields(d, kind, "output_name", "source_node")
+            return ExecutionNodeType.output(
+                output_name=_string(d, kind, "output_name"),
+                source_node=_string(d, kind, "source_node"),
+            )
+        raise ValueError(f"unknown ExecutionNodeType node_type: {kind!r}")
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ExecutionNodeType):
+            return NotImplemented
+        return self.to_dict() == other.to_dict()
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __repr__(self) -> str:
         return f"ExecutionNodeType({self.kind!r})"
@@ -227,29 +425,65 @@ class MachineNode:
 
     @staticmethod
     def cap(id: str, cap_urn: str) -> MachineNode:
+        """A step with no bindings. Mints a fresh token: this builds steps for
+        plans that are not derived from a resolved strand."""
         return MachineNode(id, ExecutionNodeType.cap(cap_urn))
 
     @staticmethod
     def cap_with_bindings(id: str, cap_urn: str, bindings: ArgumentBindings) -> MachineNode:
+        """A step with bindings. Mints a fresh token."""
         return MachineNode(id, ExecutionNodeType.cap(cap_urn, bindings))
+
+    @staticmethod
+    def cap_with_bindings_token(id: str, cap_urn: str, bindings: ArgumentBindings,
+                                token_id: StepToken) -> MachineNode:
+        """A step with bindings, keeping a strand step's identity."""
+        return MachineNode(id, ExecutionNodeType.cap(cap_urn, bindings, token_id=token_id))
 
     @staticmethod
     def cap_with_preference(id: str, cap_urn: str, bindings: ArgumentBindings,
                             preferred_cap: Optional[str] = None) -> MachineNode:
+        """A step with bindings and a preferred cap. Mints a fresh token."""
         return MachineNode(id, ExecutionNodeType.cap(cap_urn, bindings, preferred_cap))
 
     @staticmethod
-    def for_each(id: str, input_node: str, body_entry: str, body_exit: str) -> MachineNode:
+    def for_each(id: str, sources: List[ForEachSource], body: List[str]) -> MachineNode:
+        """A map. Mints a fresh token; a run whose progress must map back to a
+        rendered strand uses :meth:`for_each_token`."""
+        return MachineNode.for_each_token(id, sources, body, StepToken.mint())
+
+    @staticmethod
+    def for_each_token(id: str, sources: List[ForEachSource], body: List[str],
+                       token_id: StepToken) -> MachineNode:
+        """A map, keeping the originating step's identity."""
         return MachineNode(
-            id, ExecutionNodeType.for_each(input_node, body_entry, body_exit),
-            description="Fan-out: process each item in vector",
+            id, ExecutionNodeType.for_each(sources, body, token_id),
+            description="Map: run the body once per item",
         )
 
     @staticmethod
-    def collect(id: str, input_nodes: List[str]) -> MachineNode:
+    def item(id: str, foreach: str, source: str, media_urn: str) -> MachineNode:
+        """The node a map's body is given one source's item as."""
         return MachineNode(
-            id, ExecutionNodeType.collect(input_nodes),
-            description="Fan-in: collect results into vector",
+            id, ExecutionNodeType.item(foreach, source, media_urn),
+            description=f"Item of {source}",
+        )
+
+    @staticmethod
+    def cap_output(id: str, cap_node: str, output_media_urn: str, output_name: str,
+                   carries_input: bool = False) -> MachineNode:
+        """The node of an output of ``cap_node`` other than its main one."""
+        return MachineNode(
+            id, ExecutionNodeType.cap_output(cap_node, output_media_urn, output_name, carries_input),
+            description=f"Output: {output_name}",
+        )
+
+    @staticmethod
+    def collect(id: str, input_nodes: List[str], output_media_urn: str) -> MachineNode:
+        """A gather."""
+        return MachineNode(
+            id, ExecutionNodeType.collect(input_nodes, output_media_urn),
+            description="Gather: several values into one sequence",
         )
 
     @staticmethod
@@ -310,31 +544,46 @@ class MachineNode:
 
 
 class EdgeType:
-    """How data flows between nodes."""
+    """How one node is wired into another.
+
+    - ``DIRECT``: the whole value, into a step's main input (or into a map, an
+      output, a gather).
+    - ``ARG``: the whole value, into the arg of a step that ``arg_urn`` names.
+    - ``ITERATION``: from a map to an item of it.
+    - ``COLLECTION``: from a member into the gather that takes it.
+
+    An edge carries the whole value: a part of it is not something an edge can
+    be asked for.
+    """
 
     DIRECT = "direct"
-    JSON_FIELD = "json_field"
-    JSON_PATH = "json_path"
+    ARG = "arg"
     ITERATION = "iteration"
     COLLECTION = "collection"
 
-    __slots__ = ("kind", "_data")
+    _PLAIN = (DIRECT, ITERATION, COLLECTION)
 
-    def __init__(self, kind: str, data: Optional[Dict[str, str]] = None) -> None:
+    __slots__ = ("kind", "_arg_urn")
+
+    def __init__(self, kind: str, arg_urn: Optional[str] = None) -> None:
+        if kind == EdgeType.ARG:
+            if not isinstance(arg_urn, str):
+                raise ValueError("an arg edge names the arg it feeds")
+        elif kind in EdgeType._PLAIN:
+            if arg_urn is not None:
+                raise ValueError(f"only an arg edge names an argument, not a {kind} edge")
+        else:
+            raise ValueError(f"unknown EdgeType: {kind!r}")
         self.kind = kind
-        self._data = data or {}
+        self._arg_urn = arg_urn
 
     @staticmethod
     def direct() -> EdgeType:
         return EdgeType(EdgeType.DIRECT)
 
     @staticmethod
-    def json_field(field: str) -> EdgeType:
-        return EdgeType(EdgeType.JSON_FIELD, {"field": field})
-
-    @staticmethod
-    def json_path(path: str) -> EdgeType:
-        return EdgeType(EdgeType.JSON_PATH, {"path": path})
+    def arg(arg_urn: str) -> EdgeType:
+        return EdgeType(EdgeType.ARG, arg_urn)
 
     @staticmethod
     def iteration() -> EdgeType:
@@ -345,31 +594,47 @@ class EdgeType:
         return EdgeType(EdgeType.COLLECTION)
 
     @property
-    def field(self) -> str:
-        return self._data["field"]
-
-    @property
-    def path(self) -> str:
-        return self._data["path"]
+    def arg_urn(self) -> Optional[str]:
+        """The arg an ``ARG`` edge feeds, by its URN. ``None`` for every other
+        kind."""
+        return self._arg_urn
 
     def to_dict(self) -> Any:
-        if self._data:
-            d: Dict[str, Any] = {"type": self.kind}
-            d.update(self._data)
-            return d
+        """The edge type as the reference writes it: a kind that carries
+        nothing is its name (``"direct"``); an arg edge is
+        ``{"arg": {"arg_urn": "…"}}``."""
+        if self.kind == EdgeType.ARG:
+            return {"arg": {"arg_urn": self._arg_urn}}
         return self.kind
 
     @staticmethod
     def from_dict(value: Any) -> EdgeType:
+        """Read an edge type. A kind this library does not know is refused: an
+        edge of a kind nobody here can carry is not an edge."""
         if isinstance(value, str):
+            if value not in EdgeType._PLAIN:
+                raise ValueError(f"unknown EdgeType: {value}")
             return EdgeType(value)
-        edge_type = value["type"]
-        data = {k: v for k, v in value.items() if k != "type"}
-        return EdgeType(edge_type, data)
+        if not isinstance(value, dict) or len(value) != 1:
+            raise ValueError(f"an EdgeType is a name, or one kind with what it carries: {value!r}")
+        (kind, carried), = value.items()
+        if kind != EdgeType.ARG:
+            raise ValueError(f"unknown EdgeType: {kind}")
+        if not isinstance(carried, dict) or not isinstance(carried.get("arg_urn"), str):
+            raise ValueError("an arg edge is missing field `arg_urn`")
+        return EdgeType.arg(carried["arg_urn"])
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, EdgeType):
+            return NotImplemented
+        return self.kind == other.kind and self._arg_urn == other._arg_urn
+
+    def __hash__(self) -> int:
+        return hash((self.kind, self._arg_urn))
 
     def __repr__(self) -> str:
-        if self._data:
-            return f"EdgeType({self.kind!r}, {self._data!r})"
+        if self.kind == EdgeType.ARG:
+            return f"EdgeType({self.kind!r}, {self._arg_urn!r})"
         return f"EdgeType({self.kind!r})"
 
 
@@ -389,20 +654,16 @@ class MachinePlanEdge:
         return MachinePlanEdge(from_node, to_node, EdgeType.direct())
 
     @staticmethod
+    def arg(from_node: str, to_node: str, arg_urn: str) -> MachinePlanEdge:
+        return MachinePlanEdge(from_node, to_node, EdgeType.arg(arg_urn))
+
+    @staticmethod
     def iteration(from_node: str, to_node: str) -> MachinePlanEdge:
         return MachinePlanEdge(from_node, to_node, EdgeType.iteration())
 
     @staticmethod
     def collection(from_node: str, to_node: str) -> MachinePlanEdge:
         return MachinePlanEdge(from_node, to_node, EdgeType.collection())
-
-    @staticmethod
-    def json_field(from_node: str, to_node: str, field: str) -> MachinePlanEdge:
-        return MachinePlanEdge(from_node, to_node, EdgeType.json_field(field))
-
-    @staticmethod
-    def json_path(from_node: str, to_node: str, path: str) -> MachinePlanEdge:
-        return MachinePlanEdge(from_node, to_node, EdgeType.json_path(path))
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -413,10 +674,12 @@ class MachinePlanEdge:
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> MachinePlanEdge:
+        # An edge written without a type is a direct one, as the reference
+        # reads it.
         return MachinePlanEdge(
             from_node=d["from_node"],
             to_node=d["to_node"],
-            edge_type=EdgeType.from_dict(d["edge_type"]),
+            edge_type=EdgeType.from_dict(d["edge_type"]) if "edge_type" in d else EdgeType.direct(),
         )
 
     def __repr__(self) -> str:
@@ -426,8 +689,8 @@ class MachinePlanEdge:
 class MachinePlan:
     """Complete execution plan DAG.
 
-    Manages nodes, edges, entry points, and output nodes.
-    Supports validation, topological ordering, and sub-plan extraction.
+    Manages nodes, edges, entry points, and output nodes. Supports validation,
+    topological ordering, and saying which map each node runs in.
     """
 
     __slots__ = ("name", "nodes", "edges", "entry_nodes", "output_nodes", "metadata")
@@ -457,7 +720,9 @@ class MachinePlan:
         return self.nodes.get(id)
 
     def validate(self) -> None:
-        """Validate plan structure. Raises InternalError on invalid references."""
+        """Check plan structure: every edge, entry and output names a node of
+        the plan, and what a node names is there and is what it is named as.
+        Raises InternalError otherwise."""
         for edge in self.edges:
             if edge.from_node not in self.nodes:
                 raise InternalError(f"Edge from_node '{edge.from_node}' not found in plan")
@@ -469,6 +734,99 @@ class MachinePlan:
         for output_id in self.output_nodes:
             if output_id not in self.nodes:
                 raise InternalError(f"Output node '{output_id}' not found in plan")
+
+        def known(owner: str, what: str, node_id: str) -> None:
+            if node_id not in self.nodes:
+                raise InternalError(
+                    f"node '{owner}' names {what} '{node_id}', which is not in the plan"
+                )
+
+        in_body: Dict[str, str] = {}
+        # In node-id order, so the same plan is refused the same way every time.
+        for node_id in sorted(self.nodes):
+            nt = self.nodes[node_id].node_type
+            kind = nt.kind
+            if kind in (ExecutionNodeType.CAP, ExecutionNodeType.INPUT_SLOT):
+                continue
+            if kind == ExecutionNodeType.OUTPUT:
+                known(node_id, "source", nt.source_node)
+            elif kind == ExecutionNodeType.COLLECT:
+                for member in nt.input_nodes:
+                    known(node_id, "gathered node", member)
+            elif kind == ExecutionNodeType.CAP_OUTPUT:
+                known(node_id, "step", nt.cap_node)
+                if not self.nodes[nt.cap_node].is_cap():
+                    raise InternalError(
+                        f"output node '{node_id}' names '{nt.cap_node}' as its step, which is not a step"
+                    )
+            elif kind == ExecutionNodeType.ITEM:
+                known(node_id, "map", nt.foreach)
+                of = self.nodes[nt.foreach].node_type
+                listed = of.kind == ExecutionNodeType.FOR_EACH and any(
+                    source.item == node_id and source.node == nt.source for source in of.sources
+                )
+                if not listed:
+                    raise InternalError(
+                        f"item node '{node_id}' names map '{nt.foreach}' and source '{nt.source}', "
+                        f"and that map does not list it so"
+                    )
+            elif kind == ExecutionNodeType.FOR_EACH:
+                if not nt.sources:
+                    raise InternalError(f"map '{node_id}' iterates nothing")
+                for source in nt.sources:
+                    known(node_id, "source", source.node)
+                    known(node_id, "item", source.item)
+                    item = self.nodes[source.item].node_type
+                    if (
+                        item.kind != ExecutionNodeType.ITEM
+                        or item.foreach != node_id
+                        or item.source != source.node
+                    ):
+                        raise InternalError(
+                            f"map '{node_id}' lists '{source.item}' as its item of '{source.node}', "
+                            f"which is not that"
+                        )
+                    if source.item not in nt.body:
+                        raise InternalError(
+                            f"map '{node_id}' does not list its item '{source.item}' in its body"
+                        )
+                for member in nt.body:
+                    known(node_id, "body node", member)
+                    if member == node_id:
+                        raise InternalError(f"map '{node_id}' lists itself in its body")
+                    if member in in_body:
+                        raise InternalError(
+                            f"node '{member}' is in the body of two maps "
+                            f"('{in_body[member]}' and '{node_id}')"
+                        )
+                    in_body[member] = node_id
+            else:
+                raise InternalError(f"node '{node_id}' is of no kind a plan has")
+
+    def enclosing_maps(self) -> Dict[str, str]:
+        """The map each node runs in: node id → the id of the map whose body
+        lists it. A node of the machine itself has no entry."""
+        enclosing: Dict[str, str] = {}
+        for node_id, node in self.nodes.items():
+            if node.node_type.kind == ExecutionNodeType.FOR_EACH:
+                for member in node.node_type.body:
+                    enclosing[member] = node_id
+        return enclosing
+
+    def map_members(self, foreach_id: str) -> Set[str]:
+        """Every node inside map ``foreach_id``: its body, and the bodies of
+        the maps opened inside it."""
+        members: Set[str] = set()
+        pending = [foreach_id]
+        while pending:
+            node = self.nodes.get(pending.pop())
+            if node is None or node.node_type.kind != ExecutionNodeType.FOR_EACH:
+                continue
+            for member in node.node_type.body:
+                if member not in members:
+                    members.add(member)
+                    pending.append(member)
+        return members
 
     def topological_order(self) -> List[MachineNode]:
         """Return nodes in topological order using Kahn's algorithm.
@@ -539,208 +897,12 @@ class MachinePlan:
         plan.add_edge(MachinePlanEdge.direct(prev_id, "output"))
         return plan
 
-    def find_first_foreach(self) -> Optional[str]:
-        """Find the first ForEach node in topological order."""
-        try:
-            order = self.topological_order()
-        except InternalError:
-            return None
-        for node in order:
-            if node.node_type.kind == ExecutionNodeType.FOR_EACH:
-                return node.id
-        return None
-
     def has_foreach(self) -> bool:
-        """Check if any node is ForEach (requiring decomposition).
-
-        ForEach nodes require special handling: the plan is decomposed into
-        prefix/body/suffix, and the body is executed per-item. Standalone Collect
-        nodes (scalar→list without ForEach) are pass-throughs and do NOT require
-        decomposition.
-        """
+        """Whether this plan contains a map."""
         return any(
             n.node_type.kind == ExecutionNodeType.FOR_EACH
             for n in self.nodes.values()
         )
-
-    def has_foreach_collect_pair(self) -> bool:
-        """Check if the plan has both a ForEach and a Collect node.
-
-        A Collect node following a ForEach marks the re-assembly point.
-        Standalone Collect nodes (no ForEach) are pass-throughs.
-        """
-        has_foreach = any(
-            n.node_type.kind == ExecutionNodeType.FOR_EACH
-            for n in self.nodes.values()
-        )
-        has_collect = any(
-            n.node_type.kind == ExecutionNodeType.COLLECT
-            for n in self.nodes.values()
-        )
-        return has_foreach and has_collect
-
-    def extract_prefix_to(self, target_node_id: str) -> MachinePlan:
-        """Extract ancestor subgraph up to and including target_node_id."""
-        if target_node_id not in self.nodes:
-            raise InternalError(f"Target node '{target_node_id}' not found in plan")
-
-        # BFS backward from target
-        reverse_adj: Dict[str, List[str]] = {nid: [] for nid in self.nodes}
-        for edge in self.edges:
-            if edge.to_node in reverse_adj:
-                reverse_adj[edge.to_node].append(edge.from_node)
-
-        ancestors: set = set()
-        queue = deque([target_node_id])
-        while queue:
-            nid = queue.popleft()
-            if nid in ancestors:
-                continue
-            ancestors.add(nid)
-            for pred in reverse_adj.get(nid, []):
-                if pred not in ancestors:
-                    queue.append(pred)
-
-        sub_plan = MachinePlan(f"{self.name}_prefix")
-        for nid in ancestors:
-            node = self.nodes[nid]
-            # Skip original Output nodes
-            if node.node_type.kind == ExecutionNodeType.OUTPUT:
-                continue
-            sub_plan.add_node(node)
-
-        for edge in self.edges:
-            if edge.from_node in ancestors and edge.to_node in ancestors:
-                from_node = self.nodes[edge.from_node]
-                to_node = self.nodes[edge.to_node]
-                if (from_node.node_type.kind != ExecutionNodeType.OUTPUT and
-                        to_node.node_type.kind != ExecutionNodeType.OUTPUT):
-                    sub_plan.add_edge(edge)
-
-        # Add synthetic output
-        output_id = f"{target_node_id}_prefix_output"
-        sub_plan.add_node(MachineNode.output(output_id, "prefix_result", target_node_id))
-        sub_plan.add_edge(MachinePlanEdge.direct(target_node_id, output_id))
-
-        sub_plan.validate()
-        return sub_plan
-
-    def extract_foreach_body(self, foreach_node_id: str,
-                             item_media_urn: str) -> MachinePlan:
-        """Extract the body of a ForEach node as a standalone plan."""
-        node = self.nodes.get(foreach_node_id)
-        if node is None:
-            raise InternalError(f"ForEach node '{foreach_node_id}' not found in plan")
-        if node.node_type.kind != ExecutionNodeType.FOR_EACH:
-            raise InternalError(f"Node '{foreach_node_id}' is not a ForEach node")
-
-        body_entry = node.node_type.body_entry
-        body_exit = node.node_type.body_exit
-
-        # BFS forward from body_entry, stopping at body_exit
-        forward_adj: Dict[str, List[str]] = {nid: [] for nid in self.nodes}
-        for edge in self.edges:
-            if edge.from_node in forward_adj:
-                forward_adj[edge.from_node].append(edge.to_node)
-
-        body_nodes: set = set()
-        queue = deque([body_entry])
-        while queue:
-            nid = queue.popleft()
-            if nid in body_nodes:
-                continue
-            body_nodes.add(nid)
-            if nid == body_exit:
-                continue  # don't traverse past body_exit
-            orig_node = self.nodes.get(nid)
-            if orig_node and orig_node.node_type.kind in (ExecutionNodeType.OUTPUT, ExecutionNodeType.COLLECT):
-                continue
-            for succ in forward_adj.get(nid, []):
-                if succ not in body_nodes:
-                    queue.append(succ)
-
-        # Force body_exit into set
-        body_nodes.add(body_exit)
-
-        body_plan = MachinePlan(f"{self.name}_foreach_body")
-
-        # Synthetic input slot
-        input_id = f"{foreach_node_id}_body_input"
-        body_plan.add_node(MachineNode.input_slot(input_id, "item_input", item_media_urn, InputCardinality.SINGLE))
-
-        # Add body nodes
-        for nid in body_nodes:
-            body_node = self.nodes.get(nid)
-            if body_node is not None:
-                body_plan.add_node(body_node)
-
-        # Edge from synthetic input to body_entry
-        body_plan.add_edge(MachinePlanEdge.direct(input_id, body_entry))
-
-        # Copy edges within body, skipping Iteration and Collection
-        for edge in self.edges:
-            if edge.from_node in body_nodes and edge.to_node in body_nodes:
-                if edge.edge_type.kind in (EdgeType.ITERATION, EdgeType.COLLECTION):
-                    continue
-                body_plan.add_edge(edge)
-
-        # Synthetic output
-        output_id = f"{foreach_node_id}_body_output"
-        body_plan.add_node(MachineNode.output(output_id, "item_result", body_exit))
-        body_plan.add_edge(MachinePlanEdge.direct(body_exit, output_id))
-
-        body_plan.validate()
-        return body_plan
-
-    def extract_suffix_from(self, source_node_id: str,
-                            source_media_urn: str) -> MachinePlan:
-        """Extract all descendants of source_node_id as a standalone plan."""
-        if source_node_id not in self.nodes:
-            raise InternalError(f"Source node '{source_node_id}' not found in plan")
-
-        # BFS forward from source
-        forward_adj: Dict[str, List[str]] = {nid: [] for nid in self.nodes}
-        for edge in self.edges:
-            if edge.from_node in forward_adj:
-                forward_adj[edge.from_node].append(edge.to_node)
-
-        descendants: set = set()
-        queue = deque([source_node_id])
-        while queue:
-            nid = queue.popleft()
-            if nid in descendants:
-                continue
-            descendants.add(nid)
-            for succ in forward_adj.get(nid, []):
-                if succ not in descendants:
-                    queue.append(succ)
-
-        sub_plan = MachinePlan(f"{self.name}_suffix")
-
-        # Synthetic input slot replacing source_node
-        input_id = f"{source_node_id}_suffix_input"
-        sub_plan.add_node(MachineNode.input_slot(
-            input_id, "collected_input", source_media_urn, InputCardinality.SINGLE))
-
-        # Add descendant nodes (excluding source and original InputSlot nodes)
-        for nid in descendants:
-            if nid == source_node_id:
-                continue
-            desc_node = self.nodes.get(nid)
-            if desc_node is not None and desc_node.node_type.kind != ExecutionNodeType.INPUT_SLOT:
-                sub_plan.add_node(desc_node)
-
-        # Remap edges
-        for edge in self.edges:
-            if edge.from_node == source_node_id and edge.to_node in descendants:
-                # Replace source with synthetic input
-                sub_plan.add_edge(MachinePlanEdge.direct(input_id, edge.to_node))
-            elif (edge.from_node in descendants and edge.to_node in descendants
-                  and edge.from_node != source_node_id):
-                sub_plan.add_edge(edge)
-
-        sub_plan.validate()
-        return sub_plan
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -836,6 +998,38 @@ class NodeExecutionResult:
         return f"NodeExecutionResult(node_id={self.node_id!r}, success={self.success})"
 
 
+@dataclass(frozen=True)
+class MapRun:
+    """One run of a map's body: which map, and which of its runs."""
+
+    #: Stable identity of the map.
+    foreach_token_id: StepToken
+    #: Index of the run within the map (0-based, item order).
+    body_index: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.foreach_token_id, StepToken):
+            raise ValueError("a map run names its map by its token")
+        if type(self.body_index) is not int or self.body_index < 0:
+            raise ValueError("a map run's body_index must be a non-negative integer")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"foreach_token_id": str(self.foreach_token_id), "body_index": self.body_index}
+
+    @staticmethod
+    def from_dict(data: Any) -> "MapRun":
+        """Read a run. One that names no map is not a run."""
+        if not isinstance(data, dict):
+            raise ValueError(f"a map run is an object, not {data!r}")
+        for name in ("foreach_token_id", "body_index"):
+            if name not in data:
+                raise ValueError(f"a map run is missing field `{name}`")
+        token = data["foreach_token_id"]
+        if not isinstance(token, str):
+            raise ValueError("a map run names its map by its token")
+        return MapRun(foreach_token_id=StepToken.parse(token), body_index=data["body_index"])
+
+
 class BodyOutcome:
     """Outcome of a single ForEach body execution.
 
@@ -844,7 +1038,7 @@ class BodyOutcome:
     """
 
     __slots__ = (
-        "body_index", "foreach_token_id", "success", "cap_urns", "failed_token_id",
+        "body_index", "foreach_token_id", "enclosing", "success", "cap_urns", "failed_token_id",
         "error", "failed_arg_urn", "title", "saved_paths", "total_bytes",
         "duration_ms", "item_preview_text", "item_byte_count",
     )
@@ -864,11 +1058,14 @@ class BodyOutcome:
         duration_ms: int = 0,
         item_preview_text: Optional[str] = None,
         item_byte_count: int = 0,
+        enclosing: Optional[List[MapRun]] = None,
     ) -> None:
         if type(body_index) is not int or body_index < 0:
             raise ValueError("body_index must be a non-negative integer")
         if foreach_token_id is None and body_index != 0:
             raise ValueError("a linear BodyOutcome must use body_index 0")
+        if foreach_token_id is None and enclosing:
+            raise ValueError("a linear BodyOutcome is inside no map")
         if foreach_token_id is not None and (
             not isinstance(foreach_token_id, str) or not foreach_token_id
         ):
@@ -881,10 +1078,18 @@ class BodyOutcome:
             not isinstance(failed_arg_urn, str) or not failed_arg_urn
         ):
             raise ValueError("failed_arg_urn must be None or a non-empty string")
+        for run in enclosing or []:
+            if not isinstance(run, MapRun):
+                raise ValueError("the runs a body is inside are map runs")
         # body_index: index of this body within the ForEach (0-based)
         self.body_index = body_index
         # Stable ForEach StrandStep token; None only for a linear whole-run outcome.
         self.foreach_token_id = foreach_token_id
+        # enclosing: the runs this body is inside, when its map is opened inside
+        # another's body — outermost first. Empty for a map of the machine
+        # itself, and for a linear pipeline. A body index alone does not name a
+        # run of a nested map: it recurs under every run of the map around it.
+        self.enclosing: List[MapRun] = list(enclosing or [])
         self.success = success
         # cap_urns: cap URNs in the body's execution pathway (in execution order)
         self.cap_urns = cap_urns or []
@@ -904,6 +1109,7 @@ class BodyOutcome:
         d: Dict[str, Any] = {
             "body_index": self.body_index,
             "foreach_token_id": self.foreach_token_id,
+            "enclosing": [run.to_dict() for run in self.enclosing],
             "success": self.success,
             "cap_urns": self.cap_urns,
             "failed_token_id": self.failed_token_id,
@@ -917,6 +1123,40 @@ class BodyOutcome:
             "item_byte_count": self.item_byte_count,
         }
         return d
+
+    @staticmethod
+    def from_dict(data: Any) -> "BodyOutcome":
+        """Read an outcome. The coordinates of a failure are required and may
+        be null: a missing key is not an outcome. A null ``foreach_token_id``
+        is the one whole-run outcome of a linear machine; null failure fields
+        mean the source did not attribute the failure to a step or an arg."""
+        if not isinstance(data, dict):
+            raise ValueError(f"a body outcome is an object, not {data!r}")
+        for name in ("foreach_token_id", "failed_token_id", "failed_arg_urn"):
+            if name not in data:
+                raise ValueError(f"body outcome missing required nullable field `{name}`")
+        for name in ("body_index", "success", "cap_urns", "saved_paths", "total_bytes", "duration_ms"):
+            if name not in data:
+                raise ValueError(f"body outcome missing field `{name}`")
+        enclosing = data.get("enclosing", [])
+        if not isinstance(enclosing, list):
+            raise ValueError("the runs a body is inside are a list")
+        return BodyOutcome(
+            body_index=data["body_index"],
+            foreach_token_id=data["foreach_token_id"],
+            enclosing=[MapRun.from_dict(run) for run in enclosing],
+            success=data["success"],
+            cap_urns=list(data["cap_urns"]),
+            failed_token_id=data["failed_token_id"],
+            error=data.get("error"),
+            failed_arg_urn=data["failed_arg_urn"],
+            title=data.get("title"),
+            saved_paths=list(data["saved_paths"]),
+            total_bytes=data["total_bytes"],
+            duration_ms=data["duration_ms"],
+            item_preview_text=data.get("item_preview_text"),
+            item_byte_count=data.get("item_byte_count", 0),
+        )
 
     def __repr__(self) -> str:
         return (
