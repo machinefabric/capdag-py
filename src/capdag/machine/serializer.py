@@ -194,9 +194,10 @@ def to_render_payload_json(graph: Machine, registry) -> str:
 
         {"strands":[{"nodes":[{"id","urn","title"}],
                      "edges":[{"alias","cap_urn","title","is_loop","retry","on_error","included_as",
-                               "assignment":[{"cap_arg_media_urn","arg_name",
+                               "assignment":[{"cap_arg_media_urn","arg_name","is_main_input",
                                               "source_node"|"constant"}],
-                               "outputs":[{"output_media_urn","output_name","node"}]}],
+                               "outputs":[{"output_media_urn","output_name","is_main_output",
+                                           "node"}]}],
                      "input_anchor_nodes":[...],"output_anchor_nodes":[...]}]}
 
     Node names are those of the canonical notation, so a notation string and
@@ -204,7 +205,9 @@ def to_render_payload_json(graph: Machine, registry) -> str:
     ``edge_N``. Each node carries the title of its cached media definition and
     each step the title of its cached cap definition. One that is not cached
     is refused (``UncachedMediaDefError``, ``UncachedCapError``): a title is
-    never made up from a URN.
+    never made up from a URN. Each binding and output says whether it is the
+    step's main input or main output, by the step's definition, so a view
+    draws the main wires plain and names the others.
     """
     if graph.is_empty():
         return '{"strands":[]}'
@@ -216,11 +219,11 @@ def to_render_payload_json(graph: Machine, registry) -> str:
             raise UncachedMediaDefError(urn)
         return spec.title
 
-    def cap_title(urn: str) -> str:
+    def cap_definition(urn: str):
         cap = registry.get_cached_cap(urn)
         if cap is None:
             raise UncachedCapError(urn)
-        return cap.title
+        return cap
 
     def listed(items: List[str]) -> str:
         return "[" + ",".join(items) + "]"
@@ -239,6 +242,14 @@ def to_render_payload_json(graph: Machine, registry) -> str:
         ]
         edges: List[str] = []
         for index, edge in enumerate(strand.edges()):
+            definition = cap_definition(edge.cap_urn.to_string())
+            # A binding and an output carry the name the resolver read from
+            # this same definition, where a name is unique: the definition's
+            # main arg and main output are found by it.
+            main_arg = definition.main_input_arg()
+            main_output = definition.main_output()
+            main_input_name = main_arg.name if main_arg is not None else None
+            main_output_name = main_output.name if main_output is not None else None
             # Each binding says which arg (its URN and its name) and what
             # feeds it: a node of the strand, or a constant (a JSON value).
             assignment = []
@@ -252,6 +263,8 @@ def to_render_payload_json(graph: Machine, registry) -> str:
                     + _text(binding.cap_arg_media_urn.to_string())
                     + ',"arg_name":'
                     + _text(binding.arg_name)
+                    + ',"is_main_input":'
+                    + ("true" if binding.arg_name == main_input_name else "false")
                     + ","
                     + fed
                     + "}"
@@ -262,6 +275,8 @@ def to_render_payload_json(graph: Machine, registry) -> str:
                 + _text(output.output_media_urn.to_string())
                 + ',"output_name":'
                 + _text(output.output_name)
+                + ',"is_main_output":'
+                + ("true" if output.output_name == main_output_name else "false")
                 + ',"node":'
                 + _text(plan.node_names[output.node])
                 + "}"
@@ -273,7 +288,7 @@ def to_render_payload_json(graph: Machine, registry) -> str:
                 + ',"cap_urn":'
                 + _text(edge.cap_urn.to_string())
                 + ',"title":'
-                + _text(cap_title(edge.cap_urn.to_string()))
+                + _text(definition.title)
                 + ',"is_loop":'
                 + ("true" if edge.is_loop else "false")
                 + ',"retry":'

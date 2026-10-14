@@ -820,3 +820,13 @@ def test_12838_urns_are_ordered_by_their_parts_not_their_text():
     for wirings in ("[x -> first -> a][x -> second -> b]", "[x -> second -> b][x -> first -> a]"):
         steps = parse_machine(headers + wirings, registry).strands()[0].edges()
         assert ["zz-first" in step.cap_urn.to_string() for step in steps] == [True, False], wirings
+
+
+# TEST12867: the render payload says which binding feeds a step's main input
+# and which output is its main one, by the step's definition, so a view can
+# draw the main wires plain and name the others.
+def test_12867_render_payload_marks_the_main_input_and_output():
+    machine = machine_of("[(path, benchmark=bench) -> compare -> (result, residuals=res)]")
+    edge = json.loads(machine.to_render_payload_json(titled_registry()))["strands"][0]["edges"][0]
+    assert {b["arg_name"]: b["is_main_input"] for b in edge["assignment"]} == {"series": True, "benchmark": False}
+    assert {o["output_name"]: o["is_main_output"] for o in edge["outputs"]} == {"comparison": True, "residuals": False}
