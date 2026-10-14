@@ -13,9 +13,7 @@ from capdag.planner.plan import (
     MachineNode,
     MachinePlan,
     MachinePlanEdge,
-    MachineResult,
     MapRun,
-    NodeExecutionResult,
     BodyOutcome,
 )
 from capdag.planner.error import InternalError
@@ -183,20 +181,6 @@ def test_738_linear_chain_empty():
     plan = MachinePlan.linear_chain([], "media:document;ext=pdf", "media:ext=png;image", [])
     assert len(plan.nodes) == 0
     assert len(plan.edges) == 0
-
-
-# TEST739: Tests NodeExecutionResult structure for successful node execution Verifies that success status, outputs (binary and text), and error fields work correctly
-def test_739_node_execution_result_success():
-    result = NodeExecutionResult(
-        node_id="node_0",
-        success=True,
-        binary_output=b"\x01\x02\x03",
-        error=None,
-        duration_ms=50,
-    )
-    assert result.success
-    assert result.binary_output is not None
-    assert result.error is None
 
 
 # TEST742: Tests EdgeType enum serialization and deserialization to/from JSON Verifies that every edge type round-trips by its name, and that a kind this library does not carry is refused
@@ -500,17 +484,6 @@ def test_12754_a_plan_that_names_what_is_not_there_is_refused():
     plan.validate()
 
 
-# TEST927: Tests MachineResult structure for successful execution outcomes Verifies that success status, outputs, and primary_output() accessor work correctly
-def test_927_execution_result():
-    result = MachineResult(
-        success=True,
-        outputs={"output": {"result": "success"}},
-        total_duration_ms=100,
-    )
-    assert result.success
-    assert result.primary_output() is not None
-
-
 # TEST924: Tests plan validation detects edges pointing to non-existent nodes Verifies that validate() returns an error when an edge references a missing to_node
 def test_924_validate_invalid_edge():
     plan = MachinePlan("invalid")
@@ -581,29 +554,3 @@ def test_930_validate_invalid_output_node():
     with pytest.raises(InternalError, match="Output node 'nonexistent_output' not found"):
         plan.validate()
 
-
-# TEST931: Tests NodeExecutionResult structure for failed node execution Verifies that failure status, error message, and absence of outputs are correctly represented
-def test_931_node_execution_result_failure():
-    result = NodeExecutionResult(
-        node_id="node_0",
-        success=False,
-        binary_output=None,
-        error="Cap execution failed",
-        duration_ms=10,
-    )
-    assert not result.success
-    assert result.binary_output is None
-    assert result.error == "Cap execution failed"
-
-
-# TEST932: Tests MachineResult structure for failed chain execution Verifies that failure status, error message, and absence of outputs are correctly represented
-def test_932_execution_result_failure():
-    result = MachineResult(
-        success=False,
-        outputs={},
-        error="Chain failed",
-        total_duration_ms=100,
-    )
-    assert not result.success
-    assert result.error == "Chain failed"
-    assert result.primary_output() is None

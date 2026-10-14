@@ -75,10 +75,8 @@ from capdag.planner.plan import (
     EdgeType,
     MachinePlanEdge,
     MachinePlan,
-    NodeExecutionResult,
     MapRun,
     BodyOutcome,
-    MachineResult,
 )
 
 from capdag.planner.policy import (
@@ -92,7 +90,7 @@ from capdag.planner.plan_builder import (
     ArgumentResolution,
     ArgumentInfo,
     StepArgumentRequirements,
-    PathArgumentRequirements,
+    PlanArgumentRequirements,
     MachinePlanBuilder,
 )
 
@@ -151,10 +149,8 @@ __all__ = [
     "EdgeType",
     "MachinePlanEdge",
     "MachinePlan",
-    "NodeExecutionResult",
     "MapRun",
     "BodyOutcome",
-    "MachineResult",
     # Policy
     "StepPolicy",
     "ON_ERROR_FAIL",
@@ -164,6 +160,6 @@ __all__ = [
     "ArgumentResolution",
     "ArgumentInfo",
     "StepArgumentRequirements",
-    "PathArgumentRequirements",
+    "PlanArgumentRequirements",
     "MachinePlanBuilder",
 ]

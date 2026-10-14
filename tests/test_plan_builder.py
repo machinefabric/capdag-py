@@ -1,20 +1,15 @@
 """Tests for plan builder argument requirement models."""
 
-import asyncio
 import json
 
 import pytest
 
-from capdag import MEDIA_FILE_PATH
-from capdag.cap.definition import Cap, CapArg, CapOutput, CliFlagSource, StdinSource
+from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.fabric.registry import FabricRegistry
 from capdag.media.spec import MediaValidation
 from capdag.planner.live_cap_fab import (
-    ArgSourceRef,
-    CapInput,
     StepToken,
     StepTokenError,
-    Strand,
     StrandStep,
     StrandStepType,
 )
@@ -22,8 +17,6 @@ from capdag.planner.plan_builder import (
     ArgumentInfo,
     ArgumentResolution,
     MachinePlanBuilder,
-    PathArgumentRequirements,
-    StepArgumentRequirements,
 )
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
@@ -41,10 +34,6 @@ def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
     )
     cap.add_output(CapOutput(str(urn.out_spec()), "output", f"{title} output"))
     return cap
-
-
-def _test_builder() -> MachinePlanBuilder:
-    return MachinePlanBuilder.new_for_test(FabricRegistry.new_for_test())
 
 
 # TEST765: Tests validation_to_json() returns None for empty validation constraints Verifies that default MediaValidation with no constraints produces JSON None
@@ -79,84 +68,6 @@ def test_767_argument_info_serialization():
     assert '"name": "width"' in payload or '"name":"width"' in payload
     assert '"resolution": "has_default"' in payload or '"resolution":"has_default"' in payload
     assert '"default_value": 200' in payload or '"default_value":200' in payload
-
-
-# TEST768: Tests PathArgumentRequirements structure for single-step execution paths Verifies that argument requirements are correctly organized by step with resolution information
-def test_768_path_argument_requirements_structure():
-    requirements = PathArgumentRequirements(
-        source_media_urn="media:document;ext=pdf",
-        target_media_urn="media:ext=png;image",
-        steps=[
-            StepArgumentRequirements(
-                cap_urn="cap:generate-thumbnail;in=pdf;out=png",
-                token_id="tok-thumbnail",
-                title="Generate Thumbnail",
-                arguments=[
-                    ArgumentInfo(
-                        name="file_path",
-                        media_urn="media:string",
-                        description="Path to file",
-                        resolution=ArgumentResolution.FROM_INPUT_FILE,
-                        default_value=None,
-                        is_required=True,
-                        is_sequence=False,
-                        validation=None,
-                    )
-                ],
-                slots=[],
-            )
-        ],
-        can_execute_without_input=True,
-    )
-
-    assert requirements.can_execute_without_input
-    assert len(requirements.steps) == 1
-    assert len(requirements.steps[0].slots) == 0
-    assert requirements.steps[0].arguments[0].resolution == ArgumentResolution.FROM_INPUT_FILE
-
-
-# TEST769: Tests PathArgumentRequirements tracking of required user-input slots Verifies that arguments requiring user input are collected in slots and can_execute_without_input is false
-def test_769_path_with_required_slot():
-    slot_arg = ArgumentInfo(
-        name="target_language",
-        media_urn="media:string",
-        description="Target language code",
-        resolution=ArgumentResolution.REQUIRES_USER_INPUT,
-        default_value=None,
-        is_required=True,
-        is_sequence=False,
-        validation=None,
-    )
-    requirements = PathArgumentRequirements(
-        source_media_urn="media:text",
-        target_media_urn="media:translated",
-        steps=[
-            StepArgumentRequirements(
-                cap_urn="cap:translate;in=text;out=translated",
-                token_id="tok-translate",
-                title="Translate",
-                arguments=[
-                    ArgumentInfo(
-                        name="file_path",
-                        media_urn="media:string",
-                        description="Path to file",
-                        resolution=ArgumentResolution.FROM_INPUT_FILE,
-                        default_value=None,
-                        is_required=True,
-                        is_sequence=False,
-                        validation=None,
-                    ),
-                    slot_arg,
-                ],
-                slots=[slot_arg],
-            )
-        ],
-        can_execute_without_input=False,
-    )
-
-    assert not requirements.can_execute_without_input
-    assert len(requirements.steps[0].slots) == 1
-    assert requirements.steps[0].slots[0].name == "target_language"
 
 
 # TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
@@ -207,231 +118,9 @@ def test_993_same_op_different_input_types_not_duplicates():
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2
 
 
-# TEST994: Tests first cap's input argument is automatically resolved from input file Verifies that determine_resolution_with_io_check() returns FromInputFile for the first cap in a chain
-def test_994_input_arg_first_cap_auto_resolved_from_input():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:document;ext=pdf",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_INPUT_FILE
-
-
-# TEST995: Tests subsequent caps' input arguments are automatically resolved from previous output Verifies that determine_resolution_with_io_check() returns FromPreviousOutput for caps after the first
-def test_995_input_arg_subsequent_cap_auto_resolved_from_previous():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:document;ext=pdf",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        1,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
-
-    resolution = builder.determine_resolution_with_io_check(
-        "media:document;ext=pdf",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        2,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
-
-
-# TEST996: Tests output arguments are automatically resolved from previous cap's output Verifies that arguments matching the output spec are always resolved as FromPreviousOutput
-def test_996_output_arg_auto_resolved():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:ext=png;image",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
-
-
-# TEST997: Tests MEDIA_FILE_PATH argument type resolves to input file for first cap Verifies that generic file-path arguments are bound to input file in the first cap
-def test_997_file_path_type_fallback_first_cap():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        MEDIA_FILE_PATH,
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_INPUT_FILE
-
-
-# TEST998: Tests MEDIA_FILE_PATH argument type resolves to previous output for subsequent caps Verifies that generic file-path arguments are bound to previous cap's output after the first cap
-def test_998_file_path_type_fallback_subsequent_cap():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        MEDIA_FILE_PATH,
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        1,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.FROM_PREVIOUS_OUTPUT
-
-
-
-
-# TEST1009: Tests required non-IO arguments with default values are marked as HasDefault Verifies that arguments like integers with defaults don't require user input
-def test_1009_non_io_arg_with_default_has_default():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:integer",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        True,
-        200,
-    )
-    assert resolution == ArgumentResolution.HAS_DEFAULT
-
-
-# TEST886: Tests optional non-IO arguments with default values are marked as HasDefault Verifies that optional arguments with defaults behave the same as required ones with defaults
-def test_886_optional_non_io_arg_with_default_has_default():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:integer",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        False,
-        300,
-    )
-    assert resolution == ArgumentResolution.HAS_DEFAULT
-
-
-# TEST1012: Tests required non-IO arguments without defaults require user input Verifies that arguments like strings without defaults are marked as RequiresUserInput
-def test_1012_non_io_arg_without_default_requires_user_input():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:string",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        True,
-        None,
-    )
-    assert resolution == ArgumentResolution.REQUIRES_USER_INPUT
-
-
-# TEST1015: Tests optional non-IO arguments without defaults still require user input Verifies that optional arguments without defaults must be explicitly provided or skipped
-def test_1015_optional_non_io_arg_without_default_requires_user_input():
-    builder = _test_builder()
-    resolution = builder.determine_resolution_with_io_check(
-        "media:boolean",
-        "media:document;ext=pdf",
-        "media:ext=png;image",
-        0,
-        False,
-        None,
-    )
-    assert resolution == ArgumentResolution.REQUIRES_USER_INPUT
-
-
 # TEST1019: Tests validation_to_json() returns None for None input Verifies that missing validation metadata is converted to JSON None
 def test_1019_validation_to_json_none():
     assert MachinePlanBuilder.validation_to_json(None) is None
-
-
-def _rewrite_cap() -> Cap:
-    """A cap with one stdin main input and one defaulted option."""
-    urn = CapUrn.from_string('cap:rewrite;in="media:ext=txt;text";out="media:ext=txt;text"')
-    cap = Cap.with_description(urn, "Rewrite", ["rewrite"], "Rewrite text")
-    cap.add_arg(
-        CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
-            required=True,
-            sources=[StdinSource("media:ext=txt;text")],
-            arg_description="Text to rewrite",
-        )
-    )
-    cap.add_arg(
-        CapArg(
-            media_urn="media:numeric;temperature", name="arg1",
-            required=False,
-            sources=[CliFlagSource("--temperature")],
-            arg_description="Sampling temperature",
-            default_value=0.7,
-        )
-    )
-    cap.add_output(CapOutput("media:ext=txt;text", "output", "Rewritten text"))
-    return cap
-
-
-def _repeated_cap_strand(cap: Cap) -> Strand:
-    """Two steps running the SAME cap — the shape where positional identity is
-    indistinguishable from token identity unless the tokens are carried."""
-    media = MediaUrn.from_string("media:ext=txt;text")
-
-    def step() -> StrandStep:
-        return StrandStep(
-            step_type=StrandStepType.CAP,
-            from_spec=media,
-            to_spec=media,
-            cap_urn=cap.urn,
-            step_title="Rewrite",
-            specificity_val=1,
-            inputs=[
-                CapInput(
-                    arg_urn=MediaUrn.from_string("media:enc=utf-8;file-path"),
-                    source=ArgSourceRef.strand_input(),
-                )
-            ],
-        )
-
-    return Strand(
-        steps=[step(), step()],
-        source_media_urn=media,
-        target_media_urn=media,
-        total_steps=2,
-        cap_step_count=2,
-        description="Rewrite twice",
-    )
-
-
-def _builder_with(cap: Cap) -> MachinePlanBuilder:
-    registry = FabricRegistry.new_for_test()
-    registry.add_caps_to_cache([cap])
-    return MachinePlanBuilder.new_for_test(registry)
-
-
-# TEST1461: Step requirements are addressed by the plan's own token. Two steps of the SAME cap must yield the two DISTINCT StrandStep.token_id values the planner minted, in correspondence with the steps they describe
-def test_1461_step_requirements_carry_the_plans_own_tokens():
-    cap = _rewrite_cap()
-    strand = _repeated_cap_strand(cap)
-    strand_tokens = [s.token_id for s in strand.steps]
-    assert strand_tokens[0] != strand_tokens[1], (
-        "the planner mints a distinct token per step even for a repeated cap"
-    )
-
-    requirements = asyncio.run(_builder_with(cap).analyze_path_arguments(strand))
-
-    assert len(requirements.steps) == 2
-    assert [s.token_id for s in requirements.steps] == strand_tokens, (
-        "each requirement carries the token of the step it describes — the "
-        "address a value is bound to, not a position to be counted"
-    )
-    for step in requirements.steps:
-        assert step.token_id, (
-            "a requirement without a token cannot be bound to and must never be emitted"
-        )
 
 
 # TEST1462: An unidentified step is not a state the program can hold. StepToken is the type that makes it so - minting is the only way to create one and parse, the sole path back from text, refuses an empty id

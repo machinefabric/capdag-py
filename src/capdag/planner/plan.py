@@ -10,7 +10,7 @@ Key types:
 - EdgeType: how one node is wired into another
 - MachinePlanEdge: a directed edge in the plan
 - MachinePlan: the complete execution DAG
-- NodeExecutionResult / BodyOutcome / MachineResult: what a run reports
+- BodyOutcome: what a run reports of each run of a map's body
 """
 
 from __future__ import annotations
@@ -936,68 +936,6 @@ class MachinePlan:
         )
 
 
-class NodeExecutionResult:
-    """Result of executing a single node."""
-
-    __slots__ = (
-        "node_id", "success", "binary_output", "binary_items",
-        "saved_paths", "is_sequence_output", "total_bytes",
-        "media_urn_output", "error", "duration_ms",
-    )
-
-    def __init__(
-        self,
-        node_id: str,
-        success: bool,
-        binary_output: Optional[bytes] = None,
-        binary_items: Optional[List[bytes]] = None,
-        saved_paths: Optional[List[str]] = None,
-        is_sequence_output: bool = False,
-        total_bytes: int = 0,
-        media_urn_output: str = "",
-        error: Optional[str] = None,
-        duration_ms: int = 0,
-    ) -> None:
-        self.node_id = node_id
-        self.success = success
-        # binary_output: single raw output bytes (standalone executor)
-        self.binary_output = binary_output
-        # binary_items: individual output items for is_sequence=True outputs (standalone executor)
-        self.binary_items = binary_items
-        # saved_paths: file paths written by IncrementalWriter (pipeline executor)
-        self.saved_paths = saved_paths or []
-        # is_sequence_output: True if the cap emitted a sequence (from STREAM_START is_sequence)
-        self.is_sequence_output = is_sequence_output
-        # total_bytes: bytes written to disk; 0 when binary_output is used
-        self.total_bytes = total_bytes
-        # media_urn_output: output media URN from STREAM_START or plan derivation
-        self.media_urn_output = media_urn_output
-        self.error = error
-        self.duration_ms = duration_ms
-
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
-            "node_id": self.node_id,
-            "success": self.success,
-            "duration_ms": self.duration_ms,
-        }
-        if self.saved_paths:
-            d["saved_paths"] = self.saved_paths
-        if self.is_sequence_output:
-            d["is_sequence_output"] = self.is_sequence_output
-        if self.total_bytes:
-            d["total_bytes"] = self.total_bytes
-        if self.media_urn_output:
-            d["media_urn_output"] = self.media_urn_output
-        if self.error is not None:
-            d["error"] = self.error
-        # binary_output and binary_items are not included in dict (too large / not JSON-safe)
-        return d
-
-    def __repr__(self) -> str:
-        return f"NodeExecutionResult(node_id={self.node_id!r}, success={self.success})"
-
-
 @dataclass(frozen=True)
 class MapRun:
     """One run of a map's body: which map, and which of its runs."""
@@ -1165,49 +1103,3 @@ class BodyOutcome:
         )
 
 
-class MachineResult:
-    """Result of executing a complete machine."""
-
-    __slots__ = ("success", "node_results", "outputs", "error", "total_duration_ms", "body_outcomes")
-
-    def __init__(
-        self,
-        success: bool,
-        node_results: Optional[Dict[str, NodeExecutionResult]] = None,
-        outputs: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-        total_duration_ms: int = 0,
-        body_outcomes: Optional[List[BodyOutcome]] = None,
-    ) -> None:
-        self.success = success
-        self.node_results = node_results or {}
-        self.outputs = outputs or {}
-        self.error = error
-        self.total_duration_ms = total_duration_ms
-        # body_outcomes: per-body outcomes for ForEach pipelines, or single entry for linear plans
-        # Populated by the pipeline executor; empty for the standalone executor.
-        self.body_outcomes = body_outcomes or []
-
-    def primary_output(self) -> Optional[Any]:
-        """Get the first output value (non-deterministic ordering)."""
-        for v in self.outputs.values():
-            return v
-        return None
-
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
-            "success": self.success,
-            "node_results": {nid: r.to_dict() for nid, r in self.node_results.items()},
-            "outputs": self.outputs,
-            "total_duration_ms": self.total_duration_ms,
-            "body_outcomes": [b.to_dict() for b in self.body_outcomes],
-        }
-        if self.error is not None:
-            d["error"] = self.error
-        return d
-
-    def __repr__(self) -> str:
-        return (
-            f"MachineResult(success={self.success}, "
-            f"outputs={len(self.outputs)})"
-        )
