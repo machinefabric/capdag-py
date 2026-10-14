@@ -324,6 +324,21 @@ class UnknownOutputNameError(_InStrand):
         self.declared = list(declared)
 
 
+class UnknownStrandOutputError(_InStrand):
+    """A strand step takes, by media URN, an output its cap does not declare
+    as another output."""
+
+    def __init__(self, strand_index: int, cap_urn: str, output_urn: str, declared: List[str]):
+        super().__init__(
+            strand_index,
+            f"cap '{cap_urn}' declares no other output '{output_urn}' "
+            f"(it declares: {', '.join(declared)})",
+        )
+        self.cap_urn = cap_urn
+        self.output_urn = output_urn
+        self.declared = list(declared)
+
+
 class SourceDoesNotConformToArgError(_InStrand):
     """A named member's URN does not conform to the type that arg accepts."""
 

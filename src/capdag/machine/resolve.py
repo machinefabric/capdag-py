@@ -51,6 +51,7 @@ from capdag.machine.error import (
     UnknownArgNameError,
     UnknownCapError,
     UnknownOutputNameError,
+    UnknownStrandOutputError,
     UnmatchedSourceInCapArgsError,
 )
 from capdag.machine.graph import (
@@ -170,13 +171,17 @@ def resolve_strand(
         target_id = len(nodes)
         nodes.append(step.to_spec)
 
+        # A strand step produces the output it takes: its cap's main output,
+        # or the other output its URN identifies.
+        target = WiringTarget(node=target_id)
+        if step.output_urn is not None:
+            target.name = _strand_output_name(registry, step.cap_urn, step.output_urn, strand_index)
         pre_interned.append(
             PreInternedWiring(
                 token_id=step.token_id,
                 cap_urn=step.cap_urn,
                 source_node_ids=source_node_ids,
-                # A strand step produces its cap's main output.
-                targets=[WiringTarget(node=target_id)],
+                targets=[target],
             )
         )
         producer_node[step.token_id] = target_id
@@ -185,6 +190,30 @@ def resolve_strand(
         raise NoCapabilityStepsError()
 
     return resolve_pre_interned(nodes, pre_interned, registry, strand_index)
+
+
+def _strand_output_name(registry, cap_urn: CapUrn, output_urn: MediaUrn, strand_index: int) -> str:
+    """The name a strand step's taken output has in its cap's definition. A
+    strand records an output by its media URN, its identity; a wiring takes it
+    by its name, a label that is unique per cap. The main output is not another
+    output."""
+    definition = registry.get_cached_cap(cap_urn.to_string())
+    if definition is None:
+        raise UnknownCapError(cap_urn.to_string())
+    main = definition.main_output()
+
+    def is_main(output) -> bool:
+        return main is not None and main.media_urn == output.media_urn
+
+    output = definition.output_by_urn(output_urn.to_string())
+    if output is not None and not is_main(output):
+        return output.name
+    raise UnknownStrandOutputError(
+        strand_index,
+        cap_urn.to_string(),
+        output_urn.to_string(),
+        [o.media_urn for o in definition.get_outputs() if not is_main(o)],
+    )
 
 
 def _must_media(text: str, what: str) -> MediaUrn:

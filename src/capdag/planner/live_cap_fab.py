@@ -90,7 +90,7 @@ class LiveMachinePlanEdge:
     __slots__ = (
         "from_spec", "to_spec", "edge_type",
         "cap_urn", "cap_title", "specificity_val",
-        "input_is_sequence", "output_is_sequence",
+        "input_is_sequence", "output_is_sequence", "output_urn",
     )
 
     def __init__(
@@ -103,6 +103,7 @@ class LiveMachinePlanEdge:
         specificity_val: int = 0,
         input_is_sequence: bool = False,
         output_is_sequence: bool = False,
+        output_urn: Optional[MediaUrn] = None,
     ):
         self.from_spec = from_spec
         self.to_spec = to_spec
@@ -111,7 +112,12 @@ class LiveMachinePlanEdge:
         self.cap_title = cap_title
         self.specificity_val = specificity_val
         self.input_is_sequence = input_is_sequence
+        # Whether the output this edge reaches produces a sequence.
         self.output_is_sequence = output_is_sequence
+        # The output this edge reaches, when it is not the cap's main one: that
+        # output's media URN, its identity in the definition. None: the main
+        # output.
+        self.output_urn = output_urn
 
     def title(self) -> str:
         if self.edge_type == LiveMachinePlanEdgeType.CAP:
@@ -214,7 +220,7 @@ class StrandStep:
         "token_id", "step_type", "from_spec", "to_spec",
         "cap_urn", "step_title", "specificity_val",
         "media_def",
-        "input_is_sequence", "output_is_sequence",
+        "input_is_sequence", "output_is_sequence", "output_urn",
         "inputs",
     )
 
@@ -231,6 +237,7 @@ class StrandStep:
         output_is_sequence: bool = False,
         inputs: Optional[List["CapInput"]] = None,
         token_id: Optional[str] = None,
+        output_urn: Optional[MediaUrn] = None,
     ):
         # Stable per-step identity, minted once when the step is created (the
         # very source of a resolved strand) unless the caller preserves an
@@ -249,7 +256,13 @@ class StrandStep:
         self.specificity_val = specificity_val
         self.media_def = media_def
         self.input_is_sequence = input_is_sequence
+        # Whether the output this step takes produces a sequence.
         self.output_is_sequence = output_is_sequence
+        # The output this step takes, when it is not the cap's main one: that
+        # output's media URN, its identity in the definition (never its name,
+        # which is a label). None: the main output. Only meaningful for CAP
+        # steps.
+        self.output_urn = output_urn
         # ALL of this cap step's data-flow inputs — the primary (stdin) input
         # plus any convergence inputs — each naming its producer explicitly.
         # Only meaningful for CAP steps; None for ForEach/Collect.
@@ -452,24 +465,51 @@ class LiveCapFab:
         except Exception:
             return
 
+        input_is_sequence, output_is_sequence = cap.sequence_shape()
+        self._push_cap_edge(cap, from_spec, to_spec, input_is_sequence, output_is_sequence, None)
+
+        # Every other output the cap declares is reachable too: an edge from
+        # the cap's input to that output's own type. An output that carries the
+        # input unchanged (a router's) has no type of its own to reach.
+        main = cap.main_output()
+        for output in cap.get_outputs():
+            if output.carries is not None:
+                continue
+            if main is not None and main.media_urn == output.media_urn:
+                continue
+            output_urn = MediaUrn.from_string(output.media_urn)
+            self._push_cap_edge(
+                cap, from_spec, output_urn, input_is_sequence, output.is_sequence, output_urn
+            )
+
+    def _push_cap_edge(
+        self,
+        cap,
+        from_spec: MediaUrn,
+        to_spec: MediaUrn,
+        input_is_sequence: bool,
+        output_is_sequence: bool,
+        output_urn: Optional[MediaUrn],
+    ) -> None:
+        """Store one edge of `cap`, from its input to one of its outputs."""
         from_canonical = str(from_spec)
         to_canonical = str(to_spec)
         cap_canonical = str(cap.urn)
 
-        input_is_sequence, output_is_sequence = cap.sequence_shape()
-
         edge_idx = len(self._edges)
-        edge = LiveMachinePlanEdge(
-            from_spec=from_spec,
-            to_spec=to_spec,
-            edge_type=LiveMachinePlanEdgeType.CAP,
-            cap_urn=cap.urn,
-            cap_title=cap.title,
-            specificity_val=cap.urn.specificity(),
-            input_is_sequence=input_is_sequence,
-            output_is_sequence=output_is_sequence,
+        self._edges.append(
+            LiveMachinePlanEdge(
+                from_spec=from_spec,
+                to_spec=to_spec,
+                edge_type=LiveMachinePlanEdgeType.CAP,
+                cap_urn=cap.urn,
+                cap_title=cap.title,
+                specificity_val=cap.urn.specificity(),
+                input_is_sequence=input_is_sequence,
+                output_is_sequence=output_is_sequence,
+                output_urn=output_urn,
+            )
         )
-        self._edges.append(edge)
 
         self._outgoing[from_canonical].append(edge_idx)
         self._incoming[to_canonical].append(edge_idx)
@@ -819,6 +859,7 @@ class LiveCapFab:
                 specificity_val=edge.specificity_val,
                 input_is_sequence=edge.input_is_sequence,
                 output_is_sequence=edge.output_is_sequence,
+                output_urn=edge.output_urn,
                 inputs=[CapInput(arg_urn=in_spec_urn, source=source)],
             )
         elif edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH:

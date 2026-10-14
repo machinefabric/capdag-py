@@ -813,3 +813,107 @@ def test_1120_strand_knit_unknown_cap_fails_hard():
     with pytest.raises(MachineAbstractionError) as exc_info:
         strand.knit(registry)
     assert isinstance(exc_info.value, UnknownCapError)
+
+
+def _split_caps():
+    """`split` takes text; its main output `head`, another output `rest`, a
+    sequence output `parts`, and an output `same` that carries the input
+    unchanged. And `count`, which takes `rest`."""
+    split = _make_test_cap("media:enc=utf-8;ext=txt", "media:enc=utf-8;head", "split", "Split")
+    split.set_outputs([
+        CapOutput("media:enc=utf-8;head", "head", "the head"),
+        CapOutput("media:enc=utf-8;rest", "rest", "the rest"),
+        CapOutput("media:enc=utf-8;part", "parts", "the parts", is_sequence=True),
+        CapOutput("media:enc=utf-8;same", "same", "the input").carrying_input(),
+    ])
+    count = _make_test_cap("media:enc=utf-8;rest", "media:integer;numeric", "count", "Count")
+    return split, count
+
+
+def _text_step(cap: Cap, output_urn, to: str) -> StrandStep:
+    return StrandStep(
+        step_type=StrandStepType.CAP,
+        from_spec=_media(cap.urn.in_spec()),
+        to_spec=_media(to),
+        cap_urn=cap.urn,
+        step_title=cap.title,
+        output_urn=None if output_urn is None else _media(output_urn),
+        inputs=[CapInput(arg_urn=_media(cap.urn.in_spec()), source=ArgSourceRef.strand_input())],
+    )
+
+
+def _strand(steps):
+    return Strand(
+        steps=steps,
+        source_media_urn=_media("media:enc=utf-8;ext=txt"),
+        target_media_urn=steps[-1].to_spec,
+        total_steps=len(steps),
+        cap_step_count=len(steps),
+        description="split then count",
+    )
+
+
+# TEST12847: every output of a cap other than its main one is reachable by planning: the search has an edge from the cap's input to that output's own type, and a strand that reaches it records which output it took (by URN), with that output's cardinality. An output that carries the input has no type of its own and no edge; the main output's edge is the cap's.
+def test_12847_a_caps_other_outputs_are_reachable_by_planning():
+    split, count = _split_caps()
+    graph = LiveCapFab()
+    graph.add_cap(split)
+    graph.add_cap(count)
+    assert graph.stats()[1] == 4, "split: head, rest, parts; count: one"
+
+    text = _media("media:enc=utf-8;ext=txt")
+
+    def only_step(target: str) -> StrandStep:
+        paths = graph.find_paths_to_exact_target(text, _media(target), False, 3, 10)
+        assert len(paths) == 1, f"one path to {target}"
+        assert len(paths[0].steps) == 1
+        return paths[0].steps[0]
+
+    assert only_step("media:enc=utf-8;head").output_urn is None
+
+    rest = only_step("media:enc=utf-8;rest")
+    assert rest.cap_urn.is_equivalent(split.urn)
+    assert str(rest.output_urn) == "media:enc=utf-8;rest"
+    assert rest.output_is_sequence is False
+    assert str(rest.to_spec) == "media:enc=utf-8;rest", "the output's own type, not the effect's"
+
+    assert only_step("media:enc=utf-8;part").output_is_sequence is True, "the output's own cardinality"
+
+    assert graph.find_paths_to_exact_target(text, _media("media:enc=utf-8;same"), False, 3, 10) == [], \
+        "a carried output is reached by no edge"
+
+    # Through another output and on: count is fed by split, by token.
+    paths = graph.find_paths_to_exact_target(text, _media("media:integer;numeric"), False, 3, 10)
+    assert len(paths) == 1
+    steps = paths[0].steps
+    assert len(steps) == 2
+    assert steps[0].output_urn is not None
+    assert steps[1].output_urn is None
+    assert steps[1].inputs[0].source == ArgSourceRef.step(steps[0].token_id)
+
+
+# TEST12848: a strand that takes another output of a cap knits into a machine whose step takes that output by its name; the notation says so and reads back as the same machine. A strand that takes an output its cap does not declare as another output — an unknown URN, or the main one — is refused, naming the outputs it could take.
+def test_12848_a_strand_through_another_output_knits_into_a_machine():
+    from capdag.machine import UnknownStrandOutputError, parse_machine
+
+    split, count = _split_caps()
+    registry = FabricRegistry.new_for_test()
+    registry.add_caps_to_cache([split, count])
+
+    first = _text_step(split, "media:enc=utf-8;rest", "media:enc=utf-8;rest")
+    second = _text_step(count, None, "media:integer;numeric")
+    second.inputs[0] = CapInput(arg_urn=second.inputs[0].arg_urn, source=ArgSourceRef.step(first.token_id))
+
+    machine = _strand([first, second]).knit(registry)
+    split_edge = next(edge for edge in machine.strands()[0].edges() if edge.cap_urn.is_equivalent(split.urn))
+    assert len(split_edge.outputs) == 1
+    assert split_edge.outputs[0].output_name == "rest"
+    notation = machine.to_machine_notation()
+    assert "rest=" in notation
+    assert parse_machine(notation, registry).is_equivalent(machine), notation
+
+    for wrong in ["media:enc=utf-8;nowhere", "media:enc=utf-8;head"]:
+        with pytest.raises(UnknownStrandOutputError) as refused:
+            _strand([_text_step(split, wrong, wrong)]).knit(registry)
+        assert refused.value.output_urn == wrong
+        assert refused.value.declared == ["media:enc=utf-8;rest", "media:enc=utf-8;part", "media:enc=utf-8;same"]
