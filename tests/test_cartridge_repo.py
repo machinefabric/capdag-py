@@ -1,4 +1,4 @@
-"""Tests for bifaci cartridge repository models (v5.0 channel-partitioned)."""
+"""Tests for bifaci cartridge repository models (v6.0 channel-partitioned)."""
 
 import pytest
 
@@ -20,13 +20,14 @@ from capdag.bifaci.cartridge_repo import (
     CartridgeRepoError,
     CartridgeRepoServer,
     CartridgeVersionData,
-    RegistryArgSource,
-    RegistryCap,
-    RegistryCapArg,
-    RegistryCapGroup,
-    RegistryCapOutput,
+    CARTRIDGE_REGISTRY_SCHEMA_VERSION,
 )
+from capdag.bifaci.manifest import CapGroup
+from capdag.cap.definition import ArgSource, Cap, CapArg, CapOutput, PositionSource, StdinSource
+from capdag.cap.validation import validate_cap_definition
+from capdag.standard.caps import identity_cap, identity_urn
 from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MEDIA_VOID
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +54,20 @@ def _make_version_data(pkg_name: str = "test-1.0.0.pkg") -> CartridgeVersionData
     )
 
 
-def _make_cap(urn: str, title: str = "Test Cap", aliases: list = None) -> RegistryCap:
-    return RegistryCap(urn=urn, title=title, aliases=aliases or ["test"])
+def _make_cap(urn: str, title: str = "Test Cap", aliases: list = None) -> Cap:
+    """A whole definition of `urn`: its input on stdin unless it is void, and
+    the output its URN states unless that is void."""
+    parsed = CapUrn.from_string(urn)
+    cap = Cap(parsed, title, aliases or ["test"])
+    if parsed.in_spec() != MEDIA_VOID:
+        cap.add_arg(CapArg(media_urn=parsed.in_spec(), name="input", required=True, sources=[StdinSource(parsed.in_spec())]))
+    if parsed.out_spec() != MEDIA_VOID:
+        cap.add_output(CapOutput(parsed.out_spec(), "output", "What it gives"))
+    return cap
 
 
-def _make_cap_group(name: str, caps=None, adapter_urns=None) -> RegistryCapGroup:
-    return RegistryCapGroup(
+def _make_cap_group(name: str, caps=None, adapter_urns=None) -> CapGroup:
+    return CapGroup(
         name=name,
         caps=list(caps or []),
         adapter_urns=list(adapter_urns or []),
@@ -131,10 +140,10 @@ def _make_registry(
     release_entries=None,
     nightly_entries=None,
 ) -> CartridgeRegistry:
-    """Build a v5.0 channel-partitioned registry. Either map can be
+    """Build a channel-partitioned registry of this build's schema. Either map can be
     omitted to leave that channel empty."""
     return CartridgeRegistry(
-        schema_version="5.0",
+        schema_version=CARTRIDGE_REGISTRY_SCHEMA_VERSION,
         registry_version=CARTRIDGE_REGISTRY_VERSION,
         last_updated="2026-02-07",
         fabric_registry_url="https://fabric.test",
@@ -190,14 +199,36 @@ def test_322_cartridge_info_build_for_platform():
 # ---------------------------------------------------------------------------
 
 
-# TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
+# TEST12849: a registry is bytes another program wrote, so reading one holds every cap definition in it to the definition rules: a cartridge whose definition breaks one is refused, naming the cartridge, its channel, the cap and the rule; whole definitions are read.
+def test_12849_reading_a_registry_holds_its_definitions_to_the_rules():
+    compare = 'cap:in="media:enc=utf-8";compare;out="media:record"'
+
+    def registry_of(cap):
+        return _make_registry(release_entries={"comparer": _make_registry_entry(cap_groups=[_make_cap_group("default", caps=[cap])])})
+
+    whole = _make_cap(compare, "Compare", ["compare"])
+    CartridgeRepoServer(registry_of(whole))
+    broken = _make_cap(compare, "Compare", ["compare"])
+    broken.set_outputs([])
+    with pytest.raises(CartridgeRepoError) as refused:
+        CartridgeRepoServer(registry_of(broken))
+    message = str(refused.value)
+    for part in ("comparer", "release", "compare", "RULE21"):
+        assert part in message, message
+    # A nightly entry is held to the same rules, and named in its channel.
+    with pytest.raises(CartridgeRepoError) as refused:
+        CartridgeRepoServer(_make_registry(nightly_entries={"comparer": _make_registry_entry(cap_groups=[_make_cap_group("default", caps=[broken])])}))
+    assert "nightly" in str(refused.value) and "RULE21" in str(refused.value)
+
+
+# TEST323: CartridgeRepoServer requires the schema this build reads (6.0) and rejects older.
 def test_323_cartridge_repo_server_validate_registry():
     CartridgeRepoServer(_make_registry())
 
     with pytest.raises(CartridgeRepoError) as exc_info:
         CartridgeRepoServer(
             CartridgeRegistry(
-                schema_version="4.0",
+                schema_version="5.0",
                 registry_version=CARTRIDGE_REGISTRY_VERSION,
                 last_updated="x",
                 fabric_registry_url="https://fabric.test",
@@ -207,13 +238,13 @@ def test_323_cartridge_repo_server_validate_registry():
                 ),
             )
         )
-    assert "5.0" in str(exc_info.value)
+    assert "6.0" in str(exc_info.value)
 
     # A manifest from a different regime version is rejected too.
     with pytest.raises(CartridgeRepoError) as exc_info:
         CartridgeRepoServer(
             CartridgeRegistry(
-                schema_version="5.0",
+                schema_version=CARTRIDGE_REGISTRY_SCHEMA_VERSION,
                 registry_version=CARTRIDGE_REGISTRY_VERSION + 1,
                 last_updated="x",
                 fabric_registry_url="https://fabric.test",
@@ -511,21 +542,18 @@ def test_335_cartridge_repo_server_client_integration():
     assert sum(1 for _ in cartridge.iter_caps()) == 1
 
 
-# TEST319: A registry response with a malformed cap URN inside cap_groups must propagate as ParseError when indexed into the cache, not silently disappear.
+# TEST319: A registry response with a malformed cap URN inside cap_groups is refused where it is read, not silently dropped: a cap definition holds a parsed cap URN, so a cartridge entry carrying one that does not parse is not a cartridge entry.
 def test_319_update_cache_rejects_malformed_cap_urn():
-    repo = CartridgeRepo(3600)
-    registry = CartridgeRegistryResponse(
-        cartridges=[
-            _make_cartridge_info(
-                id="broken",
-                name="Broken",
-                channel=CartridgeChannel.RELEASE,
-                cap_groups=[_make_cap_group("g", caps=[_make_cap("not a valid urn at all", "Bad", ["x"])])],
-            )
-        ]
-    )
-    with pytest.raises(CartridgeRepoError):
-        repo.update_cache("https://x", registry)
+    good = {
+        "id": "broken", "name": "Broken", "version": "1.0.0", "channel": "release",
+        "registryUrl": "https://x", "versions": {}, "availableVersions": [],
+        "cap_groups": [{"name": "g", "caps": [_make_cap("cap:in=media:;x;out=media:", "Bad", ["x"]).to_dict()]}],
+    }
+    read = CartridgeInfo.from_dict(good)
+    assert sum(1 for _ in read.iter_caps()) == 1
+    good["cap_groups"][0]["caps"][0]["urn"] = "not a valid urn at all"
+    with pytest.raises(Exception):
+        CartridgeInfo.from_dict(good)
 
 
 # ---------------------------------------------------------------------------
@@ -545,26 +573,24 @@ def test_631_needs_sync_empty_cache():
     assert repo.needs_sync(["https://example.com/cartridges"])
 
 
-# TEST632: A registry cap with only the three required fields parses.
+# TEST632: A registry cap is the cartridge's cap definition as its manifest declares it: the identity cap reads with its argument and its output, and a cap whose argument or output has no name is not one.
 def test_632_deserialize_minimal_registry_cap():
-    cap = RegistryCap.from_dict(
-        {
-            "urn": "cap:effect=none",
-            "title": "Identity",
-            "aliases": ["identity"],
-        }
-    )
-    assert cap.urn == "cap:effect=none"
+    cap = Cap.from_dict(identity_cap().to_dict())
+    assert cap.urn.is_equivalent(identity_urn())
     assert cap.title == "Identity"
-    assert cap.primary_alias() == "identity"
-    assert cap.cap_description is None
-    assert cap.args is None
-    assert cap.output is None
+    assert cap.aliases == ["identity"]
+    assert cap.args[0].name == "input"
+    assert cap.main_output().name == "output"
+    with pytest.raises(Exception):
+        Cap.from_dict({
+            "urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"],
+            "args": [{"media_urn": "media:", "required": True, "sources": [{"stdin": "media:"}]}],
+        })
 
 
-# TEST633: A registry cap with cap_description, args, output all parses.
+# TEST633: A registry cap with a description, named arguments and several outputs parses, each part where the definition holds it.
 def test_633_deserialize_rich_registry_cap():
-    cap = RegistryCap.from_dict(
+    cap = Cap.from_dict(
         {
             "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
             "title": "Disbind PDF",
@@ -573,6 +599,7 @@ def test_633_deserialize_rich_registry_cap():
             "args": [
                 {
                     "media_urn": "media:enc=utf-8;file-path",
+                    "name": "document",
                     "required": True,
                     "is_sequence": False,
                     "sources": [
@@ -582,33 +609,40 @@ def test_633_deserialize_rich_registry_cap():
                     "arg_description": "Path to the PDF file to process",
                 }
             ],
-            "output": {
-                "media_urn": "media:enc=utf-8;page",
-                "is_sequence": True,
-                "output_description": "One page text per PDF page",
-            },
+            "outputs": [
+                {
+                    "media_urn": "media:enc=utf-8;page",
+                    "name": "pages",
+                    "is_sequence": True,
+                    "output_description": "One page text per PDF page",
+                },
+                {
+                    "media_urn": "media:enc=utf-8;outline",
+                    "name": "outline",
+                    "optional": True,
+                    "output_description": "The document's outline, when it has one",
+                },
+            ],
         }
     )
-    assert cap.primary_alias() == "disbind"
+    assert cap.aliases == ["disbind"]
     assert cap.cap_description == "Extract each PDF page as plain page text."
-    assert cap.args is not None
     assert len(cap.args) == 1
     assert cap.args[0].media_urn == "media:enc=utf-8;file-path"
-    assert cap.args[0].sources[0].stdin == "media:document;ext=pdf"
-    assert cap.args[0].sources[1].position == 0
-    assert cap.output is not None
-    assert cap.output.media_urn == "media:enc=utf-8;page"
-    assert cap.output.is_sequence is True
+    assert cap.args[0].name == "document"
+    assert isinstance(cap.args[0].sources[1], PositionSource) and cap.args[0].sources[1].position == 0
+    main = cap.main_output()
+    assert main.name == "pages" and main.is_sequence is True
+    assert cap.output_named("outline").optional is True
+    validate_cap_definition(cap)
 
 
 # TEST634: A registry cap_group parses with caps + adapter_urns.
 def test_634_deserialize_cap_group():
-    group = RegistryCapGroup.from_dict(
+    group = CapGroup.from_dict(
         {
             "name": "pdf-formats",
-            "caps": [
-                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
-            ],
+            "caps": [identity_cap().to_dict()],
             "adapter_urns": ["media:document;ext=pdf"],
         }
     )
@@ -635,12 +669,12 @@ def test_635_deserialize_cartridge_info_wire_shape():
                 {
                     "name": "pdf-formats",
                     "caps": [
-                        {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]},
-                        {
-                            "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
-                            "title": "Disbind PDF Into Page Text",
-                            "aliases": ["disbind"],
-                        },
+                        identity_cap().to_dict(),
+                        _make_cap(
+                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
+                            "Disbind PDF Into Page Text",
+                            ["disbind"],
+                        ).to_dict(),
                     ],
                     "adapter_urns": ["media:document;ext=pdf"],
                 }
@@ -697,7 +731,7 @@ def test_637_deserialize_full_registry_response():
                         {
                             "name": "pdf-formats",
                             "caps": [
-                                {"urn": "cap:effect=none", "title": "Identity", "aliases": ["identity"]}
+                                identity_cap().to_dict()
                             ],
                             "adapter_urns": ["media:document;ext=pdf"],
                         }

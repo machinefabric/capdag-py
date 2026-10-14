@@ -4,10 +4,11 @@ Fetches and caches cartridge registry data from configured cartridge repositorie
 Provides cartridge suggestions when a cap is unavailable but a cartridge exists
 that could provide it.
 
-Wire schema is v5.0: cartridges are partitioned by channel under
+Wire schema is v6.0: cartridges are partitioned by channel under
 `channels.<channel>.cartridges.<id>`. Each cartridge advertises its caps
-in `cap_groups` (snake_case key on the wire). There is no flat `caps`
-field. URN matching goes through `CapUrn.from_string` and the predicate
+in `cap_groups` (snake_case key on the wire): its cap definitions exactly
+as its manifest declares them, held to the definition rules when the
+registry is read. There is no flat `caps` field. URN matching goes through `CapUrn.from_string` and the predicate
 methods (`is_equivalent`, `conforms_to`); raw string equality on URNs is
 forbidden.
 """
@@ -22,6 +23,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from capdag.bifaci.manifest import CapGroup
+from capdag.cap.definition import Cap
+from capdag.cap.validation import validate_cap_definition
 from capdag.urn.cap_urn import CapUrn
 
 
@@ -44,110 +48,10 @@ def _null_as_empty_string(value) -> str:
     raise ValueError(f"expected string or null, got {type(value).__name__}")
 
 
-@dataclass
-class RegistryArgSource:
-    """One source for a registry cap argument. Exactly one of stdin /
-    position / cli_flag is populated by the producer."""
-    stdin: Optional[str] = None
-    position: Optional[int] = None
-    cli_flag: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, raw: dict) -> "RegistryArgSource":
-        return cls(
-            stdin=raw.get("stdin"),
-            position=raw.get("position"),
-            cli_flag=raw.get("cli_flag"),
-        )
-
-
-@dataclass
-class RegistryCapArg:
-    """One argument descriptor on a registry cap."""
-    media_urn: str
-    required: bool
-    is_sequence: bool = False
-    sources: List[RegistryArgSource] = field(default_factory=list)
-    arg_description: Optional[str] = None
-    default_value: Any = None
-
-    @classmethod
-    def from_dict(cls, raw: dict) -> "RegistryCapArg":
-        return cls(
-            media_urn=raw["media_urn"],
-            required=bool(raw.get("required", False)),
-            is_sequence=bool(raw.get("is_sequence", False)),
-            sources=[RegistryArgSource.from_dict(s) for s in raw.get("sources", [])],
-            arg_description=raw.get("arg_description"),
-            default_value=raw.get("default_value"),
-        )
-
-
-@dataclass
-class RegistryCapOutput:
-    """Output descriptor on a registry cap."""
-    media_urn: str
-    is_sequence: bool = False
-    output_description: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, raw: dict) -> "RegistryCapOutput":
-        return cls(
-            media_urn=raw["media_urn"],
-            is_sequence=bool(raw.get("is_sequence", False)),
-            output_description=raw.get("output_description"),
-        )
-
-
-@dataclass
-class RegistryCap:
-    """A single capability advertised by a cartridge in the registry."""
-    urn: str
-    title: str
-    aliases: List[str]
-    is_abstract: bool = False
-    cap_description: Optional[str] = None
-    args: Optional[List[RegistryCapArg]] = None
-    output: Optional[RegistryCapOutput] = None
-
-    def primary_alias(self) -> str:
-        """The cap's first alias — the canonical CLI selection name — or the
-        empty string if it declares none."""
-        return self.aliases[0] if self.aliases else ""
-
-    @classmethod
-    def from_dict(cls, raw: dict) -> "RegistryCap":
-        aliases = raw.get("aliases") or []
-        if not aliases:
-            raise ValueError(
-                f"registry cap {raw.get('urn')!r} must declare at least one alias"
-            )
-        return cls(
-            urn=raw["urn"],
-            title=raw["title"],
-            aliases=aliases,
-            is_abstract=bool(raw.get("abstract", False)),
-            cap_description=raw.get("cap_description"),
-            args=[RegistryCapArg.from_dict(a) for a in raw["args"]] if "args" in raw else None,
-            output=RegistryCapOutput.from_dict(raw["output"]) if "output" in raw else None,
-        )
-
-
-@dataclass
-class RegistryCapGroup:
-    """A bundle of caps + adapter URNs registered atomically by a
-    cartridge."""
-    name: str
-    caps: List[RegistryCap] = field(default_factory=list)
-    adapter_urns: List[str] = field(default_factory=list)
-
-    @classmethod
-    def from_dict(cls, raw: dict) -> "RegistryCapGroup":
-        return cls(
-            name=raw["name"],
-            caps=[RegistryCap.from_dict(c) for c in raw.get("caps", [])],
-            adapter_urns=list(raw.get("adapter_urns", [])),
-        )
+# The schema revision of the cartridge registry this build reads
+# (schemas/cartridge-registry/v6.json): its cap groups carry each cartridge's
+# cap definitions exactly as its manifest declares them.
+CARTRIDGE_REGISTRY_SCHEMA_VERSION = "6.0"
 
 
 @dataclass
@@ -293,7 +197,7 @@ class CartridgeBuild:
 
 @dataclass
 class CartridgeVersionData:
-    """A cartridge version's data (v5.0 schema).
+    """A cartridge version's data.
 
     `notes_url` is the absolute URL of the version's release-notes
     Markdown file, when one was uploaded at publish time. Optional —
@@ -340,7 +244,7 @@ class CartridgeInfo:
     page_url: str = ""
     categories: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    cap_groups: List[RegistryCapGroup] = field(default_factory=list)
+    cap_groups: List[CapGroup] = field(default_factory=list)
     versions: Dict[str, CartridgeVersionData] = field(default_factory=dict)
     available_versions: List[str] = field(default_factory=list)
     # Registry URL this entry was fetched from. Verbatim string — never
@@ -370,7 +274,7 @@ class CartridgeInfo:
             page_url=_null_as_empty_string(raw.get("pageUrl")),
             categories=list(raw.get("categories", [])),
             tags=list(raw.get("tags", [])),
-            cap_groups=[RegistryCapGroup.from_dict(item) for item in raw.get("cap_groups", [])],
+            cap_groups=[CapGroup.from_dict(item) for item in raw.get("cap_groups", [])],
             versions={key: CartridgeVersionData.from_dict(value) for key, value in versions_raw.items()},
             available_versions=list(raw.get("availableVersions", [])),
             registry_url=_null_as_empty_string(raw.get("registryUrl")),
@@ -471,7 +375,7 @@ class CartridgeInfo:
         )
         return platforms
 
-    def iter_caps(self) -> Iterator[RegistryCap]:
+    def iter_caps(self) -> Iterator[Cap]:
         """Yield every cap across every cap group in declaration order."""
         for group in self.cap_groups:
             for cap in group.caps:
@@ -520,7 +424,7 @@ class CartridgeRegistryEntry:
     page_url: str = ""
     team_id: str = ""
     min_app_version: str = ""
-    cap_groups: List[RegistryCapGroup] = field(default_factory=list)
+    cap_groups: List[CapGroup] = field(default_factory=list)
     categories: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
     latest_version: str = ""
@@ -536,7 +440,7 @@ class CartridgeRegistryEntry:
             page_url=_null_as_empty_string(raw.get("pageUrl")),
             team_id=_null_as_empty_string(raw.get("teamId")),
             min_app_version=_null_as_empty_string(raw.get("minAppVersion")),
-            cap_groups=[RegistryCapGroup.from_dict(item) for item in raw.get("cap_groups", [])],
+            cap_groups=[CapGroup.from_dict(item) for item in raw.get("cap_groups", [])],
             categories=list(raw.get("categories", [])),
             tags=list(raw.get("tags", [])),
             latest_version=raw["latestVersion"],
@@ -581,12 +485,12 @@ class CartridgeRegistryChannels:
 # Cartridge registry regime version this implementation speaks. v0 was the
 # pre-versioning legacy at the bare /manifest path; this speaks only v>=1 at the
 # versioned /v<version>/manifest path and rejects any other registryVersion.
-CARTRIDGE_REGISTRY_VERSION = 1
+CARTRIDGE_REGISTRY_VERSION = 2
 
 
 @dataclass
 class CartridgeRegistry:
-    """The v5.0 cartridge registry (channel-partitioned schema)."""
+    """The cartridge registry (channel-partitioned schema)."""
     schema_version: str
     registry_version: int
     last_updated: str
@@ -623,13 +527,14 @@ class CartridgeRepoError(ValueError):
 
 
 class CartridgeRepoServer:
-    """Transforms a validated v5.0 channel-partitioned registry into
-    flat API responses, preserving channel provenance."""
+    """Transforms a validated channel-partitioned registry into flat API
+    responses, preserving channel provenance."""
 
     def __init__(self, registry: CartridgeRegistry):
-        if registry.schema_version != "5.0":
+        if registry.schema_version != CARTRIDGE_REGISTRY_SCHEMA_VERSION:
             raise CartridgeRepoError(
-                f"Unsupported registry schema version: {registry.schema_version}. Required: 5.0"
+                f"Unsupported registry schema version: {registry.schema_version}. "
+                f"Required: {CARTRIDGE_REGISTRY_SCHEMA_VERSION}"
             )
         if registry.registry_version != CARTRIDGE_REGISTRY_VERSION:
             raise CartridgeRepoError(
@@ -643,6 +548,20 @@ class CartridgeRepoServer:
             raise CartridgeRepoError(
                 "Cartridge registry manifest is missing fabricRegistryUrl (the fabric its caps resolve against)"
             )
+        # A registry is bytes another program wrote: every definition in it is
+        # held to the definition rules before anything routes by it, as a
+        # cartridge's own manifest is.
+        for channel, entries in (
+            ("release", registry.channels.release.cartridges),
+            ("nightly", registry.channels.nightly.cartridges),
+        ):
+            for cartridge_id in sorted(entries):
+                for group in entries[cartridge_id].cap_groups:
+                    for cap in group.caps:
+                        try:
+                            validate_cap_definition(cap)
+                        except Exception as exc:
+                            raise CartridgeRepoError(f"cartridge {cartridge_id} ({channel}): {exc}") from exc
         self.registry = registry
 
     @staticmethod
@@ -791,8 +710,7 @@ class CartridgeRepoServer:
         result: List[CartridgeInfo] = []
         for cartridge in self.transform_to_cartridge_array():
             for cap in cartridge.iter_caps():
-                declared = CapUrn.from_string(cap.urn)
-                if declared.is_dispatchable(requested):
+                if cap.urn.is_dispatchable(requested):
                     result.append(cartridge)
                     break
         return result
@@ -817,11 +735,10 @@ class CartridgeRepo:
         `(channel, id)`.
 
         The cap-to-cartridges index keys on the *normalized* tagged-URN
-        form of each cap URN (parse via CapUrn.from_string, then take
-        str()), with `(channel, id)` references so suggestions preserve
-        channel provenance. A cap URN that fails to parse is a registry
-        corruption: we raise CartridgeRepoError rather than silently
-        keep the malformed string in the index.
+        form of each cap URN, with `(channel, id)` references so
+        suggestions preserve channel provenance. A cap definition holds a
+        parsed cap URN: one that does not parse was refused where the
+        registry was read.
         """
         cartridges: Dict[Tuple[CartridgeChannel, str], CartridgeInfo] = {}
         cap_to_cartridges: Dict[str, List[Tuple[CartridgeChannel, str]]] = {}
@@ -829,14 +746,7 @@ class CartridgeRepo:
         for cartridge_info in registry.cartridges:
             key = (cartridge_info.channel, cartridge_info.id)
             for cap in cartridge_info.iter_caps():
-                try:
-                    parsed = CapUrn.from_string(cap.urn)
-                except Exception as exc:
-                    raise CartridgeRepoError(
-                        f"cartridge {cartridge_info.id} ({cartridge_info.channel.value}): "
-                        f"invalid cap URN {cap.urn!r}: {exc}"
-                    ) from exc
-                normalized = str(parsed)
+                normalized = str(cap.urn)
                 cap_to_cartridges.setdefault(normalized, []).append(key)
             cartridges[key] = cartridge_info
 
@@ -911,13 +821,9 @@ class CartridgeRepo:
         for cache in self._caches.values():
             for key in cache.cap_to_cartridges.get(normalized, []):
                 cartridge = cache.cartridges[key]
-                cap_info: Optional[RegistryCap] = None
+                cap_info: Optional[Cap] = None
                 for cap in cartridge.iter_caps():
-                    try:
-                        parsed = CapUrn.from_string(cap.urn)
-                    except Exception:
-                        continue
-                    if parsed.is_equivalent(requested):
+                    if cap.urn.is_equivalent(requested):
                         cap_info = cap
                         break
                 if cap_info is None:
