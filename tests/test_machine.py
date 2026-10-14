@@ -66,11 +66,11 @@ def _build_cap(cap_urn_str: str, title: str, stdin_urns: list, slot_urns: list, 
     cap = Cap.with_description(urn, title, title.lower(), f"{title} cap")
     for stdin_u, slot_u in zip(stdin_urns, slot_urns):
         cap.add_arg(CapArg(
-            media_urn=slot_u,
+            media_urn=slot_u, name="input",
             required=True,
             sources=[StdinSource(stdin_u)],
         ))
-    cap.set_output(CapOutput(out_urn, f"{title} output"))
+    cap.add_output(CapOutput(out_urn, "output", f"{title} output"))
     return cap
 
 
@@ -458,11 +458,11 @@ def test_6713_binding_slot_identity_is_outer_media_urn():
     cap = Cap.with_description(urn, "Disbind", ["disbind"], "disbinds a PDF")
     # slot identity = "media:enc=utf-8;file-path", stdin = "media:document;ext=pdf"
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.set_output(CapOutput("media:enc=utf-8;page", "page output"))
+    cap.add_output(CapOutput("media:enc=utf-8;page", "output", "page output"))
     reg = _registry_with([cap])
 
     nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;page")]
@@ -518,7 +518,7 @@ def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
     split_urn = "cap:in=\"media:list;enc=utf-8\";split;out=\"media:enc=utf-8\""
     embed_urn = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
     splitter = _simple_cap(split_urn, "media:list;enc=utf-8", "media:enc=utf-8")
-    splitter.output.is_sequence = True
+    splitter.main_output().is_sequence = True
     embed = _simple_cap(embed_urn, "media:enc=utf-8", "media:vec;record")
     reg = _registry_with([splitter, embed])
 
@@ -668,16 +668,16 @@ def test_6692_assignment_bindings_sorted_by_slot_urn():
     cap = Cap.with_description(urn, "Merge", ["merge"], "merge two inputs")
     # Slot B comes before A alphabetically; add them in B, A order.
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8",      # slot: enc=utf-8 (later alphabetically)
+        media_urn="media:enc=utf-8", name="input",      # slot: enc=utf-8 (later alphabetically)
         required=True,
         sources=[StdinSource("media:enc=utf-8")],
     ))
     cap.add_arg(CapArg(
-        media_urn="media:document;ext=pdf",            # slot: pdf (earlier alphabetically)
+        media_urn="media:document;ext=pdf", name="arg1",            # slot: pdf (earlier alphabetically)
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.set_output(CapOutput("media:enc=utf-8;ext=txt", "merged output"))
+    cap.add_output(CapOutput("media:enc=utf-8;ext=txt", "output", "merged output"))
     reg = _registry_with([cap])
 
     # Two source nodes: node 0 = pdf, node 1 = enc=utf-8
@@ -797,7 +797,7 @@ def test_1169_sequence_into_scalar_cap_derives_is_loop():
         ["media:enc=utf-8"],
         "media:enc=utf-8;item",
     )
-    splitter.output.is_sequence = True
+    splitter.main_output().is_sequence = True
     # Consumer: scalar item -> scalar text.
     texter = _build_cap(
         "cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"",
@@ -1105,7 +1105,7 @@ def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
     urn_disbind = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
     urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
     disbind = _simple_cap(urn_disbind, "media:document;ext=pdf", "media:enc=utf-8;page")
-    disbind.output.is_sequence = True
+    disbind.main_output().is_sequence = True
     make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
     reg = _registry_with([disbind, make_decision])
 
@@ -1175,11 +1175,11 @@ def test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity():
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "disbind", ["disbind"], "disbind cap")
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.set_output(CapOutput("media:enc=utf-8;page", "page output"))
+    cap.add_output(CapOutput("media:enc=utf-8;page", "output", "page output"))
     reg = _registry_with([cap])
 
     strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;page")])
@@ -1289,7 +1289,7 @@ def test_8108_realize_strand_inserts_foreach_for_loop_edge():
     urn_disbind = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
     urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
     disbind = _simple_cap(urn_disbind, "media:document;ext=pdf", "media:enc=utf-8;page")
-    disbind.output.is_sequence = True
+    disbind.main_output().is_sequence = True
     make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
     reg = _registry_with([disbind, make_decision])
 
@@ -1320,16 +1320,16 @@ def test_8109_realize_strand_non_producer_secondary_arg_fails_hard():
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "Merge", ["merge"], "merge two inputs")
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf-8", name="input",
         required=True,
         sources=[StdinSource("media:enc=utf-8")],
     ))
     cap.add_arg(CapArg(
-        media_urn="media:document;ext=pdf",
+        media_urn="media:document;ext=pdf", name="arg1",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.set_output(CapOutput("media:enc=utf-8;ext=txt", "merged output"))
+    cap.add_output(CapOutput("media:enc=utf-8;ext=txt", "output", "merged output"))
     reg = _registry_with([cap])
 
     nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8"), _media("media:enc=utf-8;ext=txt")]

@@ -232,3 +232,21 @@ def test_6239_lookup_media_def_fabric_has_defver_arg():
     assert cli_sources[0].flag_name() == "--defver", (
         f"CliFlagSource flag name must be '--defver', got {cli_sources[0].flag_name()!r}"
     )
+
+
+# TEST12713: every definition this library builds in passes the rules it
+# holds everyone else's definitions to.
+def test_12713_built_in_definitions_pass_the_definition_rules():
+    from capdag.cap.validation import validate_cap_definition
+    from capdag.standard.caps import discard_cap, identity_cap
+
+    identity = identity_cap()
+    discard = discard_cap()
+    for cap in [identity, discard, lookup_cap_fabric_cap(), lookup_media_def_fabric_cap()]:
+        validate_cap_definition(cap)
+    # Identity's `out=` is not void, so it declares its one output.
+    assert identity.main_output() is not None
+    assert identity.main_output().get_name() == "output"
+    # Discard's `out=` is void: it declares none.
+    assert discard.get_outputs() == []
+    assert discard.arg_named("input") is not None

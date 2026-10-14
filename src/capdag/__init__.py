@@ -120,6 +120,8 @@ from capdag.cap.definition import Cap, CapArg, CapOutput, RegisteredBy, StdinSou
 from capdag.media.spec import MediaDef
 from capdag.cap.validation import (
     validate_cap_args,
+    validate_cap_definition,
+    validate_cap_outputs,
     validate_positional_arguments,
     ValidationError,
     MissingRequiredArgumentError,
@@ -209,7 +211,7 @@ from capdag.media.spec import (
 
 # Bifaci module
 from capdag.bifaci import decode_chunk_payload
-from capdag.bifaci.manifest import CapManifest, CapGroup, default_group
+from capdag.bifaci.manifest import CapManifest, CapGroup, ManifestLoadError, default_group
 # Concurrency pools — the one capacity concept (a cap is a pool of one;
 # `all` is the pool of every cap; queues lead to pools).
 from capdag.bifaci.pools import (
@@ -393,6 +395,7 @@ __all__ = [
     "MediaDef",
     # Manifest
     "CapManifest",
+    "ManifestLoadError",
     "CAPACITY_UNLIMITED",
     "META_DESIRED_CAPACITIES",
     "META_POOLS",
@@ -413,6 +416,8 @@ __all__ = [
     "decode_chunk_payload",
     # Validation
     "validate_cap_args",
+    "validate_cap_definition",
+    "validate_cap_outputs",
     "validate_positional_arguments",
     "ValidationError",
     "MissingRequiredArgumentError",

@@ -20,11 +20,11 @@ def _build_cap(cap_urn_str: str, stdin_urns: list, out_urn: str) -> Cap:
     cap = Cap.with_description(urn, cap_urn_str, "op", "test cap")
     for stdin_urn in stdin_urns:
         cap.add_arg(CapArg(
-            media_urn=stdin_urn,
+            media_urn=stdin_urn, name="input",
             required=True,
             sources=[StdinSource(stdin_urn)],
         ))
-    cap.set_output(CapOutput(out_urn, "output"))
+    cap.add_output(CapOutput(out_urn, "output", "output"))
     return cap
 
 

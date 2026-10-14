@@ -38,15 +38,15 @@ def _make_test_cap(
     cap = Cap.with_description(urn, title, op, f"{title} cap")
     cap.add_arg(
         CapArg(
-            media_urn=in_spec,
+            media_urn=in_spec, name="input",
             required=True,
             sources=[StdinSource(in_spec)],
             is_sequence=input_is_sequence,
         )
     )
-    cap.set_output(
+    cap.add_output(
         CapOutput(
-            out_spec,
+            out_spec, "output",
             f"{title} output",
             is_sequence=output_is_sequence,
         )
@@ -274,8 +274,7 @@ def test_789_cap_from_json_has_valid_specs():
                 "urn": "cap:disbind;in=\"media:document;ext=pdf\";out=\"media:disbound-page;enc=utf-8\"",
                 "aliases": ["disbind"],
                 "title": "Disbind PDF",
-                "args": [],
-                "output": null
+                "args": []
             }"""
         )
     )

@@ -415,11 +415,12 @@ def test_987_gc_secondary_pass_enforces_hard_cap():
 def test_462_attached_cartridge_identity_from_manifest():
     from capdag.bifaci.host_runtime import _installed_cartridge_record_from_manifest
     from capdag.bifaci.relay_switch import CartridgeLifecycle
+    from tests.definitions import IDENTITY_CAP_JSON
 
     manifest = (
         b'{"name":"TestCart","version":"1.2.3","channel":"nightly",'
         b'"registry_url":null,"description":"d","cap_groups":[{"name":"g",'
-        b'"caps":[{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}]}]}'
+        b'"caps":[' + IDENTITY_CAP_JSON.encode() + b']}]}'
     )
 
     rec = _installed_cartridge_record_from_manifest(manifest)

@@ -89,7 +89,7 @@ def test_113_cap_stdin():
 
     # Enable stdin support by adding an arg with a stdin source
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf-8", name="input",
         required=True,
         sources=[StdinSource("media:enc=utf-8")],
         arg_description="Input text",
@@ -127,25 +127,27 @@ def test_8101_cap_to_dict_wire_shape():
     cap = Cap(urn, "Process", ["process-cmd"])
     cap.set_description("A processing capability")
     cap.add_arg(CapArg(
-        media_urn=MEDIA_STRING,
+        media_urn=MEDIA_STRING, name="arg1",
         required=True,
         sources=[PositionSource(0)],
         arg_description="Input file",
     ))
-    cap.set_output(CapOutput(media_urn=MEDIA_OBJECT, output_description="Processed output"))
+    cap.add_output(CapOutput(media_urn=MEDIA_OBJECT, name="output", output_description="Processed output"))
 
     cap_dict = cap.to_dict()
     assert cap_dict["title"] == "Process"
     assert cap_dict["aliases"] == ["process-cmd"]
     assert "cap_description" in cap_dict
     assert len(cap_dict["args"]) == 1
-    assert "output" in cap_dict
+    assert cap_dict["args"][0]["name"] == "arg1"
+    assert [o["name"] for o in cap_dict["outputs"]] == ["output"]
+    assert "output" not in cap_dict, "a cap's outputs are a list under `outputs`"
 
 
 # TEST115: Test CapArg serialization and deserialization with multiple sources
 def test_115_cap_arg_serialization():
     arg = CapArg(
-        media_urn="media:string",
+        media_urn="media:string", name="arg1",
         required=True,
         sources=[CliFlagSource("--name"), PositionSource(0)],
         arg_description="The name argument",
@@ -170,7 +172,7 @@ def test_115_cap_arg_serialization():
 # TEST116: Test CapArg constructor methods basic and with_description create args correctly
 def test_116_cap_arg_constructors():
     basic_arg = CapArg(
-        media_urn="media:string",
+        media_urn="media:string", name="arg1",
         required=True,
         sources=[CliFlagSource("--name")],
     )
@@ -181,7 +183,7 @@ def test_116_cap_arg_constructors():
     assert basic_arg.default_value is None
 
     described_arg = CapArg(
-        media_urn="media:integer",
+        media_urn="media:integer", name="arg2",
         required=False,
         sources=[PositionSource(0)],
         arg_description="The count argument",
@@ -285,12 +287,12 @@ def test_595_with_args_constructor():
     urn = CapUrn.from_string(_test_urn("test"))
     args = [
         CapArg(
-            media_urn="media:string",
+            media_urn="media:string", name="arg1",
             required=True,
             sources=[PositionSource(0)],
         ),
         CapArg(
-            media_urn="media:integer",
+            media_urn="media:integer", name="arg2",
             required=False,
             sources=[CliFlagSource("--count")],
         ),
@@ -308,8 +310,8 @@ def test_595_with_args_constructor():
 def test_596_with_full_definition_constructor():
     urn = CapUrn.from_string(_test_urn("test"))
     metadata = {"env": "prod"}
-    args = [CapArg(media_urn="media:string", required=True, sources=[])]
-    output = CapOutput(media_urn="media:object", output_description="Output object")
+    args = [CapArg(media_urn="media:string", name="arg1", required=True, sources=[])]
+    output = CapOutput(media_urn=MEDIA_OBJECT, name="output", output_description="Output object")
     json_meta = {"v": 1}
 
     cap = Cap.with_full_definition(
@@ -319,7 +321,7 @@ def test_596_with_full_definition_constructor():
         metadata=metadata,
         aliases=["full-cmd"],
         args=args,
-        output=output,
+        outputs=[output],
         metadata_json=json_meta,
     )
 
@@ -328,8 +330,8 @@ def test_596_with_full_definition_constructor():
     assert cap.get_metadata("env") == "prod"
     assert cap.primary_alias() == "full-cmd"
     assert len(cap.get_args()) == 1
-    assert cap.get_output() is not None
-    assert cap.get_output().media_urn == "media:object"
+    assert cap.get_outputs() == [output]
+    assert cap.main_output() is output, "the main output is the one `out=` names"
     assert cap.get_metadata_json() == json_meta
     # registered_by is not set by with_full_definition
     assert cap.get_registered_by() is None
@@ -341,7 +343,7 @@ def test_597_cap_arg_with_full_definition():
     meta = {"hint": "enter name"}
 
     arg = CapArg.with_full_definition(
-        media_urn="media:string",
+        media_urn="media:string", name="arg1",
         required=True,
         sources=[CliFlagSource("--name")],
         arg_description="User name",
@@ -370,22 +372,34 @@ def test_598_cap_output_lifecycle():
     cap = Cap(urn, "Test", ["cmd"])
 
     # Initially no output
-    assert cap.get_output() is None
+    assert cap.main_output() is None
 
-    # Set output
-    output = CapOutput(media_urn="media:string", output_description="Text output")
+    # Declare the main output between two others
+    output = CapOutput(media_urn=MEDIA_OBJECT, name="output", output_description="Text output")
     output.set_metadata({"format": "plain"})
-    cap.set_output(output)
+    notes = CapOutput(media_urn="media:string", name="notes", output_description="Notes")
+    notes.is_sequence = True
+    notes.streaming = True
+    cap.add_output(notes)
+    cap.add_output(output)
+    cap.add_output(CapOutput(media_urn="media:integer", name="count", output_description="Count"))
+    # The cap's shape is its main output's, wherever it stands in the list.
+    assert cap.sequence_shape() == (False, False)
+    assert cap.streaming_shape() == (False, False)
 
-    got = cap.get_output()
+    assert cap.output_named("notes").media_urn == "media:string"
+    assert cap.output_named("absent") is None
+    assert cap.output_by_urn("media:string").name == "notes"
+    got = cap.main_output()
     assert got is not None
-    assert got.get_media_urn() == "media:string"
+    assert got.name == "output", "the main output is the one `out=` names, not the first or last"
+    assert got.get_media_urn() == MEDIA_OBJECT
     assert got.output_description == "Text output"
     assert got.get_metadata() is not None
 
     # CapOutput with_full_definition
     output2 = CapOutput.with_full_definition(
-        media_urn="media:json",
+        media_urn="media:json", name="output2",
         output_description="JSON output",
         metadata={"v": 2},
     )
@@ -497,7 +511,7 @@ def test_1129_cap_documentation_parses_from_capfab_json():
 # appearing on stdin.
 def test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source():
     arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt",
+        media_urn="media:enc=utf-8;system-prompt", name="arg1",
         required=True,
         sources=[CliFlagSource("--system-prompt")],
     )
@@ -509,7 +523,7 @@ def test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source():
 # file-path slot whose piped content is actually a pdf-stream.
 def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
@@ -524,7 +538,7 @@ def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
 def test_8104_cap_arg_is_main_input_true_when_stdin_urn_equivalent_to_in_spec():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
@@ -541,14 +555,14 @@ def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
 
     no_stdin_arg = CapArg(
-        media_urn="media:max-tokens;numeric",
+        media_urn="media:max-tokens;numeric", name="arg1",
         required=False,
         sources=[CliFlagSource("--max-tokens")],
     )
     assert not no_stdin_arg.is_main_input(in_spec)
 
     mismatched_stdin_arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt",
+        media_urn="media:enc=utf-8;system-prompt", name="input",
         required=False,
         sources=[StdinSource("media:enc=utf-8;system-prompt")],
     )
@@ -561,7 +575,7 @@ def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
 def test_8106_cap_arg_is_main_input_false_on_unparseable_stdin_urn():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("not a valid tagged urn")],
     )
@@ -599,7 +613,7 @@ def test_1130_cap_documentation_set_and_clear_lifecycle():
 # runtime demuxes the arg's input stream by.
 def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn():
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
@@ -612,7 +626,7 @@ def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn(
 # declared URN without ever appearing on stdin.
 def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source():
     arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt",
+        media_urn="media:enc=utf-8;system-prompt", name="arg1",
         required=True,
         sources=[CliFlagSource("--system-prompt")],
     )
@@ -626,7 +640,7 @@ def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source()
 def test_7102_is_main_input_true_on_tag_order_insensitive_equivalence_to_in_spec():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf-8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
@@ -643,21 +657,21 @@ def test_7103_is_main_input_false_without_equivalent_stdin_source():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
 
     cli_flag_only = CapArg(
-        media_urn="media:document;ext=pdf;pdf-stream",  # slot URN even matches in= — irrelevant
+        media_urn="media:document;ext=pdf;pdf-stream", name="arg1",  # slot URN even matches in= — irrelevant
         required=True,
         sources=[CliFlagSource("--input")],
     )
     assert not cli_flag_only.is_main_input(in_spec)
 
     position_only = CapArg(
-        media_urn="media:document;ext=pdf;pdf-stream",
+        media_urn="media:document;ext=pdf;pdf-stream", name="arg2",
         required=True,
         sources=[PositionSource(0)],
     )
     assert not position_only.is_main_input(in_spec)
 
     non_equivalent_stdin = CapArg(
-        media_urn="media:enc=utf-8;system-prompt",
+        media_urn="media:enc=utf-8;system-prompt", name="input",
         required=False,
         sources=[StdinSource("media:enc=utf-8;system-prompt")],
     )
@@ -673,31 +687,31 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
 
     args = [
         CapArg(
-            media_urn="media:enc=utf-8;file-path",
+            media_urn="media:enc=utf-8;file-path", name="input",
             required=True,
             # Main input may ALSO be delivered by cli-flag; stdin is the
             # defining route.
             sources=[StdinSource("media:pdf-stream;document;ext=pdf"), CliFlagSource("--input")],
         ),
         CapArg(
-            media_urn="media:enc=utf-8;question",
+            media_urn="media:enc=utf-8;question", name="arg1",
             required=True,
             sources=[CliFlagSource("--question")],
         ),
         CapArg(
-            media_urn="media:max-tokens;numeric",
+            media_urn="media:max-tokens;numeric", name="arg2",
             required=False,
             sources=[CliFlagSource("--max-tokens")],
             default_value=1024,
         ),
         CapArg(
-            media_urn="media:numeric;temperature",
+            media_urn="media:numeric;temperature", name="arg3",
             required=False,
             sources=[CliFlagSource("--temperature")],
             default_value=0.7,
         ),
         CapArg(
-            media_urn="media:enc=utf-8;system-prompt",
+            media_urn="media:enc=utf-8;system-prompt", name="arg4",
             required=False,
             sources=[CliFlagSource("--system-prompt")],
             default_value="You are a helpful assistant.",
@@ -732,12 +746,12 @@ def test_8065_sequence_shape_uses_main_input_identity_not_argument_order():
         ["ordered"],
         [
             CapArg(
-                media_urn="media:enc=utf-8;context",
+                media_urn="media:enc=utf-8;context", name="input",
                 required=False,
                 sources=[StdinSource("media:enc=utf-8;context")],
             ),
             CapArg(
-                media_urn="media:enc=utf-8",
+                media_urn="media:enc=utf-8", name="arg1",
                 required=True,
                 sources=[StdinSource("media:enc=utf-8")],
                 is_sequence=True,
@@ -767,24 +781,29 @@ def test_7150_cap_output_survives_serialization_roundtrip():
         "tag",
         ["tag"],
     )
-    cap.output = CapOutput(
-        media_urn="media:enc=utf-8;tag",
+    cap.add_output(CapOutput(
+        media_urn="media:enc=utf-8;tag", name="output",
         output_description="One of 'positive', 'neutral', or 'negative'.",
-    )
+    ))
 
     encoded = cap.to_dict()
-    assert "output" in encoded, "a cap that declares an output must serialize one"
-    assert encoded["output"]["media_urn"] == "media:enc=utf-8;tag"
-    assert encoded["output"]["output_description"] == "One of 'positive', 'neutral', or 'negative'."
+    assert "outputs" in encoded, "a cap that declares an output must serialize it"
+    assert len(encoded["outputs"]) == 1
+    assert encoded["outputs"][0]["media_urn"] == "media:enc=utf-8;tag"
+    assert encoded["outputs"][0]["name"] == "output"
+    assert encoded["outputs"][0]["optional"] is False, "`optional` is written even when false"
+    assert "carries" not in encoded["outputs"][0], "an output that carries its own type says nothing"
+    assert encoded["outputs"][0]["output_description"] == "One of 'positive', 'neutral', or 'negative'."
 
     back = Cap.from_dict(json.loads(json.dumps(encoded)))
-    assert back.output is not None, "output survives the round-trip"
-    assert back.output.media_urn == "media:enc=utf-8;tag"
-    assert back.output.is_sequence is False
+    assert back.main_output() is not None, "output survives the round-trip"
+    assert back.main_output().media_urn == "media:enc=utf-8;tag"
+    assert back.main_output().name == "output"
+    assert back.main_output().is_sequence is False
 
     # A cap with no output must not carry the key at all.
     bare = Cap(CapUrn.from_string("cap:effect=none"), "Identity", ["identity"])
-    assert "output" not in bare.to_dict(), "a cap without an output must omit the key"
+    assert "outputs" not in bare.to_dict(), "a cap without an output must omit the key"
 
 
 # TEST7151: `is_sequence` is serialized even when false, on both CapArg and
@@ -796,7 +815,7 @@ def test_7150_cap_output_survives_serialization_roundtrip():
 # test passes through.
 def test_7151_is_sequence_is_serialized_even_when_false():
     arg = CapArg(
-        media_urn="media:enc=utf-8;in",
+        media_urn="media:enc=utf-8;in", name="input",
         required=True,
         sources=[StdinSource("media:enc=utf-8;in")],
     )
@@ -804,7 +823,7 @@ def test_7151_is_sequence_is_serialized_even_when_false():
     assert "is_sequence" in arg_encoded, "CapArg must write is_sequence even when false"
     assert arg_encoded["is_sequence"] is False
 
-    output = CapOutput(media_urn="media:enc=utf-8;tag", output_description="a tag")
+    output = CapOutput(media_urn="media:enc=utf-8;tag", name="output", output_description="a tag")
     output_encoded = output.to_dict()
     assert "is_sequence" in output_encoded, "CapOutput must write is_sequence even when false"
     assert output_encoded["is_sequence"] is False

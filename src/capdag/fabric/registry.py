@@ -30,7 +30,8 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 from capdag.bifaci.cartridge_slug import slug_for
-from capdag.cap.definition import Cap, StdinSource
+from capdag.cap.definition import Cap
+from capdag.cap.validation import ValidationError as CapDefinitionError, validate_cap_definition
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
@@ -72,6 +73,25 @@ class CacheError(FabricRegistryError):
 
 class ValidationError(FabricRegistryError):
     """Validation error."""
+
+
+def checked_cap_definition(body: bytes, cap_urn: str) -> Cap:
+    """Read a definition a registry served and hold it to the definition
+    rules (RULE1-RULE22) before it is cached or returned: a definition is
+    held to them by the side that receives it as well as the side that sends
+    it. One that does not parse is a ParseError; one that parses and breaks a
+    rule is a ValidationError naming the cap and the rule."""
+    try:
+        cap = Cap.from_dict(json.loads(body))
+    except (ValueError, KeyError, TypeError) as e:
+        raise ParseError(f"Failed to parse registry response for cap '{cap_urn}': {e}")
+    try:
+        validate_cap_definition(cap)
+    except CapDefinitionError as e:
+        raise ValidationError(
+            f"the registry's definition of cap '{cap_urn}' breaks a definition rule: {e}"
+        )
+    return cap
 
 
 class ExtensionNotFoundError(FabricRegistryError):
@@ -726,6 +746,16 @@ class FabricRegistry:
                 if entry.definition.version == 0 and entry.is_expired():
                     cache_file.unlink(missing_ok=True)
                     continue
+                # The cache holds only checked definitions, so one that
+                # breaks a rule was written under other rules: its file is
+                # dropped, and the definition is fetched anew when next
+                # asked for.
+                try:
+                    validate_cap_definition(entry.definition)
+                except CapDefinitionError as e:
+                    _log.warning("Dropping cap cache file %s: %s", cache_file, e)
+                    cache_file.unlink(missing_ok=True)
+                    continue
                 try:
                     normalized_urn = normalize_cap_urn(entry.definition.urn_string())
                 except ParseError as e:
@@ -873,11 +903,10 @@ class FabricRegistry:
                 raise NotFoundError(
                     f"Cap '{urn}' not found in registry (HTTP {response.status_code})"
                 )
-            return Cap.from_dict(response.json())
+            body = response.content
         except httpx.HTTPError as e:
             raise HttpError(f"Failed to fetch cap from registry: {e}")
-        except json.JSONDecodeError as e:
-            raise ParseError(f"Failed to parse registry response for cap '{urn}': {e}")
+        return checked_cap_definition(body, normalized_urn)
 
     async def _fetch_media_def_from_registry(self, urn: str, defver: int) -> StoredMediaDef:
         if not HTTPX_AVAILABLE or self.client is None:
@@ -1021,7 +1050,8 @@ class FabricRegistry:
     def _collect_referenced_media_urns(self, cap: Cap) -> List[str]:
         """Collect every media URN a cap definition references, skipping
         the bare `media:` wildcard. Order is deterministic (in-spec,
-        out-spec, args, stdin sources, output) and de-duplicated."""
+        out-spec, each arg and what it accepts, every output) and
+        de-duplicated."""
         seen: List[str] = []
 
         def push(urn: str) -> None:
@@ -1035,11 +1065,9 @@ class FabricRegistry:
         push(cap.urn.out_spec())
         for arg in cap.get_args():
             push(arg.media_urn)
-            for source in arg.sources:
-                if isinstance(source, StdinSource):
-                    push(source.stdin)
-        output = cap.get_output()
-        if output is not None:
+            # What the arg accepts: its stdin source's URN, or its `accepts`.
+            push(arg.accepted_urn())
+        for output in cap.get_outputs():
             push(output.media_urn)
         return seen
 

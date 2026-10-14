@@ -41,8 +41,8 @@ def _build_cap(cap_urn_str: str, title: str, arg_urns, out_urn: str) -> Cap:
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, title, title.lower(), f"{title} cap")
     for u in arg_urns:
-        cap.add_arg(CapArg(media_urn=u, required=True, sources=[StdinSource(u)]))
-    cap.set_output(CapOutput(out_urn, f"{title} output"))
+        cap.add_arg(CapArg(media_urn=u, name="input", required=True, sources=[StdinSource(u)]))
+    cap.add_output(CapOutput(out_urn, "output", f"{title} output"))
     return cap
 
 

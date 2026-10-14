@@ -6,10 +6,11 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 import pytest
 import json
 from capdag import CapUrn
-from capdag.cap.definition import Cap, CapArg, StdinSource, CliFlagSource
+from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource, CliFlagSource
 from capdag.bifaci.manifest import (
     CapManifest,
     CapGroup,
+    ManifestLoadError,
     default_group,
     registry_url_from_build_env,
 )
@@ -126,12 +127,12 @@ def test_150_cap_manifest_json_serialization():
     cap = Cap(urn, "Extract Metadata", ["extract-metadata"])
 
     cap.add_arg(CapArg(
-        media_urn="media:document;ext=pdf",
+        media_urn="media:document;ext=pdf", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
     cap.add_arg(CapArg(
-        media_urn="media:chunk-size;numeric",
+        media_urn="media:chunk-size;numeric", name="arg1",
         required=False,
         sources=[CliFlagSource("--chunk-size")],
         arg_description="Chunk size",
@@ -139,7 +140,7 @@ def test_150_cap_manifest_json_serialization():
         metadata={"unit": "words"},
     ))
     cap.add_arg(CapArg(
-        media_urn="media:bool;enc=utf-8;timestamps",
+        media_urn="media:bool;enc=utf-8;timestamps", name="arg2",
         required=False,
         sources=[CliFlagSource("--timestamps")],
         arg_description="Include timestamps",
@@ -241,7 +242,7 @@ def test_155_cap_manifest_complex_roundtrip():
     cap.set_description("A processing capability")
 
     stdin_arg = CapArg(
-        media_urn="media:",
+        media_urn="media:", name="input",
         required=True,
         sources=[StdinSource("media:")],
         arg_description="Input data",
@@ -272,11 +273,9 @@ def test_155_cap_manifest_complex_roundtrip():
 
 # TEST475: validate() passes with CAP_IDENTITY in a cap group
 def test_475_validate_passes_with_identity():
-    from capdag.standard.caps import CAP_IDENTITY
+    from capdag.standard.caps import identity_cap
 
-    identity_urn = CapUrn.from_string(CAP_IDENTITY)
-    identity_cap = Cap(identity_urn, "Identity", ["identity"])
-    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([identity_cap])])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([identity_cap()])])
     # Should succeed without raising
     manifest.validate()
 
@@ -399,3 +398,90 @@ def test_7152_empty_adapter_urns_is_omitted():
     assert claiming.to_dict()["adapter_urns"] == ["media:document;ext=pdf"], (
         "a non-empty adapter_urns must be written"
     )
+
+
+def _convert_cap() -> Cap:
+    """A cap whose `out=` is a record, declaring no output yet."""
+    return Cap(CapUrn.from_string(_test_urn("convert")), "Convert", ["convert"])
+
+
+def _complete_convert_cap() -> Cap:
+    cap = _convert_cap()
+    cap.add_output(CapOutput(MEDIA_OBJECT, "record", "The record"))
+    return cap
+
+
+# TEST12711: validate() holds every definition in the manifest to the
+# definition rules: a cap in any group that breaks one is refused, naming
+# the cap and the rule. Identity alone being present is not enough.
+def test_12711_validate_refuses_an_invalid_definition():
+    from capdag.standard.caps import identity_cap
+
+    def manifest_with(cap: Cap) -> CapManifest:
+        return CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [
+            default_group([identity_cap()]),
+            CapGroup(name="second", caps=[cap]),
+        ])
+
+    manifest_with(_complete_convert_cap()).validate()
+
+    # No output although `out=` is not void.
+    with pytest.raises(ValueError) as exc_info:
+        manifest_with(_convert_cap()).validate()
+    assert "RULE21" in str(exc_info.value)
+    assert "convert" in str(exc_info.value)
+
+    # Two arguments under one name.
+    twins = _complete_convert_cap()
+    twins.add_arg(CapArg("media:enc=utf-8", "same", False, [CliFlagSource("--a")]))
+    twins.add_arg(CapArg("media:integer", "same", False, [CliFlagSource("--b")]))
+    with pytest.raises(ValueError) as exc_info:
+        manifest_with(twins).validate()
+    assert "RULE17" in str(exc_info.value)
+    assert "convert" in str(exc_info.value)
+
+
+# TEST12717: a manifest read from another program's bytes is parsed and
+# held to the definition rules in one step, and the two refusals are told
+# apart: bytes that are no manifest, and a manifest with a definition that
+# breaks a rule.
+def test_12717_an_advertised_manifest_is_parsed_and_checked():
+    from capdag.standard.caps import identity_cap
+
+    def manifest_with(cap: Cap) -> bytes:
+        return json.dumps(
+            CapManifest("TestCartridge", "1.0.0", "release", None, "Test",
+                        [default_group([identity_cap(), cap])]).to_dict()
+        ).encode("utf-8")
+
+    taken = CapManifest.from_advertised(manifest_with(_complete_convert_cap()))
+    assert len(taken.all_caps()) == 2
+    record = taken.all_caps()[1].output_named("record")
+    assert record is not None
+    assert record.media_urn == MEDIA_OBJECT
+
+    with pytest.raises(ManifestLoadError) as exc_info:
+        CapManifest.from_advertised(manifest_with(_convert_cap()))
+    load = exc_info.value
+    assert not load.unparseable, "it parsed: what it carries is invalid"
+    assert "RULE21" in load.reason
+    assert "convert" in load.reason
+    assert "invalid cap definition" in str(load)
+
+    with pytest.raises(ManifestLoadError) as exc_info:
+        CapManifest.from_advertised(b"{not a manifest")
+    assert exc_info.value.unparseable
+
+    # A manifest of the earlier shape (an argument without a name) is not a
+    # manifest this capdag reads.
+    unnamed = (
+        b'{"name":"T","version":"1.0","channel":"release","registry_url":null,"description":"T",'
+        b'"cap_groups":[{"name":"default","caps":[{"urn":"cap:effect=none","title":"Identity",'
+        b'"aliases":["identity"],"args":[{"media_urn":"media:","required":true,'
+        b'"sources":[{"stdin":"media:"}]}]}]}]}'
+    )
+    with pytest.raises(ManifestLoadError) as exc_info:
+        CapManifest.from_advertised(unnamed)
+    assert exc_info.value.unparseable
+    assert "cap argument is missing field `name`" in exc_info.value.reason
+

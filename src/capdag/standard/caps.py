@@ -133,10 +133,11 @@ def identity_cap() -> Cap:
     )
     cap.add_arg(CapArg(
         media_urn="media:",
+        name="input",
         required=True,
         sources=[StdinSource("media:")],
     ))
-    cap.set_output(CapOutput("media:", "The input data, unchanged"))
+    cap.add_output(CapOutput("media:", "output", "The input data, unchanged"))
     return cap
 
 
@@ -151,10 +152,11 @@ def discard_cap() -> Cap:
     )
     cap.add_arg(CapArg(
         media_urn="media:",
+        name="input",
         required=True,
         sources=[StdinSource("media:")],
     ))
-    cap.set_output(CapOutput(MEDIA_VOID, "Void (no output)"))
+    # Its `out=` is void: it declares no output (RULE21).
     return cap
 
 
@@ -689,17 +691,19 @@ def lookup_cap_fabric_cap() -> Cap:
     )
     cap.add_arg(CapArg(
         media_urn=MEDIA_CAP_URN,
+        name="input",
         required=True,
         sources=[StdinSource(MEDIA_CAP_URN)],
         arg_description="Canonical cap URN to look up.",
     ))
     cap.add_arg(CapArg(
         media_urn=MEDIA_FABRIC_DEFVER,
+        name="defver",
         required=False,
         sources=[CliFlagSource("--defver")],
         arg_description="Per-definition version under the caller's manifest snapshot, 1 or greater. Absent ⇒ resolved under the fabric manifest the lookup cartridge is pinned to; a URN that manifest does not list is not found.",
     ))
-    cap.set_output(CapOutput(MEDIA_CAP_DEFINITION, "Full flattened cap definition"))
+    cap.add_output(CapOutput(MEDIA_CAP_DEFINITION, "output", "Full flattened cap definition"))
     return cap
 
 
@@ -720,15 +724,17 @@ def lookup_media_def_fabric_cap() -> Cap:
     )
     cap.add_arg(CapArg(
         media_urn=MEDIA_MEDIA_URN,
+        name="input",
         required=True,
         sources=[StdinSource(MEDIA_MEDIA_URN)],
         arg_description="Canonical media URN to look up.",
     ))
     cap.add_arg(CapArg(
         media_urn=MEDIA_FABRIC_DEFVER,
+        name="defver",
         required=False,
         sources=[CliFlagSource("--defver")],
         arg_description="Per-definition version under the caller's manifest snapshot, 1 or greater. Absent ⇒ resolved under the fabric manifest the lookup cartridge is pinned to; a URN that manifest does not list is not found.",
     ))
-    cap.set_output(CapOutput(MEDIA_MEDIA_DEFINITION, "Full flattened media definition"))
+    cap.add_output(CapOutput(MEDIA_MEDIA_DEFINITION, "output", "Full flattened media definition"))
     return cap

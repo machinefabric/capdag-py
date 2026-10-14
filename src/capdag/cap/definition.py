@@ -1,7 +1,7 @@
 """Formal cap definition
 
 This module defines the structure for formal cap definitions including
-the cap URN, arguments, output, and metadata.
+the cap URN, arguments, outputs, and metadata.
 """
 
 import json
@@ -108,11 +108,21 @@ def _refuse_unknown_keys(data: Dict[str, Any], known: frozenset, what: str) -> N
         )
 
 
+def _require_name(data: Dict[str, Any], what: str) -> None:
+    """A definition without its name is not a definition this capdag reads:
+    the name is how a machine says which arg or output it means."""
+    if not isinstance(data.get("name"), str):
+        raise ValueError(f"{what} is missing field `name`")
+
+
 @dataclass
 class CapArg:
     """Cap argument definition"""
 
     media_urn: str
+    # The label a machine selects this arg by. Required, and unique among the
+    # cap's args (RULE17). A label only: the arg is identified by ``media_urn``.
+    name: str
     required: bool
     sources: List[ArgSource]
     arg_description: Optional[str] = None
@@ -124,11 +134,17 @@ class CapArg:
     # ``is_sequence`` (cardinality), not part of the URN. Only the main input
     # may stream (RULE14).
     streaming: bool = False
+    # The media type a value bound to this arg must conform to, when that is
+    # not the arg's own URN: two args may then accept one type and stay two
+    # args. An arg with a stdin source says what it accepts there, and
+    # declares none (RULE18).
+    accepts: Optional[str] = None
 
     @classmethod
     def with_full_definition(
         cls,
         media_urn: str,
+        name: str,
         required: bool,
         sources: List[ArgSource],
         arg_description: Optional[str] = None,
@@ -140,6 +156,7 @@ class CapArg:
         """Create a CapArg with all fields set"""
         return cls(
             media_urn=media_urn,
+            name=name,
             required=required,
             sources=sources,
             arg_description=arg_description,
@@ -151,6 +168,37 @@ class CapArg:
 
     def get_media_urn(self) -> str:
         """Get the media URN"""
+        return self.media_urn
+
+    def get_name(self) -> str:
+        """The label a machine selects this arg by."""
+        return self.name
+
+    def accepting(self, accepts: str) -> "CapArg":
+        """This arg, declaring the type it accepts (see ``accepts``). The arg
+        it is made from is not changed."""
+        from dataclasses import replace
+
+        return replace(self, accepts=accepts)
+
+    def has_stdin_source(self) -> bool:
+        """Whether this arg declares a stdin source: it is then the cap's
+        main input (RULE3, RULE15)."""
+        return any(isinstance(source, StdinSource) for source in self.sources)
+
+    def accepted_urn(self) -> str:
+        """The media URN a value bound to this arg must conform to: its
+        stdin source's URN when it declares one (the main input), else what
+        it says it accepts, else its own media URN. This is what matching
+        reads. It is not what the stream is delivered under — that is
+        ``stream_urn``, which for an arg with ``accepts`` is its own URN, so
+        two args accepting one type stay distinct on the wire.
+        """
+        for source in self.sources:
+            if isinstance(source, StdinSource):
+                return source.stdin
+        if self.accepts is not None:
+            return self.accepts
         return self.media_urn
 
     def get_metadata(self) -> Optional[Any]:
@@ -206,9 +254,12 @@ class CapArg:
         """Convert to JSON-serializable dict"""
         result = {
             "media_urn": self.media_urn,
-            "required": self.required,
-            "sources": [s.to_dict() for s in self.sources],
+            "name": self.name,
         }
+        if self.accepts is not None:
+            result["accepts"] = self.accepts
+        result["required"] = self.required
+        result["sources"] = [s.to_dict() for s in self.sources]
         if self.arg_description is not None:
             result["arg_description"] = self.arg_description
         if self.default_value is not None:
@@ -224,8 +275,8 @@ class CapArg:
 
     #: The definition's keys — what every capdag mirror's CapArg carries.
     KNOWN_KEYS = frozenset({
-        "media_urn", "required", "sources", "arg_description", "default_value",
-        "metadata", "is_sequence", "streaming",
+        "media_urn", "name", "accepts", "required", "sources", "arg_description",
+        "default_value", "metadata", "is_sequence", "streaming",
     })
 
     @classmethod
@@ -235,8 +286,10 @@ class CapArg:
         honour. Dropping it would let a cartridge advertise a contract the
         fabric never made. (matches Rust ``deny_unknown_fields``)"""
         _refuse_unknown_keys(data, cls.KNOWN_KEYS, "cap argument")
+        _require_name(data, "cap argument")
         return cls(
             media_urn=data["media_urn"],
+            name=data["name"],
             required=data["required"],
             sources=[arg_source_from_dict(s) for s in data["sources"]],
             arg_description=data.get("arg_description"),
@@ -244,7 +297,12 @@ class CapArg:
             metadata=data.get("metadata"),
             is_sequence=data.get("is_sequence", False),
             streaming=data.get("streaming", False),
+            accepts=data.get("accepts"),
         )
+
+
+#: What an output carries when it carries the main input's type unchanged.
+OUTPUT_CARRIES_INPUT = "input"
 
 
 @dataclass
@@ -252,6 +310,10 @@ class CapOutput:
     """Output definition"""
 
     media_urn: str
+    # The label a machine takes this output by. Required, and unique among
+    # the cap's outputs (RULE19). A label only: the output is identified by
+    # ``media_urn``.
+    name: str
     output_description: str
     metadata: Optional[Dict[str, Any]] = None
     is_sequence: bool = False
@@ -260,11 +322,19 @@ class CapOutput:
     # runtime refuses an unbounded emission from an output that did not
     # declare this.
     streaming: bool = False
+    # The cap may end without producing this output. What needs it is then
+    # skipped.
+    optional: bool = False
+    # What the output carries when that is not its own ``media_urn``:
+    # ``OUTPUT_CARRIES_INPUT`` or None. Only an output other than the main
+    # one, of a cap that takes an input, may declare it (RULE22).
+    carries: Optional[str] = None
 
     @classmethod
     def with_full_definition(
         cls,
         media_urn: str,
+        name: str,
         output_description: str,
         metadata: Optional[Any] = None,
         is_sequence: bool = False,
@@ -273,6 +343,7 @@ class CapOutput:
         """Create a CapOutput with all fields set"""
         return cls(
             media_urn=media_urn,
+            name=name,
             output_description=output_description,
             metadata=metadata,
             is_sequence=is_sequence,
@@ -282,6 +353,23 @@ class CapOutput:
     def get_media_urn(self) -> str:
         """Get the media URN"""
         return self.media_urn
+
+    def get_name(self) -> str:
+        """The label a machine selects this output by."""
+        return self.name
+
+    def as_optional(self, optional: bool) -> "CapOutput":
+        """This output, declared optional or not. The output it is made from
+        is not changed."""
+        from dataclasses import replace
+
+        return replace(self, optional=optional)
+
+    def carrying_input(self) -> "CapOutput":
+        """This output, declared to carry the main input's type unchanged."""
+        from dataclasses import replace
+
+        return replace(self, carries=OUTPUT_CARRIES_INPUT)
 
     def get_metadata(self) -> Optional[Any]:
         """Get the metadata"""
@@ -299,29 +387,46 @@ class CapOutput:
         """Convert to JSON-serializable dict"""
         result = {
             "media_urn": self.media_urn,
+            "name": self.name,
             "output_description": self.output_description,
+            # Emitted even when False — see CapArg.to_dict.
+            "optional": self.optional,
         }
+        if self.carries is not None:
+            result["carries"] = self.carries
         if self.metadata is not None:
             result["metadata"] = self.metadata
-        # Emitted even when False — see CapArg.to_dict.
         result["is_sequence"] = self.is_sequence
         result["streaming"] = self.streaming
         return result
 
     #: The definition's keys — what every capdag mirror's CapOutput carries.
-    KNOWN_KEYS = frozenset({"media_urn", "output_description", "metadata", "is_sequence", "streaming"})
+    KNOWN_KEYS = frozenset({
+        "media_urn", "name", "output_description", "optional", "carries", "metadata",
+        "is_sequence", "streaming",
+    })
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CapOutput":
         """Parse from dict, refusing unknown keys for the same reason as
         ``CapArg.from_dict``: an unknown key is a newer fabric."""
         _refuse_unknown_keys(data, cls.KNOWN_KEYS, "cap output")
+        _require_name(data, "cap output")
+        carries = data.get("carries")
+        if carries is not None and carries != OUTPUT_CARRIES_INPUT:
+            raise ValueError(
+                f"cap output carries {carries!r}: an output carries its own type, or "
+                f"{OUTPUT_CARRIES_INPUT!r}"
+            )
         return cls(
             media_urn=data["media_urn"],
+            name=data["name"],
             output_description=data["output_description"],
             metadata=data.get("metadata"),
             is_sequence=data.get("is_sequence", False),
             streaming=data.get("streaming", False),
+            optional=bool(data.get("optional", False)),
+            carries=carries,
         )
 
 
@@ -337,8 +442,8 @@ class Cap:
 
     A cap definition includes:
     - URN with tags (including `op`, `in`, `out`)
-    - Arguments with media URN references
-    - Output with media URN reference
+    - Arguments, each named, with media URN references
+    - Outputs, each named, one of them the main one (the cap URN's `out=`)
     - Optional metadata
     """
 
@@ -355,7 +460,10 @@ class Cap:
         self.cap_description: Optional[str] = None
         self.documentation: Optional[str] = None
         self.args: List[CapArg] = []
-        self.output: Optional[CapOutput] = None
+        # Every output the cap declares. Exactly one is the main one, whose
+        # media URN is the cap URN's ``out=``; a cap whose ``out=`` is
+        # ``media:void`` declares none (RULE21).
+        self.outputs: List[CapOutput] = []
         self.metadata: Dict[str, str] = {}
         self._metadata_json: Optional[Any] = None
         self._registered_by: Optional["RegisteredBy"] = None
@@ -394,7 +502,7 @@ class Cap:
         metadata: Dict[str, str],
         aliases: List[str],
         args: List[CapArg],
-        output: Optional[CapOutput] = None,
+        outputs: Optional[List[CapOutput]] = None,
         metadata_json: Optional[Any] = None,
         documentation: Optional[str] = None,
     ) -> "Cap":
@@ -404,7 +512,7 @@ class Cap:
         cap.documentation = documentation
         cap.metadata = metadata
         cap.args = args
-        cap.output = output
+        cap.outputs = list(outputs or [])
         cap._metadata_json = metadata_json
         return cap
 
@@ -420,13 +528,47 @@ class Cap:
         """Add an argument"""
         self.args.append(arg)
 
-    def get_output(self) -> Optional[CapOutput]:
-        """Get the output definition"""
-        return self.output
+    def get_outputs(self) -> List[CapOutput]:
+        """Every output the cap declares."""
+        return self.outputs
 
-    def set_output(self, output: CapOutput):
-        """Set the output definition"""
-        self.output = output
+    def main_output(self) -> Optional[CapOutput]:
+        """The main output: the one whose media URN is the cap URN's
+        ``out=``, by tagged-URN equivalence. None for a cap whose ``out=`` is
+        ``media:void``, which declares none (RULE21)."""
+        return self.output_by_urn(self.urn.out_spec())
+
+    def output_by_urn(self, media_urn: str) -> Optional[CapOutput]:
+        """The output a media URN identifies, by tagged-URN equivalence."""
+        from capdag.urn.media_urn import MediaUrn
+
+        try:
+            wanted = MediaUrn.from_string(media_urn)
+        except Exception:
+            return None
+        for output in self.outputs:
+            try:
+                if MediaUrn.from_string(output.media_urn).is_equivalent(wanted):
+                    return output
+            except Exception:
+                continue
+        return None
+
+    def output_named(self, name: str) -> Optional[CapOutput]:
+        """The output a machine names (``name = node``)."""
+        return next((output for output in self.outputs if output.name == name), None)
+
+    def arg_named(self, name: str) -> Optional[CapArg]:
+        """The argument a machine names (``name = source``)."""
+        return next((arg for arg in self.args if arg.name == name), None)
+
+    def set_outputs(self, outputs: List[CapOutput]):
+        """Replace the outputs this cap declares."""
+        self.outputs = list(outputs)
+
+    def add_output(self, output: CapOutput):
+        """Declare one more output."""
+        self.outputs.append(output)
 
     def get_aliases(self) -> List[str]:
         """Get the cap's aliases (globally-unique selection names)."""
@@ -542,7 +684,8 @@ class Cap:
         is a chain boundary."""
         main_input = self.main_input_arg()
         input_streams = main_input.streaming if main_input is not None else False
-        output_streams = self.output.streaming if self.output is not None else False
+        main_output = self.main_output()
+        output_streams = main_output.streaming if main_output is not None else False
         return input_streams, output_streams
 
     def sequence_shape(self) -> Tuple[bool, bool]:
@@ -575,7 +718,8 @@ class Cap:
                     "cap registry invariant: every non-void cap declares its main input"
                 )
             input_is_sequence = main_input.is_sequence
-        output_is_sequence = self.output.is_sequence if self.output is not None else False
+        main_output = self.main_output()
+        output_is_sequence = main_output.is_sequence if main_output is not None else False
         return input_is_sequence, output_is_sequence
 
     def needs_foreach(self, source_is_sequence: bool) -> bool:
@@ -613,8 +757,8 @@ class Cap:
         if self.args:
             result["args"] = [arg.to_dict() for arg in self.args]
 
-        if self.output is not None:
-            result["output"] = self.output.to_dict()
+        if self.outputs:
+            result["outputs"] = [output.to_dict() for output in self.outputs]
 
         if self.metadata:
             result["metadata"] = self.metadata
@@ -658,8 +802,8 @@ class Cap:
         if "args" in data:
             cap.args = [CapArg.from_dict(a) for a in data["args"]]
 
-        if "output" in data and data["output"] is not None:
-            cap.output = CapOutput.from_dict(data["output"])
+        if data.get("outputs"):
+            cap.outputs = [CapOutput.from_dict(o) for o in data["outputs"]]
 
         if "metadata" in data:
             cap.metadata = data["metadata"]

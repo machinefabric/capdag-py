@@ -49,7 +49,7 @@ async def test_163_argument_schema_validation_success(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:user-data", True, [PositionSource(0)])
+    arg = CapArg("media:user-data", "arg1", True, [PositionSource(0)])
 
     valid_value = {"name": "John", "age": 30}
     # Should succeed without raising
@@ -78,7 +78,7 @@ async def test_164_argument_schema_validation_failure(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:user-data", True, [PositionSource(0)])
+    arg = CapArg("media:user-data", "arg1", True, [PositionSource(0)])
 
     invalid_value = {"age": 30}  # Missing required "name"
 
@@ -111,7 +111,7 @@ async def test_165_output_schema_validation_success(registry):
         schema=schema,
     ).to_stored())
 
-    output = CapOutput("media:query-result", "Query result")
+    output = CapOutput("media:query-result", "output", "Query result")
 
     valid_value = {"result": "success", "timestamp": "2023-01-01T00:00:00Z"}
     # Should succeed without raising
@@ -138,7 +138,7 @@ async def test_166_skip_validation_without_schema(registry):
         profile_uri="https://capdag.com/schema/string",
     ).to_stored())
 
-    arg = CapArg(MEDIA_STRING, True, [PositionSource(0)])
+    arg = CapArg(MEDIA_STRING, "arg1", True, [PositionSource(0)])
 
     # Should succeed — spec has no schema, so validation is a no-op.
     await validator.validate_argument(arg, "any string value", registry)
@@ -157,7 +157,7 @@ async def test_167_unresolvable_media_urn_fails_hard(registry):
     validator = SchemaValidator()
 
     arg = CapArg(
-        "media:completely-unknown-urn-that-does-not-exist",
+        "media:completely-unknown-urn-that-does-not-exist", "arg1",
         True,
         [PositionSource(0)],
     )
@@ -197,7 +197,7 @@ async def test_6344_nested_object_schema_validation(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:user-event", True, [PositionSource(0)])
+    arg = CapArg("media:user-event", "arg1", True, [PositionSource(0)])
 
     # Valid nested object
     valid_value = {
@@ -246,7 +246,7 @@ async def test_6348_array_schema_validation(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:item-list", True, [PositionSource(0)])
+    arg = CapArg("media:item-list", "arg1", True, [PositionSource(0)])
 
     # Valid array
     valid_value = [
@@ -286,7 +286,7 @@ async def test_6352_type_constraint_validation(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:product", True, [PositionSource(0)])
+    arg = CapArg("media:product", "arg1", True, [PositionSource(0)])
 
     # Valid types
     valid_value = {"count": 5, "price": 9.99, "active": True}
@@ -330,8 +330,8 @@ async def test_6356_validate_multiple_arguments(registry):
     # Build a cap carrying the two positional arguments. The
     # validator drives off cap.get_args() and the registry — there
     # is no separate "arg list" parameter to validate against.
-    arg1 = CapArg("media:name", True, [PositionSource(0)])
-    arg2 = CapArg("media:score", True, [PositionSource(1)])
+    arg1 = CapArg("media:name", "arg1", True, [PositionSource(0)])
+    arg2 = CapArg("media:score", "arg2", True, [PositionSource(1)])
     cap = Cap.with_args(
         CapUrn.from_string('cap:in="media:void";multi-arg-test;out="media:void"'),
         "Multi-arg test",
@@ -372,7 +372,7 @@ async def test_6360_output_validation_with_details(registry):
         schema=schema,
     ).to_stored())
 
-    output = CapOutput("media:response", "Response")
+    output = CapOutput("media:response", "output", "Response")
 
     # Invalid output (wrong enum value)
     invalid_value = {"status": "pending"}
@@ -427,7 +427,7 @@ async def test_6314_complex_nested_schema_validation(registry):
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:user-data;enc=utf-8;record", True, [PositionSource(0)])
+    arg = CapArg("media:user-data;enc=utf-8;record", "arg1", True, [PositionSource(0)])
 
     valid = {
         "user": {

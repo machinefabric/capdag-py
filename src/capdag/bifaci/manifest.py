@@ -80,6 +80,19 @@ def registry_url_from_build_env(raw: Optional[str]) -> Optional[str]:
     return raw
 
 
+class ManifestLoadError(Exception):
+    """Why a manifest another program advertised was not taken: its bytes
+    are not a manifest (``unparseable``), or it parsed and a cap definition
+    in it breaks a definition rule."""
+
+    def __init__(self, unparseable: bool, reason: str):
+        self.unparseable = unparseable
+        self.reason = reason
+        super().__init__(
+            f"not a manifest: {reason}" if unparseable else f"invalid cap definition: {reason}"
+        )
+
+
 class CapManifest:
     """Unified cap manifest for component output
 
@@ -232,11 +245,40 @@ class CapManifest:
         data = json.loads(json_str)
         return cls.from_dict(data)
 
-    def validate(self) -> None:
-        """Validate that this manifest has CAP_IDENTITY.
-        Checks caps within cap_groups.
+    @classmethod
+    def from_advertised(cls, data) -> "CapManifest":
+        """Take a manifest another program advertised: parse it and hold
+        every definition in it to the definition rules, in one step. The two
+        refusals are told apart (``ManifestLoadError.unparseable``): bytes
+        that are no manifest, and a manifest with a definition that breaks a
+        rule."""
+        try:
+            manifest = cls.from_dict(json.loads(data))
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            raise ManifestLoadError(True, str(error)) from error
+        try:
+            manifest.validate_definitions()
+        except ValueError as error:
+            raise ManifestLoadError(False, str(error)) from error
+        return manifest
 
-        Raises ValueError if identity cap is missing.
+    def validate_definitions(self) -> None:
+        """Hold every definition in the manifest to the definition rules
+        (RULE1-RULE22). Raises ValueError naming the cap and the rule."""
+        from capdag.cap.validation import ValidationError, validate_cap_definition
+
+        for cap in self.all_caps():
+            try:
+                validate_cap_definition(cap)
+            except ValidationError as error:
+                raise ValueError(str(error)) from error
+
+    def validate(self) -> None:
+        """Validate this manifest: it has CAP_IDENTITY, and every definition
+        in it, in any group, passes the definition rules. Identity alone
+        being present is not enough.
+
+        Raises ValueError naming what is wrong.
         """
         from capdag.urn.cap_urn import CapUrn
         from capdag.standard.caps import CAP_IDENTITY
@@ -245,29 +287,9 @@ class CapManifest:
         has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
         if not has_identity:
             raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
+        self.validate_definitions()
 
         # Pool declarations must resolve against this manifest's caps —
         # a dangling reference is a cartridge-author bug, surfaced here.
         if not self.pool_declarations.is_empty():
             self.pool_declarations.validated([cap.urn for cap in self.all_caps()])
-
-    def ensure_identity(self) -> "CapManifest":
-        """Ensure CAP_IDENTITY is present in this manifest. Adds it if missing.
-
-        Returns self for method chaining.
-        """
-        from capdag.urn.cap_urn import CapUrn
-        from capdag.standard.caps import CAP_IDENTITY
-
-        identity_urn = CapUrn.from_string(CAP_IDENTITY)
-        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
-
-        if not has_identity:
-            identity_cap = Cap(
-                urn=identity_urn,
-                title="Identity",
-                command="identity"
-            )
-            self.cap_groups.insert(0, default_group([identity_cap]))
-
-        return self

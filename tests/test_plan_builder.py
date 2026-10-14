@@ -34,12 +34,12 @@ def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
     cap = Cap.with_description(urn, title, "test-command", f"{title} cap")
     cap.add_arg(
         CapArg(
-            media_urn=str(urn.in_spec()),
+            media_urn=str(urn.in_spec()), name="input",
             required=True,
             sources=[StdinSource(str(urn.in_spec()))],
         )
     )
-    cap.set_output(CapOutput(str(urn.out_spec()), f"{title} output"))
+    cap.add_output(CapOutput(str(urn.out_spec()), "output", f"{title} output"))
     return cap
 
 
@@ -356,7 +356,7 @@ def _rewrite_cap() -> Cap:
     cap = Cap.with_description(urn, "Rewrite", "rewrite", "Rewrite text")
     cap.add_arg(
         CapArg(
-            media_urn="media:enc=utf-8;file-path",
+            media_urn="media:enc=utf-8;file-path", name="input",
             required=True,
             sources=[StdinSource("media:ext=txt;text")],
             arg_description="Text to rewrite",
@@ -364,14 +364,14 @@ def _rewrite_cap() -> Cap:
     )
     cap.add_arg(
         CapArg(
-            media_urn="media:numeric;temperature",
+            media_urn="media:numeric;temperature", name="arg1",
             required=False,
             sources=[CliFlagSource("--temperature")],
             arg_description="Sampling temperature",
             default_value=0.7,
         )
     )
-    cap.set_output(CapOutput("media:ext=txt;text", "Rewritten text"))
+    cap.add_output(CapOutput("media:ext=txt;text", "output", "Rewritten text"))
     return cap
 
 

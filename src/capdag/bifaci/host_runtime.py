@@ -1581,26 +1581,25 @@ def _installed_cartridge_record_from_manifest(
     tuple a registered install carries), with the sha256 taken over the
     manifest bytes (the only stable artefact available without a file on
     disk). Mirrors the reference ``installed_cartridge_record_from_manifest``.
-    Returns ``None`` if the manifest does not parse (the caller still
-    attaches; the record is honestly absent).
+    Returns ``None`` if the manifest does not parse, or declares a cap
+    definition that breaks a definition rule (the caller still attaches; the
+    record is honestly absent): an identity is not made out of a manifest
+    nobody could take.
     """
+    from capdag.bifaci.manifest import CapManifest, ManifestLoadError
+
     if not manifest:
         return None
     try:
-        parsed = json.loads(manifest)
-    except (ValueError, TypeError):
-        return None
-    name = parsed.get("name")
-    version = parsed.get("version")
-    channel = parsed.get("channel")
-    if not isinstance(name, str) or not isinstance(version, str) or not isinstance(channel, str):
+        parsed = CapManifest.from_advertised(manifest)
+    except ManifestLoadError:
         return None
     sha256 = hashlib.sha256(manifest).hexdigest()
     return InstalledCartridgeRecord(
-        registry_url=parsed.get("registry_url"),
-        id=name,
-        channel=channel,
-        version=version,
+        registry_url=parsed.registry_url,
+        id=parsed.name,
+        channel=parsed.channel,
+        version=parsed.version,
         sha256=sha256,
         # Attached ⇒ HELLO + identity verification already succeeded.
         lifecycle=CartridgeLifecycle.OPERATIONAL,
@@ -1636,6 +1635,20 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
 
     if not has_identity:
         raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
+
+    # The definitions the host is about to route by are held to the rules
+    # here, not taken on the cartridge's word.
+    from capdag.cap.definition import Cap
+    from capdag.cap.validation import ValidationError, validate_cap_definition
+
+    for group in cap_groups:
+        for declared in group.get("caps", []):
+            try:
+                validate_cap_definition(Cap.from_dict(declared))
+            except (ValidationError, ValueError, KeyError, TypeError) as error:
+                raise ValueError(
+                    f"Cartridge manifest declares an invalid cap definition: {error}"
+                ) from error
 
     return cap_groups
 

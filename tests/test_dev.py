@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.definitions import IDENTITY_CAP_JSON, complete_cap_json
+
 from capdag.bifaci import launch
 from capdag.bifaci.manifest import CapManifest
 from capdag.cap.definition import Cap
@@ -21,6 +23,7 @@ from capdag.dev import (
     STUB_CONTRACT_VERSION,
     AlreadyExistsError,
     AmbiguousEntryError,
+    DevError,
     FabricConflictError,
     InvalidNameError,
     NotDevError,
@@ -108,9 +111,16 @@ def test_7155_scaffold_guards(tmp_path):
 
 
 def _write_stub_entry(directory: Path, name: str, alias: str, cap_urn: str) -> Path:
+    """Write a cartridge entry whose manifest declares the identity cap and a
+    complete definition of ``cap_urn``."""
+    return _write_stub_entry_with(directory, name, complete_cap_json(cap_urn, name, alias))
+
+
+def _write_stub_entry_with(directory: Path, name: str, cap_json: str) -> Path:
     """Write a cartridge entry that prints a canned CapManifest on `manifest`,
     exercising the capdag-side staging/parsing/resolution without any cartridge
-    runtime.
+    runtime. The manifest declares the identity cap and ``cap_json``, the
+    definition of the project's own cap exactly as given.
 
     It is written at the PYTHON entry because that is the one language whose
     entry is a source file with no build step, so a stand-in is discovered by
@@ -126,12 +136,10 @@ def _write_stub_entry(directory: Path, name: str, alias: str, cap_urn: str) -> P
     """
     python = language("python")
     assert python is not None, "the contract must cover python"
-    urn_json = cap_urn.replace('"', '\\"')
     manifest = (
         f'{{"name":"{name}","version":"0.1.0","channel":"nightly","registry_url":null,'
         f'"description":"stub","cap_groups":[{{"name":"default","caps":['
-        f'{{"urn":"cap:effect=none","title":"Identity","aliases":["identity"]}},'
-        f'{{"urn":"{urn_json}","title":"{name}","aliases":["{alias}"]}}]}}]}}'
+        f'{IDENTITY_CAP_JSON},{cap_json}]}}]}}'
     )
     # `json.dumps` of the text, so the manifest becomes a Python string
     # literal with every quote and backslash already escaped.
@@ -174,6 +182,41 @@ def test_7156_dev_install_and_find_by_alias(tmp_path):
     cap, resolved_dir = found
     assert resolved_dir == version_dir
     assert "greet" in cap.get_aliases()
+
+
+# TEST12716: a manifest a cartridge entry prints is held to the definition
+# rules when it is read. One that parses and declares a cap breaking a rule
+# is refused as an invalid manifest, naming the entry, the cap and the
+# rule — not reported as unparseable, and never staged.
+def test_12716_an_entry_manifest_with_an_invalid_definition_is_refused(tmp_path):
+    project = tmp_path / "proj"
+    project.mkdir()
+    # `out=` states a greeting and the definition declares no output.
+    bare = json.dumps({
+        "urn": 'cap:greet;in="media:void";out="media:enc=utf-8;greeting"',
+        "title": "Greeter",
+        "aliases": ["greet"],
+    })
+    _write_stub_entry_with(project, "greeter", bare)
+
+    entry = project_entry(project)
+    with pytest.raises(DevError) as exc_info:
+        read_entry_manifest(entry)
+    text = str(exc_info.value)
+    for part in ["invalid cap definition", "RULE21", "greet", str(entry)]:
+        assert part in text, f"the refusal must say {part!r}: {text}"
+    assert "cannot parse" not in text, "an invalid definition is not an unparseable manifest"
+
+    # And the other refusal stays what it is: output that is no manifest at
+    # all is reported as unparseable, not as a definition breaking a rule.
+    garbled = tmp_path / "garbled"
+    garbled.mkdir()
+    _write_stub_entry_with(garbled, "greeter", '{"urn":')
+    with pytest.raises(DevError) as exc_info:
+        read_entry_manifest(project_entry(garbled))
+    text = str(exc_info.value)
+    assert "cannot parse" in text
+    assert "invalid cap definition" not in text
 
 
 # TEST7157: dev-install refuses a PUBLISHED manifest. `registry_url` non-null

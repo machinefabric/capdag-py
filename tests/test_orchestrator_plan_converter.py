@@ -18,12 +18,12 @@ def _build_cap(cap_urn_str: str, title: str) -> Cap:
     cap = Cap.with_description(urn, title, title.lower().replace(" ", "_"), f"{title} cap")
     cap.add_arg(
         CapArg(
-            media_urn=in_media,
+            media_urn=in_media, name="input",
             required=True,
             sources=[StdinSource(in_media)],
         )
     )
-    cap.set_output(CapOutput(out_media, f"{title} output"))
+    cap.add_output(CapOutput(out_media, "output", f"{title} output"))
     return cap
 
 

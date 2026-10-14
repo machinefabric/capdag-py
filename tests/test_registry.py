@@ -76,15 +76,17 @@ def test_6382_parse_registry_json():
         "args": [
             {
                 "media_urn": "media:listing-id",
+                "name": "listing_id",
                 "required": true,
                 "sources": [{"cli_flag": "--listing-id"}],
                 "arg_description": "ID of the listing to analyze"
             }
         ],
-        "output": {
+        "outputs": [{
             "media_urn": "media:task;id",
+            "name": "output",
             "output_description": "Created task information"
-        }
+        }]
     }'''
 
     cap = Cap.from_dict(json.loads(json_str))
@@ -105,6 +107,7 @@ def test_138_parse_registry_json_with_stdin():
         "args": [
             {
                 "media_urn": "media:document;ext=pdf",
+                "name": "document",
                 "required": true,
                 "sources": [{"stdin": "media:document;ext=pdf"}]
             }
@@ -458,3 +461,115 @@ def test_1893_cache_root_is_namespaced_per_registry_origin():
     assert staging.parent.name == "capdag", (
         "the per-origin slug must live under the capdag cache directory"
     )
+
+
+# TEST12714: a definition a registry serves is held to the definition rules
+# before it is cached or returned. One that does not parse is a parse error;
+# one that parses and breaks a rule is a validation error naming the cap and
+# the rule.
+def test_12714_a_served_definition_is_held_to_the_definition_rules():
+    from capdag.fabric.registry import ParseError, ValidationError, checked_cap_definition
+
+    cap_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"'
+
+    def definition(args, outputs) -> bytes:
+        return json.dumps({
+            "urn": cap_urn, "aliases": ["disbind"], "title": "Disbind PDF",
+            "args": args, "outputs": outputs,
+        }).encode("utf-8")
+
+    def main(stdin: str) -> dict:
+        return {
+            "media_urn": "media:enc=utf-8;file-path", "name": "document", "required": True,
+            "sources": [{"stdin": stdin}],
+        }
+
+    page = {"media_urn": "media:enc=utf-8;page", "name": "pages", "output_description": "Pages"}
+
+    cap = checked_cap_definition(definition([main("media:document;ext=pdf")], [page]), cap_urn)
+    assert cap.main_output() is not None
+    assert cap.main_output().name == "pages"
+
+    with pytest.raises(ParseError):
+        checked_cap_definition(b"{not json", cap_urn)
+
+    # The cap URN says it produces pages, and the definition declares no such output.
+    with pytest.raises(ValidationError) as exc_info:
+        checked_cap_definition(definition([main("media:document;ext=pdf")], []), cap_urn)
+    assert "RULE21" in str(exc_info.value)
+    assert "disbind" in str(exc_info.value)
+
+    # The main input is declared under a type that is not the cap's `in=`.
+    with pytest.raises(ValidationError) as exc_info:
+        checked_cap_definition(definition([main("media:document")], [page]), cap_urn)
+    assert "RULE15" in str(exc_info.value)
+
+
+# TEST12715: the cache holds only checked definitions, so one on disk that
+# breaks a rule was written under other rules: loading drops its file and
+# keeps the rest, and the definition is fetched anew when next asked for.
+def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
+    from capdag.cap.definition import CapOutput
+    from capdag.fabric.registry import CacheEntry, FabricRegistry
+
+    registry = FabricRegistry.new_for_test(tmp_path)
+
+    def cap_of(op: str) -> Cap:
+        cap = Cap(CapUrn.from_string(f'cap:in="media:void";{op};out="media:record"'), op, [op])
+        cap.version = 3
+        return cap
+
+    kept = cap_of("kept")
+    kept.add_output(CapOutput("media:record", "record", "The record"))
+    # The same shape without the output its URN states (RULE21).
+    stale = cap_of("stale")
+
+    kept_file = tmp_path / "caps" / "aa" / "3.json"
+    stale_file = tmp_path / "caps" / "bb" / "3.json"
+    for file, cap in ((kept_file, kept), (stale_file, stale)):
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(json.dumps(CacheEntry(cap, 0, 0).to_dict()), encoding="utf-8")
+
+    registry._load_all_cached_caps()
+    assert registry.get_cached_cap(kept.urn_string()) is not None, "the valid definition is loaded"
+    assert registry.get_cached_cap(stale.urn_string()) is None, "the one that breaks a rule is not"
+    assert kept_file.is_file()
+    assert not stale_file.exists(), "the stale entry's file is removed"
+
+
+# TEST12816: fetching a cap requires the definition of every media URN a
+# machine can meet through it: its in= and out=, every arg's own URN and
+# the type it accepts, and every output's URN — not the main output's
+# alone. Each once; the wildcard names no definition; a URN that does not
+# parse fails the footprint rather than being left out of it.
+def test_12816_a_caps_media_footprint_covers_every_output_and_accepted_type(tmp_path):
+    from capdag.cap.definition import CapOutput, CliFlagSource
+    from capdag.fabric.registry import FabricRegistry, ParseError, normalize_media_urn
+
+    registry = FabricRegistry.new_for_test(tmp_path)
+    cap = Cap(
+        CapUrn.from_string('cap:in="media:document;ext=pdf";footprint;out="media:enc=utf-8"'),
+        "Footprint", ["footprint"],
+    )
+    cap.add_arg(CapArg("media:enc=utf-8;file-path", "document", True,
+                       [StdinSource("media:document;ext=pdf")]))
+    cap.add_arg(CapArg("media:enc=utf-8;second", "second", False,
+                       [CliFlagSource("--second")]).accepting("media:enc=utf-8;accepted"))
+    cap.add_arg(CapArg("media:", "anything", False, [CliFlagSource("--anything")]))
+    cap.add_output(CapOutput("media:enc=utf-8", "text", "text"))
+    cap.add_output(CapOutput("media:enc=utf-8;rest", "rest", "rest"))
+
+    expected = sorted(normalize_media_urn(urn) for urn in [
+        "media:document;ext=pdf",
+        "media:enc=utf-8",
+        "media:enc=utf-8;file-path",
+        "media:enc=utf-8;second",
+        "media:enc=utf-8;accepted",
+        "media:enc=utf-8;rest",
+    ])
+    got = registry._collect_referenced_media_urns(cap)
+    assert sorted(got) == expected, "each once, the wildcard left out"
+
+    cap.add_output(CapOutput("not a urn", "broken", "broken"))
+    with pytest.raises(ParseError):
+        registry._collect_referenced_media_urns(cap)

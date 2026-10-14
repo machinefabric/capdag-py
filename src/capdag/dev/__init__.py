@@ -40,7 +40,7 @@ from capdag.bifaci.cartridge_json import (
 )
 from capdag.bifaci import launch
 from capdag.bifaci.cartridge_slug import DEV_SLUG
-from capdag.bifaci.manifest import CapManifest
+from capdag.bifaci.manifest import CapManifest, ManifestLoadError
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn
 
@@ -334,10 +334,16 @@ def read_entry_manifest(entry: Path) -> CapManifest:
             f"its manifest: {stderr}"
         )
     try:
-        return CapManifest.from_dict(json.loads(completed.stdout))
-    except (ValueError, KeyError, TypeError) as error:
+        return CapManifest.from_advertised(completed.stdout)
+    except ManifestLoadError as error:
+        if error.unparseable:
+            raise DevError(
+                f"the cartridge entry '{entry}' printed a manifest capdag cannot parse: "
+                f"{error.reason}"
+            ) from error
         raise DevError(
-            f"the cartridge entry '{entry}' printed a manifest capdag cannot parse: {error}"
+            f"the cartridge entry '{entry}' printed a manifest with an invalid cap "
+            f"definition: {error.reason}"
         ) from error
 
 
