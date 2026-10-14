@@ -250,3 +250,16 @@ def test_12713_built_in_definitions_pass_the_definition_rules():
     # Discard's `out=` is void: it declares none.
     assert discard.get_outputs() == []
     assert discard.arg_named("input") is not None
+    # Each is selected by the alias every implementation gives it, and a
+    # cap's aliases are a list: a string in their place is refused, not taken
+    # for one.
+    assert [cap.aliases for cap in [identity, discard, lookup_cap_fabric_cap(), lookup_media_def_fabric_cap()]] == [
+        ["identity"], ["discard"], ["lookup-cap-fabric"], ["lookup-media-def-fabric"],
+    ]
+    assert identity.to_dict()["aliases"] == ["identity"]
+    from capdag.cap.definition import Cap
+
+    with pytest.raises(TypeError):
+        Cap(identity.urn, "Identity", "identity")
+    with pytest.raises(TypeError):
+        Cap(identity.urn, "Identity", ["identity", 7])

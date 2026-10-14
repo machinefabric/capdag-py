@@ -1306,7 +1306,7 @@ def test_132_add_master_dynamic():
         return switch_pair
 
     def make_const_host(host_id: str, cap_urn: str, value: str):
-        cap = Cap(CapUrn.from_string(cap_urn), value, "")
+        cap = Cap(CapUrn.from_string(cap_urn), value, ["const"])
         return InProcessCartridgeHost(
             InProcessHostIdentity.for_test(host_id),
             [(value, [cap], ConstHandler(value))],

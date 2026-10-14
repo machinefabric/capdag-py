@@ -448,6 +448,13 @@ class Cap:
     """
 
     def __init__(self, urn: CapUrn, title: str, aliases: List[str]):
+        # A string is a sequence too: given as the aliases it would be taken
+        # for a list of one-letter names here and written out as a string in
+        # the manifest, where every other implementation writes a list.
+        if not isinstance(aliases, list) or not all(isinstance(alias, str) for alias in aliases):
+            raise TypeError(
+                f"a cap's aliases are a list of names, not {aliases!r}"
+            )
         self.urn = urn
         self.version: int = 0
         self.title = title

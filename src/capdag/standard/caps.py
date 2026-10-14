@@ -128,7 +128,7 @@ def identity_cap() -> Cap:
     cap = Cap.with_description(
         urn,
         "Identity",
-        "identity",
+        ["identity"],
         "The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.",
     )
     cap.add_arg(CapArg(
@@ -147,7 +147,7 @@ def discard_cap() -> Cap:
     cap = Cap.with_description(
         urn,
         "Discard",
-        "discard",
+        ["discard"],
         "The terminal morphism. Consumes input and produces void output.",
     )
     cap.add_arg(CapArg(
@@ -686,7 +686,7 @@ def lookup_cap_fabric_cap() -> Cap:
     cap = Cap.with_description(
         urn,
         "Lookup Cap (Fabric)",
-        "fetchcartridge",
+        ["lookup-cap-fabric"],
         "Resolve a canonical cap URN to its full flattened cap definition via the fabric registry.",
     )
     cap.add_arg(CapArg(
@@ -719,7 +719,7 @@ def lookup_media_def_fabric_cap() -> Cap:
     cap = Cap.with_description(
         urn,
         "Lookup Media Definition (Fabric)",
-        "fetchcartridge",
+        ["lookup-media-def-fabric"],
         "Resolve a canonical media URN to its full flattened media definition via the fabric registry.",
     )
     cap.add_arg(CapArg(

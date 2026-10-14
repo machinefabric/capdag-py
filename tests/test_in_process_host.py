@@ -35,7 +35,7 @@ from capdag.standard.caps import CAP_IDENTITY
 
 
 def make_test_cap(urn_str: str) -> Cap:
-    return Cap(CapUrn.from_string(urn_str), "test", "")
+    return Cap(CapUrn.from_string(urn_str), "test", ["test"])
 
 
 def cbor_bytes_payload(data: bytes) -> bytes:

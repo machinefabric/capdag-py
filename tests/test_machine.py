@@ -68,7 +68,7 @@ def _cap_urn(urn_str: str) -> CapUrn:
 def _build_cap(cap_urn_str: str, title: str, stdin_urns: list, slot_urns: list, out_urn: str) -> Cap:
     """Build a Cap with one stdin arg per (stdin_urn, slot_urn) pair."""
     urn = CapUrn.from_string(cap_urn_str)
-    cap = Cap.with_description(urn, title, title.lower(), f"{title} cap")
+    cap = Cap.with_description(urn, title, [title.lower()], f"{title} cap")
     for stdin_u, slot_u in zip(stdin_urns, slot_urns):
         cap.add_arg(CapArg(
             media_urn=slot_u, name="input",

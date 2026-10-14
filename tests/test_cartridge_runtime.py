@@ -127,7 +127,7 @@ def create_test_cap(urn_str: str, title: str, command: str, args: list):
     from capdag.urn.cap_urn import CapUrn
     from capdag.cap.definition import Cap
     urn = CapUrn.from_string(urn_str)
-    cap = Cap(urn, title, command)
+    cap = Cap(urn, title, [command])
     cap.args = args
     return cap
 

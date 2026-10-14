@@ -35,7 +35,7 @@ def _make_test_cap(
     output_is_sequence: bool = False,
 ) -> Cap:
     urn = CapUrn.from_string(f'cap:{op};in="{in_spec}";out="{out_spec}"')
-    cap = Cap.with_description(urn, title, op, f"{title} cap")
+    cap = Cap.with_description(urn, title, [op], f"{title} cap")
     cap.add_arg(
         CapArg(
             media_urn=in_spec, name="input",

@@ -200,17 +200,17 @@ def test_591_is_more_specific_than():
     general = Cap(
         CapUrn.from_string(_test_urn("transform")),
         "General",
-        "cmd",
+        ["cmd"],
     )
     specific = Cap(
         CapUrn.from_string(_test_urn("transform;format=json")),
         "Specific",
-        "cmd",
+        ["cmd"],
     )
     unrelated = Cap(
         CapUrn.from_string(_test_urn("convert")),
         "Unrelated",
-        "cmd",
+        ["cmd"],
     )
 
     # Specific is more specific than general for the general request

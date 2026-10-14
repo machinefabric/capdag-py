@@ -335,7 +335,7 @@ async def test_6356_validate_multiple_arguments(registry):
     cap = Cap.with_args(
         CapUrn.from_string('cap:in="media:void";multi-arg-test;out="media:void"'),
         "Multi-arg test",
-        "test",
+        ["test"],
         [arg1, arg2],
     )
 

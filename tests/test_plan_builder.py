@@ -31,7 +31,7 @@ from capdag.urn.media_urn import MediaUrn
 
 def _make_test_cap(op: str, in_spec: str, out_spec: str, title: str) -> Cap:
     urn = CapUrn.from_string(f'cap:{op};in="{in_spec}";out="{out_spec}"')
-    cap = Cap.with_description(urn, title, "test-command", f"{title} cap")
+    cap = Cap.with_description(urn, title, ["test-command"], f"{title} cap")
     cap.add_arg(
         CapArg(
             media_urn=str(urn.in_spec()), name="input",
@@ -353,7 +353,7 @@ def test_1019_validation_to_json_none():
 def _rewrite_cap() -> Cap:
     """A cap with one stdin main input and one defaulted option."""
     urn = CapUrn.from_string('cap:rewrite;in="media:ext=txt;text";out="media:ext=txt;text"')
-    cap = Cap.with_description(urn, "Rewrite", "rewrite", "Rewrite text")
+    cap = Cap.with_description(urn, "Rewrite", ["rewrite"], "Rewrite text")
     cap.add_arg(
         CapArg(
             media_urn="media:enc=utf-8;file-path", name="input",
