@@ -917,3 +917,26 @@ def test_12848_a_strand_through_another_output_knits_into_a_machine():
             _strand([_text_step(split, wrong, wrong)]).knit(registry)
         assert refused.value.output_urn == wrong
         assert refused.value.declared == ["media:enc=utf-8;rest", "media:enc=utf-8;part", "media:enc=utf-8;same"]
+
+
+# TEST12877: a sink is never a step of a path. A discard takes anything and produces nothing; with it in the graph, text reached `media:void`, which conforms to `media:`, and went on into a cap that takes anything — a path to the target through a value that never exists.
+def test_12877_a_sink_is_never_a_step_of_a_path():
+    from capdag.standard.caps import discard_cap
+
+    discard = discard_cap()
+    render = _make_test_cap("media:enc=utf-8;ext=txt", "media:ext=png;image", "render", "Render")
+    thumbnail = _make_test_cap("media:", "media:ext=png;image", "thumbnail", "Thumbnail")
+    graph = LiveCapFab()
+    graph.add_cap(discard)
+    graph.add_cap(render)
+    graph.add_cap(thumbnail)
+    assert graph.stats()[1] == 2, "the sink adds no edge"
+
+    paths = graph.find_paths_to_exact_target(
+        _media("media:enc=utf-8;ext=txt"), _media("media:ext=png;image"), False, 4, 50
+    )
+    titles = [[step.title() for step in path.steps] for path in paths]
+    assert len(paths) == 2, f"render, and thumbnail on the text itself: {titles}"
+    for path in paths:
+        assert len(path.steps) == 1, titles
+        assert not path.steps[0].to_spec.is_void(), titles

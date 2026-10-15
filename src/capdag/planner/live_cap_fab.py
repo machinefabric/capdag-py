@@ -465,6 +465,14 @@ class LiveCapFab:
         except Exception:
             return
 
+        # A sink (`out=media:void`) produces nothing, so a path cannot go on
+        # through it: it has no main output, and declares no other. Every type
+        # conforms to `media:`, so an edge to `media:void` would let a path
+        # continue from a value that never exists into any cap that takes
+        # anything.
+        if to_spec.is_void():
+            return
+
         input_is_sequence, output_is_sequence = cap.sequence_shape()
         self._push_cap_edge(cap, from_spec, to_spec, input_is_sequence, output_is_sequence, None)
 
