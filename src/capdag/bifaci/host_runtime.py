@@ -498,6 +498,11 @@ class CartridgeHost:
 
     def __init__(self):
         self._cartridges: List[_ManagedCartridge] = []
+        # What this host allows its cartridges to do (12.2 §Policy): given by
+        # the relay's POLICY frames, or by set_policy for a host its builder
+        # tells directly. Sent to each cartridge before anything is routed to
+        # it; None until the first one, and no routed request is served then.
+        self._policy = None
         self._cap_table: List[_CapTableEntry] = []
         self._request_routing: dict = {}  # req_id_str → _RoutingEntry
         self._peer_requests: dict = {}  # req_id_str → True (cartridge-initiated)
@@ -695,6 +700,8 @@ class CartridgeHost:
             )
 
             self._cartridges.append(cartridge)
+            # Given its policy before anything is routed to it.
+            self._give_policy_locked(cartridge_idx)
 
             for urn in cartridge.cap_urns():
                 self._cap_table.append(_CapTableEntry(cap_urn=urn, cartridge_idx=cartridge_idx))
@@ -866,6 +873,30 @@ class CartridgeHost:
             except queue.Empty:
                 pass
 
+    def set_policy(self, policy) -> None:
+        """Give this host its policy (12.2 §Policy) and pass it to every
+        cartridge it has connected. A host behind a relay is given it by the
+        switch's POLICY frames instead; this is for the builder of a host that
+        is told directly, before or instead of a relay."""
+        with self._lock:
+            self._set_policy_locked(policy)
+
+    def _set_policy_locked(self, policy) -> None:
+        self._policy = policy
+        for idx in range(len(self._cartridges)):
+            self._give_policy_locked(idx)
+
+    def _give_policy_locked(self, cartridge_idx: int) -> None:
+        """Send the current policy to one connected cartridge. Nothing to
+        send before the host has one; a cartridge not connected has no writer
+        and is given it when it connects."""
+        if self._policy is None:
+            return
+        cartridge = self._cartridges[cartridge_idx]
+        if cartridge.writer_queue is None:
+            return
+        cartridge.writer_queue.put(Frame.policy(self._policy))
+
     def _handle_relay_frame(self, frame: Frame, relay_writer: FrameWriter) -> None:
         """Route an incoming frame from the relay to the correct cartridge."""
         with self._lock:
@@ -873,6 +904,19 @@ class CartridgeHost:
 
             if frame.frame_type == FrameType.REQ:
                 cap_urn = frame.cap or ""
+
+                # Nothing is routed before the host has a policy to give the
+                # cartridge first (12.2 §Policy). The switch sends one before
+                # anything else, so this is a peer that skipped it.
+                if self._policy is None:
+                    err_frame = Frame.err(
+                        frame.id, "PROTOCOL_VIOLATION", AttributionClass.INTERNAL,
+                        f"request for '{cap_urn}' reached a host that has not been given a policy; "
+                        "the switch sends Policy before it routes anything",
+                    )
+                    err_frame.routing_id = frame.routing_id
+                    relay_writer.write(err_frame)
+                    return
 
                 cartridge_idx = self._find_cartridge_for_cap_locked(cap_urn)
                 if cartridge_idx is None:
@@ -936,6 +980,15 @@ class CartridgeHost:
             elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
                 raise Protocol(f"relay frame {frame.frame_type} reached cartridge host")
 
+            elif frame.frame_type == FrameType.POLICY:
+                # The switch's policy: keep it and pass it to every connected
+                # cartridge; one connected later is given it then.
+                try:
+                    policy = frame.host_policy()
+                except ValueError as e:
+                    raise Protocol(str(e)) from None
+                self._set_policy_locked(policy)
+
     def _handle_cartridge_frame(self, cartridge_idx: int, frame: Frame, relay_writer: FrameWriter) -> None:
         """Process a frame from a cartridge."""
         with self._lock:
@@ -979,6 +1032,12 @@ class CartridgeHost:
             elif frame.frame_type == FrameType.HELLO:
                 # HELLO post-handshake — protocol violation, ignore
                 return
+
+            elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE, FrameType.POLICY):
+                raise Protocol(
+                    f"cartridge {cartridge_idx} sent {frame.frame_type.name} — cartridges must "
+                    "never send relay frames or a policy"
+                )
 
             elif frame.frame_type == FrameType.REQ:
                 # Cartridge is invoking a peer cap (sending request to engine)
@@ -1195,6 +1254,9 @@ class CartridgeHost:
 
         writer_q = queue.Queue(maxsize=64)
         cartridge.writer_queue = writer_q
+        # Given before the request it was spawned for is forwarded: the
+        # writer queue is ordered, so the policy precedes it.
+        self._give_policy_locked(cartridge_idx)
 
         self._update_cap_table()
         self._rebuild_capabilities()

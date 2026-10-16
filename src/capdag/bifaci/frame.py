@@ -54,12 +54,12 @@ from enum import Enum, IntEnum
 from dataclasses import dataclass
 
 
-# Protocol version 5: a cap may answer with one stream per declared output.
-# The stream of its main output names none; the stream of another output
-# names the output it is (key 21). It keeps explicit handler capacity, strict
-# diagnostic attribution, credit-based flow control and terminal metadata.
-# Every other version is rejected during handshake.
-PROTOCOL_VERSION = 5
+# Protocol version 6: the host tells its cartridges what they may do with a
+# POLICY frame (15), sent after the handshake and on every change. It keeps
+# version 5's streams per declared output (key 21), explicit handler
+# capacity, strict diagnostic attribution, credit-based flow control and
+# terminal metadata. Every other version is rejected during handshake.
+PROTOCOL_VERSION = 6
 
 # Default maximum frame size (3.5 MB) - safe margin below 3.75MB limit
 # Larger payloads automatically use CHUNK frames
@@ -88,6 +88,8 @@ class FrameType(IntEnum):
     CLOSE_STREAM = 14  # Close a request's live input stream(s) — the tap-off; not a cancel.
                        # Non-flow: bypasses seq assignment and reorder buffers, and is
                        # forwarded end-to-end by intermediaries (never originated or absorbed).
+    POLICY = 15        # What the host allows its cartridges to do now (12.2 §Policy): host →
+                       # cartridge only, after the handshake and on every change. Non-flow, id 0.
 
     @classmethod
     def from_u8(cls, v: int) -> Optional["FrameType"]:
@@ -135,6 +137,7 @@ class FrameType(IntEnum):
             cls.CANCEL,
             cls.CREDIT,
             cls.CLOSE_STREAM,
+            cls.POLICY,
         )
 
     def as_str(self) -> str:
@@ -167,6 +170,7 @@ def _model_frame_types() -> dict:
             FrameType.CANCEL: _formal.FrameTypeCancel(),
             FrameType.CREDIT: _formal.FrameTypeCredit(),
             FrameType.CLOSE_STREAM: _formal.FrameTypeCloseStream(),
+            FrameType.POLICY: _formal.FrameTypePolicy(),
         }
     return _MODEL_FRAME_TYPES
 
@@ -804,6 +808,36 @@ class Frame:
         if meta:
             frame.meta = meta
         return frame
+
+    @classmethod
+    def policy(cls, policy) -> "Frame":
+        """Create a POLICY frame: what the host allows its cartridges to do
+        now (12.2 §Policy). (matches Rust Frame::policy)"""
+        from capdag.bifaci.policy import POLICY_META_NETWORK
+
+        frame = cls.new(FrameType.POLICY, MessageId(0))
+        frame.meta = {POLICY_META_NETWORK: policy.network.as_str()}
+        return frame
+
+    def host_policy(self):
+        """The policy a POLICY frame carries: None for any other frame
+        type. A Policy frame whose meta.network is missing or names no policy
+        raises ValueError; decode refuses such a frame, so a decoded Policy
+        always reads. (matches Rust Frame::host_policy)"""
+        from capdag.bifaci.policy import POLICY_META_NETWORK, HostPolicy, NetworkPolicy
+
+        if self.frame_type != FrameType.POLICY:
+            return None
+        meta = self.meta or {}
+        if POLICY_META_NETWORK not in meta:
+            raise ValueError(f"POLICY frame missing required meta.{POLICY_META_NETWORK}")
+        word = meta[POLICY_META_NETWORK]
+        if not isinstance(word, str):
+            raise ValueError(f"POLICY frame's meta.{POLICY_META_NETWORK} is not text: {word!r}")
+        network = NetworkPolicy.from_wire(word)
+        if network is None:
+            raise ValueError(f"POLICY frame's meta.{POLICY_META_NETWORK} names no network policy: '{word}'")
+        return HostPolicy(network)
 
     @classmethod
     def close_stream(cls, target_rid: MessageId, stream_id: Optional[str] = None) -> "Frame":

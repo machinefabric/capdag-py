@@ -113,6 +113,16 @@ def read_skipping_notify(reader):
         return frame
 
 
+def _policed_host():
+    """A host given its policy (`full`) before anything is attached, as a host
+    behind a switch is before the switch routes to it."""
+    from capdag.bifaci.policy import HostPolicy, NetworkPolicy
+
+    host = CartridgeHost()
+    host.set_policy(HostPolicy(NetworkPolicy.FULL))
+    return host
+
+
 def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=None):
     """Run a simulated cartridge: handshake + optional handler."""
     reader = FrameReader(cartridge_read)
@@ -140,6 +150,15 @@ def simulate_cartridge(cartridge_read, cartridge_write, manifest_str, handler=No
         writer.write(Frame.chunk(req.id, "identity-verify", 0, chunk.payload, 0, compute_checksum(chunk.payload)))
         writer.write(Frame.stream_end(req.id, "identity-verify", 1))
         writer.write(Frame.end(req.id, None))
+        # The host gives its policy right after the identity check, before it
+        # routes anything (12.2 §Policy). A test that ends the host without
+        # routing anything may close it first; then the handler sees the end.
+        policy = reader.read()
+        if policy is None:
+            if handler is not None:
+                handler(reader, writer)
+            return
+        assert policy.frame_type == FrameType.POLICY, "the frame after the identity check must be the host's policy"
     else:
         if handler is None:
             return
@@ -228,7 +247,7 @@ def test_485_attach_cartridge_identity_verification_succeeds():
     t = threading.Thread(target=lambda: simulate_cartridge(pr, pw, manifest), daemon=True)
     t.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     idx = host.attach_cartridge(hr, hw)
 
     assert idx == 0
@@ -261,7 +280,7 @@ def test_486_attach_cartridge_identity_verification_fails():
     t = threading.Thread(target=broken_cartridge, daemon=True)
     t.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     with pytest.raises(Exception) as exc_info:
         host.attach_cartridge(hr, hw)
     assert "BROKEN" in str(exc_info.value)
@@ -295,7 +314,7 @@ def test_489_full_path_identity_verification():
     cartridge = threading.Thread(target=cartridge_thread, daemon=True)
     cartridge.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(cartridge_host_read, cartridge_host_write)
 
     host_thread = threading.Thread(
@@ -365,7 +384,7 @@ def test_490_identity_verification_multiple_cartridges():
     ta.start()
     tb.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(ha_r, ha_w)
     host.attach_cartridge(hb_r, hb_w)
 
@@ -454,7 +473,7 @@ def test_6601_attached_cartridge_identity_derived_from_manifest():
 
 # TEST413: Register cartridge adds entries to cap_table
 def test_413_register_cartridge_adds_cap_table():
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge("/path/to/converter", "converter", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [
@@ -480,7 +499,7 @@ def test_413_register_cartridge_adds_cap_table():
 # The run loop normally drives rebuild as cartridges attach/die; for a
 # unit test that drives registration directly we trigger it explicitly.
 def test_6594_capabilities_empty_initially():
-    host = CartridgeHost()
+    host = _policed_host()
     assert host.capabilities() is None, "no cartridges → None capabilities"
     register_temp_cartridge(host, "cartridge", [{
         "name": "default",
@@ -503,7 +522,7 @@ def test_6594_capabilities_empty_initially():
 
 # TEST415: REQ for known cap triggers spawn attempt (verified by expected spawn error for non-existent binary)
 def test_415_req_triggers_spawn():
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge("/nonexistent/cartridge/binary", "cartridge", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [{"urn": "cap:test", "title": "Test", "aliases": ["test"], "args": []}],
@@ -547,7 +566,7 @@ def test_416_attach_cartridge_handshake():
     t = threading.Thread(target=cartridge, daemon=True)
     t.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     idx = host.attach_cartridge(hr, hw)
 
     assert idx == 0
@@ -594,7 +613,7 @@ def test_417_route_req_by_cap_urn():
     t_a.start()
     t_b.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr_a, hw_a)
     host.attach_cartridge(hr_b, hw_b)
 
@@ -652,7 +671,7 @@ def test_418_route_continuation_by_req_id():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
@@ -706,7 +725,7 @@ def test_419_heartbeat_local_handling():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
@@ -767,7 +786,7 @@ def test_420_cartridge_frames_forwarded_to_relay():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
@@ -816,7 +835,7 @@ def test_421_cartridge_death_updates_caps():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     caps = host.capabilities()
@@ -859,7 +878,7 @@ def test_422_cartridge_death_sends_err():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
@@ -929,7 +948,7 @@ def test_423_multi_cartridge_distinct_caps():
     t_a.start()
     t_b.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr_a, hw_a)
     host.attach_cartridge(hr_b, hw_b)
 
@@ -998,7 +1017,7 @@ def test_424_concurrent_requests_same_cartridge():
     t_p = threading.Thread(target=cartridge_thread, daemon=True)
     t_p.start()
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.attach_cartridge(hr, hw)
 
     r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
@@ -1042,7 +1061,7 @@ def test_424_concurrent_requests_same_cartridge():
 
 # TEST425: find_cartridge_for_cap returns None for unregistered cap
 def test_425_find_cartridge_for_cap_unknown():
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge("/path/to/cartridge", "cartridge", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [{"urn": "cap:known", "title": "Known", "aliases": ["known"], "args": []}],
@@ -1071,7 +1090,7 @@ def _aggregate_cap_urns(capabilities_json: bytes) -> List[str]:
 
 # TEST6623: Cartridge death keeps caps advertised for on-demand respawn.
 def test_6623_cartridge_death_keeps_known_caps_advertised():
-    host = CartridgeHost()
+    host = _policed_host()
     cap_groups = [{
         "name": "default",
         "caps": [
@@ -1114,7 +1133,7 @@ def test_6623_cartridge_death_keeps_known_caps_advertised():
 # tear down the replacement occupying the same cartridge slot. The current
 # generation still performs the real death transition.
 def test_8067_stale_reader_death_cannot_kill_replacement_generation():
-    host = CartridgeHost()
+    host = _policed_host()
     register_temp_cartridge(host, "cartridge", [{
         "name": "default",
         "caps": [{
@@ -1144,7 +1163,7 @@ def test_8067_stale_reader_death_cannot_kill_replacement_generation():
 
 # TEST662: rebuild_capabilities includes non-running cartridges' caps (each cartridge's `cap_groups` is the source of truth, regardless of whether its process has been spawned yet).
 def test_662_rebuild_capabilities_includes_non_running_cartridges():
-    host = CartridgeHost()
+    host = _policed_host()
     register_temp_cartridge(host, "cartridge1", [{
         "name": "default",
         "caps": [
@@ -1173,7 +1192,7 @@ def test_662_rebuild_capabilities_includes_non_running_cartridges():
 
 # TEST663: Cartridge with hello_failed is permanently removed from capabilities
 def test_663_hello_failed_cartridge_removed_from_capabilities():
-    host = CartridgeHost()
+    host = _policed_host()
     register_temp_cartridge(host, "broken", [{
         "name": "default",
         "caps": [
@@ -1199,7 +1218,7 @@ def test_663_hello_failed_cartridge_removed_from_capabilities():
 # TEST664: Running cartridge uses manifest caps; the post-HELLO
 # cap_groups overwrite the registration-time ones.
 def test_664_running_cartridge_uses_manifest_caps():
-    host = CartridgeHost()
+    host = _policed_host()
     register_temp_cartridge(host, "path", [{
         "name": "default",
         "caps": [
@@ -1236,7 +1255,7 @@ def test_664_running_cartridge_uses_manifest_caps():
 
 # TEST665: Cap table aggregates caps from every healthy cartridge — attached/running cartridges contribute their post-HELLO cap_groups, registered-but-not-yet-spawned cartridges contribute their probe-time cap_groups. Both flow through the same `cap_urns()` view.
 def test_665_cap_table_mixed_running_and_non_running():
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge("/fake/running", "running", "1.0", CartridgeChannel.RELEASE, None, [{
         "name": "default",
         "caps": [
@@ -1288,7 +1307,7 @@ def test_1871_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
     entry = tmp_path / "bin"
     entry.write_text("#!/bin/sh\n", encoding="utf-8")
 
-    host = CartridgeHost()
+    host = _policed_host()
     handle = host.process_handle()
 
     # Relay pipe: the engine side reads RelayNotify frames the host emits.
@@ -1381,7 +1400,7 @@ def test_7089_hello_failed_stays_in_inventory_with_error(tmp_path):
     entry = tmp_path / "bin"
     entry.write_text("#!/bin/sh\n", encoding="utf-8")
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge_dir(
         str(entry),
         str(tmp_path),
@@ -1454,7 +1473,7 @@ def test_7089_hello_failed_stays_in_inventory_with_error(tmp_path):
 # cartridge's inventory runtime stats as `protocol_drops_total` — absent
 # until the first reading, then tracking the running total as-is.
 def test_7090_heartbeat_drops_total_reaches_inventory_stats():
-    host = CartridgeHost()
+    host = _policed_host()
     bin_path = register_temp_cartridge(host, "dropcart", [{
         "name": "default",
         "caps": [
@@ -1535,7 +1554,7 @@ def _retire_fixture(tmp_path):
     entry = tmp_path / "bin"
     entry.write_text("#!/bin/sh\n", encoding="utf-8")
 
-    host = CartridgeHost()
+    host = _policed_host()
     host.register_cartridge_dir(
         str(entry),
         str(tmp_path),

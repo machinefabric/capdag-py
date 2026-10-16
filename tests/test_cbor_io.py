@@ -476,7 +476,7 @@ def test_7001_handshake_rejects_another_version():
     host_writer = FrameWriter.new(host_to_cartridge)
     host_reader = FrameReader.new(cartridge_to_host)
 
-    # A cartridge of the previous protocol: replies to the host HELLO with a version=4 HELLO.
+    # A cartridge of the previous protocol: replies to the host HELLO with a version=5 HELLO.
     host_writer.write(Frame.hello(DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER, DEFAULT_INITIAL_CREDIT))
     host_to_cartridge.seek(0)
     cartridge_reader = FrameReader.new(host_to_cartridge)
@@ -486,8 +486,8 @@ def test_7001_handshake_rejects_another_version():
 
     hello = Frame.hello_with_manifest(
         DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, _HANDSHAKE_TEST_MANIFEST, {})
-    hello.version = 4
-    hello.meta["version"] = 4
+    hello.version = 5
+    hello.meta["version"] = 5
     cartridge_writer.write(hello)
 
     cartridge_to_host.seek(0)
@@ -496,7 +496,7 @@ def test_7001_handshake_rejects_another_version():
 
     msg = str(exc_info.value)
     assert "version" in msg, f"error must name the version mismatch: {msg}"
-    assert "ours 5" in msg and "theirs 4" in msg, f"error must state both versions: {msg}"
+    assert "ours 6" in msg and "theirs 5" in msg, f"error must state both versions: {msg}"
 
 
 # TEST7002: initial_credit negotiation picks the element-wise minimum of the two proposals

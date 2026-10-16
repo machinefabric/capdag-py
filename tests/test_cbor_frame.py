@@ -59,7 +59,8 @@ def test_172_invalid_frame_type():
     assert FrameType.from_u8(12) == FrameType.CANCEL
     assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
     assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream (the tap-off)"
-    assert FrameType.from_u8(15) is None, "value 15 is one past CloseStream"
+    assert FrameType.from_u8(15) == FrameType.POLICY, "value 15 is Policy"
+    assert FrameType.from_u8(16) is None, "value 16 is one past Policy"
     assert FrameType.from_u8(100) is None
     assert FrameType.from_u8(255) is None
 
@@ -360,7 +361,7 @@ def test_198_limits_default():
 # TEST199: Test PROTOCOL_VERSION is 5
 def test_199_protocol_version_constant():
     """Test PROTOCOL_VERSION constant"""
-    assert PROTOCOL_VERSION == 5
+    assert PROTOCOL_VERSION == 6
 
 
 # TEST200: Test integer key constants match the protocol specification
@@ -540,7 +541,8 @@ def test_403_frame_type_one_past_cancel():
     """Test that value 15 is invalid (one past CloseStream/14, the last frame type)"""
     assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
     assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream"
-    assert FrameType.from_u8(15) is None, "value 15 is one past CloseStream"
+    assert FrameType.from_u8(15) == FrameType.POLICY, "value 15 is Policy"
+    assert FrameType.from_u8(16) is None, "value 16 is one past Policy"
 
 
 # TEST667: verify_chunk_checksum detects corrupted payload

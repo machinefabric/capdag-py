@@ -10,6 +10,7 @@ These tests validate end-to-end protocol behavior including:
 Tests use // TEST###: comments matching the Rust implementation for cross-tracking.
 """
 
+from capdag.bifaci.policy import HostPolicy, NetworkPolicy
 import pytest
 import socket
 import threading
@@ -480,6 +481,10 @@ def cartridge_handshake_with_identity(c_from_rt, c_to_rt, manifest):
     end = Frame.end(req.id, None)
     writer.write(end)
 
+
+    # The host gives its policy before it routes anything (12.2 §Policy).
+    policy = reader.read()
+    assert policy is not None and policy.frame_type == FrameType.POLICY, "the frame after the identity check must be the host's policy"
     return reader, writer
 
 
@@ -553,6 +558,8 @@ def test_1122_full_path_engine_req_to_cartridge_response():
 
     def engine_thread():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         r = FrameReader(eng_read)
 
         seq = SeqAssigner()
@@ -634,6 +641,8 @@ def test_1123_cartridge_error_flows_to_engine():
 
     def engine_thread():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         r = FrameReader(eng_read)
 
         seq = SeqAssigner()
@@ -740,6 +749,8 @@ def test_898_binary_integrity_through_relay():
 
     def engine_thread():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         r = FrameReader(eng_read)
 
         seq = SeqAssigner()
@@ -843,6 +854,8 @@ def test_899_streaming_chunks_through_relay():
 
     def engine_thread():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         r = FrameReader(eng_read)
 
         seq = SeqAssigner()
@@ -980,6 +993,8 @@ def test_900_two_cartridges_routed_independently():
 
     def engine_thread():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         r = FrameReader(eng_read)
 
         seq = SeqAssigner()
@@ -1079,6 +1094,8 @@ def test_901_req_for_unknown_cap_returns_err_frame():
 
     def engine_send():
         w = FrameWriter(eng_write)
+        # As a switch does: the policy before anything routed (12.2 §Policy).
+        w.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         seq = SeqAssigner()
         xid = MessageId(1)
         req = Frame.req(req_id, unknown_cap, b"", "text/plain")

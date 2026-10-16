@@ -42,7 +42,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_CHUNK,
     DEFAULT_MAX_FRAME,
 )
-from capdag.bifaci.io import FrameReader, FrameWriter, identity_nonce
+from capdag.bifaci.io import FrameReader, FrameWriter, ProtocolError, identity_nonce
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import Cap
@@ -70,8 +70,12 @@ class FrameHandler(ABC):
         input_q: "queue.Queue",
         output: "ResponseWriter",
         peer: "PeerInvoker",
+        network: "NetworkAccess",
     ) -> None:
         """Handle a streaming request.
+
+        ``network`` is the host's live policy (12.2 §Policy): a handler that
+        reaches the network asks it before every call.
 
         The REQ frame has already been consumed by the host. ``input_q`` yields:
         STREAM_START, CHUNK, STREAM_END (per argument stream), then END, then a
@@ -308,7 +312,7 @@ class IdentityHandler(FrameHandler):
     identity verification — it proves the transport works end-to-end.
     """
 
-    def handle_request(self, cap_urn, input_q, output, peer):
+    def handle_request(self, cap_urn, input_q, output, peer, network):
         data = bytearray()
         while True:
             frame = input_q.get()
@@ -593,6 +597,12 @@ class InProcessCartridgeHost:
 
         identity_handler: FrameHandler = IdentityHandler()
         max_chunk = limits.max_chunk
+        # The switch's latest policy (12.2 §Policy), read live by every
+        # handler; empty until the switch sends the first.
+        from capdag.bifaci.cartridge_runtime import NetworkAccess
+        from capdag.bifaci.policy import LivePolicy
+
+        policy = LivePolicy()
 
         try:
             while True:
@@ -615,6 +625,17 @@ class InProcessCartridgeHost:
                         continue
 
                     is_identity = cap_urn == CAP_IDENTITY
+                    # Nothing but the identity check is served before the
+                    # switch's policy (12.2 §Policy): the switch sends one
+                    # before anything it routes.
+                    if not is_identity and policy.current() is None:
+                        err = Frame.err(
+                            rid, "PROTOCOL_VIOLATION", AttributionClass.INTERNAL,
+                            f"request for '{cap_urn}' arrived before the switch sent its policy",
+                        )
+                        err.routing_id = xid
+                        write_tx.put(err)
+                        continue
                     if is_identity:
                         handler = identity_handler
                     else:
@@ -639,8 +660,9 @@ class InProcessCartridgeHost:
                     )
                     output = ResponseWriter(rid, xid, write_tx, max_chunk)
 
-                    def run_handler(h=handler, c=cap_urn, iq=input_q, o=output, p=peer):
-                        h.handle_request(c, iq, o, p)
+                    def run_handler(h=handler, c=cap_urn, iq=input_q, o=output, p=peer,
+                                    n=NetworkAccess(policy)):
+                        h.handle_request(c, iq, o, p, n)
 
                     t = threading.Thread(target=run_handler, daemon=True)
                     handler_threads[rid] = t
@@ -685,6 +707,13 @@ class InProcessCartridgeHost:
                         pr = pending_peer_requests.pop(frame.id, None)
                     if pr is not None:
                         pr.sender.put(frame)
+
+                elif ft == FrameType.POLICY:
+                    # The switch's policy: every handler reads it live.
+                    try:
+                        policy.set(frame.host_policy())
+                    except ValueError as e:
+                        raise ProtocolError(str(e)) from None
 
                 elif ft == FrameType.CLOSE_STREAM:
                     # An in-process handler holds no live feed taps: a CloseStream

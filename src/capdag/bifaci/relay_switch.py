@@ -398,7 +398,7 @@ class RelaySwitch:
     Routes requests based on cap URN matching and tracks bidirectional request/response flows.
     """
 
-    def __init__(self, sockets: List[SocketPair]):
+    def __init__(self, sockets: List[SocketPair], policy):
         """Create a RelaySwitch from socket pairs.
 
         Each ``SocketPair`` carries an ``id`` that is the stable
@@ -414,6 +414,9 @@ class RelaySwitch:
         Args:
             sockets: List of socket pairs (one per master). Each
                 pair's ``id`` must be unique within the list.
+            policy: What the cartridges behind the switch may do (12.2
+                §Policy): sent to each master before anything else, so no
+                master is ever connected without one.
 
         Raises:
             RelaySwitchError: If construction fails (including
@@ -460,6 +463,9 @@ class RelaySwitch:
         # for an append is race-free, and so the reattach branch sees a
         # stable ``self._masters`` snapshot across the I/O.
         self._add_master_lock = threading.Lock()
+        # What the engine allows the cartridges behind this switch to do
+        # (12.2 §Policy). Guarded by _add_master_lock.
+        self._policy = policy
         # How many masters this engine intends to register at startup.
         # 0 means "not yet declared"; ``all_masters_ready`` returns
         # False in that state rather than guessing. Set once at boot via
@@ -517,6 +523,10 @@ class RelaySwitch:
             reader.set_limits(limits)
             writer.set_limits(limits)
 
+            # The policy goes first, before the identity probe or anything
+            # routed: the host gives it to each cartridge it connects.
+            writer.write(Frame.policy(policy))
+
             # End-to-end identity verification. The probe only makes sense
             # when the host advertises at least one cap — an empty cap list
             # means "no cartridges attached successfully" and there is no
@@ -571,6 +581,35 @@ class RelaySwitch:
         self._rebuild_installed_cartridges()
         self._rebuild_capabilities()
         self._rebuild_limits()
+
+    def policy(self):
+        """The policy in force (12.2 §Policy)."""
+        with self._add_master_lock:
+            return self._policy
+
+    def set_policy(self, policy) -> None:
+        """Replace the policy and send it to every attached master, whose
+        hosts pass it to their cartridges (12.2 §Policy). Setting the policy
+        in force sends nothing. A master that is not attached is given the
+        current policy when it attaches; a send that fails is raised, naming
+        the masters it failed on."""
+        with self._add_master_lock:
+            if self._policy == policy:
+                return
+            self._policy = policy
+            failures = []
+            with self._lock:
+                for idx, master in enumerate(self._masters):
+                    if master.detached:
+                        continue
+                    try:
+                        master.socket_writer.write(Frame.policy(policy))
+                    except Exception as e:
+                        failures.append(f"master {idx}: {e}")
+            if failures:
+                raise ProtocolError(
+                    f"the policy '{policy.network.as_str()}' did not reach every master: {'; '.join(failures)}"
+                )
 
     def add_master(self, sock_pair: SocketPair) -> int:
         """Attach a (re)connecting host to a slot.
@@ -641,6 +680,12 @@ class RelaySwitch:
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
+
+            # The current policy goes first, before the identity probe or
+            # anything routed. set_policy holds _add_master_lock, which this
+            # call holds, so a change cannot fall between this send and the
+            # slot joining the list it broadcasts to.
+            writer.write(Frame.policy(self._policy))
 
             # End-to-end identity verification — probe only when the host
             # advertises caps. Unlike the constructor, a probe FAILURE here

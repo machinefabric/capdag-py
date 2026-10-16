@@ -20,6 +20,11 @@ from capdag.bifaci.relay_switch import (
     _parse_relay_notify_payload,
 )
 from capdag.bifaci.request_state import RequestState, RoutingEntry
+from capdag.bifaci.policy import HostPolicy, NetworkPolicy
+
+# The policy a test switch is built with: `full`, so nothing a test routes is
+# refused for reaching the network.
+_FULL_POLICY = HostPolicy(NetworkPolicy.FULL)
 from capdag.bifaci.stats import DropCounters
 
 CAP_IDENTITY = "cap:effect=none"
@@ -96,7 +101,15 @@ def make_manifest(*caps: str) -> dict:
     }
 
 
+def expect_policy(reader: FrameReader) -> None:
+    """Read the frame a switch sends right after a master's first RelayNotify:
+    its policy (12.2 §Policy)."""
+    policy = reader.read()
+    assert policy is not None and policy.frame_type == FrameType.POLICY, "the frame after RelayNotify must be the switch's policy"
+
+
 def complete_identity_verification(reader: FrameReader, writer: FrameWriter) -> None:
+    expect_policy(reader)
     req = reader.read()
     assert req is not None
     assert req.frame_type == FrameType.REQ
@@ -171,7 +184,7 @@ def _build_switch_with_n_masters(n: int, capless: bool = False) -> RelaySwitch:
     for done in dones:
         done.wait(timeout=2)
 
-    return RelaySwitch(pairs)
+    return RelaySwitch(pairs, _FULL_POLICY)
 
 
 # TEST426: Single master REQ/response routing
@@ -209,7 +222,7 @@ def test_426_single_master_req_response():
     done.wait(timeout=2)
 
     # Create RelaySwitch
-    switch = RelaySwitch([SocketPair(id="test-master-0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
 
     # Send REQ
     req = Frame.req(
@@ -287,7 +300,7 @@ def test_427_multi_master_cap_routing():
     switch = RelaySwitch([
         SocketPair(id="test-master-1", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-2", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     # Send REQ for echo cap → routes to master 1
     req1 = Frame.req(
@@ -335,7 +348,7 @@ def test_428_unknown_cap_returns_error():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(id="test-master-3", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-3", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
 
     # Send REQ for unknown cap
     req = Frame.req(
@@ -386,7 +399,7 @@ def test_429_find_master_for_cap():
     switch = RelaySwitch([
         SocketPair(id="test-master-4", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-5", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     # Verify routing
     assert switch._find_master_for_cap(CAP_GENERIC) == 0
@@ -442,7 +455,7 @@ def test_437_preferred_cap_routes_to_generic():
     switch = RelaySwitch([
         SocketPair(id="test-master-6", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-7", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     assert switch._find_master_for_cap(
         'cap:in=\"media:document;ext=pdf\";out=media:',
@@ -482,7 +495,7 @@ def test_438_preferred_cap_falls_back_when_not_comparable():
     switch = RelaySwitch([
         SocketPair(id="test-master-8", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-9", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     assert switch._find_master_for_cap(
         'cap:in=\"media:text\";out=media:text',
@@ -522,7 +535,7 @@ def test_439_generic_candidate_can_dispatch_specific_request():
     switch = RelaySwitch([
         SocketPair(id="test-master-10", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-11", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     assert switch._find_master_for_cap('cap:in=\"media:document;ext=pdf\";out=media:') == 1
     assert switch._find_master_for_cap(
@@ -592,7 +605,7 @@ def test_430_tie_breaking_same_cap_multiple_masters():
     switch = RelaySwitch([
         SocketPair(id="test-master-12", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-13", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     # Send first request - should go to master 0 (first match)
     req1 = Frame.req(MessageId(1), same_cap, bytes(), "text/plain")
@@ -649,7 +662,7 @@ def test_431_continuation_frame_routing():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(id="test-master-14", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-14", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
 
     req_id = MessageId(1)
 
@@ -676,7 +689,7 @@ def test_431_continuation_frame_routing():
 def test_432_empty_masters_list_error():
     """Verify error when creating RelaySwitch with empty masters list"""
     with pytest.raises(ProtocolError) as exc_info:
-        RelaySwitch([])
+        RelaySwitch([], _FULL_POLICY)
     assert "at least one master" in str(exc_info.value)
 
 
@@ -723,7 +736,7 @@ def test_433_capability_aggregation_deduplicates():
     switch = RelaySwitch([
         SocketPair(id="test-master-15", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-16", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     payload = json.loads(switch.capabilities())
     # Walk installed_cartridges → cap_groups → caps and dedup by URN.
@@ -786,7 +799,7 @@ def test_434_limits_negotiation_minimum():
     switch = RelaySwitch([
         SocketPair(id="test-master-17", read=engine_read1.makefile('rb'), write=engine_write1.makefile('wb')),
         SocketPair(id="test-master-18", read=engine_read2.makefile('rb'), write=engine_write2.makefile('wb')),
-    ])
+    ], _FULL_POLICY)
 
     # Should take minimum of each limit
     assert switch.limits().max_frame == 1_000_000  # min(1M, 2M)
@@ -826,7 +839,7 @@ def test_435_urn_matching_exact_and_accepts():
 
     done.wait(timeout=2)
 
-    switch = RelaySwitch([SocketPair(id="test-master-19", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))])
+    switch = RelaySwitch([SocketPair(id="test-master-19", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
 
     # Exact match should work
     req1 = Frame.req(MessageId(1), registered_cap, bytes(), "text/plain")
@@ -861,7 +874,7 @@ def test_487_relay_switch_identity_verification_succeeds():
 
     threading.Thread(target=slave_thread, daemon=True).start()
 
-    switch = RelaySwitch([SocketPair(id="test-master-20", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+    switch = RelaySwitch([SocketPair(id="test-master-20", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))], _FULL_POLICY)
     assert switch._find_master_for_cap('cap:in="media:void";test;out="media:void"') == 0
 
 
@@ -874,6 +887,7 @@ def test_488_relay_switch_identity_verification_fails():
         reader = FrameReader(slave_read.makefile("rb"))
         writer = FrameWriter(slave_write.makefile("wb"))
         send_notify(writer, make_manifest('cap:in="media:void";test;out="media:void"'), Limits.default())
+        expect_policy(reader)
         req = reader.read()
         assert req is not None
         assert req.frame_type == FrameType.REQ
@@ -883,7 +897,7 @@ def test_488_relay_switch_identity_verification_fails():
     threading.Thread(target=slave_thread, daemon=True).start()
 
     with pytest.raises(ProtocolError) as exc_info:
-        RelaySwitch([SocketPair(id="test-master-21", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))])
+        RelaySwitch([SocketPair(id="test-master-21", read=engine_read.makefile("rb"), write=engine_write.makefile("wb"))], _FULL_POLICY)
     assert "identity verification failed" in str(exc_info.value)
 
 
@@ -922,7 +936,7 @@ def test_666_preferred_cap_routing():
     switch = RelaySwitch([
         SocketPair(id="test-master-22", read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
         SocketPair(id="test-master-23", read=engine_read2.makefile("rb"), write=engine_write2.makefile("wb")),
-    ])
+    ], _FULL_POLICY)
 
     request = 'cap:in="media:document;ext=pdf";out=media:'
     assert switch._find_master_for_cap(request) == 1
@@ -960,7 +974,7 @@ def test_133_reattach_by_id_preserves_slot_index():
 
     switch = RelaySwitch([
         SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
-    ])
+    ], _FULL_POLICY)
     assert len(switch._masters) == 1
     assert switch._masters[0].id == "xpc-service"
     assert switch._masters[0].healthy is True
@@ -1028,7 +1042,7 @@ def test_134_add_master_with_duplicate_healthy_id_errors():
 
     switch = RelaySwitch([
         SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
-    ])
+    ], _FULL_POLICY)
     assert switch._masters[0].healthy is True
 
     # Try to add a second master with the same id while healthy.
@@ -1075,7 +1089,7 @@ def test_1965_attach_decided_by_socket_liveness_not_health():
 
     switch = RelaySwitch([
         SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
-    ])
+    ], _FULL_POLICY)
     assert switch.slot_accepts_attach("xpc-service") is False, (
         "a healthy attached slot must not accept a second attach"
     )
@@ -1141,7 +1155,7 @@ def test_6745_relay_switch_init_rejects_duplicate_ids():
         RelaySwitch([
             SocketPair(id="dup-id", read=a_read.makefile("rb"), write=a_other.makefile("wb")),
             SocketPair(id="dup-id", read=b_read.makefile("rb"), write=b_other.makefile("wb")),
-        ])
+        ], _FULL_POLICY)
     assert "duplicate master id 'dup-id'" in str(exc_info.value)
 
 
@@ -1170,7 +1184,7 @@ def test_0136_all_masters_ready_false_when_expected_count_unset():
 
     switch = RelaySwitch([
         SocketPair(id="xpc-service", read=engine_read.makefile("rb"), write=engine_write.makefile("wb")),
-    ])
+    ], _FULL_POLICY)
     assert switch._masters[0].healthy is True
 
     # Expected count never declared (default 0): not-yet-configured.
@@ -1255,7 +1269,7 @@ def test_132_add_master_dynamic():
         def __init__(self, value: str):
             self.value = value
 
-        def handle_request(self, cap_urn, input_q, output, peer):
+        def handle_request(self, cap_urn, input_q, output, peer, network):
             while True:
                 frame = input_q.get()
                 if frame is None:
@@ -1318,7 +1332,7 @@ def test_132_add_master_dynamic():
     pair_a = wire_host(host_a)
     pair_a = SocketPair(id="test-master-0", read=pair_a.read, write=pair_a.write)
 
-    switch = RelaySwitch([pair_a])
+    switch = RelaySwitch([pair_a], _FULL_POLICY)
     with switch._lock:
         assert len(switch._masters) == 1
 
@@ -1487,7 +1501,7 @@ def _build_deferred_switch(succeed: bool):
         id="deferred-master-0",
         read=engine_read.makefile("rb"),
         write=engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
     switch.start_background_pump()
     return switch
 
@@ -1598,7 +1612,7 @@ def test_1898_subscribe_capabilities_delivers_routable_set():
         id="watch-master-0",
         read=engine_read.makefile("rb"),
         write=engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
 
     rx = switch.subscribe_capabilities()
     watched = rx.borrow()
@@ -1651,7 +1665,7 @@ def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
         id="good-master-0",
         read=g_engine_read.makefile("rb"),
         write=g_engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
 
     # Second master: advertises non-empty caps but its identity handler is
     # broken (replies ERR). add_master must NOT raise.
@@ -1664,6 +1678,7 @@ def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
         writer = FrameWriter(b_slave_write.makefile("wb"))
         send_notify(writer, make_manifest(DEFERRED_TEST_CAP), Limits.default())
         b_done.set()
+        expect_policy(reader)
         req = reader.read()
         assert req is not None and req.frame_type == FrameType.REQ
         assert req.cap == CAP_IDENTITY
@@ -1946,7 +1961,7 @@ def test_7037_cancel_cascades_to_children_and_cleans_all_state():
         id="cancel-cascade-master-0",
         read=engine_read.makefile("rb"),
         write=engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
 
     # Parent (engine-origin, has a waiting channel) + child peer call.
     parent_key = (MessageId(1), MessageId.new_uuid())
@@ -2048,7 +2063,7 @@ def test_7093_dead_consumer_cancels_upstream():
         id="dead-consumer-master-0",
         read=engine_read.makefile("rb"),
         write=engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
 
     def raising_channel(frame):
         # The caller abandoned this request (dropped/timed-out future) —
@@ -2174,7 +2189,7 @@ def test_7091_switch_retains_host_protocol_stats_from_relay_notify():
         id="host-stats-master-0",
         read=engine_read.makefile("rb"),
         write=engine_write.makefile("wb"),
-    )])
+    )], _FULL_POLICY)
 
     # The initial advertisement carried no host stats: absent, not zeroed.
     assert switch.protocol_stats().hosts == {}, "no host stats before a RelayNotify carries them"

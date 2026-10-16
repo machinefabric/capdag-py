@@ -83,6 +83,14 @@ VALID_MANIFEST = '{"name":"TestCartridge","version":"1.0.0","channel":"release",
 # Test helpers
 # =============================================================================
 
+
+def _full_network():
+    """A network handle under `full`, for handlers run directly by tests."""
+    from capdag.bifaci.cartridge_runtime import NetworkAccess
+    from capdag.bifaci.policy import HostPolicy, LivePolicy, NetworkPolicy
+
+    return NetworkAccess(LivePolicy(HostPolicy(NetworkPolicy.FULL)))
+
 def make_test_frames(media_urn: str, data: bytes) -> queue.Queue:
     """Create a queue.Queue of raw wire frames for testing a single-stream
     input — this is the WIRE representation (what `demux_multi_stream`
@@ -119,7 +127,7 @@ def invoke_op(factory: OpFactory, frames: queue.Queue, emitter) -> None:
     op = factory()
     peer = NoPeerInvoker()
     input_package = demux_multi_stream(frames)
-    dispatch_op(op, input_package, ResponseOutputs.undeclared(emitter), peer)
+    dispatch_op(op, input_package, ResponseOutputs.undeclared(emitter), peer, _full_network())
 
 
 def create_test_cap(urn_str: str, title: str, command: str, args: list):

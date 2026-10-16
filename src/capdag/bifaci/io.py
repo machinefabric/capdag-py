@@ -345,7 +345,7 @@ def decode_frame(data: bytes) -> Frame:
         if credit is None:
             raise InvalidFrameError("CREDIT frame missing required field: credit")
 
-    return Frame(
+    frame = Frame(
         frame_type=frame_type,
         id=id_obj,
         version=version,
@@ -369,6 +369,14 @@ def decode_frame(data: bytes) -> Frame:
         unbounded=unbounded,
         output=output,
     )
+    # A Policy that does not say a policy is refused here, so every decoded
+    # Policy reads (12.2 §Policy).
+    if frame_type == FrameType.POLICY:
+        try:
+            frame.host_policy()
+        except ValueError as e:
+            raise InvalidFrameError(str(e)) from None
+    return frame
 
 
 def write_frame(writer: BinaryIO, frame: Frame, limits: Limits) -> None:

@@ -113,6 +113,13 @@ class RelaySlave:
                     # RelaySlave::run local->socket forwarding.
                     if frame.frame_type == FrameType.RELAY_STATE:
                         pass  # Drop RelayState frames
+                    elif frame.frame_type == FrameType.POLICY:
+                        # A policy travels only toward cartridges (12.2
+                        # §Policy); one coming from the host side is a
+                        # defect, and the relay ends on it.
+                        raise CborError(
+                            "Policy frame sent toward the switch; a policy travels only toward cartridges"
+                        )
                     else:
                         socket_writer.write(frame)
             except Exception as e:
@@ -239,5 +246,9 @@ class RelayMaster:
             elif frame.frame_type == FrameType.RELAY_STATE:
                 # RelayState from slave? Protocol error — drop
                 continue
+            elif frame.frame_type == FrameType.POLICY:
+                raise CborError(
+                    "Policy frame from a relay slave; a policy travels only toward cartridges"
+                )
 
             return frame

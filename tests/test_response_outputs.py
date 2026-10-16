@@ -44,6 +44,14 @@ NOTE = "media:enc=utf-8;note"
 REJECTED = "media:enc=utf-8;rejected"
 
 
+
+def _full_network():
+    """A network handle under `full`, for handlers run directly by tests."""
+    from capdag.bifaci.cartridge_runtime import NetworkAccess
+    from capdag.bifaci.policy import HostPolicy, LivePolicy, NetworkPolicy
+
+    return NetworkAccess(LivePolicy(HostPolicy(NetworkPolicy.FULL)))
+
 def _regress_cap() -> Cap:
     """A cap with four outputs: the main one, a required sequence, an optional
     one, and an optional one that carries the input's type unchanged."""
@@ -121,7 +129,7 @@ def _empty_input():
 def test_12719_a_request_answers_on_every_declared_output():
     cap = _regress_cap()
     outputs, frames = _recorded_outputs(cap.urn_string(), _manifest(cap))
-    req = Request.with_outputs(_empty_input(), outputs, NoPeerInvoker())
+    req = Request.with_outputs(_empty_input(), outputs, NoPeerInvoker(), _full_network())
 
     # The main output is the one whose URN is `out=`, wherever it is declared.
     assert req.emitter() is req.output_for(FIT)
@@ -173,7 +181,7 @@ def test_12719_a_request_answers_on_every_declared_output():
 
     # A request made from a bare stream has the one output that stream is.
     bare, _ = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
-    lone = Request(_empty_input(), bare.main(), NoPeerInvoker())
+    lone = Request(_empty_input(), bare.main(), NoPeerInvoker(), _full_network())
     assert lone.emitter() is bare.main()
     assert lone.output_for("media:") is bare.main()
     with pytest.raises(UnknownOutputError) as refusal:
@@ -217,7 +225,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     manifest = _manifest(cap)
 
     outputs, frames = _recorded_outputs(cap.urn_string(), manifest)
-    dispatch_op(_ResidualsOnlyOp(fail=False), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_ResidualsOnlyOp(fail=False), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 2, f"the written output and the required unwritten one: {sent}"
     assert [start[0] for start in sent if start[0] is not None] == [RESIDUALS], \
@@ -243,7 +251,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
 
     # A required SEQUENCE output nobody wrote to is an empty sequence.
     outputs, frames = _recorded_outputs(cap.urn_string(), manifest)
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 2, sent
     residuals = next(start for start in sent if start[0] == RESIDUALS)
@@ -253,7 +261,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     # request ends with ERR, not with outputs made up for it.
     outputs, frames = _recorded_outputs(cap.urn_string(), manifest)
     with pytest.raises(HandlerError):
-        dispatch_op(_ResidualsOnlyOp(fail=True), _empty_input(), outputs, NoPeerInvoker())
+        dispatch_op(_ResidualsOnlyOp(fail=True), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 1, sent
     assert sent[0][0] == RESIDUALS
@@ -261,7 +269,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
 
     # A cap whose `out=` is void has no output: nothing is opened for it.
     outputs, frames = _recorded_outputs('cap:in="media:enc=utf-8";sink;out=media:void', None)
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     assert frames == []
 
     # The main output's label follows the cap's effect, and is not its name:
@@ -269,7 +277,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     # type and names the output its `out=`.
     passing = 'cap:effect=none;in="media:enc=utf-8;line";out="media:enc=utf-8";pass'
     outputs, frames = _recorded_outputs(passing, None)
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 1
     assert sent[0][0] is None, "the main output's stream names no output"
@@ -278,7 +286,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
 
     # A cap served without a definition answers on the one output its URN states.
     outputs, frames = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 1
     assert (sent[0][0], sent[0][1]) == (None, "media:integer")
@@ -294,14 +302,14 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     listing.add_output(lines)
     validate_cap_definition(listing)
     outputs, frames = _recorded_outputs(listing.urn_string(), _manifest(listing))
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert [(start[0], start[2]) for start in sent] == [(None, True)], sent
 
     # A request made from a bare stream has an output nothing is known of:
     # nothing is sent for it unless the handler writes.
     bare, frames = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
-    dispatch_op(_Silent(), _empty_input(), ResponseOutputs.undeclared(bare.main()), NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), ResponseOutputs.undeclared(bare.main()), NoPeerInvoker(), _full_network())
     assert frames == []
 
     # A main output its definition declares optional is not sent when nobody
@@ -313,7 +321,7 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     optional_main.add_output(CapOutput("media:integer", "count", "A count").as_optional(True))
     validate_cap_definition(optional_main)
     outputs, frames = _recorded_outputs(optional_main.urn_string(), _manifest(optional_main))
-    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker())
+    dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     assert frames == []
 
 

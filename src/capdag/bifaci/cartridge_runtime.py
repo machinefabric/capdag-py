@@ -64,6 +64,9 @@ from capdag.bifaci.frame import (
     compute_checksum, verify_chunk_checksum, SeqAssigner, FlowKey,
 )
 from capdag.bifaci.io import handshake_accept, FrameReader, FrameWriter, CborError, ProtocolError
+from capdag.bifaci.policy import (
+    HostPolicy, LivePolicy, NetworkPolicy, Reach, NETWORK_POLICY_CODE, NETWORK_POLICY_UNSET_CODE,
+)
 from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed, CreditWindow
 from capdag.bifaci.stats import (
     DropCounters,
@@ -2187,20 +2190,23 @@ class Request:
     to access streaming input, the output streams, and peer invocation.
     """
 
-    def __init__(self, input_package: "InputPackage", emitter: "StreamEmitter", peer: "PeerInvoker"):
+    def __init__(self, input_package: "InputPackage", emitter: "StreamEmitter", peer: "PeerInvoker",
+                 network: "NetworkAccess"):
         """A request that has the one output `emitter` is."""
         self._input = input_package
         self._outputs = ResponseOutputs.undeclared(emitter)
         self._peer = peer
+        self._network = network
         self._consumed = False
         self._lock = threading.Lock()
 
     @classmethod
     def with_outputs(
         cls, input_package: "InputPackage", outputs: ResponseOutputs, peer: "PeerInvoker",
+        network: "NetworkAccess",
     ) -> "Request":
         """A request that answers on the declared outputs of its cap."""
-        request = cls(input_package, outputs.main(), peer)
+        request = cls(input_package, outputs.main(), peer, network)
         request._outputs = outputs
         return request
 
@@ -2227,6 +2233,56 @@ class Request:
     def peer(self) -> "PeerInvoker":
         """Access the peer invoker."""
         return self._peer
+
+    def network(self) -> "NetworkAccess":
+        """The host's live network policy (12.2 §Policy). Code that reaches
+        the network asks it before every call; it reads the runtime's current
+        policy, never one taken when this request was dispatched."""
+        return self._network
+
+
+class NetworkRefused(ClassifiedError):
+    """A call that was not made. The operator's own setting refusing the
+    work is ``user`` — never retried, never tolerated (17.2); a call refused
+    because no policy was ever given is a defect, ``internal``.
+    (matches Rust bifaci::policy::NetworkRefused)"""
+
+    def __init__(self, policy: Optional[NetworkPolicy], reach: Reach):
+        self.policy = policy
+        self.reach = reach
+        if policy is None:
+            super().__init__(
+                NETWORK_POLICY_UNSET_CODE, AttributionClass.INTERNAL,
+                f"no network policy has been given to this cartridge, so nothing may reach {reach.describe()}",
+            )
+        else:
+            super().__init__(
+                NETWORK_POLICY_CODE, AttributionClass.USER,
+                f"the network policy is '{policy.as_str()}', which does not allow reaching {reach.describe()}",
+            )
+
+
+class NetworkAccess:
+    """A handler's view of the live network policy: cheap to pass to the
+    code that opens connections, which asks it before every call.
+    (matches Rust bifaci::policy::NetworkAccess)"""
+
+    def __init__(self, live: LivePolicy):
+        self._live = live
+
+    def allow(self, reach: Reach) -> None:
+        """Raise NetworkRefused unless a call of this reach may be made now,
+        under the policy in force at this moment."""
+        current = self._live.current()
+        if current is None:
+            raise NetworkRefused(None, reach)
+        if not current.network.allows(reach):
+            raise NetworkRefused(current.network, reach)
+
+    def policy(self) -> Optional[NetworkPolicy]:
+        """The policy in force now, None before the first one was given."""
+        current = self._live.current()
+        return None if current is None else current.network
 
 
 class InputStream:
@@ -3190,11 +3246,24 @@ class AdapterSelectionOp(Op):
             .build()
 
 
+def _is_identity_request(cap_urn: str) -> bool:
+    """Whether a request is the host's identity check (CAP_IDENTITY), the
+    one request a cartridge serves before it has a policy (12.3)."""
+    from capdag.standard.caps import CAP_IDENTITY
+
+    try:
+        requested = CapUrn.from_string(cap_urn)
+    except Exception:
+        return False
+    return CapUrn.from_string(CAP_IDENTITY).is_equivalent(requested)
+
+
 def dispatch_op(
     op: Op,
     input_package: "InputPackage",
     outputs: ResponseOutputs,
     peer: "PeerInvoker",
+    network: "NetworkAccess",
 ) -> None:
     """Dispatch an Op with a Request via WetContext. Bridges sync handler threads to async Op.perform.
     Ends every output on success (see `ResponseOutputs.finish`).
@@ -3205,7 +3274,7 @@ def dispatch_op(
 
     Raises HandlerError on Op failure.
     """
-    req = Request.with_outputs(input_package, outputs, peer)
+    req = Request.with_outputs(input_package, outputs, peer, network)
     dry = DryContext()
     wet = WetContext()
     wet.insert_ref(WET_KEY_REQUEST, req)
@@ -3931,6 +4000,10 @@ class CartridgeRuntime:
         # to register.
         from capdag.bifaci.live_feed import _Counter
         self._live_feed_overruns = _Counter()
+        # The host's latest policy (12.2 §Policy): empty until the first
+        # POLICY frame, replaced by every later one, read live by every
+        # handler through Request.network().
+        self._policy = LivePolicy()
         # Open live-feed handles by request id, so a STOP (non-force CANCEL
         # on a feed-bearing request) can close the taps and let the run
         # drain (15.2 §Runs Stop). Guarded by _lf_handles_lock.
@@ -4236,7 +4309,10 @@ class CartridgeRuntime:
                 cap.urn_string(), self.manifest, lambda _label: CliStreamEmitter(),
             )
             input_package = demux_multi_stream(frames)  # Uncredited: CLI mode has no wire peer.
-            dispatch_op(factory(), input_package, outputs, peer)
+            # No host: the person running the command decides for themselves
+            # (12.2 §Policy), so a cartridge run from a command line is under `full`.
+            self._policy.set(HostPolicy(NetworkPolicy.FULL))
+            dispatch_op(factory(), input_package, outputs, peer, NetworkAccess(self._policy))
         except Exception as e:
             # CLI mode still owes the caller the real failure identity
             # (docs/failure-taxonomy.md).
@@ -4460,6 +4536,25 @@ class CartridgeRuntime:
                         pass
                     continue
 
+                # No routed request before the host's first policy: a
+                # cartridge never serves work without knowing what it may do.
+                # The host's identity check belongs to the handshake and comes
+                # before any policy (12.3).
+                if self._policy.current() is None and not _is_identity_request(cap_urn):
+                    err_frame = Frame.err(
+                        frame.id,
+                        "PROTOCOL_VIOLATION",
+                        AttributionClass.INTERNAL,
+                        f"request for '{cap_urn}' arrived before the host sent its policy; "
+                        "a host sends Policy before it routes anything to a cartridge",
+                    )
+                    err_frame.routing_id = routing_id_for_errors
+                    try:
+                        sync_writer.write(err_frame)
+                    except Exception:
+                        pass
+                    continue
+
                 raw_payload = frame.payload if frame.payload is not None else b""
 
                 # Protocol v2: REQ must have empty payload — arguments come as streams
@@ -4618,7 +4713,7 @@ class CartridgeRuntime:
                             # a required one it never wrote to is sent
                             # empty, an optional one it never wrote to is not
                             # sent.
-                            dispatch_op(factory(), input_package, outputs, peer_invoker)
+                            dispatch_op(factory(), input_package, outputs, peer_invoker, NetworkAccess(self._policy))
 
                             # A cancel that claimed the request first ends it
                             # with its own ERR, sent once this returns.
@@ -4903,6 +4998,14 @@ class CartridgeRuntime:
                 raise ProtocolError(
                     f"Relay frame {frame.frame_type} must not reach cartridge runtime"
                 )
+
+            elif frame.frame_type == FrameType.POLICY:
+                # The host's new policy (12.2 §Policy): every handler's
+                # network() reads it at its next check, running ones too.
+                try:
+                    self._policy.set(frame.host_policy())
+                except ValueError as e:
+                    raise ProtocolError(str(e)) from None
 
         # Wait for all active handlers to complete before exiting
         for thread in active_handlers:

@@ -9,6 +9,7 @@ The Python mirror is thread-based (blocking FrameReader/FrameWriter), so each
 test runs the host in a daemon thread and drives it from the test thread.
 """
 
+from capdag.bifaci.policy import HostPolicy, NetworkPolicy
 import json
 import queue
 import socket
@@ -86,7 +87,7 @@ def _aggregate_cap_urns(payload: dict):
 class EchoHandler(FrameHandler):
     """Echo handler: accumulates input, echoes raw bytes back."""
 
-    def handle_request(self, cap_urn, input_q, output, peer):
+    def handle_request(self, cap_urn, input_q, output, peer, network):
         try:
             args, meta = accumulate_input(input_q)
         except ValueError as e:
@@ -113,6 +114,8 @@ def test_6748_routes_req_to_handler():
 
     reader = FrameReader(test_read)
     writer = FrameWriter(test_write)
+    # The switch gives its policy before it routes anything (12.2 §Policy).
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
 
     # First frame should be RelayNotify with manifest
     notify = reader.read()
@@ -183,6 +186,8 @@ def test_1961_cancel_terminal_carries_its_attribution():
         host_thread.start()
         reader = FrameReader(test_read)
         writer = FrameWriter(test_write)
+        # The switch gives its policy before it routes anything (12.2 §Policy).
+        writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         notify = reader.read()
         assert notify is not None and notify.frame_type == FrameType.RELAY_NOTIFY
 
@@ -255,6 +260,8 @@ def test_6749_identity_verification():
 
     reader = FrameReader(test_read)
     writer = FrameWriter(test_write)
+    # The switch gives its policy before it routes anything (12.2 §Policy).
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
 
     # Skip RelayNotify
     _ = reader.read()
@@ -301,6 +308,8 @@ def test_6750_no_handler_returns_err():
 
     reader = FrameReader(test_read)
     writer = FrameWriter(test_write)
+    # The switch gives its policy before it routes anything (12.2 §Policy).
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
 
     # Skip RelayNotify
     _ = reader.read()
@@ -357,6 +366,8 @@ def test_658_heartbeat_response():
 
     reader = FrameReader(test_read)
     writer = FrameWriter(test_write)
+    # The switch gives its policy before it routes anything (12.2 §Policy).
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
 
     # Skip RelayNotify
     _ = reader.read()
@@ -387,7 +398,7 @@ def test_659_handler_error_returns_err_frame():
     class FailHandler(FrameHandler):
         """Handler that always fails."""
 
-        def handle_request(self, cap_urn, input_q, output, peer):
+        def handle_request(self, cap_urn, input_q, output, peer, network):
             # Drain input
             while True:
                 frame = input_q.get()
@@ -410,6 +421,8 @@ def test_659_handler_error_returns_err_frame():
 
     reader = FrameReader(test_read)
     writer = FrameWriter(test_write)
+    # The switch gives its policy before it routes anything (12.2 §Policy).
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
 
     # Skip RelayNotify
     _ = reader.read()
@@ -447,7 +460,7 @@ def test_660_closest_specificity_routing():
         def __init__(self, name):
             self.name = name
 
-        def handle_request(self, cap_urn, input_q, output, peer):
+        def handle_request(self, cap_urn, input_q, output, peer, network):
             while True:
                 frame = input_q.get()
                 if frame is None:
@@ -481,7 +494,7 @@ class AnswersAnywayHandler(FrameHandler):
     def __init__(self):
         self.answered = threading.Event()
 
-    def handle_request(self, cap_urn, input_q, output, peer):
+    def handle_request(self, cap_urn, input_q, output, peer, network):
         while True:
             frame = input_q.get()
             if frame is None or frame.frame_type == FrameType.END:
@@ -545,6 +558,8 @@ def test_345_a_request_ends_once():
         host_thread.start()
         reader = FrameReader(test_read)
         writer = FrameWriter(test_write)
+        # The switch gives its policy before it routes anything (12.2 §Policy).
+        writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
         notify = reader.read()
         assert notify is not None and notify.frame_type == FrameType.RELAY_NOTIFY
 
