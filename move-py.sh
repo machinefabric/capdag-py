@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /Users/bahram/ws/prj/machinefabric/capdag-py
+cd /Users/bahram/ws/prj/machinefabric/main-worktree/capdag-py
 
 # Create module directories
 mkdir -p src/capdag/urn src/capdag/cap src/capdag/media src/capdag/bifaci
