@@ -18,9 +18,12 @@ Example: `text/plain; profile=https://capdag.com/schema/str`
 import json
 import os
 import re
-from typing import List, Optional, Any, Dict
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 
 from capdag.urn.media_urn import MediaUrn
+
+if TYPE_CHECKING:
+    from capdag.fabric.dim import DimRef
 
 
 # =============================================================================
@@ -336,6 +339,7 @@ class MediaDef:
         validation: Optional[MediaValidation] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
+        dims: Optional[List["DimRef"]] = None,
     ):
         """Create a new media definition
 
@@ -348,10 +352,17 @@ class MediaDef:
             description: Optional short plain-text description of the media type
             documentation: Optional long-form markdown documentation. Rendered in
                 media info panels, the cap navigator, capdag-dot-com, and anywhere
-                else a rich-text explanation of the media def is useful.
+                else a rich-text explanation of the media def is useful. Only
+                what is specific to this media def: what the dims it was built
+                from mean is documented with each dim (see ``dims``).
             validation: Optional validation rules for this media type
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
+            dims: The dims this media def was built from, and the value chosen
+                from each (``DimRef`` entries), in the order its source
+                references them. Each dim is published on its own
+                (``FabricRegistry.get_dim``); a reader shows its documentation
+                beside ``documentation``. Empty when built from no dim.
         """
         self.urn = urn
         self.media_type = media_type
@@ -363,6 +374,7 @@ class MediaDef:
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
+        self.dims: List["DimRef"] = list(dims or [])
 
     def to_stored(self) -> "StoredMediaDef":
         """Convert this MediaDef into a StoredMediaDef for registry seeding."""
@@ -379,6 +391,7 @@ class MediaDef:
             validation=self.validation,
             metadata=self.metadata,
             extensions=self.extensions,
+            dims=list(self.dims),
         )
 
     def get_documentation(self) -> Optional[str]:
@@ -408,6 +421,8 @@ class MediaDef:
             result["description"] = self.description
         if self.documentation is not None:
             result["documentation"] = self.documentation
+        if self.dims:
+            result["dims"] = [r.to_dict() for r in self.dims]
         if self.validation is not None:
             result["validation"] = self.validation.to_dict()
         if self.metadata is not None:
@@ -419,11 +434,14 @@ class MediaDef:
     @classmethod
     def from_dict(cls, data: Dict) -> "MediaDef":
         """Parse from dict"""
+        from capdag.fabric.dim import dim_refs_from_list
+
         validation = None
         if "validation" in data:
             validation = MediaValidation.from_dict(data["validation"])
 
         return cls(
+            dims=dim_refs_from_list(data.get("dims", []), f"media def '{data['urn']}'"),
             urn=data["urn"],
             media_type=data["media_type"],
             title=data["title"],
@@ -450,6 +468,7 @@ class MediaDef:
             and self.validation == other.validation
             and self.metadata == other.metadata
             and self.extensions == other.extensions
+            and self.dims == other.dims
         )
 
 
@@ -477,6 +496,7 @@ class ResolvedMediaDef:
         validation: Optional[MediaValidation] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
+        dims: Optional[List["DimRef"]] = None,
     ):
         """Create a resolved media def
 
@@ -487,10 +507,13 @@ class ResolvedMediaDef:
             schema: Optional local JSON Schema for validation
             title: Display-friendly title for the media type
             description: Optional short plain-text description of the media type
-            documentation: Optional long-form markdown documentation
+            documentation: Optional long-form markdown documentation. Only
+                what is specific to the media def.
             validation: Optional validation rules from the media definition
             metadata: Optional metadata (arbitrary key-value pairs for display/categorization)
             extensions: File extensions for storing this media type (e.g., ["pdf"], ["jpg", "jpeg"])
+            dims: The dims the media def was built from, and the value chosen
+                from each.
         """
         self.media_urn = media_urn
         self.media_type = media_type
@@ -502,6 +525,7 @@ class ResolvedMediaDef:
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
+        self.dims: List["DimRef"] = list(dims or [])
 
     def _parse_media_urn(self) -> MediaUrn:
         """Parse the media URN, raising if invalid (should never happen for resolved specs)"""
@@ -644,6 +668,7 @@ async def resolve_media_urn(
             ),
             metadata=stored_spec.metadata,
             extensions=stored_spec.extensions,
+            dims=list(stored_spec.dims),
         )
     except Exception as e:
         raise UnresolvableMediaUrn(

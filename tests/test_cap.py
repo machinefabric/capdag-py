@@ -827,3 +827,34 @@ def test_7151_is_sequence_is_serialized_even_when_false():
     output_encoded = output.to_dict()
     assert "is_sequence" in output_encoded, "CapOutput must write is_sequence even when false"
     assert output_encoded["is_sequence"] is False
+
+
+# TEST1969: a cap's `dims` — the dims it was built from and the value chosen from each — survive a round-trip in order, under the wire key the registry publishes; a cap built from no dim carries no `dims` key; an entry with a key this capdag does not know is refused like an argument's, and so is one dim named twice. A cartridge re-serializes the caps it declares, so a dropped `dims` would leave its copy without them.
+def test_1969_cap_dims_round_trip_in_order_and_refuse_what_they_cannot_hold():
+    from capdag.fabric.dim import DimRef
+
+    text = (
+        '{"urn":"cap:ask;constrained;in=\\"media:enc=utf-8\\";language=en;out=\\"media:enc=utf-8\\"",'
+        '"version":3,"title":"Ask","aliases":["ask-en"],"documentation":"Only about asking.",'
+        '"dims":[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]}'
+    )
+    cap = Cap.from_dict(json.loads(text))
+    assert cap.dims == [DimRef("constrained", "constrained"), DimRef("language", "en")]
+    back = cap.to_dict()
+    assert back["dims"] == [
+        {"dim": "constrained", "value": "constrained"},
+        {"dim": "language", "value": "en"},
+    ]
+    again = Cap.from_dict(json.loads(json.dumps(back)))
+    assert again.dims == cap.dims
+
+    bare = Cap(CapUrn.from_string("cap:effect=none"), "Identity", ["identity"])
+    assert "dims" not in bare.to_dict()
+
+    extra = text.replace('{"dim":"language","value":"en"}', '{"dim":"language","value":"en","version":1}')
+    with pytest.raises(ValueError, match="version"):
+        Cap.from_dict(json.loads(extra))
+
+    twice = text.replace('{"dim":"constrained","value":"constrained"}', '{"dim":"language","value":"es"}')
+    with pytest.raises(ValueError, match="dim 'language' is named more than once"):
+        Cap.from_dict(json.loads(twice))

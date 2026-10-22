@@ -1,15 +1,20 @@
-"""Unified Fabric Registry — merged cap and media-def lookup/cache.
+"""Unified Fabric Registry — caps, media defs, aliases and dims.
 
 Replaces the previous split between `cap.registry.FabricRegistry` (cap
 definitions) and `media.registry.FabricRegistry` (media defs). Holds
-one HTTP client, one disk cache root with `caps/` and `media/`
-subdirectories, two in-memory dicts (cached caps, cached specs), and
-the extension index.
+one HTTP client, one disk cache root with `caps/`, `media/`, `aliases/`
+and `dims/` subdirectories, an in-memory dict per domain, and the
+extension index.
 
 Atomic cap fetch: a cap is only cached after every media URN it
 references has also been successfully fetched. If any referenced media
 URN cannot be resolved, the cap is NOT cached, NOT persisted to disk,
 and the caller sees the error.
+
+A cap or media def is likewise cached only once every dim it names
+(`dims`) is cached, at the version the manifest pins, with the value it
+names. So a reader holding a cached definition can always read the
+documentation of the dims it was built from (`get_cached_dim`).
 """
 
 import hashlib
@@ -32,6 +37,14 @@ except ImportError:
 from capdag.bifaci.cartridge_slug import slug_for
 from capdag.cap.definition import Cap
 from capdag.cap.validation import ValidationError as CapDefinitionError, validate_cap_definition
+from capdag.fabric.dim import (
+    DimError,
+    DimRef,
+    StoredDim,
+    check_dim_refs,
+    dim_refs_from_list,
+    is_dim_name,
+)
 from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
@@ -184,6 +197,7 @@ class StoredMediaDef:
         validation: Optional[Dict] = None,
         metadata: Optional[Any] = None,
         extensions: Optional[List[str]] = None,
+        dims: Optional[List[DimRef]] = None,
     ):
         self.urn = urn
         # Per-definition version. 0 ⇒ v0 (frozen flat-path); >= 1 ⇒ pinned at
@@ -198,6 +212,8 @@ class StoredMediaDef:
         self.validation = validation
         self.metadata = metadata
         self.extensions = extensions or []
+        # The dims this media def was built from (see ``MediaDef.dims``).
+        self.dims: List[DimRef] = list(dims or [])
 
     def to_dict(self) -> Dict:
         result: Dict[str, Any] = {
@@ -215,6 +231,8 @@ class StoredMediaDef:
             result["description"] = self.description
         if self.documentation is not None:
             result["documentation"] = self.documentation
+        if self.dims:
+            result["dims"] = [r.to_dict() for r in self.dims]
         if self.validation is not None:
             result["validation"] = self.validation
         if self.metadata is not None:
@@ -226,6 +244,7 @@ class StoredMediaDef:
     @classmethod
     def from_dict(cls, data: Dict) -> "StoredMediaDef":
         return cls(
+            dims=dim_refs_from_list(data.get("dims", []), f"media def '{data['urn']}'"),
             urn=data["urn"],
             media_type=data["media_type"],
             title=data["title"],
@@ -406,6 +425,35 @@ class AliasCacheEntry:
 
 
 # =============================================================================
+# Dims
+# =============================================================================
+
+
+class DimCacheEntry:
+    """On-disk cache entry for a dim."""
+
+    def __init__(self, dim: StoredDim, cached_at: int, ttl_hours: int):
+        self.dim = dim
+        self.cached_at = cached_at
+        self.ttl_hours = ttl_hours
+
+    def to_dict(self) -> Dict:
+        return {
+            "dim": self.dim.to_dict(),
+            "cached_at": self.cached_at,
+            "ttl_hours": self.ttl_hours,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "DimCacheEntry":
+        return cls(
+            dim=StoredDim.from_dict(data["dim"]),
+            cached_at=data["cached_at"],
+            ttl_hours=data["ttl_hours"],
+        )
+
+
+# =============================================================================
 # Manifest (registry snapshot)
 # =============================================================================
 
@@ -414,14 +462,22 @@ class AliasCacheEntry:
 class Manifest:
     """A versioned registry snapshot. Mirrors ``fabric/manifest.schema.json``
     on the wire. v0 (the implicit pre-versioning state) has no manifest
-    object; manifests at version >= 1 name every cap URN, media URN, and
-    alias name in the snapshot paired with its per-definition version."""
+    object; manifests at version >= 1 name every cap URN, media URN, alias
+    name and dim name in the snapshot paired with its per-definition
+    version.
+
+    ``dims`` maps a dim name to its per-definition version; the body (the
+    dim's title, documentation and values) lives at
+    ``dims/<sha256-of-name>/<defver>.json``. Every dim a cap or media def of
+    the snapshot names is there. Required on the wire: a manifest without it
+    is not one this library reads."""
 
     version: int
     previous: int
     caps: Dict[str, int] = field(default_factory=dict)
     media: Dict[str, int] = field(default_factory=dict)
     aliases: Dict[str, int] = field(default_factory=dict)
+    dims: Dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def empty(cls, version: int) -> "Manifest":
@@ -434,16 +490,26 @@ class Manifest:
             "caps": dict(self.caps),
             "media": dict(self.media),
             "aliases": dict(self.aliases),
+            "dims": dict(self.dims),
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Manifest":
+        if "dims" not in data:
+            raise ValueError(
+                f"manifest v{data.get('version')} is missing field `dims`: every manifest "
+                f"this library reads names the dims of its snapshot"
+            )
+        dims = data["dims"]
+        if not isinstance(dims, dict):
+            raise ValueError(f"manifest field `dims` is not an object: {dims!r}")
         return cls(
             version=data["version"],
             previous=data["previous"],
             caps=dict(data.get("caps", {})),
             media=dict(data.get("media", {})),
             aliases=dict(data.get("aliases", {})),
+            dims=dict(dims),
         )
 
 
@@ -511,6 +577,88 @@ def _media_url_and_cache_path(
     )
 
 
+def _dim_url_and_cache_path(
+    cache_dir: Path, config: RegistryConfig, name: str, defver: int
+) -> Tuple[str, Path]:
+    """Build the registry URL and on-disk cache path for a per-dim object at
+    the given defver. Dims are keyed by ``sha256(name)`` and are
+    versioned-only (defver >= 1). Mirrors Rust's ``dim_url_and_cache_path``."""
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return (
+        f"{config.registry_base_url}/dims/{digest}/{defver}.json",
+        cache_dir / "dims" / digest / f"{defver}.json",
+    )
+
+
+def checked_dim(body: bytes, name: str, defver: int) -> StoredDim:
+    """A dim body as a registry served it, for the dim ``name`` at
+    ``defver``: parsed (unknown fields refused), named and versioned as
+    requested, and holding (:meth:`StoredDim.validate`). A body that does not
+    parse, or names another dim or version, is a ParseError; one that does
+    not hold is a ValidationError."""
+    try:
+        dim = StoredDim.from_dict(json.loads(body))
+    except (ValueError, KeyError, TypeError) as e:
+        raise ParseError(f"Failed to parse dim '{name}': {e}")
+    if dim.name != name:
+        raise ParseError(
+            f"dim object name '{dim.name}' does not match requested name '{name}'"
+        )
+    if dim.version != defver:
+        raise ParseError(
+            f"dim '{dim.name}' object reports version {dim.version} but manifest pins defver {defver}"
+        )
+    try:
+        dim.validate()
+    except DimError as e:
+        raise ValidationError(str(e))
+    return dim
+
+
+def _dims_resolve_in(dims: List[DimRef], cached: Dict[str, StoredDim]) -> bool:
+    """Whether every dim ``dims`` names is in ``cached`` with the value it
+    names."""
+    for r in dims:
+        dim = cached.get(r.dim)
+        if dim is None or dim.value(r.value) is None:
+            return False
+    return True
+
+
+def _retain_pinned(
+    manifest: "Manifest",
+    manifest_version: int,
+    caps: Dict[str, Cap],
+    specs: Dict[str, StoredMediaDef],
+    aliases: Dict[str, StoredAlias],
+    dims: Dict[str, StoredDim],
+) -> None:
+    """Keep, of what was loaded from the disk cache, only what the pinned
+    manifest names at the version it names, and only definitions whose dims
+    all survive with them. At v0 the manifest is empty and caps and media are
+    all retained (the loaders only walk flat paths then); aliases and dims
+    are versioned-regime concepts and are all dropped.
+
+    A definition whose dims did not survive is dropped here and fetched
+    again, with its dims, when it is next asked for — so a cached definition
+    always has its dims cached. The dicts are filtered in place."""
+
+    def keep_only(d: Dict[str, Any], keep) -> None:
+        for key in [k for k, v in d.items() if not keep(k, v)]:
+            del d[key]
+
+    if manifest_version >= 1:
+        keep_only(caps, lambda urn, cap: manifest.caps.get(urn, 0) == cap.version)
+        keep_only(specs, lambda urn, spec: manifest.media.get(urn, 0) == spec.version)
+        keep_only(aliases, lambda name, alias: manifest.aliases.get(name, 0) == alias.version)
+        keep_only(dims, lambda name, dim: manifest.dims.get(name, 0) == dim.version)
+    else:
+        aliases.clear()
+        dims.clear()
+    keep_only(caps, lambda _urn, cap: _dims_resolve_in(cap.dims, dims))
+    keep_only(specs, lambda _urn, spec: _dims_resolve_in(spec.dims, dims))
+
+
 # =============================================================================
 # Unified registry
 # =============================================================================
@@ -547,12 +695,15 @@ class FabricRegistry:
         self.caps_cache_dir = cache_dir / "caps"
         self.media_cache_dir = cache_dir / "media"
         self.aliases_cache_dir = cache_dir / "aliases"
+        self.dims_cache_dir = cache_dir / "dims"
         self.config = config
         self.client = client
 
         self.cached_caps: Dict[str, Cap] = {}
         self.cached_specs: Dict[str, StoredMediaDef] = {}
         self.cached_aliases: Dict[str, StoredAlias] = {}
+        # Dim name -> StoredDim, filtered to the pinned manifest's defvers.
+        self.cached_dims: Dict[str, StoredDim] = {}
         self.extension_index: Dict[str, List[str]] = {}
 
         # Manifest pin. manifest_version == 0 is legacy v0 / flat-path mode
@@ -615,6 +766,7 @@ class FabricRegistry:
         (cache_dir / "caps").mkdir(parents=True, exist_ok=True)
         (cache_dir / "media").mkdir(parents=True, exist_ok=True)
         (cache_dir / "aliases").mkdir(parents=True, exist_ok=True)
+        (cache_dir / "dims").mkdir(parents=True, exist_ok=True)
         (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
 
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
@@ -630,30 +782,21 @@ class FabricRegistry:
         registry._load_all_cached_caps()
         registry._load_all_cached_specs()
         registry._load_all_cached_aliases()
-        # Filter loaded caches to the pinned manifest's defvers (v >= 1).
-        if manifest_version >= 1:
-            with registry.cache_lock:
-                registry.cached_caps = {
-                    urn: cap
-                    for urn, cap in registry.cached_caps.items()
-                    if manifest.caps.get(urn, 0) == cap.version
-                }
-                registry.cached_specs = {
-                    urn: spec
-                    for urn, spec in registry.cached_specs.items()
-                    if manifest.media.get(urn, 0) == spec.version
-                }
-                registry.cached_aliases = {
-                    name: alias
-                    for name, alias in registry.cached_aliases.items()
-                    if manifest.aliases.get(name, 0) == alias.version
-                }
-                registry.extension_index = {}
-                for spec in registry.cached_specs.values():
-                    registry._update_extension_index(spec)
-        else:
-            with registry.cache_lock:
-                registry.cached_aliases = {}
+        registry._load_all_cached_dims()
+        # Keep only what the pinned manifest names, and only definitions whose
+        # dims survive with them.
+        with registry.cache_lock:
+            _retain_pinned(
+                manifest,
+                manifest_version,
+                registry.cached_caps,
+                registry.cached_specs,
+                registry.cached_aliases,
+                registry.cached_dims,
+            )
+            registry.extension_index = {}
+            for spec in registry.cached_specs.values():
+                registry._update_extension_index(spec)
         registry.ensure_identity_cap()
         return registry
 
@@ -676,7 +819,7 @@ class FabricRegistry:
                         f"but file is {version}.json"
                     )
                 return m
-            except (json.JSONDecodeError, KeyError):
+            except (ValueError, KeyError):
                 cache_file.unlink(missing_ok=True)
 
         if not HTTPX_AVAILABLE or client is None:
@@ -693,7 +836,7 @@ class FabricRegistry:
         body = response.text
         try:
             manifest = Manifest.from_dict(json.loads(body))
-        except (json.JSONDecodeError, KeyError) as e:
+        except (ValueError, KeyError) as e:
             raise ParseError(f"Failed to parse manifest v{version}: {e}")
         if manifest.version != version:
             raise ParseError(
@@ -814,6 +957,32 @@ class FabricRegistry:
                 print(f"[WARN] Failed to load alias cache file {cache_file}: {e}")
                 cache_file.unlink(missing_ok=True)
 
+    def _load_all_cached_dims(self) -> None:
+        """Walk the dim cache dir (dims/<sha>/<defver>.json) and load every
+        cached StoredDim keyed by its name. Dims are versioned-only — no v0
+        flat path, no TTL expiry (a published defver is immutable). A cached
+        body this library cannot hold is dropped like an unparseable one, and
+        fetched anew."""
+        if not self.dims_cache_dir.exists():
+            return
+        for cache_file in self.dims_cache_dir.rglob("*.json"):
+            try:
+                with open(cache_file, "r") as f:
+                    data = json.load(f)
+                entry = DimCacheEntry.from_dict(data)
+            except Exception as e:
+                _log.warning("Failed to parse dim cache file %s: %s", cache_file, e)
+                cache_file.unlink(missing_ok=True)
+                continue
+            try:
+                entry.dim.validate()
+            except DimError as e:
+                _log.warning("Dropping dim cache file %s: %s", cache_file, e)
+                cache_file.unlink(missing_ok=True)
+                continue
+            with self.cache_lock:
+                self.cached_dims[entry.dim.name] = entry.dim
+
     # -------------------------------------------------------------------------
     # Disk-cache writers
     # -------------------------------------------------------------------------
@@ -865,6 +1034,16 @@ class FabricRegistry:
                 json.dump(entry.to_dict(), f, indent=2)
         except Exception as e:
             raise CacheError(f"Failed to write alias cache file: {e}")
+
+    def _save_dim_to_cache(self, dim: StoredDim) -> None:
+        _, cache_file = _dim_url_and_cache_path(self.cache_dir, self.config, dim.name, dim.version)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        entry = DimCacheEntry(dim=dim, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(entry.to_dict(), f, indent=2)
+        except Exception as e:
+            raise CacheError(f"Failed to write dim cache file {cache_file}: {e}")
 
     # -------------------------------------------------------------------------
     # Extension index
@@ -931,7 +1110,7 @@ class FabricRegistry:
             return StoredMediaDef.from_dict(response.json())
         except httpx.HTTPError as e:
             raise HttpError(f"Failed to fetch media def from registry: {e}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except (ValueError, KeyError, TypeError) as e:
             raise ParseError(f"Failed to parse registry response for media '{urn}': {e}")
 
     async def _fetch_alias_from_registry(self, normalized_name: str, defver: int) -> StoredAlias:
@@ -973,6 +1152,71 @@ class FabricRegistry:
                 f"alias '{alias.name}' target '{alias.target}' is neither a cap nor a media URN"
             )
         return alias
+
+    async def _fetch_one_dim(self, name: str, defver: int) -> StoredDim:
+        """Fetch a single dim body at its pinned defver, check it
+        (:func:`checked_dim`), and cache it in memory and on disk. A registry
+        that serves another object is a hard error, never silently
+        accepted."""
+        if self._offline:
+            raise NetworkBlockedError(f"offline: cannot fetch dim '{name}'")
+        if defver < 1:
+            raise NotFoundError(
+                f"dim '{name}' has non-positive defver {defver}; dims are versioned-only"
+            )
+        if not HTTPX_AVAILABLE or self.client is None:
+            raise HttpError("httpx not available - cannot fetch from registry")
+        url, _ = _dim_url_and_cache_path(self.cache_dir, self.config, name, defver)
+        try:
+            response = await self.client.get(url)
+        except httpx.HTTPError as e:
+            raise HttpError(f"Failed to fetch dim '{name}': {e}")
+        if not response.is_success:
+            raise NotFoundError(
+                f"dim '{name}' not found in registry (HTTP {response.status_code}) at {url}"
+            )
+        dim = checked_dim(response.content, name, defver)
+        self._save_dim_to_cache(dim)
+        with self.cache_lock:
+            self.cached_dims[dim.name] = dim
+        return dim
+
+    async def _ensure_dims_cached(self, owner: str, dims: List[DimRef]) -> None:
+        """Make sure every dim a definition names is cached, fetching the
+        ones that are not at the defver the manifest pins, and that each
+        names a value the dim declares. ``owner`` names the definition in
+        errors. Nothing about the definition itself is cached here: its
+        fetcher caches it only once this succeeds."""
+        try:
+            check_dim_refs(dims)
+        except ValueError as e:
+            raise ValidationError(f"{owner} dims: {e}")
+        for r in dims:
+            with self.cache_lock:
+                dim = self.cached_dims.get(r.dim)
+            if dim is None:
+                if self.manifest_version == 0:
+                    raise NotFoundError(
+                        f"{owner} names dim '{r.dim}', but the registry is pinned at v0 "
+                        f"(dims are a versioned-regime concept)"
+                    )
+                defver = self.manifest.dims.get(r.dim)
+                if defver is None:
+                    raise NotFoundError(
+                        f"{owner} names dim '{r.dim}', which is not in manifest "
+                        f"v{self.manifest_version}"
+                    )
+                try:
+                    dim = await self._fetch_one_dim(r.dim, defver)
+                except FabricRegistryError as e:
+                    raise NotFoundError(
+                        f"{owner} names dim '{r.dim}', which could not be fetched: {e}"
+                    )
+            if dim.value(r.value) is None:
+                raise ValidationError(
+                    f"{owner} names value '{r.value}' of dim '{r.dim}', which the dim "
+                    f"does not declare"
+                )
 
     # -------------------------------------------------------------------------
     # Defver resolution (manifest pin)
@@ -1019,6 +1263,22 @@ class FabricRegistry:
             )
         return defver
 
+    def _dim_defver(self, name: str) -> int:
+        """Resolve a dim name to its defver under the pinned manifest. Dims
+        exist only in the versioned regime: at v0 any dim lookup is a hard
+        NotFound. At v >= 1 the name must be in the manifest's dims map."""
+        if self.manifest_version == 0:
+            raise NotFoundError(
+                f"dim '{name}' cannot resolve: registry is pinned at v0 "
+                f"(dims are a versioned-regime concept)"
+            )
+        defver = self.manifest.dims.get(name)
+        if defver is None:
+            raise NotFoundError(
+                f"dim '{name}' is not part of manifest v{self.manifest_version}"
+            )
+        return defver
+
     def cap_defver_for(self, urn: str) -> int:
         return self._cap_defver(normalize_cap_urn(urn))
 
@@ -1027,6 +1287,11 @@ class FabricRegistry:
 
     def alias_defver_for(self, name: str) -> int:
         return self._alias_defver(normalize_alias_name(name))
+
+    def dim_defver_for(self, name: str) -> int:
+        """Look up a dim name's pinned defver under this registry's manifest
+        without fetching the body."""
+        return self._dim_defver(name)
 
     # -------------------------------------------------------------------------
     # Atomic cap fetch — the core of the merged registry
@@ -1089,18 +1354,29 @@ class FabricRegistry:
                 already_cached = media_urn in self.cached_specs
             if already_cached:
                 continue
-            media_defver = self._media_defver(media_urn)
-            spec = await self._fetch_media_def_from_registry(media_urn, media_defver)
-            self._save_media_def_to_cache(spec)
-            with self.cache_lock:
-                self.cached_specs[normalize_media_urn(spec.urn)] = spec
-                self._update_extension_index(spec)
+            await self._fetch_media_def_atomic(media_urn)
 
-        # All referenced media defs landed — now cache the cap.
+        # Every dim the cap names, at its pinned version, with the value named.
+        await self._ensure_dims_cached(f"cap '{normalized_urn}'", cap.dims)
+
+        # All referenced media defs and dims landed — now cache the cap.
         self._save_cap_to_cache(cap)
         with self.cache_lock:
             self.cached_caps[normalize_cap_urn(cap.urn_string())] = cap
         return cap
+
+    async def _fetch_media_def_atomic(self, urn: str) -> StoredMediaDef:
+        """Fetch a media def at its pinned defver and cache it only once
+        every dim it names is cached (see ``_ensure_dims_cached``)."""
+        normalized_urn = normalize_media_urn(urn)
+        defver = self._media_defver(normalized_urn)
+        spec = await self._fetch_media_def_from_registry(urn, defver)
+        await self._ensure_dims_cached(f"media def '{normalized_urn}'", spec.dims)
+        self._save_media_def_to_cache(spec)
+        with self.cache_lock:
+            self.cached_specs[normalize_media_urn(spec.urn)] = spec
+            self._update_extension_index(spec)
+        return spec
 
     # -------------------------------------------------------------------------
     # Public cap API
@@ -1204,13 +1480,7 @@ class FabricRegistry:
                 f"Network access blocked while offline: cannot fetch media def {urn!r}"
             )
 
-        defver = self._media_defver(normalized_urn)
-        spec = await self._fetch_media_def_from_registry(urn, defver)
-        self._save_media_def_to_cache(spec)
-        with self.cache_lock:
-            self.cached_specs[normalize_media_urn(spec.urn)] = spec
-            self._update_extension_index(spec)
-        return spec
+        return await self._fetch_media_def_atomic(urn)
 
     async def get_media_defs(self, urns: List[str]) -> List[StoredMediaDef]:
         return [await self.get_media_def(u) for u in urns]
@@ -1325,6 +1595,31 @@ class FabricRegistry:
         return alias.target if alias is not None else None
 
     # -------------------------------------------------------------------------
+    # Public dim API
+    # -------------------------------------------------------------------------
+
+    async def get_dim(self, name: str) -> StoredDim:
+        """Fetch a dim's definition — its title, documentation and values,
+        each value with its own — by name (cache-first, then network), at the
+        version the pinned manifest names. A string that is no dim name is a
+        ValidationError; a name the manifest does not list is a NotFoundError,
+        decided before any fetch."""
+        if not is_dim_name(name):
+            raise ValidationError(f"'{name}' is not a dim name")
+        cached = self.get_cached_dim(name)
+        if cached is not None:
+            return cached
+        defver = self._dim_defver(name)
+        return await self._fetch_one_dim(name, defver)
+
+    def get_cached_dim(self, name: str) -> Optional[StoredDim]:
+        """Synchronous, in-memory-only dim lookup. Every dim a cached cap or
+        media def names is cached with it, so a reader holding a definition
+        from this registry finds its dims here."""
+        with self.cache_lock:
+            return self.cached_dims.get(name)
+
+    # -------------------------------------------------------------------------
     # Offline / cache control
     # -------------------------------------------------------------------------
 
@@ -1332,20 +1627,22 @@ class FabricRegistry:
         self._offline = offline
 
     def clear_cache(self) -> None:
-        """Clear in-memory and on-disk caches for caps, media defs, aliases."""
+        """Clear in-memory and on-disk caches for caps, media defs, aliases
+        and dims."""
         import shutil
 
         with self.cache_lock:
             self.cached_caps.clear()
             self.cached_specs.clear()
             self.cached_aliases.clear()
+            self.cached_dims.clear()
             self.extension_index.clear()
 
         if self.cache_dir.exists():
             try:
                 shutil.rmtree(self.cache_dir)
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
-                for sub in ("caps", "media", "aliases", "manifests"):
+                for sub in ("caps", "media", "aliases", "dims", "manifests"):
                     (self.cache_dir / sub).mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 raise CacheError(f"Failed to clear cache directory: {e}")
@@ -1519,3 +1816,12 @@ class FabricRegistry:
             self.cached_aliases[alias.name] = alias
             if self.manifest_version >= 1:
                 self.manifest.aliases[alias.name] = alias.version
+
+    def insert_cached_dim_for_test(self, dim: StoredDim) -> None:
+        """Insert a dim directly into the in-memory cache and register its
+        defver in the manifest, bypassing the network (test helper). Mirrors
+        ``insert_cached_alias_for_test``."""
+        with self.cache_lock:
+            self.cached_dims[dim.name] = dim
+            if self.manifest_version >= 1:
+                self.manifest.dims[dim.name] = dim.version

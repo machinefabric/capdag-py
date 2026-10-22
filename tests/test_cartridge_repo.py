@@ -1,4 +1,4 @@
-"""Tests for bifaci cartridge repository models (v6.0 channel-partitioned)."""
+"""Tests for bifaci cartridge repository models (v7.0 channel-partitioned)."""
 
 import pytest
 
@@ -221,14 +221,14 @@ def test_12849_reading_a_registry_holds_its_definitions_to_the_rules():
     assert "nightly" in str(refused.value) and "RULE21" in str(refused.value)
 
 
-# TEST323: CartridgeRepoServer requires the schema this build reads (6.0) and rejects older.
+# TEST323: CartridgeRepoServer requires the schema this build reads (7.0) and rejects older.
 def test_323_cartridge_repo_server_validate_registry():
     CartridgeRepoServer(_make_registry())
 
     with pytest.raises(CartridgeRepoError) as exc_info:
         CartridgeRepoServer(
             CartridgeRegistry(
-                schema_version="5.0",
+                schema_version="6.0",
                 registry_version=CARTRIDGE_REGISTRY_VERSION,
                 last_updated="x",
                 fabric_registry_url="https://fabric.test",
@@ -238,7 +238,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 ),
             )
         )
-    assert "6.0" in str(exc_info.value)
+    assert "7.0" in str(exc_info.value)
 
     # A manifest from a different regime version is rejected too.
     with pytest.raises(CartridgeRepoError) as exc_info:

@@ -162,6 +162,14 @@ from capdag.fabric.registry import (
     normalize_cap_urn,
     normalize_media_urn,
 )
+from capdag.fabric.dim import (
+    DimError,
+    DimRef,
+    DimTag,
+    StoredDim,
+    StoredDimValue,
+    check_dim_refs,
+)
 from capdag.media.spec import (
     MediaValidation,
     ResolvedMediaDef,
@@ -444,6 +452,12 @@ __all__ = [
     "FabricRegistryError",
     "RegistryConfig",
     "StoredMediaDef",
+    "DimError",
+    "DimRef",
+    "DimTag",
+    "StoredDim",
+    "StoredDimValue",
+    "check_dim_refs",
     "HttpError",
     "NotFoundError",
     "ParseError",

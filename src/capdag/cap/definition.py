@@ -5,9 +5,12 @@ the cap URN, arguments, outputs, and metadata.
 """
 
 import json
-from typing import Dict, List, Optional, Any, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from capdag.urn.cap_urn import CapUrn
+
+if TYPE_CHECKING:
+    from capdag.fabric.dim import DimRef
 
 
 @dataclass
@@ -465,7 +468,16 @@ class Cap:
         # never a runnable graph edge). Absent in the wire form => False.
         self.is_abstract: bool = False
         self.cap_description: Optional[str] = None
+        # Only what is specific to this cap: what the dims it was built from
+        # mean is documented with each dim (see ``dims``).
         self.documentation: Optional[str] = None
+        # The dims this cap was built from, and the value chosen from each,
+        # in the order its source references them (``DimRef`` entries). Each
+        # dim is published on its own (``FabricRegistry.get_dim``) with its
+        # documentation and each value's; a reader shows that beside
+        # ``documentation``. Empty when the cap was built from no dim.
+        # Descriptive only: matching and dispatch never read it.
+        self.dims: List["DimRef"] = []
         self.args: List[CapArg] = []
         # Every output the cap declares. Exactly one is the main one, whose
         # media URN is the cap URN's ``out=``; a cap whose ``out=`` is
@@ -761,6 +773,11 @@ class Cap:
         if self.documentation is not None:
             result["documentation"] = self.documentation
 
+        # Emitted only when the cap was built from some dim; absent => none,
+        # exactly as the registry publishes it.
+        if self.dims:
+            result["dims"] = [r.to_dict() for r in self.dims]
+
         if self.args:
             result["args"] = [arg.to_dict() for arg in self.args]
 
@@ -805,6 +822,19 @@ class Cap:
 
         if "documentation" in data:
             cap.documentation = data["documentation"]
+
+        if "dims" in data:
+            # Imported here: capdag.fabric's package imports the registry,
+            # which imports this module.
+            from capdag.fabric.dim import check_dim_refs, dim_refs_from_list
+
+            cap.dims = dim_refs_from_list(data["dims"], f"cap '{urn.to_string()}'")
+            # A dim is named at most once: a definition cannot have been built
+            # with two values of one dim.
+            try:
+                check_dim_refs(cap.dims)
+            except ValueError as e:
+                raise ValueError(f"cap '{urn.to_string()}' dims: {e}") from e
 
         if "args" in data:
             cap.args = [CapArg.from_dict(a) for a in data["args"]]

@@ -93,7 +93,7 @@ def test_1882_classify_alias_target_by_prefix():
 def test_1887_manifest_serde_round_trips_aliases():
     data = json.loads(
         '{"version":1,"previous":0,"caps":{},"media":{},'
-        '"aliases":{"pdf2text":3,"jsondoc":1}}'
+        '"aliases":{"pdf2text":3,"jsondoc":1},"dims":{}}'
     )
     m = Manifest.from_dict(data)
     assert m.aliases.get("pdf2text") == 3

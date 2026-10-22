@@ -1,4 +1,14 @@
-"""Unified fabric registry — merged cap and media-def lookup/cache."""
+"""Unified fabric registry — caps, media defs, aliases and dims in one type."""
+
+from capdag.fabric.dim import (
+    DimError,
+    DimRef,
+    DimTag,
+    StoredDim,
+    StoredDimValue,
+    check_dim_refs,
+    is_dim_name,
+)
 
 from capdag.fabric.registry import (
     ALIAS_TARGET_CAP,
@@ -8,6 +18,7 @@ from capdag.fabric.registry import (
     CacheEntry,
     CacheError,
     DEFAULT_REGISTRY_BASE_URL,
+    DimCacheEntry,
     ExtensionNotFoundError,
     FabricRegistry,
     FabricRegistryError,
@@ -21,6 +32,7 @@ from capdag.fabric.registry import (
     StoredAlias,
     StoredMediaDef,
     ValidationError,
+    checked_dim,
     classify_alias_target,
     is_alias_token,
     normalize_alias_name,
@@ -37,6 +49,10 @@ __all__ = [
     "CacheEntry",
     "CacheError",
     "DEFAULT_REGISTRY_BASE_URL",
+    "DimCacheEntry",
+    "DimError",
+    "DimRef",
+    "DimTag",
     "ExtensionNotFoundError",
     "FabricRegistry",
     "FabricRegistryError",
@@ -48,10 +64,15 @@ __all__ = [
     "ParseError",
     "RegistryConfig",
     "StoredAlias",
+    "StoredDim",
+    "StoredDimValue",
     "StoredMediaDef",
     "ValidationError",
+    "check_dim_refs",
+    "checked_dim",
     "classify_alias_target",
     "is_alias_token",
+    "is_dim_name",
     "normalize_alias_name",
     "normalize_cap_urn",
     "normalize_media_urn",

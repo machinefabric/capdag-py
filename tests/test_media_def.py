@@ -734,3 +734,38 @@ def test_12835_a_value_is_held_to_the_rules_that_are_about_it():
     assert every.violation("xyz") is None
     # No rule, nothing broken.
     assert MediaValidation().violation("anything") is None
+
+
+# TEST1970: a media def's `dims` survive from the registry body through StoredMediaDef to MediaDef and back, in order; a media def built from no dim carries no `dims` key; an entry with a key this capdag does not know is refused.
+def test_1970_media_def_dims_survive_and_refuse_unknown_keys():
+    import json
+
+    from capdag.fabric.dim import DimRef
+
+    body = (
+        '{"urn":"media:document;ext=pdf","version":2,"media_type":"application/pdf",'
+        '"title":"PDF Document","documentation":"Only about PDFs.",'
+        '"dims":[{"dim":"file-type","value":"pdf"},{"dim":"medium","value":"document"}],'
+        '"extensions":["pdf"]}'
+    )
+    stored = StoredMediaDef.from_dict(json.loads(body))
+    expected = [DimRef("file-type", "pdf"), DimRef("medium", "document")]
+    assert stored.dims == expected
+    definition = MediaDef.from_dict(stored.to_dict())
+    assert definition.dims == expected
+    assert definition.to_stored().dims == expected
+    encoded = definition.to_dict()
+    assert encoded["dims"] == [
+        {"dim": "file-type", "value": "pdf"},
+        {"dim": "medium", "value": "document"},
+    ]
+    back = MediaDef.from_dict(json.loads(json.dumps(encoded)))
+    assert back.dims == expected
+
+    bare = MediaDef("media:void", "application/x-void", "Void")
+    assert "dims" not in bare.to_dict()
+    assert "dims" not in bare.to_stored().to_dict()
+
+    extra = body.replace('"value":"pdf"}', '"value":"pdf","title":"PDF"}')
+    with pytest.raises(ValueError, match="title"):
+        StoredMediaDef.from_dict(json.loads(extra))

@@ -4,7 +4,7 @@ Fetches and caches cartridge registry data from configured cartridge repositorie
 Provides cartridge suggestions when a cap is unavailable but a cartridge exists
 that could provide it.
 
-Wire schema is v6.0: cartridges are partitioned by channel under
+Wire schema is v7.0: cartridges are partitioned by channel under
 `channels.<channel>.cartridges.<id>`. Each cartridge advertises its caps
 in `cap_groups` (snake_case key on the wire): its cap definitions exactly
 as its manifest declares them, held to the definition rules when the
@@ -49,9 +49,10 @@ def _null_as_empty_string(value) -> str:
 
 
 # The schema revision of the cartridge registry this build reads
-# (schemas/cartridge-registry/v6.json): its cap groups carry each cartridge's
-# cap definitions exactly as its manifest declares them.
-CARTRIDGE_REGISTRY_SCHEMA_VERSION = "6.0"
+# (schemas/cartridge-registry/v7.json): its cap groups carry each cartridge's
+# cap definitions exactly as its manifest declares them, including the dims
+# each was built from.
+CARTRIDGE_REGISTRY_SCHEMA_VERSION = "7.0"
 
 
 @dataclass
@@ -485,7 +486,7 @@ class CartridgeRegistryChannels:
 # Cartridge registry regime version this implementation speaks. v0 was the
 # pre-versioning legacy at the bare /manifest path; this speaks only v>=1 at the
 # versioned /v<version>/manifest path and rejects any other registryVersion.
-CARTRIDGE_REGISTRY_VERSION = 2
+CARTRIDGE_REGISTRY_VERSION = 3
 
 
 @dataclass
