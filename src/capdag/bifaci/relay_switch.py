@@ -298,13 +298,6 @@ class InstalledCartridgeRecord:
         ``EffectiveLifecycle``."""
         return self.lifecycle or CartridgeLifecycle.DISCOVERED
 
-    def registry_slug(self) -> str:
-        """On-disk slug derived from ``registry_url``. ``None`` →
-        ``DEV_SLUG``; non-None → first 16 hex chars of SHA-256 of
-        the URL bytes."""
-        from capdag.bifaci.cartridge_slug import slug_for
-        return slug_for(self.registry_url)
-
     def cap_urns(self) -> List[str]:
         """Flat de-duplicated cap-URN view across this cartridge's
         groups, preserving first-seen order. Each URN is parsed and

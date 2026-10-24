@@ -213,7 +213,6 @@ from capdag.media.spec import (
     PROFILE_CAPDAG_CONTENTS_OUTPUT,
     PROFILE_CAPDAG_GENERATE_OUTPUT,
     PROFILE_CAPDAG_QUESTIONS_ARRAY,
-    get_schema_base,
     get_profile_url,
 )
 
@@ -509,7 +508,6 @@ __all__ = [
     "PROFILE_CAPDAG_CONTENTS_OUTPUT",
     "PROFILE_CAPDAG_GENERATE_OUTPUT",
     "PROFILE_CAPDAG_QUESTIONS_ARRAY",
-    "get_schema_base",
     "get_profile_url",
     # Standard caps
     "CAP_IDENTITY",

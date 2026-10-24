@@ -32,15 +32,13 @@ from capdag.bifaci.bundle_manifest import BundleProof
 from capdag.bifaci.cartridge_json import (
     CartridgeInstallSource,
     CartridgeJsonError,
-    CartridgeJsonRegistrySlugMismatch,
-    RegistryUrlSchemeResult,
+    CartridgeJsonRegistryFolderMismatch,
     hash_cartridge_directory,
     read_cartridge_json_from_dir,
-    validate_registry_url_scheme,
 )
 from capdag.bifaci import launch
 from capdag.bifaci.cartridge_repo import CartridgeChannel
-from capdag.bifaci.cartridge_slug import slug_for
+from capdag.bifaci.charter import CharterError, RegistryFolder
 from capdag.bifaci.io import FrameReader, FrameWriter, handshake, verify_identity
 from capdag.bifaci.relay_switch import (
     CartridgeAttachmentError,
@@ -76,14 +74,6 @@ class DiscoveryIdentity:
     #: sitting there is refused for exactly that reason instead of being
     #: hosted because nobody asked.
     bundle: BundleProof
-
-    def slug(self) -> str:
-        """On-disk top-level slug for THIS host's own baked registry
-        (``dev`` when ``registry_url`` is None). Discovery does not
-        restrict scanning to this slug — it enumerates every slug folder
-        and validates each cartridge against the folder it sits under.
-        Retained for callers that need the host's own slug."""
-        return slug_for(self.registry_url)
 
 
 @dataclass
@@ -200,11 +190,11 @@ def discover_cartridges(
     existing scan root IS an error (it would otherwise masquerade as "no
     cartridges installed").
 
-    Discovery scans EVERY slug folder present on disk — full parity with
-    the reference host. The host's baked ``identity.registry_url`` does
-    NOT restrict which slugs are scanned; each cartridge is instead
-    validated in place against the slug folder it sits under (the
-    three-place rule), so a registry-installed cartridge, the reserved
+    Discovery scans EVERY registry folder present on disk — full parity
+    with the reference host. The host's baked ``identity.registry_url``
+    does NOT restrict which folders are scanned; each cartridge is instead
+    validated in place against the registry folder it sits under, as the
+    charter stored there names it (the charter rule), so a registry-installed cartridge, the reserved
     ``dev/`` slot (null registry_url), and the engine's bundled cartridges
     all coexist and load together. The channel folder IS still pinned to
     the host's channel — release and nightly artefacts never mix.
@@ -227,27 +217,39 @@ def discover_cartridges(
                     slug_dir,
                 )
             continue
-        expected_slug = slug_dir.name
+        # The folder is what its stored charter names, never what its own
+        # name says. A folder whose charter is missing or refused still has
+        # its cartridges surfaced — each as misplaced, with the reason — so
+        # the operator sees what is there and why none of it runs.
+        try:
+            folder: Optional[RegistryFolder] = RegistryFolder.open(slug_dir)
+            folder_error: Optional[CharterError] = None
+        except CharterError as e:
+            folder, folder_error = None, e
         # {slug}/v{cartridge_registry_version}/{channel}/… — the registry regime
         # version is a path level pinned to the host's version (like channel).
         scan_root = slug_dir / f"v{identity.cartridge_registry_version}" / identity.channel.value
         if not scan_root.is_dir():
             # This slug has no subtree for the host's (version, channel) — skip.
             continue
-        _scan_channel_root(scan_root, expected_slug, identity, discovered)
+        _scan_channel_root(scan_root, slug_dir, folder, folder_error, identity, discovered)
 
     return discovered
 
 
 def _scan_channel_root(
     scan_root: Path,
-    expected_slug: str,
+    slug_dir: Path,
+    folder: Optional[RegistryFolder],
+    folder_error: Optional[CharterError],
     identity: DiscoveryIdentity,
     discovered: List[DiscoveredCartridge],
 ) -> None:
     """Scan one ``{slug}/{channel}/`` root: classify each cartridge name
-    directory's newest version against the host identity and the slug
-    folder it sits under. Appends results to ``discovered``."""
+    directory's newest version against the host identity and the registry
+    folder it sits under — opened through the charter stored in it, or
+    ``folder_error`` why it could not be. Appends results to
+    ``discovered``."""
     try:
         name_entries = sorted(scan_root.iterdir())
     except OSError as e:
@@ -296,28 +298,52 @@ def _scan_channel_root(
         path_derived_version = version_dir.name or "unknown"
         detected_at = _unix_seconds_now()
 
-        # ``read_cartridge_json_from_dir`` enforces the three-place rule
-        # against the ACTUAL slug folder (``expected_slug``): the
-        # cartridge's declared registry_url must hash to it. A non-null
-        # registry_url under ``dev/`` (or any slug != slug_for(registry_url))
-        # fails here as a slug mismatch — surfaced incompatible and logged,
-        # never hosted. A null registry_url is valid only under the
-        # reserved ``dev/`` slot.
+        # A folder with no charter that reads makes every cartridge in it
+        # misplaced, for the charter's reason.
+        if folder is None:
+            logger.error(
+                "registry folder %s has no charter that reads (%s) — surfacing as "
+                "incompatible: %s",
+                slug_dir,
+                version_dir,
+                folder_error,
+            )
+            discovered.append(
+                DiscoveredCartridgeIncompatible(
+                    version_dir=version_dir,
+                    id=path_derived_name,
+                    channel=identity.channel,
+                    registry_url=identity.registry_url,
+                    version=path_derived_version,
+                    error=CartridgeAttachmentError(
+                        kind=CartridgeAttachmentErrorKind.MISPLACED,
+                        message=f"the registry folder {slug_dir} has no charter that reads: {folder_error}",
+                        detected_at_unix_seconds=detected_at,
+                    ),
+                )
+            )
+            continue
+
+        # ``read_cartridge_json_from_dir`` enforces the charter rule against
+        # the folder the cartridge ACTUALLY sits in: its declared registry_url
+        # must be the folder's anchor. A non-null registry_url under ``dev/``,
+        # or another registry's anchor, fails here as misplaced — surfaced
+        # incompatible and logged, never hosted. A null registry_url is valid
+        # only under the reserved ``dev/`` slot.
         try:
-            cj = read_cartridge_json_from_dir(version_dir, expected_slug)
+            cj = read_cartridge_json_from_dir(version_dir, folder)
         except CartridgeJsonError as e:
-            # A slug mismatch (declared registry_url doesn't hash to this
-            # folder) is a bad INSTALL CONTEXT, distinct from an
+            # A folder mismatch is a bad INSTALL CONTEXT, distinct from an
             # unreadable/garbage cartridge.json (ManifestInvalid). Both are
             # surfaced + logged, never hosted.
-            if isinstance(e, CartridgeJsonRegistrySlugMismatch):
+            if isinstance(e, CartridgeJsonRegistryFolderMismatch):
                 kind = CartridgeAttachmentErrorKind.MISPLACED
             else:
                 kind = CartridgeAttachmentErrorKind.MANIFEST_INVALID
             logger.error(
-                "cartridge.json invalid or mis-placed under slug '%s' (%s) — surfacing "
-                "as incompatible: %s",
-                expected_slug,
+                "cartridge.json invalid or mis-placed in the registry folder '%s' (%s) — "
+                "surfacing as incompatible: %s",
+                folder.slug,
                 version_dir,
                 e,
             )
@@ -330,7 +356,7 @@ def _scan_channel_root(
                     version=path_derived_version,
                     error=CartridgeAttachmentError(
                         kind=kind,
-                        message=f"cartridge.json failed to load under slug '{expected_slug}': {e}",
+                        message=f"cartridge.json failed to load in the registry folder '{folder.slug}': {e}",
                         detected_at_unix_seconds=detected_at,
                     ),
                 )
@@ -361,53 +387,10 @@ def _scan_channel_root(
 
         # NO registry pin: the host's baked registry does NOT restrict
         # which registries' cartridges are discovered. A self-consistent
-        # cartridge (its registry_url hashes to its slug folder, validated
+        # cartridge (its registry_url is its folder's anchor, validated
         # above) from any registry present on disk is accepted; whether its
         # version is actually LISTED upstream is the verdict layer's call,
         # applied after discovery.
-
-        # Scheme check is per-cartridge: a dev cartridge (null registry_url)
-        # never reaches here; a registry cartridge must use https
-        # (dev_mode=False — the scheme relaxation only ever applied to
-        # null-registry dev cartridges).
-        if cj.registry_url is not None:
-            scheme_result = validate_registry_url_scheme(cj.registry_url, False)
-            if scheme_result.non_https_scheme is not None:
-                discovered.append(
-                    DiscoveredCartridgeIncompatible(
-                        version_dir=version_dir,
-                        id=cj.name,
-                        channel=cj_channel,
-                        registry_url=cj.registry_url,
-                        version=cj.version,
-                        error=CartridgeAttachmentError(
-                            kind=CartridgeAttachmentErrorKind.INCOMPATIBLE,
-                            message=(
-                                f"registry_url uses '{scheme_result.non_https_scheme}' scheme, "
-                                f"must be https in non-dev builds. Rebuild the cartridge with an "
-                                f"https registry URL."
-                            ),
-                            detected_at_unix_seconds=detected_at,
-                        ),
-                    )
-                )
-                continue
-            if scheme_result.not_a_url is not None:
-                discovered.append(
-                    DiscoveredCartridgeIncompatible(
-                        version_dir=version_dir,
-                        id=cj.name,
-                        channel=cj_channel,
-                        registry_url=cj.registry_url,
-                        version=cj.version,
-                        error=CartridgeAttachmentError(
-                            kind=CartridgeAttachmentErrorKind.INCOMPATIBLE,
-                            message=f"registry_url '{scheme_result.not_a_url}' is not a well-formed URL.",
-                            detected_at_unix_seconds=detected_at,
-                        ),
-                    )
-                )
-                continue
 
         if cj.fabric_manifest_version != identity.fabric_manifest_version:
             discovered.append(

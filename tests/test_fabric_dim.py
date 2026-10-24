@@ -24,16 +24,18 @@ from capdag.fabric.registry import (
     MediaCacheEntry,
     NotFoundError,
     ParseError,
+    FabricLocations,
     RegistryConfig,
     StoredMediaDef,
     ValidationError,
-    _dim_url_and_cache_path,
-    _media_url_and_cache_path,
+    _definition_url_and_cache_path,
     _retain_pinned,
+    publisher_layout_charter,
     checked_dim,
     normalize_cap_urn,
     normalize_media_urn,
 )
+from capdag.bifaci.charter import FetchedCharter, store_charter
 from capdag.urn.cap_urn import CapUrn
 
 
@@ -121,10 +123,10 @@ async def test_1967_get_dim_resolves_through_the_manifest(tmp_path):
 
 # TEST1968: a dim is addressed at dims/<sha256-of-name>/<defver>.json, on the registry and in the cache; a body served for it must be that dim at that version, with no field this library does not know, and must hold (values present, names unique).
 def test_1968_a_dim_object_is_the_dim_and_version_asked_for():
-    config = RegistryConfig().with_registry_url("https://fabric.example.test")
+    locations = FabricLocations.from_charter(publisher_layout_charter("https://fabric.example.test"))
     cache = Path("/tmp/capdag-test-cache-1968")
     digest = hashlib.sha256("language".encode("utf-8")).hexdigest()
-    url, path = _dim_url_and_cache_path(cache, config, "language", 3)
+    url, path = _definition_url_and_cache_path(cache, locations, "dims", "language", 3)
     assert url == f"https://fabric.example.test/dims/{digest}/3.json"
     assert path == cache / "dims" / digest / "3.json"
 
@@ -196,8 +198,14 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
 
     # The registry's construction from a disk cache applies the same rule.
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    config = RegistryConfig().with_registry_url("https://fabric.example.test")
-    cache_dir = FabricRegistry._get_cache_dir(config.registry_base_url)
+    # The registry's charter is stored in the cache, as a client that fetched
+    # it once leaves it; its slug names the cache folder.
+    config = RegistryConfig().with_anchor("https://fabric.example.test")
+    charter = publisher_layout_charter(config.anchor)
+    cache_dir = FabricRegistry._capdag_cache_root() / charter.slug
+    charter_body = json.dumps(charter.to_dict()).encode("utf-8")
+    store_charter(FetchedCharter(charter=charter, body=charter_body, signature=b"sig"), cache_dir)
+    locations = FabricLocations.from_charter(charter)
 
     def record_cap(op: str, cap_dims) -> Cap:
         cap = Cap(CapUrn.from_string(f'cap:in="media:void";{op};out="media:record"'), op, [op])
@@ -222,11 +230,11 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
         _spec_with_dims("media:y", [("medium", "audio")]),
     ):
         disk_manifest.media[spec.urn] = 1
-        _, spec_file = _media_url_and_cache_path(cache_dir, config, spec.urn, 1)
+        _, spec_file = _definition_url_and_cache_path(cache_dir, locations, "media", spec.urn, 1)
         spec_file.parent.mkdir(parents=True, exist_ok=True)
         spec_file.write_text(json.dumps(MediaCacheEntry(spec, 0, 0).to_dict()))
     for d in (_dim("language", 1, ["en"]), _dim("medium", 1, ["text"])):
-        _, dim_file = _dim_url_and_cache_path(cache_dir, config, d.name, d.version)
+        _, dim_file = _definition_url_and_cache_path(cache_dir, locations, "dims", d.name, d.version)
         dim_file.parent.mkdir(parents=True, exist_ok=True)
         dim_file.write_text(json.dumps(DimCacheEntry(d, 0, 0).to_dict()))
     (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
@@ -272,7 +280,8 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     # Through the fetch paths: a served registry holding the dim `language`
     # with the one value `en`.
     base = "https://fabric.example.test"
-    config = RegistryConfig().with_registry_url(base)
+    config = RegistryConfig().with_anchor(base)
+    locations = FabricLocations.from_charter(publisher_layout_charter(base))
     served = {}
 
     def serve(url: str, body: dict) -> None:
@@ -291,7 +300,7 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
         }
 
     cache_dir = tmp_path / "served"
-    registry = FabricRegistry(cache_dir, config, None, 1, Manifest.empty(1))
+    registry = FabricRegistry(cache_dir, config, publisher_layout_charter(base), None, 1, Manifest.empty(1))
     for op, value in (("speaks", "en"), ("mumbles", "fr")):
         urn = normalize_cap_urn(cap_body(op, value)["urn"])
         registry.manifest.caps[urn] = 1
@@ -306,9 +315,12 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
         body = {"urn": normalized, "version": 1, "media_type": "text/plain", "title": urn}
         if spec_dims:
             body["dims"] = spec_dims
-        serve(_media_url_and_cache_path(cache_dir, config, normalized, 1)[0], body)
+        serve(_definition_url_and_cache_path(cache_dir, locations, "media", normalized, 1)[0], body)
     registry.manifest.dims["language"] = 1
-    serve(_dim_url_and_cache_path(cache_dir, config, "language", 1)[0], _dim("language", 1, ["en"]).to_dict())
+    serve(
+        _definition_url_and_cache_path(cache_dir, locations, "dims", "language", 1)[0],
+        _dim("language", 1, ["en"]).to_dict(),
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = served.get(str(request.url))
@@ -324,7 +336,7 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     assert cap.dims == [DimRef("language", "en")]
     assert registry.get_cached_dim("language") is not None, "the dim is cached with the cap"
     assert registry.get_cached_cap(speaks) is not None
-    assert _dim_url_and_cache_path(cache_dir, config, "language", 1)[1].is_file()
+    assert _definition_url_and_cache_path(cache_dir, locations, "dims", "language", 1)[1].is_file()
 
     mumbles = cap_body("mumbles", "fr")["urn"]
     with pytest.raises(ValidationError) as exc_info:
@@ -344,4 +356,4 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     assert registry.get_cached_media_def(spoken) is None, (
         "a media def naming a dim the manifest lacks is not cached"
     )
-    assert not _media_url_and_cache_path(cache_dir, config, normalize_media_urn(spoken), 1)[1].exists()
+    assert not _definition_url_and_cache_path(cache_dir, locations, "media", normalize_media_urn(spoken), 1)[1].exists()

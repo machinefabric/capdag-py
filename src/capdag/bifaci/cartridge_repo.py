@@ -49,10 +49,10 @@ def _null_as_empty_string(value) -> str:
 
 
 # The schema revision of the cartridge registry this build reads
-# (schemas/cartridge-registry/v7.json): its cap groups carry each cartridge's
+# (schemas/cartridge-registry/v8.json): its cap groups carry each cartridge's
 # cap definitions exactly as its manifest declares them, including the dims
 # each was built from.
-CARTRIDGE_REGISTRY_SCHEMA_VERSION = "7.0"
+CARTRIDGE_REGISTRY_SCHEMA_VERSION = "8.0"
 
 
 @dataclass
@@ -483,10 +483,10 @@ class CartridgeRegistryChannels:
         )
 
 
-# Cartridge registry regime version this implementation speaks. v0 was the
-# pre-versioning legacy at the bare /manifest path; this speaks only v>=1 at the
-# versioned /v<version>/manifest path and rejects any other registryVersion.
-CARTRIDGE_REGISTRY_VERSION = 3
+# Cartridge registry regime version this implementation speaks: the
+# {registry_version} its charter's manifest location is filled with. Any other
+# registryVersion is rejected.
+CARTRIDGE_REGISTRY_VERSION = 4
 
 
 @dataclass
@@ -495,6 +495,9 @@ class CartridgeRegistry:
     schema_version: str
     registry_version: int
     last_updated: str
+    #: The registry's anchor — the URL its charter is served under, and the
+    #: registry_url every cartridge from it records.
+    registry_url: str
     fabric_registry_url: str
     channels: CartridgeRegistryChannels
 
@@ -504,6 +507,7 @@ class CartridgeRegistry:
             schema_version=raw["schemaVersion"],
             registry_version=raw["registryVersion"],
             last_updated=raw["lastUpdated"],
+            registry_url=raw["registryUrl"],
             fabric_registry_url=raw["fabricRegistryUrl"],
             channels=CartridgeRegistryChannels.from_dict(raw["channels"]),
         )
@@ -541,6 +545,10 @@ class CartridgeRepoServer:
             raise CartridgeRepoError(
                 f"Unsupported cartridge registry version: {registry.registry_version}. "
                 f"This build speaks v{CARTRIDGE_REGISTRY_VERSION}."
+            )
+        if not registry.registry_url:
+            raise CartridgeRepoError(
+                "Cartridge registry manifest is missing registryUrl (the registry's anchor)"
             )
         # A cartridge registry must declare the fabric its caps resolve against.
         # The consuming client cross-checks this equals its own fabric (so all

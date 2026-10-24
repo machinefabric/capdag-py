@@ -34,7 +34,16 @@ try:
 except ImportError:
     HTTPX_AVAILABLE = False
 
-from capdag.bifaci.cartridge_slug import slug_for
+from capdag.bifaci.charter import (
+    CHARTER_FORMAT,
+    Charter,
+    CharterError,
+    CharterFetchError,
+    RegistryKind,
+    fetch_charter,
+    store_charter,
+    stored_charter_for,
+)
 from capdag.cap.definition import Cap
 from capdag.cap.validation import ValidationError as CapDefinitionError, validate_cap_definition
 from capdag.fabric.dim import (
@@ -49,7 +58,9 @@ from capdag.urn.cap_urn import CapUrn
 from capdag.urn.media_urn import MediaUrn
 
 
-DEFAULT_REGISTRY_BASE_URL = "https://fabric.capdag.com"
+#: The anchor of MachineFabric's production fabric, used when nothing names
+#: another. Only the anchor: where its objects are is read from its charter.
+DEFAULT_FABRIC_ANCHOR = "https://fabric.capdag.com"
 CACHE_DURATION_HOURS = 24
 
 _log = logging.getLogger(__name__)
@@ -78,6 +89,11 @@ class NotFoundError(FabricRegistryError):
 
 class ParseError(FabricRegistryError):
     """Failed to parse registry response."""
+
+
+class FabricCharterError(FabricRegistryError):
+    """The registry's charter could not be had, or was refused. Nothing the
+    registry serves is used without it."""
 
 
 class CacheError(FabricRegistryError):
@@ -519,75 +535,129 @@ class Manifest:
 
 
 class RegistryConfig:
-    """Configuration for the unified fabric registry.
+    """What a fabric registry client is asked to use.
 
-    Resolution order:
-    1. Explicit constructor argument.
-    2. Environment variable (`CDG_FABRIC_REGISTRY_URL`, `CDG_SCHEMA_BASE_URL`).
-    3. Default values.
+    The ANCHOR names the registry and is all a client is told; where its
+    manifest and definitions are, and the folder its cache lives in, come from
+    the registry's charter (:class:`FabricLocations`). Sources, in priority
+    order: the constructor argument or :meth:`with_anchor`, then
+    ``CDG_FABRIC_REGISTRY_URL``, then MachineFabric's production fabric.
     """
 
-    def __init__(
-        self,
-        registry_base_url: Optional[str] = None,
-        schema_base_url: Optional[str] = None,
-    ):
-        if registry_base_url is None:
-            registry_base_url = os.getenv(
-                "CDG_FABRIC_REGISTRY_URL", DEFAULT_REGISTRY_BASE_URL
-            )
+    def __init__(self, anchor: Optional[str] = None):
+        if anchor is None:
+            anchor = os.getenv("CDG_FABRIC_REGISTRY_URL") or DEFAULT_FABRIC_ANCHOR
+        self.anchor = anchor
 
-        if schema_base_url is None:
-            schema_base_url = os.getenv(
-                "CDG_SCHEMA_BASE_URL", f"{registry_base_url}/schema"
-            )
-
-        self.registry_base_url = registry_base_url
-        self.schema_base_url = schema_base_url
-
-    def with_registry_url(self, url: str) -> "RegistryConfig":
-        if self.schema_base_url == f"{self.registry_base_url}/schema":
-            self.schema_base_url = f"{url}/schema"
-        self.registry_base_url = url
-        return self
-
-    def with_schema_url(self, url: str) -> "RegistryConfig":
-        self.schema_base_url = url
+    def with_anchor(self, anchor: str) -> "RegistryConfig":
+        self.anchor = anchor
         return self
 
 
-def _media_url_and_cache_path(
-    cache_dir: Path, config: RegistryConfig, normalized_urn: str, defver: int
-) -> Tuple[str, Path]:
-    """Build the registry URL and on-disk cache path for a per-media object
-    at the given defver. ``defver == 0`` addresses the frozen v0 flat path
-    (``<base>/media/<sha>``); ``defver >= 1`` addresses the versioned
-    subpath (``<base>/media/<sha>/<defver>.json``). Mirrors Rust's
-    ``media_url_and_cache_path``; used by both the fetch path and the
-    on-disk cache-path resolver so the two never drift apart."""
-    digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-    if defver == 0:
+class FabricLocations:
+    """Where a fabric registry's objects are, as its charter states them.
+
+    Built once from a charter whose shape check guarantees each template uses
+    exactly the placeholders filled here — so filling one cannot fail, and
+    nothing in the client composes a fabric URL any other way."""
+
+    def __init__(self, manifest: str, definition: str):
+        self._manifest = manifest
+        self._definition = definition
+
+    @classmethod
+    def from_charter(cls, charter: Charter) -> "FabricLocations":
+        if charter.kind is not RegistryKind.FABRIC:
+            raise FabricCharterError(
+                f"{charter.anchor} is chartered as a {charter.kind.value} registry, not a fabric"
+            )
+        for name in ("manifest", "definition"):
+            if name not in charter.locations:
+                raise FabricCharterError(
+                    f"the fabric charter of {charter.anchor} declares no '{name}' location"
+                )
+        return cls(charter.locations["manifest"], charter.locations["definition"])
+
+    def manifest(self, version: int) -> str:
+        """The URL of manifest ``version``."""
+        return self._manifest.replace("{manifest_version}", str(version))
+
+    def definition(self, kind: str, urn_hash: str, version: int) -> str:
+        """The URL of one definition: ``kind`` is caps, media, aliases or dims."""
         return (
-            f"{config.registry_base_url}/media/{digest}",
-            cache_dir / "media" / f"{digest}.json",
+            self._definition.replace("{kind}", kind)
+            .replace("{urn_hash}", urn_hash)
+            .replace("{version}", str(version))
         )
-    return (
-        f"{config.registry_base_url}/media/{digest}/{defver}.json",
-        cache_dir / "media" / digest / f"{defver}.json",
+
+
+def publisher_layout_charter(anchor: str) -> Charter:
+    """The charter of a fabric published at ``anchor`` the way the publisher
+    lays a fabric out (``fabric/src/fabric.js``). For a registry that is never
+    fetched: the test constructors, and tests of where things are."""
+    return Charter(
+        format=CHARTER_FORMAT,
+        anchor=anchor,
+        kind=RegistryKind.FABRIC,
+        slug="test-fabric",
+        environment="prod",
+        locations={
+            "manifest": f"{anchor}/manifest/{{manifest_version}}.json",
+            "latest": f"{anchor}/manifest/latest.json",
+            "definition": f"{anchor}/{{kind}}/{{urn_hash}}/{{version}}.json",
+        },
+        issued_at=0,
+        not_after=None,
     )
 
 
-def _dim_url_and_cache_path(
-    cache_dir: Path, config: RegistryConfig, name: str, defver: int
+def _definition_url_and_cache_path(
+    cache_dir: Path, locations: FabricLocations, kind: str, key: str, defver: int
 ) -> Tuple[str, Path]:
-    """Build the registry URL and on-disk cache path for a per-dim object at
-    the given defver. Dims are keyed by ``sha256(name)`` and are
-    versioned-only (defver >= 1). Mirrors Rust's ``dim_url_and_cache_path``."""
-    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    """The URL of one definition at ``defver``, from the charter's
+    ``definition`` location, and the cache file it is kept in. Used by both
+    the fetch path and the on-disk cache-path resolver so the two never drift
+    apart. ``key`` is what the kind hashes: the normalized URN for caps and
+    media, the name for aliases and dims."""
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return (
-        f"{config.registry_base_url}/dims/{digest}/{defver}.json",
-        cache_dir / "dims" / digest / f"{defver}.json",
+        locations.definition(kind, digest, defver),
+        cache_dir / kind / digest / f"{defver}.json",
     )
+
+
+async def _resolve_charter(
+    client: Optional["httpx.AsyncClient"], capdag_cache: Path, anchor: str
+) -> Charter:
+    """The charter of the fabric registry at ``anchor``.
+
+    A fabric's contents carry no signature, so no content environment is
+    expected of its charter: any chartered fabric can be resolved against,
+    and what keeps one client's registries on one fabric is each cartridge
+    registry's charter naming it.
+
+    The stored one, when a folder under ``capdag_cache`` holds a charter for
+    this anchor — so an offline client keeps its fabric. Else the charter is
+    fetched from the anchor and stored in the folder its slug names. Mirrors
+    Rust ``resolve_charter`` (which also verifies the signature; see
+    ``bifaci/charter.py``)."""
+    found = stored_charter_for(capdag_cache, anchor, RegistryKind.FABRIC)
+    if found is not None:
+        return found[1]
+    if client is None:
+        raise HttpError("httpx not available - cannot fetch the fabric charter")
+    try:
+        fetched = await fetch_charter(client, anchor, RegistryKind.FABRIC)
+    except CharterFetchError as e:
+        raise FabricCharterError(
+            f"the fabric registry {anchor} has no charter this client can use: {e}"
+        ) from e
+    folder = capdag_cache / fetched.charter.slug
+    try:
+        store_charter(fetched, folder)
+    except (OSError, CharterError) as e:
+        raise CacheError(f"Failed to store the charter of {anchor} in {folder}: {e}") from e
+    return fetched.charter
 
 
 def checked_dim(body: bytes, name: str, defver: int) -> StoredDim:
@@ -636,8 +706,8 @@ def _retain_pinned(
     """Keep, of what was loaded from the disk cache, only what the pinned
     manifest names at the version it names, and only definitions whose dims
     all survive with them. At v0 the manifest is empty and caps and media are
-    all retained (the loaders only walk flat paths then); aliases and dims
-    are versioned-regime concepts and are all dropped.
+    all retained; aliases and dims are versioned-regime concepts and are all
+    dropped.
 
     A definition whose dims did not survive is dropped here and fetched
     again, with its dims, when it is next asked for — so a cached definition
@@ -682,8 +752,9 @@ class FabricRegistry:
         self,
         cache_dir: Path,
         config: RegistryConfig,
+        charter: Charter,
         client: Optional["httpx.AsyncClient"] = None,
-        manifest_version: int = 0,
+        manifest_version: int = 1,
         manifest: Optional[Manifest] = None,
     ):
         if not HTTPX_AVAILABLE and client is None:
@@ -697,6 +768,10 @@ class FabricRegistry:
         self.aliases_cache_dir = cache_dir / "aliases"
         self.dims_cache_dir = cache_dir / "dims"
         self.config = config
+        #: The registry's charter: its slug names ``cache_dir``, and its
+        #: locations are where every object is fetched from.
+        self.charter = charter
+        self.locations = FabricLocations.from_charter(charter)
         self.client = client
 
         self.cached_caps: Dict[str, Cap] = {}
@@ -706,9 +781,8 @@ class FabricRegistry:
         self.cached_dims: Dict[str, StoredDim] = {}
         self.extension_index: Dict[str, List[str]] = {}
 
-        # Manifest pin. manifest_version == 0 is legacy v0 / flat-path mode
-        # (no manifest consulted). >= 1 is manifest-driven: every URN lookup
-        # resolves to a (urn, defver) pair via the manifest before fetching.
+        # Manifest pin, >= 1: every URN lookup resolves to a (urn, defver)
+        # pair via the manifest before fetching.
         self.manifest_version = manifest_version
         self.manifest = manifest if manifest is not None else Manifest.empty(manifest_version)
 
@@ -724,10 +798,15 @@ class FabricRegistry:
         """The workspace-pinned fabric manifest version. Mirrors Rust's
         compile-time-baked ``capdag::FABRIC_MANIFEST_VERSION``; in Python it
         is read from ``MFR_FABRIC_MANIFEST_VERSION`` (the same env var the
-        build exports). Absent ⇒ 0 (legacy v0 / flat-path mode)."""
+        build exports). Its absence is a hard failure: there is no version
+        to fall back to."""
         raw = os.getenv("MFR_FABRIC_MANIFEST_VERSION")
         if raw is None or raw == "":
-            return 0
+            raise ValidationError(
+                "the fabric manifest version is not set. A workspace build reads "
+                "MFR_FABRIC_MANIFEST_VERSION, which the workspace build tool exports "
+                "from fabric/manifest-version.txt"
+            )
         try:
             return int(raw)
         except ValueError:
@@ -755,13 +834,23 @@ class FabricRegistry:
     ) -> "FabricRegistry":
         """Full constructor: custom config + explicit pinned manifest version.
 
-        ``manifest_version == 0`` ⇒ legacy v0 / flat-path mode (no manifest
-        fetch). ``>= 1`` ⇒ manifest-driven: the constructor loads
-        ``manifest/<N>.json`` from the local cache, else blocks on a network
-        fetch. If neither can provide it, raises ``NotFoundError`` — there is
-        no fallback to v0.
+        The registry's charter is resolved first — the one stored in the cache
+        when one is stored for this anchor, else fetched from the anchor — and
+        everything after it is read from the charter: the cache folder is its
+        slug, and the manifest is fetched from its location. The constructor
+        blocks on the network when either is not cached. A version below 1
+        names no manifest and is refused.
         """
-        cache_dir = cls._get_cache_dir(config.registry_base_url)
+        if manifest_version < 1:
+            raise ValidationError(
+                f"fabric manifest version {manifest_version} names no manifest; "
+                "a registry is pinned at 1 or later"
+            )
+        client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
+        capdag_cache = cls._capdag_cache_root()
+        charter = await _resolve_charter(client, capdag_cache, config.anchor)
+        locations = FabricLocations.from_charter(charter)
+        cache_dir = capdag_cache / charter.slug
         cache_dir.mkdir(parents=True, exist_ok=True)
         (cache_dir / "caps").mkdir(parents=True, exist_ok=True)
         (cache_dir / "media").mkdir(parents=True, exist_ok=True)
@@ -769,16 +858,11 @@ class FabricRegistry:
         (cache_dir / "dims").mkdir(parents=True, exist_ok=True)
         (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
 
-        client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
+        manifest = await cls._load_or_fetch_manifest(
+            cache_dir / "manifests", client, locations, manifest_version
+        )
 
-        if manifest_version == 0:
-            manifest = Manifest.empty(0)
-        else:
-            manifest = await cls._load_or_fetch_manifest(
-                cache_dir / "manifests", client, config, manifest_version
-            )
-
-        registry = cls(cache_dir, config, client, manifest_version, manifest)
+        registry = cls(cache_dir, config, charter, client, manifest_version, manifest)
         registry._load_all_cached_caps()
         registry._load_all_cached_specs()
         registry._load_all_cached_aliases()
@@ -804,7 +888,7 @@ class FabricRegistry:
     async def _load_or_fetch_manifest(
         manifests_dir: Path,
         client: Optional["httpx.AsyncClient"],
-        config: RegistryConfig,
+        locations: FabricLocations,
         version: int,
     ) -> Manifest:
         cache_file = manifests_dir / f"{version}.json"
@@ -824,7 +908,7 @@ class FabricRegistry:
 
         if not HTTPX_AVAILABLE or client is None:
             raise HttpError("httpx not available - cannot fetch manifest")
-        url = f"{config.registry_base_url}/manifest/{version}.json"
+        url = locations.manifest(version)
         try:
             response = await client.get(url)
         except httpx.HTTPError as e:
@@ -850,35 +934,28 @@ class FabricRegistry:
         return manifest
 
     @staticmethod
-    def _get_cache_dir(registry_base_url: str) -> Path:
-        """On-disk cache root, namespaced per registry origin.
-
-        The cache root is ``<os-cache>/capdag/<slug>`` where ``slug`` is
-        ``slug_for(registry_base_url)`` — the SAME slug scheme the cartridge
-        registry layout uses (truncated sha256 hex of the URL). Without this
-        per-origin namespace a cache populated from one registry (e.g.
-        https://fabric.capdag.com) would be reused to satisfy a lookup against
-        a different registry (e.g. https://fabric-staging.capdag.com), which
-        serves DIFFERENT bytes for the same URN/version — silently resolving
-        against the wrong snapshot. Same origin → stable root, so caching hits;
-        distinct origins → distinct roots.
-        """
+    def _capdag_cache_root() -> Path:
+        """The directory every registry's cache folder lives under:
+        ``<os-cache>/capdag``. A registry's own folder is its charter's slug,
+        so two registries never share one, whatever their URLs look like — a
+        cache populated from one fabric can never satisfy lookups against
+        another, which serves DIFFERENT bytes for the same URN and version."""
         if os.name == "nt":
             cache_base = Path(os.getenv("LOCALAPPDATA", os.path.expanduser("~/.cache")))
         elif os.name == "posix":
             cache_base = Path(os.getenv("XDG_CACHE_HOME", os.path.expanduser("~/.cache")))
         else:
             cache_base = Path.home() / ".cache"
-        return cache_base / "capdag" / slug_for(registry_base_url)
+        return cache_base / "capdag"
 
     # -------------------------------------------------------------------------
     # Disk-cache loaders
     # -------------------------------------------------------------------------
 
     def _load_all_cached_caps(self) -> None:
-        """Walk the cap cache dir recursively, picking up both v0 flat files
-        (caps/<sha>.json) and v >= 1 versioned files (caps/<sha>/<defver>.json).
-        TTL applies only to v0 entries — versioned entries are immutable."""
+        """Walk the cap cache dir recursively (caps/<sha>/<defver>.json). TTL
+        applies only to entries of version 0 — versioned entries are
+        immutable."""
         if not self.caps_cache_dir.exists():
             return
         for cache_file in self.caps_cache_dir.rglob("*.json"):
@@ -988,22 +1065,22 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     def _cap_cache_file_path(self, urn: str, defver: int) -> Path:
-        normalized_urn = normalize_cap_urn(urn)
-        digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        if defver == 0:
-            return self.caps_cache_dir / f"{digest}.json"
-        return self.caps_cache_dir / digest / f"{defver}.json"
+        _, cache_file = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "caps", normalize_cap_urn(urn), defver
+        )
+        return cache_file
 
     def _media_cache_file_path(self, urn: str, defver: int) -> Path:
-        normalized_urn = normalize_media_urn(urn)
-        _, cache_file = _media_url_and_cache_path(
-            self.cache_dir, self.config, normalized_urn, defver
+        _, cache_file = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "media", normalize_media_urn(urn), defver
         )
         return cache_file
 
     def _alias_cache_file_path(self, normalized_name: str, defver: int) -> Path:
-        digest = hashlib.sha256(normalized_name.encode("utf-8")).hexdigest()
-        return self.aliases_cache_dir / digest / f"{defver}.json"
+        _, cache_file = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "aliases", normalized_name, defver
+        )
+        return cache_file
 
     def _save_cap_to_cache(self, cap: Cap) -> None:
         cache_file = self._cap_cache_file_path(cap.urn_string(), cap.version)
@@ -1036,7 +1113,9 @@ class FabricRegistry:
             raise CacheError(f"Failed to write alias cache file: {e}")
 
     def _save_dim_to_cache(self, dim: StoredDim) -> None:
-        _, cache_file = _dim_url_and_cache_path(self.cache_dir, self.config, dim.name, dim.version)
+        _, cache_file = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "dims", dim.name, dim.version
+        )
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = DimCacheEntry(dim=dim, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
         try:
@@ -1070,11 +1149,9 @@ class FabricRegistry:
         except Exception as e:
             raise FabricRegistryError(f"Invalid cap URN '{normalized_urn}': {e}")
 
-        digest = hashlib.sha256(normalized_urn.encode("utf-8")).hexdigest()
-        if defver == 0:
-            url = f"{self.config.registry_base_url}/caps/{digest}"
-        else:
-            url = f"{self.config.registry_base_url}/caps/{digest}/{defver}.json"
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "caps", normalized_urn, defver
+        )
 
         try:
             response = await self.client.get(url)
@@ -1097,8 +1174,8 @@ class FabricRegistry:
         except Exception as e:
             raise FabricRegistryError(f"Invalid media URN '{normalized_urn}': {e}")
 
-        url, _ = _media_url_and_cache_path(
-            self.cache_dir, self.config, normalized_urn, defver
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "media", normalized_urn, defver
         )
 
         try:
@@ -1121,8 +1198,9 @@ class FabricRegistry:
                 f"alias '{normalized_name}' has non-positive defver {defver}; "
                 f"aliases are versioned-only"
             )
-        digest = hashlib.sha256(normalized_name.encode("utf-8")).hexdigest()
-        url = f"{self.config.registry_base_url}/aliases/{digest}/{defver}.json"
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "aliases", normalized_name, defver
+        )
         try:
             response = await self.client.get(url)
             if not response.is_success:
@@ -1166,7 +1244,7 @@ class FabricRegistry:
             )
         if not HTTPX_AVAILABLE or self.client is None:
             raise HttpError("httpx not available - cannot fetch from registry")
-        url, _ = _dim_url_and_cache_path(self.cache_dir, self.config, name, defver)
+        url, _ = _definition_url_and_cache_path(self.cache_dir, self.locations, "dims", name, defver)
         try:
             response = await self.client.get(url)
         except httpx.HTTPError as e:
@@ -1225,7 +1303,7 @@ class FabricRegistry:
     def _cap_defver(self, normalized_urn: str) -> int:
         """Resolve a normalized cap URN to its defver under the pinned
         manifest. At v0 → 0. At v >= 1 the URN must be in the manifest's caps
-        map; absence is a hard NotFoundError (no fallback to flat paths)."""
+        map; absence is a hard NotFoundError (no fallback to another version)."""
         if self.manifest_version == 0:
             return 0
         defver = self.manifest.caps.get(normalized_urn)
@@ -1699,7 +1777,10 @@ class FabricRegistry:
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
         # Pin at v1 with an empty manifest so test helpers flow caps/media/
         # aliases into the manifest at their declared version (mirrors Rust).
-        registry = cls(cache_dir, RegistryConfig(), client, 1, Manifest.empty(1))
+        config = RegistryConfig()
+        registry = cls(
+            cache_dir, config, publisher_layout_charter(config.anchor), client, 1, Manifest.empty(1)
+        )
         registry.ensure_identity_cap()
         return registry
 
@@ -1713,7 +1794,9 @@ class FabricRegistry:
             cache_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
         cache_dir.mkdir(parents=True, exist_ok=True)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
-        registry = cls(cache_dir, config, client, 1, Manifest.empty(1))
+        registry = cls(
+            cache_dir, config, publisher_layout_charter(config.anchor), client, 1, Manifest.empty(1)
+        )
         registry.ensure_identity_cap()
         return registry
 

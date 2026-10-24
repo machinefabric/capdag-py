@@ -33,6 +33,7 @@ def test_8150_state_wire_names_match_the_mirrors():
         "unreachable",
         "http_error",
         "malformed",
+        "unchartered",
         "unsigned",
         "untrusted",
         "unverifiable",
@@ -51,6 +52,17 @@ def test_8150_state_wire_names_match_the_mirrors():
         "key_id_mismatch",
         "no_authorizing_certificate",
         "manifest_signature_invalid",
+        "charter_malformed",
+        "charter_unsupported_format",
+        "charter_signature_invalid",
+        "charter_anchor_mismatch",
+        "charter_kind_mismatch",
+        "charter_environment_mismatch",
+        "charter_fabric_mismatch",
+        "charter_not_yet_valid",
+        "charter_expired",
+        "charter_folder_mismatch",
+        "charter_slug_taken",
     ]
     with pytest.raises(ValueError):
         RegistryVerdictState("network_error")
@@ -65,6 +77,8 @@ def test_8151_unreadable_format_is_unverifiable_and_rejected_key_is_untrusted():
         ChainFailureReason.MALFORMED_CERTIFICATE,
         ChainFailureReason.UNSUPPORTED_CERTIFICATE_FORMAT,
         ChainFailureReason.EMPTY_CERTIFICATE_LIST,
+        ChainFailureReason.CHARTER_MALFORMED,
+        ChainFailureReason.CHARTER_UNSUPPORTED_FORMAT,
     ):
         assert (
             registry_verdict_state_for_chain_failure(unevaluable)
@@ -78,6 +92,15 @@ def test_8151_unreadable_format_is_unverifiable_and_rejected_key_is_untrusted():
         ChainFailureReason.KEY_ID_MISMATCH,
         ChainFailureReason.NO_AUTHORIZING_CERTIFICATE,
         ChainFailureReason.MANIFEST_SIGNATURE_INVALID,
+        ChainFailureReason.CHARTER_SIGNATURE_INVALID,
+        ChainFailureReason.CHARTER_ANCHOR_MISMATCH,
+        ChainFailureReason.CHARTER_KIND_MISMATCH,
+        ChainFailureReason.CHARTER_ENVIRONMENT_MISMATCH,
+        ChainFailureReason.CHARTER_FABRIC_MISMATCH,
+        ChainFailureReason.CHARTER_NOT_YET_VALID,
+        ChainFailureReason.CHARTER_EXPIRED,
+        ChainFailureReason.CHARTER_FOLDER_MISMATCH,
+        ChainFailureReason.CHARTER_SLUG_TAKEN,
     ):
         assert (
             registry_verdict_state_for_chain_failure(judged)

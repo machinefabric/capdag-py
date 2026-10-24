@@ -146,6 +146,7 @@ def _make_registry(
         schema_version=CARTRIDGE_REGISTRY_SCHEMA_VERSION,
         registry_version=CARTRIDGE_REGISTRY_VERSION,
         last_updated="2026-02-07",
+        registry_url="https://registry.test/cartridges",
         fabric_registry_url="https://fabric.test",
         channels=CartridgeRegistryChannels(
             release=CartridgeChannelEntries(cartridges=dict(release_entries or {})),
@@ -231,6 +232,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 schema_version="6.0",
                 registry_version=CARTRIDGE_REGISTRY_VERSION,
                 last_updated="x",
+                registry_url="https://registry.test/cartridges",
                 fabric_registry_url="https://fabric.test",
                 channels=CartridgeRegistryChannels(
                     release=CartridgeChannelEntries(),
@@ -238,7 +240,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 ),
             )
         )
-    assert "7.0" in str(exc_info.value)
+    assert CARTRIDGE_REGISTRY_SCHEMA_VERSION in str(exc_info.value)
 
     # A manifest from a different regime version is rejected too.
     with pytest.raises(CartridgeRepoError) as exc_info:
@@ -247,6 +249,7 @@ def test_323_cartridge_repo_server_validate_registry():
                 schema_version=CARTRIDGE_REGISTRY_SCHEMA_VERSION,
                 registry_version=CARTRIDGE_REGISTRY_VERSION + 1,
                 last_updated="x",
+                registry_url="https://registry.test/cartridges",
                 fabric_registry_url="https://fabric.test",
                 channels=CartridgeRegistryChannels(
                     release=CartridgeChannelEntries(),

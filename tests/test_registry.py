@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Optional
 from capdag import Cap, CapUrn, CapArg
 from capdag.cap.definition import PositionSource, StdinSource
 from capdag.cap.registry import (
@@ -21,7 +22,20 @@ from capdag.cap.registry import (
     CacheError,
 )
 from capdag.urn.media_urn import MEDIA_VOID, MEDIA_OBJECT, MEDIA_STRING
-from capdag.fabric.registry import StoredMediaDef, _media_url_and_cache_path
+from capdag.fabric.registry import (
+    FabricLocations,
+    StoredMediaDef,
+    _definition_url_and_cache_path,
+    _resolve_charter,
+    publisher_layout_charter,
+)
+from capdag.bifaci.charter import FetchedCharter, parse_charter, store_charter
+
+
+def _layout_locations(anchor: str) -> FabricLocations:
+    """The locations of a fabric published at ``anchor`` in the publisher's
+    layout."""
+    return FabricLocations.from_charter(publisher_layout_charter(anchor))
 
 
 def _test_urn(tags: str) -> str:
@@ -35,7 +49,7 @@ def test_614_registry_creation():
     with tempfile.TemporaryDirectory() as temp_dir:
         cache_dir = Path(temp_dir)
         config = RegistryConfig()
-        registry = FabricRegistry(cache_dir, config, None)
+        registry = FabricRegistry(cache_dir, config, publisher_layout_charter(config.anchor), None)
 
         assert registry.cache_dir == cache_dir
         assert registry.cache_dir.exists()
@@ -128,16 +142,16 @@ def test_138_parse_registry_json_with_stdin():
 def test_6388_per_cap_url_uses_sha256():
     """Per-cap lookup URL is /caps/<sha256-of-canonical-urn>"""
     import hashlib
-    config = RegistryConfig()
+    anchor = RegistryConfig().anchor
     urn = 'cap:in="media:string";test;out="media:object"'
     normalized = normalize_cap_urn(urn)
     digest = hashlib.sha256(normalized.encode('utf-8')).hexdigest()
-    url = f"{config.registry_base_url}/caps/{digest}"
+    url = cap_registry_url(anchor, urn)
 
     assert "/caps/" in url
     # The URL must NOT contain any URN-grammar characters now that
     # hashing replaces percent-encoding entirely.
-    assert "cap:" not in url[len(config.registry_base_url):]
+    assert "cap:" not in url[len(anchor):]
     assert "%3A" not in url
     assert "%3B" not in url
     assert "%3D" not in url
@@ -168,45 +182,43 @@ def test_6189_same_cap_different_spellings_same_hash():
     assert digest_a == digest_b, f"hashes diverged: {digest_a} vs {digest_b}"
 
 
-def cap_registry_url(config: "RegistryConfig", cap_urn: str) -> str:
-    """Build the per-cap registry URL: <base>/caps/<sha256-of-canonical-urn>.
+def cap_registry_url(anchor: str, cap_urn: str) -> str:
+    """The per-cap registry URL at defver 1, from the charter's ``definition``
+    location of a fabric published at ``anchor`` in the publisher's layout.
 
-    Mirrors the Rust test helper of the same name, which constructs the
-    URL the same way `cap_url_and_cache_path` does in production: canonicalise
-    the URN, SHA-256 it, and hex-encode under the `/caps/` prefix.
+    Mirrors the Rust test helper of the same name, which builds the URL
+    through ``cap_url_and_cache_path`` as production does.
     """
-    import hashlib
-    digest = hashlib.sha256(normalize_cap_urn(cap_urn).encode("utf-8")).hexdigest()
-    return f"{config.registry_base_url}/caps/{digest}"
+    url, _ = _definition_url_and_cache_path(
+        Path("/tmp/capdag-test-cache-caps"), _layout_locations(anchor), "caps", normalize_cap_urn(cap_urn), 1
+    )
+    return url
 
 
 # TEST6391: Equivalent URNs (different tag order, etc.) hash to the same key.
 def test_6391_same_cap_different_spellings_same_url():
-    config = RegistryConfig()
-    a = cap_registry_url(config, 'cap:in="media:listing-id";use-grinder;out="media:id;task"')
-    b = cap_registry_url(config, 'cap:out="media:id;task";in="media:listing-id";use-grinder')
+    anchor = RegistryConfig().anchor
+    a = cap_registry_url(anchor, 'cap:in="media:listing-id";use-grinder;out="media:id;task"')
+    b = cap_registry_url(anchor, 'cap:out="media:id;task";in="media:listing-id";use-grinder')
     assert a == b, "equivalent URNs must hash to the same registry key"
 
 
-# TEST141: URL has the right shape — protocol, host, /caps/ prefix,
-# 64 hex chars, no extension. Mirrors Go's Test141_per_cap_url_shape
-# and ObjC's test141_perCapURLShape; the previous Python TEST141
+# TEST141: URL has the right shape — /caps/ prefix, 64 hex chars, and the
+# defver as the last segment. Mirrors Go's Test141_per_cap_url_shape and
+# ObjC's test141_perCapURLShape; the previous Python TEST141
 # (`different_caps_different_hashes`) was renumbered to TEST938 to
 # resolve a cross-mirror collision on this number.
 def test_141_per_cap_url_shape():
-    """URL is well-formed: https + fabric.capdag.com host + /caps/<64-hex>"""
-    import hashlib
+    """URL is well-formed: /caps/<64-hex>/<defver>.json"""
     from urllib.parse import urlparse
     urn = 'cap:in="media:listing-id";use-grinder;out="media:task;id"'
-    digest = hashlib.sha256(normalize_cap_urn(urn).encode('utf-8')).hexdigest()
-    registry_url = f"https://fabric.capdag.com/caps/{digest}"
-    parsed = urlparse(registry_url)
-    assert parsed.scheme == "https"
-    assert parsed.netloc == "fabric.capdag.com"
+    parsed = urlparse(cap_registry_url("https://fabric.capdag.com", urn))
     assert parsed.path.startswith("/caps/")
-    hash_part = parsed.path[len("/caps/"):]
+    hash_part, defver = parsed.path[len("/caps/"):].split("/")
     assert len(hash_part) == 64, "SHA-256 hex digest is 64 characters"
     assert all(c in "0123456789abcdef" for c in hash_part)
+    assert defver == "1.json", "the defver is the last segment"
+
 
 
 # TEST938: Two genuinely different caps must hash to different keys.
@@ -242,22 +254,20 @@ def test_143_default_config():
     """Test default configuration"""
     config = RegistryConfig()
 
-    # Default points at the canonical registry host. The env-var
-    # override path stays open for tests / staging deploys.
-    if os.getenv("CDG_FABRIC_REGISTRY_URL") is None:
-        assert config.registry_base_url == "https://fabric.capdag.com"
+    # Default points at the production fabric. The env-var override path
+    # stays open for tests / staging deploys.
+    if not os.getenv("CDG_FABRIC_REGISTRY_URL"):
+        assert config.anchor == "https://fabric.capdag.com"
     else:
-        assert config.registry_base_url == os.getenv("CDG_FABRIC_REGISTRY_URL")
-    assert "/schema" in config.schema_base_url
+        assert config.anchor == os.getenv("CDG_FABRIC_REGISTRY_URL")
 
 
-# TEST0144: Test custom registry URL updates both registry and schema base URLs
+# TEST0144: Test custom registry URL updates the anchor, which is all a client is told
 def test_144_custom_registry_url():
-    """Test setting custom registry URL"""
-    config = RegistryConfig().with_registry_url("https://localhost:8888")
+    """Test setting a custom anchor"""
+    config = RegistryConfig().with_anchor("https://localhost:8888")
 
-    assert config.registry_base_url == "https://localhost:8888"
-    assert config.schema_base_url == "https://localhost:8888/schema"
+    assert config.anchor == "https://localhost:8888"
 
 
 # TEST908: cached caps remain accessible while offline.
@@ -287,61 +297,33 @@ async def test_908_cached_caps_accessible_when_offline():
 # offline-mode behavior contract on its own.
 
 
-# TEST145: Test custom registry and schema URLs set independently
-def test_145_custom_registry_and_schema_url():
-    """Test setting both registry and schema URLs independently"""
-    config = (RegistryConfig()
-              .with_registry_url("https://localhost:8888")
-              .with_schema_url("https://schemas.example.com"))
-
-    assert config.registry_base_url == "https://localhost:8888"
-    assert config.schema_base_url == "https://schemas.example.com"
-
-
-# TEST146: Test schema URL not overwritten when set explicitly before registry URL
-def test_146_schema_url_not_overwritten_when_explicit():
-    """Test that explicitly set schema URL is not overwritten"""
-    # If schema URL is set explicitly first, changing registry URL shouldn't change it
-    config = (RegistryConfig()
-              .with_schema_url("https://schemas.example.com")
-              .with_registry_url("https://localhost:8888"))
-
-    assert config.registry_base_url == "https://localhost:8888"
-    assert config.schema_base_url == "https://schemas.example.com"
-
-
 # TEST147: Test registry for test with custom config creates registry with specified URLs
 def test_147_registry_for_test_with_config():
     """Test creating test registry with custom configuration"""
-    config = RegistryConfig().with_registry_url("https://test-registry.local")
+    config = RegistryConfig().with_anchor("https://example.test/registry")
     registry = FabricRegistry.new_for_test_with_config(config)
 
-    assert registry.config.registry_base_url == "https://test-registry.local"
+    assert registry.config.anchor == "https://example.test/registry"
+    assert registry.charter.anchor == "https://example.test/registry"
 
 
-# TEST1899: a media def published under a manifest (v>=1) resolves to the
-# VERSIONED object path `/media/<sha>/<defver>.json`, never the legacy flat
-# path `/media/<sha>`. The flat path is the pre-manifest (v0) layout; a
-# registry that silently runs in v0 mode fetches it and 404s every lookup
-# against a versioned registry — the exact regression where a
-# fabric-registry mirror defaulted its manifest version to 0. This pins
+# TEST1899: a media def resolves to the charter's `definition` location at
+# the defver its manifest pins — `/media/<sha>/<defver>.json` in the
+# publisher's layout. There is no other path: the pre-manifest flat layout
+# is gone, and a client that composed one would 404 every lookup. This pins
 # both the URL rule and the manifest-driven defver resolution.
 def test_1899_media_def_resolves_to_versioned_object_path_under_manifest():
     import hashlib as _hashlib
 
-    # 1. Object-path rule: defver >= 1 -> versioned; defver 0 -> flat.
-    config = RegistryConfig().with_registry_url("https://fabric.example.test")
+    # 1. Object-path rule: the charter's definition location, at the defver.
+    locations = _layout_locations("https://fabric.example.test")
     cache = Path("/tmp/capdag-test-cache-0144")
     urn = "media:enc=utf-8;ext=md"
     digest = _hashlib.sha256(urn.encode("utf-8")).hexdigest()
 
-    versioned, _ = _media_url_and_cache_path(cache, config, urn, 1)
+    versioned, _ = _definition_url_and_cache_path(cache, locations, "media", urn, 1)
     assert versioned == f"https://fabric.example.test/media/{digest}/1.json", (
         "a def at manifest defver 1 must resolve to the versioned object path"
-    )
-    flat, _ = _media_url_and_cache_path(cache, config, urn, 0)
-    assert flat == f"https://fabric.example.test/media/{digest}", (
-        "defver 0 is the legacy flat path - the wrong target for a versioned registry"
     )
 
     # 2. Manifest-driven defver: a registry pinned at v>=1 resolves a
@@ -378,16 +360,6 @@ async def test_6333_registry_add_caps_to_cache():
     assert "Test Cap" in titles
 
 
-# TEST6336: Test registry configuration builder sets registry and schema URLs
-def test_6336_registry_config_builder_pattern():
-    config = (RegistryConfig()
-              .with_registry_url("https://custom.registry")
-              .with_schema_url("https://custom.schemas"))
-
-    assert config.registry_base_url == "https://custom.registry"
-    assert config.schema_base_url == "https://custom.schemas"
-
-
 # TEST6340: normalize_cap_urn strips trailing semicolons, producing the
 # same canonical form with or without a trailing semicolon
 def test_6340_normalize_urn_with_trailing_semicolon():
@@ -421,46 +393,39 @@ async def test_6396_malformed_cap_urn_fails_hard():
         await registry.get_cap(malformed)
 
 
-# TEST1893: Cache root is namespaced per registry origin. Without the
-# per-origin namespace, a cache populated from one registry (prod) is
-# reused to satisfy a lookup against a different registry (staging) — and
-# they serve different bytes for the same URN/version, so the lookup
-# resolves against the wrong snapshot. This pins three properties: distinct
-# origins must NOT share a cache root; the same origin must map to a stable
-# (deterministic) root, or caching never hits; and the slug is the same
-# slug_for(url) scheme the cartridge registry layout uses, living directly
-# under the shared "capdag" cache directory.
-def test_1893_cache_root_is_namespaced_per_registry_origin():
-    from capdag.bifaci.cartridge_slug import slug_for
+# TEST1893: a fabric's cache folder is its CHARTER's slug, and a charter
+# stored there is what an offline client finds its fabric by — matched by
+# anchor, never by folder name. A prod-populated cache can therefore never
+# satisfy a staging lookup: two registries have two charters and two slugs,
+# whatever their URLs look like.
+@pytest.mark.asyncio
+async def test_1893_cache_folder_is_the_charters_slug_and_found_by_anchor(tmp_path):
+    def stored(anchor: str, slug: str, manifest: Optional[str] = None) -> None:
+        charter = publisher_layout_charter(anchor)
+        charter.slug = slug
+        if manifest is not None:
+            charter.locations["manifest"] = manifest
+        body = json.dumps(charter.to_dict()).encode()
+        store_charter(
+            FetchedCharter(charter=parse_charter(body), body=body, signature=b"sig"),
+            tmp_path / slug,
+        )
 
-    prod_url = "https://fabric.capdag.com"
-    staging_url = "https://fabric-staging.capdag.com"
+    anchor = "https://registry.example/fabric"
+    # Another fabric's folder is beside it, with its own charter, and is not
+    # taken for it; nor is a folder named like this anchor's host.
+    stored("https://fabric.capdag.com", "fabric.capdag.com")
+    (tmp_path / "registry.example").mkdir()
+    stored(anchor, "example-fabric", manifest=f"{anchor}/m/{{manifest_version}}")
 
-    prod = FabricRegistry._get_cache_dir(prod_url)
-    staging = FabricRegistry._get_cache_dir(staging_url)
-    staging_again = FabricRegistry._get_cache_dir(staging_url)
-
-    # Distinct origins → distinct cache roots: prod and staging serve
-    # different bytes for the same URN/version, so they must never share.
-    assert prod != staging, (
-        "prod and staging must not share a cache root — they serve "
-        "different bytes for the same URN/version"
+    # No client is given: a stored charter is found without the network.
+    found = await _resolve_charter(None, tmp_path, anchor)
+    assert found.slug == "example-fabric"
+    assert FabricLocations.from_charter(found).manifest(11) == "https://registry.example/fabric/m/11", (
+        "the manifest is where the charter says, not where a URL convention would put it"
     )
-    # Same origin → identical (deterministic) root, or caching never hits.
-    assert staging == staging_again, (
-        "the same registry origin must map to a stable cache root, or "
-        "caching never hits"
-    )
-
-    # The final path component is exactly the cartridge-registry slug of the
-    # origin URL — one slug scheme across the codebase.
-    assert staging.name == slug_for(staging_url), (
-        "cache root must end in slug_for(registry_url)"
-    )
-    # And the parent of that slug is the shared "capdag" cache directory.
-    assert staging.parent.name == "capdag", (
-        "the per-origin slug must live under the capdag cache directory"
-    )
+    other = await _resolve_charter(None, tmp_path, "https://fabric.capdag.com")
+    assert other.slug == "fabric.capdag.com", "each anchor finds its own charter"
 
 
 # TEST12714: a definition a registry serves is held to the definition rules

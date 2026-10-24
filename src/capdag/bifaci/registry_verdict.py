@@ -13,8 +13,8 @@ The vocabulary separates the two things a consumer can conclude:
 * **It could not get an answer** — ``OFFLINE``, ``UNREACHABLE``,
   ``HTTP_ERROR``, ``MALFORMED``. We do not know what the registry says.
   Retrying, or changing a setting, may change the answer.
-* **It got an answer and refused it** — ``UNSIGNED``, ``UNTRUSTED``,
-  ``UNVERIFIABLE``. We know what the registry says and we will not act on it.
+* **It got an answer and refused it** — ``UNCHARTERED``, ``UNSIGNED``,
+  ``UNTRUSTED``, ``UNVERIFIABLE``. We know what the registry says and we will not act on it.
   Retrying changes nothing.
 
 Those two groups have opposite remedies, which is the whole reason the
@@ -64,6 +64,11 @@ class RegistryVerdictState(str, Enum):
     HTTP_ERROR = "http_error"
     #: The registry answered with a body this build cannot read as a manifest.
     MALFORMED = "malformed"
+    #: Nothing is at ``<anchor>/charter.json`` — the URL is not a registry
+    #: MachineFabric chartered, and nothing it serves is used. A charter that
+    #: IS there and is refused is UNTRUSTED or UNVERIFIABLE, with a
+    #: ``charter_`` reason.
+    UNCHARTERED = "unchartered"
     #: No signature sidecar where one is required. An unsigned registry is
     #: refused rather than trusted.
     UNSIGNED = "unsigned"
@@ -97,6 +102,7 @@ class RegistryVerdictState(str, Enum):
         """Whether this state is a refusal of an answer we DID get, as
         opposed to not having got one. A refusal will not change on retry."""
         return self in (
+            RegistryVerdictState.UNCHARTERED,
             RegistryVerdictState.UNSIGNED,
             RegistryVerdictState.UNTRUSTED,
             RegistryVerdictState.UNVERIFIABLE,
@@ -154,6 +160,7 @@ _REGISTRY_REMEDY_BY_STATE = {
     RegistryVerdictState.UNREACHABLE: RegistryRemedy.CHECK_NETWORK,
     RegistryVerdictState.HTTP_ERROR: RegistryRemedy.RETRY_LATER,
     RegistryVerdictState.MALFORMED: RegistryRemedy.RETRY_LATER,
+    RegistryVerdictState.UNCHARTERED: RegistryRemedy.DO_NOT_PROCEED,
     RegistryVerdictState.UNSIGNED: RegistryRemedy.DO_NOT_PROCEED,
     RegistryVerdictState.UNTRUSTED: RegistryRemedy.DO_NOT_PROCEED,
     RegistryVerdictState.UNVERIFIABLE: RegistryRemedy.UPDATE_CLIENT,
@@ -182,6 +189,32 @@ class ChainFailureReason(str, Enum):
     KEY_ID_MISMATCH = "key_id_mismatch"
     NO_AUTHORIZING_CERTIFICATE = "no_authorizing_certificate"
     MANIFEST_SIGNATURE_INVALID = "manifest_signature_invalid"
+    #: The registry's charter is not a charter document, or breaks its shape.
+    CHARTER_MALFORMED = "charter_malformed"
+    #: The charter declares a format this build does not read.
+    CHARTER_UNSUPPORTED_FORMAT = "charter_unsupported_format"
+    #: The charter's signature does not verify over its bytes.
+    CHARTER_SIGNATURE_INVALID = "charter_signature_invalid"
+    #: The charter is for another anchor than the one asked.
+    CHARTER_ANCHOR_MISMATCH = "charter_anchor_mismatch"
+    #: The charter is for another kind of registry.
+    CHARTER_KIND_MISMATCH = "charter_kind_mismatch"
+    #: The charter's registry is signed under another environment than this
+    #: build verifies.
+    CHARTER_ENVIRONMENT_MISMATCH = "charter_environment_mismatch"
+    #: The cartridge registry's charter names another fabric than the one this
+    #: client resolves caps against.
+    CHARTER_FABRIC_MISMATCH = "charter_fabric_mismatch"
+    #: The charter is issued in the future.
+    CHARTER_NOT_YET_VALID = "charter_not_yet_valid"
+    #: The charter's own validity has ended.
+    CHARTER_EXPIRED = "charter_expired"
+    #: A stored charter is in a folder not named for its slug.
+    CHARTER_FOLDER_MISMATCH = "charter_folder_mismatch"
+    #: The charter names a slug another registry's charter already holds.
+    #: Charters are unique by slug where they are issued; two with one slug is
+    #: an invalid state, and neither is given the other's folder.
+    CHARTER_SLUG_TAKEN = "charter_slug_taken"
 
 
 #: The reasons that mean the chain could not be EVALUATED, as opposed to being
@@ -193,6 +226,8 @@ _UNEVALUABLE_CHAIN_FAILURES = frozenset(
         ChainFailureReason.MALFORMED_CERTIFICATE,
         ChainFailureReason.UNSUPPORTED_CERTIFICATE_FORMAT,
         ChainFailureReason.EMPTY_CERTIFICATE_LIST,
+        ChainFailureReason.CHARTER_MALFORMED,
+        ChainFailureReason.CHARTER_UNSUPPORTED_FORMAT,
     }
 )
 
@@ -297,7 +332,7 @@ class RegistryVerdict:
         checked_at_unix_seconds: int,
     ) -> "RegistryVerdict":
         """A state that carries only a detail line: OFFLINE, UNREACHABLE,
-        MALFORMED, UNSIGNED. The other states have their own constructors
+        MALFORMED, UNCHARTERED, UNSIGNED. The other states have their own constructors
         because they require more, and this refuses them rather than letting a
         caller build a verdict missing what it needs."""
         state = RegistryVerdictState(state)

@@ -51,8 +51,9 @@ def _usage(program: str) -> str:
   {p} hash-cartridge-dir <dir>        Deterministic content hash of a version directory
 
 Options:
-  --fabric <url>   Resolve caps/media/aliases against this fabric registry
-                   instead of the built-in one (env: CDG_FABRIC_REGISTRY_URL).
+  --fabric <anchor>  Resolve caps/media/aliases against the fabric registry
+                   chartered at this anchor instead of the built-in one
+                   (env: CDG_FABRIC_REGISTRY_URL).
                    Works before any subcommand.
   --help           Show this help
 
@@ -68,13 +69,11 @@ def _die(message: str, code: int = 1) -> None:
 
 
 def _take_fabric_flag(argv: List[str]) -> List[str]:
-    """Strip ``--fabric <url>`` from argv and apply it to the environment.
+    """Strip ``--fabric <anchor>`` from argv and apply it to the environment:
+    the registry reads everything else from that anchor's charter.
 
     It is stripped before dispatch so it works in front of ANY subcommand and
-    never reaches a cap's own argument parsing. A caller-chosen origin
-    invalidates any baked schema base: pairing a runtime fabric with a
-    build-time schema URL would validate one origin's definitions against
-    another's schemas.
+    never reaches a cap's own argument parsing.
     """
     out: List[str] = []
     i = 0
@@ -84,11 +83,10 @@ def _take_fabric_flag(argv: List[str]) -> List[str]:
             i += 1
             continue
         if i + 1 >= len(argv):
-            _die("--fabric requires a registry URL", 2)
+            _die("--fabric requires a registry anchor", 2)
         url = argv[i + 1]
         if not url or url.startswith("-"):
-            _die(f"--fabric requires a registry URL, got {url!r}", 2)
-        os.environ.pop("CDG_SCHEMA_BASE_URL", None)
+            _die(f"--fabric requires a registry anchor, got {url!r}", 2)
         os.environ["CDG_FABRIC_REGISTRY_URL"] = url
         i += 2
     return out
@@ -308,7 +306,8 @@ async def cmd_cache(argv: List[str]) -> int:
     registry = await _registry()
 
     if sub == "status":
-        print(f"origin   {registry.config.registry_base_url}")
+        print(f"anchor   {registry.charter.anchor}")
+        print(f"slug     {registry.charter.slug}")
         print(f"manifest v{registry.manifest_version}")
         print(f"root     {registry.cache_dir}")
         print(f"caps     {len(await registry.get_cached_caps())}")

@@ -23,8 +23,13 @@ from capdag.bifaci.cartridge_discovery import (
 from capdag.bifaci.bundle_manifest import BundleManifest, BundledCartridge, BundleProof
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION, CartridgeChannel
-from capdag.bifaci.cartridge_slug import slug_for
 from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
+from tests.charter_fixtures import (
+    CARTRIDGES_ANCHOR,
+    CARTRIDGES_SLUG,
+    cartridges_charter,
+    store_test_charter,
+)
 
 
 def _nightly_dev_identity() -> DiscoveryIdentity:
@@ -130,12 +135,12 @@ def test_0094_fabric_manifest_mismatch_is_flagged(tmp_path):
 
 # TEST120: Registry url under dev slug is rejected
 def test_0120_registry_url_under_dev_slug_is_rejected(tmp_path):
-    # A non-null registry_url placed under the reserved dev slug violates
-    # the three-place rule — read_from_dir rejects it as a bad install
-    # context (BadInstallation), surfaced + logged, never hosted.
+    # A non-null registry_url placed under the reserved dev folder violates
+    # the charter rule — read_from_dir rejects it as a bad install context
+    # (Misplaced), surfaced + logged, never hosted.
     json_str = (
         '{"name":"cart","version":"1.0.0","channel":"nightly",'
-        '"registry_url":"https://cartridges.example.com/manifest",'
+        '"registry_url":"https://registry.example/cartridges",'
         '"entry":"cart","installed_at":"2024-01-01T00:00:00Z",'
         '"fabric_manifest_version":1}'
     )
@@ -144,15 +149,16 @@ def test_0120_registry_url_under_dev_slug_is_rejected(tmp_path):
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
 
 
-# TEST1875: scan-all — a registry slug folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url hashing to its slug folder) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe.
+# TEST1875: scan-all — a chartered registry folder AND the dev slot present on disk are BOTH scanned, regardless of the host's own baked registry. The dev cartridge (null registry under dev/) and the registry cartridge (its url the anchor of its folder's charter) each reach their probe. Both fixtures lack a real bifaci binary, so both end at HandshakeFailed — proving discovery REACHED them (was not filtered out by a registry pin), which is the behavior under test. A registry-pin rejection would instead surface BadInstallation and never probe.
 def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
-    url = "https://cartridges.example.com/manifest"
-    rslug = slug_for(url)
+    store_test_charter(tmp_path, CARTRIDGES_SLUG)
+    url = CARTRIDGES_ANCHOR
+    rslug = CARTRIDGES_SLUG
     # Host baked for a DIFFERENT registry than the on-disk registry cartridge.
     base = _nightly_dev_identity()
     host = DiscoveryIdentity(
         channel=base.channel,
-        registry_url="https://other.example.com/manifest",
+        registry_url="https://other.example.com/cartridges",
         fabric_manifest_version=base.fabric_manifest_version,
         cartridge_registry_version=base.cartridge_registry_version,
         bundle=base.bundle,
@@ -178,8 +184,9 @@ def test_1875_scan_all_reaches_both_dev_and_registry_slugs(tmp_path):
 
 # TEST1876: only the host's channel subtree is scanned. A cartridge under a slug's `release/` folder is invisible to a nightly host even though the slug folder is present (its `nightly/` subtree is absent).
 def test_1876_other_channel_subtree_is_skipped(tmp_path):
-    url = "https://cartridges.example.com/manifest"
-    rslug = slug_for(url)
+    store_test_charter(tmp_path, CARTRIDGES_SLUG)
+    url = CARTRIDGES_ANCHOR
+    rslug = CARTRIDGES_SLUG
     _install_fixture(
         tmp_path, rslug, "release", "regcart", "1.0.0",
         _registry_cartridge_json(url, "release", 1), "cart",
@@ -190,14 +197,40 @@ def test_1876_other_channel_subtree_is_skipped(tmp_path):
     )
 
 
-# TEST1877: a registry cartridge hand-copied under the WRONG registry slug folder fails the three-place rule (BadInstallation) — scan-all does not mean "accept anywhere", placement must still be self-consistent.
+# TEST1877: a registry cartridge hand-copied into the folder of ANOTHER registry fails the charter rule (Misplaced) — scan-all does not mean "accept anywhere", placement must still be self-consistent.
 def test_1877_registry_cartridge_under_wrong_slug_is_bad_install(tmp_path):
-    url = "https://cartridges.example.com/manifest"
-    wrong_slug = slug_for("https://somewhere-else.example.com/manifest")
-    json_str = _registry_cartridge_json(url, "nightly", 1)
-    _install_fixture(tmp_path, wrong_slug, "nightly", "cart", "1.0.0", json_str, "cart")
+    store_test_charter(tmp_path, CARTRIDGES_SLUG)
+    json_str = _registry_cartridge_json("https://somewhere-else.example/cartridges", "nightly", 1)
+    _install_fixture(tmp_path, CARTRIDGES_SLUG, "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
+
+
+# TEST12923: a registry folder is what its stored charter proves, never what its name says. The same cartridge, recording the same anchor, is misplaced in a folder with no charter and in a folder whose charter is stored under another name; it reaches its probe only in the folder its charter names.
+def test_12923_a_registry_folder_is_proven_by_its_charter_not_its_name(tmp_path):
+    json_str = _registry_cartridge_json(CARTRIDGES_ANCHOR, "nightly", 1)
+
+    # A folder named for the registry, holding no charter.
+    unchartered = tmp_path / "unchartered"
+    _install_fixture(unchartered, CARTRIDGES_SLUG, "nightly", "cart", "1.0.0", json_str, "cart")
+    out = discover_cartridges(unchartered, _nightly_dev_identity())
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
+    assert "no charter that reads" in out[0].error.message
+
+    # The registry's charter, stored in a folder of another name.
+    renamed = tmp_path / "renamed"
+    store_test_charter(renamed, "cartridges.example.com", cartridges_charter())
+    _install_fixture(renamed, "cartridges.example.com", "nightly", "cart", "1.0.0", json_str, "cart")
+    out = discover_cartridges(renamed, _nightly_dev_identity())
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
+
+    # Its charter, in the folder the charter names: placement holds, and
+    # discovery goes on to probe the (fake) binary.
+    placed = tmp_path / "placed"
+    store_test_charter(placed, CARTRIDGES_SLUG)
+    _install_fixture(placed, CARTRIDGES_SLUG, "nightly", "cart", "1.0.0", json_str, "cart")
+    out = discover_cartridges(placed, _nightly_dev_identity())
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.HANDSHAKE_FAILED)
 
 
 def _bundled_cartridge_json() -> str:

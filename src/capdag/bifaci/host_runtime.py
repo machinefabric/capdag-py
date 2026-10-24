@@ -596,7 +596,7 @@ class CartridgeHost:
         The ``version_dir`` must contain a valid ``cartridge.json`` with
         an entry point. Identity is computed from the directory tree hash.
         ``channel`` and ``registry_url`` come from ``cartridge.json`` (the
-        host has already validated the three-place rule); they propagate
+        host has already validated the charter rule); they propagate
         through ``InstalledCartridgeRecord`` to the engine's RelayNotify
         so consumers preserve the (registry, channel) provenance
         end-to-end. A directory that is unhashable at registration time is

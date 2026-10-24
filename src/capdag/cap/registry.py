@@ -8,7 +8,7 @@ the unified type and the cap-related symbols under the historical
 
 from capdag.fabric.registry import (
     CACHE_DURATION_HOURS,
-    DEFAULT_REGISTRY_BASE_URL,
+    DEFAULT_FABRIC_ANCHOR,
     CacheEntry,
     CacheError,
     FabricRegistry,
@@ -24,7 +24,7 @@ from capdag.fabric.registry import (
 
 __all__ = [
     "CACHE_DURATION_HOURS",
-    "DEFAULT_REGISTRY_BASE_URL",
+    "DEFAULT_FABRIC_ANCHOR",
     "CacheEntry",
     "CacheError",
     "FabricRegistry",

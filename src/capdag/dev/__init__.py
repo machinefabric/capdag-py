@@ -39,7 +39,7 @@ from capdag.bifaci.cartridge_json import (
     read_cartridge_json_from_dir,
 )
 from capdag.bifaci import launch
-from capdag.bifaci.cartridge_slug import DEV_SLUG
+from capdag.bifaci.charter import DEV_SLUG, RegistryFolder
 from capdag.bifaci.manifest import CapManifest, ManifestLoadError
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn
@@ -480,7 +480,7 @@ def find_dev_cap_by_alias(
         # stopping the whole lookup for.
         if not (version_dir / "cartridge.json").is_file():
             continue
-        cj = read_cartridge_json_from_dir(version_dir, DEV_SLUG)
+        cj = read_cartridge_json_from_dir(version_dir, RegistryFolder())
         manifest = read_entry_manifest(cj.resolve_entry_point(version_dir))
         for group in manifest.cap_groups:
             for cap in group.caps:

@@ -16,7 +16,6 @@ Example: `text/plain; profile=https://capdag.com/schema/str`
 """
 
 import json
-import os
 import re
 from typing import TYPE_CHECKING, List, Optional, Any, Dict
 
@@ -30,36 +29,17 @@ if TYPE_CHECKING:
 # PROFILE URLS (canonical /schema/ path)
 # =============================================================================
 
-# Base URL for capdag schemas (default, use `get_schema_base()` for configurable version)
+# Base URL for capdag schemas
 SCHEMA_BASE = "https://capdag.com/schema"
-
-
-def get_schema_base() -> str:
-    """Get the schema base URL from environment variables or default
-
-    Checks in order:
-    1. `CDG_SCHEMA_BASE_URL` environment variable
-    2. `CDG_FABRIC_REGISTRY_URL` environment variable + "/schema"
-    3. Default: "https://capdag.com/schema"
-    """
-    schema_url = os.getenv("CDG_SCHEMA_BASE_URL")
-    if schema_url:
-        return schema_url
-
-    registry_url = os.getenv("CDG_FABRIC_REGISTRY_URL")
-    if registry_url:
-        return f"{registry_url}/schema"
-
-    return SCHEMA_BASE
 
 
 def get_profile_url(profile_name: str) -> str:
     """Get a profile URL for the given profile name
 
     Example:
-        url = get_profile_url("str")  # Returns "{schema_base}/str"
+        url = get_profile_url("str")  # Returns "https://capdag.com/schema/str"
     """
-    return f"{get_schema_base()}/{profile_name}"
+    return f"{SCHEMA_BASE}/{profile_name}"
 
 
 # Profile URL for string type

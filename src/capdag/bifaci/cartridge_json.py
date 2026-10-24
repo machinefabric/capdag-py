@@ -21,7 +21,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from capdag.bifaci.charter import RegistryFolder
 
 
 def install_timestamp_now() -> str:
@@ -258,110 +261,40 @@ class CartridgeJsonWriteError(CartridgeJsonError):
         self.cause = cause
 
 
-class CartridgeJsonRegistrySlugMismatch(CartridgeJsonError):
-    """Three-place rule violation: the on-disk slug folder doesn't
-    match the slug derived from cartridge.json:registry_url. Either
-    the cartridge was hand-copied between slugs or the installer is
-    buggy — either way the host refuses to attach it."""
-    def __init__(
-        self,
-        path: Path,
-        registry_url: Optional[str],
-        expected_slug: str,
-        actual_slug: str,
-    ):
+class CartridgeJsonRegistryFolderMismatch(CartridgeJsonError):
+    """The charter rule, broken: the cartridge records another registry than
+    the one its folder's charter names (or a registry in dev, or none in a
+    registry's folder). Either the cartridge was hand-copied between folders
+    or the installer is buggy — either way the host refuses to attach it."""
+    def __init__(self, path: Path, registry_url: Optional[str], folder_slug: str, holds: str):
         super().__init__(
-            f"cartridge.json at {path}: registry_url={registry_url!r} "
-            f"hashes to slug='{expected_slug}' but the directory tree placed it under '{actual_slug}'"
+            f"cartridge.json at {path}: registry_url={registry_url!r}, but it sits in "
+            f"the folder '{folder_slug}', which holds {holds}"
         )
         self.path = path
         self.registry_url = registry_url
-        self.expected_slug = expected_slug
-        self.actual_slug = actual_slug
+        self.folder_slug = folder_slug
 
 
-@dataclass(frozen=True)
-class RegistryUrlSchemeResult:
-    """Verdict from :func:`validate_registry_url_scheme`. Distinguishes
-    "OK" from each rejection reason so callers can render an actionable
-    message.
-
-    Exactly one of the flags is set:
-
-    - ``ok`` is True             => acceptable (dev-mode or https scheme).
-    - ``not_a_url`` is set       => the string didn't parse as a URL.
-    - ``non_https_scheme`` is set => parsed but scheme is not https and
-      dev-mode is off; carries the offending scheme.
-    """
-
-    ok: bool = False
-    not_a_url: Optional[str] = None
-    non_https_scheme: Optional[str] = None
-
-    @classmethod
-    def OK(cls) -> "RegistryUrlSchemeResult":
-        return cls(ok=True)
-
-    @classmethod
-    def NotAUrl(cls, url: str) -> "RegistryUrlSchemeResult":
-        return cls(not_a_url=url)
-
-    @classmethod
-    def NonHttps(cls, scheme: str) -> "RegistryUrlSchemeResult":
-        return cls(non_https_scheme=scheme)
-
-
-def validate_registry_url_scheme(url: str, dev_mode: bool) -> RegistryUrlSchemeResult:
-    """Validate that a non-null ``registry_url`` uses the ``https``
-    scheme — UNLESS ``dev_mode`` is set, in which case any well-formed
-    URL is accepted (so developers can point at ``http://localhost:port``
-    during integration testing).
-
-    The rule lives at the deepest layer (used by every consumer that
-    loads a ``cartridge.json`` or a HELLO manifest) so a caller can never
-    bypass it by parsing the URL out of band. Dev cartridges
-    (``registry_url is None``) never go through this validator — they
-    have no URL to check.
-    """
-    # Cheap parse: split once on "://". The rule is "scheme must be the
-    # literal bytes https"; full URL validation is the caller's job.
-    parts = url.split("://", 1)
-    if len(parts) != 2:
-        return RegistryUrlSchemeResult.NotAUrl(url)
-    scheme, rest = parts
-    if rest == "":
-        return RegistryUrlSchemeResult.NotAUrl(url)
-    if dev_mode:
-        # Dev mode: accept any well-formed scheme. We still require SOME
-        # scheme to be present (caught above) — an empty scheme is
-        # malformed regardless of mode.
-        return RegistryUrlSchemeResult.OK()
-    if scheme.lower() == "https":
-        return RegistryUrlSchemeResult.OK()
-    return RegistryUrlSchemeResult.NonHttps(scheme)
-
-
-def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> CartridgeJson:
+def read_cartridge_json_from_dir(version_dir: Path, folder: "RegistryFolder") -> CartridgeJson:
     """Read and validate a ``cartridge.json`` from a version directory.
 
-    ``expected_slug`` is the on-disk registry slug folder the host
-    reached the version directory through (the second-to-top-level
-    folder name in the canonical
-    ``{root}/{slug}/{channel}/{name}/{version}/`` layout). Passing it
-    in lets the parser enforce the three-place rule (folder slug ⇔
-    provenance ``registry_url``) without leaving it to every caller
-    to remember.
+    ``folder`` is the top-level folder the host reached the version directory
+    through, already opened — dev, or a registry named by the charter stored
+    in it. Passing it in lets the parser enforce the charter rule (folder ⇔
+    provenance ``registry_url``) without leaving it to every caller to
+    remember.
 
     Validates:
     - File exists and is valid JSON
     - cartridge.json includes required ``registry_url`` field
-    - ``slug_for(registry_url) == expected_slug``
+    - ``registry_url`` is the folder's anchor, or None in dev
     - Entry point path does not escape the version directory
     - Entry point binary exists and is executable
 
     Args:
         version_dir: Path to the cartridge version directory.
-        expected_slug: The on-disk slug the version dir is under.
+        folder: The registry folder the version dir is under.
 
     Returns:
         Parsed :class:`CartridgeJson`.
@@ -369,8 +302,6 @@ def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> Cartr
     Raises:
         CartridgeJsonError: On any validation failure.
     """
-    from capdag.bifaci.cartridge_slug import slug_for
-
     json_path = version_dir / "cartridge.json"
 
     if not json_path.exists():
@@ -387,15 +318,21 @@ def read_cartridge_json_from_dir(version_dir: Path, expected_slug: str) -> Cartr
     except (json.JSONDecodeError, KeyError, ValueError) as e:
         raise CartridgeJsonInvalidJson(json_path, e) from e
 
-    # Three-place rule (places 1+2): the folder slug must match the
-    # slug derived from the provenance's registry_url.
-    derived_slug = slug_for(cj.registry_url)
-    if derived_slug != expected_slug:
-        raise CartridgeJsonRegistrySlugMismatch(
+    # The charter rule (places 1+2): the cartridge records exactly the anchor
+    # its folder's charter states, or no registry in dev. Any other pairing —
+    # a None registry_url in a registry's folder, a URL in dev, or another
+    # registry's anchor — is an installer bug or a tampered tree.
+    if cj.registry_url != folder.anchor:
+        holds = (
+            "the cartridges built with no registry"
+            if folder.anchor is None
+            else f"the registry chartered for {folder.anchor}"
+        )
+        raise CartridgeJsonRegistryFolderMismatch(
             path=json_path,
             registry_url=cj.registry_url,
-            expected_slug=derived_slug,
-            actual_slug=expected_slug,
+            folder_slug=folder.slug,
+            holds=holds,
         )
 
     # Validate entry path does not escape version directory
