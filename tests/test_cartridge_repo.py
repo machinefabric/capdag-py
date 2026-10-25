@@ -222,7 +222,7 @@ def test_12849_reading_a_registry_holds_its_definitions_to_the_rules():
     assert "nightly" in str(refused.value) and "RULE21" in str(refused.value)
 
 
-# TEST323: CartridgeRepoServer requires the schema this build reads (7.0) and rejects older.
+# TEST323: CartridgeRepoServer requires the schema revision this build reads and rejects older.
 def test_323_cartridge_repo_server_validate_registry():
     CartridgeRepoServer(_make_registry())
 
