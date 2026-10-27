@@ -842,10 +842,10 @@ def test_562_canonical_option():
 # TEST568: is_dispatchable with different tag order in output spec
 def test_568_dispatch_output_tag_order():
     candidate = CapUrn.from_string(
-        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;enc=utf-8;record"'
+        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;fmt=json;record"'
     )
     request = CapUrn.from_string(
-        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;enc=utf-8;record"'
+        'cap:in="media:enc=utf-8;model-spec";download-model;out="media:download-result;fmt=json;record"'
     )
 
     # After parsing, both should be normalized to same canonical form

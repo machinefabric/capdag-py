@@ -9,7 +9,7 @@ Machine notation describes capability transformation paths. It provides:
 Format (capdag/docs/09-machine-notation.md)::
 
     [extract cap:in="media:document;ext=pdf";extract-text;out="media:enc=utf-8;ext=txt"]
-    [embed cap:in="media:enc=utf-8";generate-embeddings;out="media:embedding-vector;enc=utf-8;record"]
+    [embed cap:in="media:enc=utf-8";generate-embeddings;out="media:embedding-vector;fmt=json;record"]
     [doc -> extract -> text]
     [text -> embed -> vectors]
 
