@@ -33,7 +33,7 @@ MEDIA_INTEGER = "media:integer;numeric"
 # Media URN for number type — numeric, scalar by default
 MEDIA_NUMBER = "media:numeric"
 # Media URN for boolean type - uses "bool" not "boolean" per base.toml
-MEDIA_BOOLEAN = "media:bool;enc=utf-8"
+MEDIA_BOOLEAN = "media:bool"
 # Media URN for a generic record/object type — internal key-value structure, no content-format claim
 MEDIA_OBJECT = "media:record"
 # Media URN for the top type — the most general media type (no constraints)
@@ -49,7 +49,7 @@ MEDIA_INTEGER_LIST = "media:integer;list;numeric"
 # Media URN for number list type - one number per line
 MEDIA_NUMBER_LIST = "media:list;numeric"
 # Media URN for boolean list type - one boolean per line
-MEDIA_BOOLEAN_LIST = "media:bool;enc=utf-8;list"
+MEDIA_BOOLEAN_LIST = "media:bool;list"
 # Media URN for object list type - list marker, record (each item has structure)
 MEDIA_OBJECT_LIST = "media:list;record"
 
@@ -103,9 +103,6 @@ MEDIA_WEBM = "media:ext=webm;video"
 MEDIA_MKV = "media:ext=mkv;video"
 
 # Semantic AI input types - distinguished by their purpose/context
-# Media URN for audio input containing speech for transcription (Whisper)
-MEDIA_AUDIO_SPEECH = "media:audio;ext=wav;speech"
-
 # Document types (PRIMARY naming - type IS the format)
 # Media URN for PDF documents
 MEDIA_PDF = "media:document;ext=pdf"
@@ -189,7 +186,7 @@ MEDIA_MODEL_SPEC_CANDLE_TRANSCRIPTION = "media:candle;enc=utf-8;model-spec;repo-
 # Media URN for MLX model path
 MEDIA_MLX_MODEL_PATH = "media:enc=utf-8;mlx-model-path"
 # Media URN for model repository (input for list-models) - matches CATALOG
-MEDIA_MODEL_REPO = "media:enc=utf-8;model-repo;record"
+MEDIA_MODEL_REPO = "media:fmt=json;model-repo;record"
 # Media URN for HuggingFace token (secret)
 MEDIA_HF_TOKEN = "media:enc=utf-8;hf-token;secret"
 # Media URN for model architecture list - JSON record
@@ -205,19 +202,19 @@ MEDIA_MODEL_FILTER_RESOLUTION = "media:fmt=json;model-filter-resolution;record"
 # Media URN for model dimension output - matches CATALOG
 MEDIA_MODEL_DIM = "media:integer;model-dim;numeric"
 # Media URN for model download output - record structure
-MEDIA_DOWNLOAD_OUTPUT = "media:download-result;enc=utf-8;record"
+MEDIA_DOWNLOAD_OUTPUT = "media:download-result;fmt=json;record"
 # Media URN for model list output - record structure
-MEDIA_LIST_OUTPUT = "media:enc=utf-8;model-list;record"
+MEDIA_LIST_OUTPUT = "media:fmt=json;model-list;record"
 # Media URN for model status output - record structure
-MEDIA_STATUS_OUTPUT = "media:enc=utf-8;model-status;record"
+MEDIA_STATUS_OUTPUT = "media:fmt=json;model-status;record"
 # Media URN for model contents output - record structure
-MEDIA_CONTENTS_OUTPUT = "media:enc=utf-8;model-contents;record"
+MEDIA_CONTENTS_OUTPUT = "media:fmt=json;model-contents;record"
 # Media URN for model availability output - record structure
-MEDIA_AVAILABILITY_OUTPUT = "media:enc=utf-8;model-availability;record"
+MEDIA_AVAILABILITY_OUTPUT = "media:fmt=json;model-availability;record"
 # Media URN for model path output - record structure
-MEDIA_PATH_OUTPUT = "media:enc=utf-8;model-path;record"
+MEDIA_PATH_OUTPUT = "media:fmt=json;model-path;record"
 # Media URN for embedding vector output - record structure
-MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;enc=utf-8;record"
+MEDIA_EMBEDDING_VECTOR = "media:embedding-vector;fmt=json;record"
 # Media URN for vision inference output — a concrete textable terminal.
 # Carries `image-description` (the vision-specific marker), `plain-text`
 # (the finalised-text marker that opts into cap:save-as-txt's persistence
@@ -228,8 +225,8 @@ MEDIA_IMAGE_DESCRIPTION = "media:enc=utf-8;ext=txt;image-description;plain-text"
 # summarisation) declare this URN as their `out` so the planner restricts the .txt
 # persistence path to those caps. See fabric/media/plain-text.toml.
 MEDIA_PLAIN_TEXT = "media:enc=utf-8;ext=txt;plain-text"
-# Media URN for transcription output - record structure
-MEDIA_TRANSCRIPTION_OUTPUT = "media:enc=utf-8;record;transcription"
+# Media URN for a transcript - the JSON record a transcription produces
+MEDIA_TRANSCRIPT_OUTPUT = "media:fmt=json;record;transcript"
 # Media URN for decision output (Make Decision) - matches CATALOG
 MEDIA_DECISION = "media:decision;fmt=json;record"
 

@@ -27,7 +27,7 @@ from capdag import (
     MEDIA_BOOLEAN_LIST,
     MEDIA_AUDIO,
     MEDIA_VIDEO,
-    MEDIA_AUDIO_SPEECH,
+    MEDIA_WAV,
     MEDIA_FILE_PATH,
     MEDIA_DECISION,
     file_media_urn_for_ext,
@@ -112,8 +112,8 @@ def test_066_is_json():
 def test_067_is_text():
     # Has enc= → text-representable
     assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf-8
-    assert MediaUrn.from_string(MEDIA_BOOLEAN).get_tag("enc") is not None  # media:bool;enc=utf-8
     # No enc= → not text-representable
+    assert MediaUrn.from_string(MEDIA_BOOLEAN).get_tag("enc") is None  # media:bool — its own kind
     assert MediaUrn.from_string(MEDIA_INTEGER).get_tag("enc") is None  # media:integer;numeric
     assert MediaUrn.from_string(MEDIA_JSON).get_tag("enc") is None  # media:fmt=json;record
     assert MediaUrn.from_string(MEDIA_IDENTITY).get_tag("enc") is None  # media:
@@ -259,7 +259,8 @@ def test_078_object_does_not_conform_to_string():
 def test_304_media_availability_output_constant():
     urn = MediaUrn.from_string(MEDIA_AVAILABILITY_OUTPUT)
     assert urn is not None
-    assert urn.get_tag("enc") == "utf-8"
+    assert urn.get_tag("fmt") == "json"  # a JSON record
+    assert urn.get_tag("enc") is None  # not also text
     assert urn.is_record()
 
 
@@ -267,7 +268,8 @@ def test_304_media_availability_output_constant():
 def test_305_media_path_output_constant():
     urn = MediaUrn.from_string(MEDIA_PATH_OUTPUT)
     assert urn is not None
-    assert urn.get_tag("enc") == "utf-8"
+    assert urn.get_tag("fmt") == "json"  # a JSON record
+    assert urn.get_tag("enc") is None  # not also text
     assert urn.is_record()
 
 
@@ -307,7 +309,7 @@ def test_546_is_image():
 # TEST547: is_audio returns true only when audio marker tag is present
 def test_547_is_audio():
     assert MediaUrn.from_string(MEDIA_AUDIO).is_audio()
-    assert MediaUrn.from_string(MEDIA_AUDIO_SPEECH).is_audio()
+    assert MediaUrn.from_string(MEDIA_WAV).is_audio()
     assert MediaUrn.from_string("media:audio;ext=mp3").is_audio()
     # Non-audio types
     assert not MediaUrn.from_string(MEDIA_VIDEO).is_audio()
@@ -415,10 +417,10 @@ def test_558_predicate_constant_consistency():
     assert not int_urn.is_image()
     assert not int_urn.is_list()
 
-    # MEDIA_BOOLEAN is bool, encoded(text), scalar, NOT numeric
+    # MEDIA_BOOLEAN is bool, its own kind (not text), scalar, NOT numeric
     bool_urn = MediaUrn.from_string(MEDIA_BOOLEAN)
     assert bool_urn.is_bool()
-    assert bool_urn.get_tag("enc") == "utf-8"
+    assert bool_urn.get_tag("enc") is None
     assert bool_urn.is_scalar()
     assert not bool_urn.is_numeric()
 

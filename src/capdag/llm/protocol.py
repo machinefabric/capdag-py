@@ -582,7 +582,7 @@ CAP_LLM_MODEL_INFO = (
 )
 CAP_GENERATE_EMBEDDINGS = (
     'cap:generate-embeddings;ml-model;gguf;in="media:enc=utf-8";'
-    'out="media:embedding-vector;enc=utf-8;record"'
+    'out="media:embedding-vector;fmt=json;record"'
 )
 CAP_EMBEDDINGS_DIMENSIONS = (
     'cap:gguf;in="media:embeddings;enc=utf-8;gguf;model-spec;'

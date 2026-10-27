@@ -132,7 +132,7 @@ def test_150_cap_manifest_json_serialization():
         sources=[StdinSource("media:document;ext=pdf")],
     ))
     cap.add_arg(CapArg(
-        media_urn="media:chunk-size;numeric", name="arg1",
+        media_urn="media:chunk-size;integer;numeric", name="arg1",
         required=False,
         sources=[CliFlagSource("--chunk-size")],
         arg_description="Chunk size",
@@ -140,7 +140,7 @@ def test_150_cap_manifest_json_serialization():
         metadata={"unit": "words"},
     ))
     cap.add_arg(CapArg(
-        media_urn="media:bool;enc=utf-8;timestamps", name="arg2",
+        media_urn="media:bool;timestamps", name="arg2",
         required=False,
         sources=[CliFlagSource("--timestamps")],
         arg_description="Include timestamps",
