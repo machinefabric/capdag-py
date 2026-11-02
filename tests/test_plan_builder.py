@@ -73,8 +73,8 @@ def test_767_argument_info_serialization():
 # TEST991: Tests duplicate detection identifies caps with identical URNs Verifies that check_for_duplicate_caps() returns an error when multiple caps share the same cap_urn
 def test_991_detects_duplicate_cap_urns():
     caps = [
-        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
-        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF Again"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Disbind PDF"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Disbind PDF Again"),
     ]
 
     try:
@@ -90,9 +90,9 @@ def test_991_detects_duplicate_cap_urns():
 # TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations
 def test_880_no_duplicates_with_unique_caps():
     caps = [
-        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract Metadata"),
-        _make_test_cap("extract_outline", "media:document;ext=pdf", "media:document-outline;enc=utf-8;record", "Extract Outline"),
-        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind PDF"),
+        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract Metadata"),
+        _make_test_cap("extract_outline", "media:document;ext=pdf", "media:document-outline;enc=utf8;record", "Extract Outline"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Disbind PDF"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 3
@@ -101,8 +101,8 @@ def test_880_no_duplicates_with_unique_caps():
 # TEST992: Tests caps with different operations but same input/output types are not duplicates Verifies that only the complete URN (including op) is used for duplicate detection
 def test_992_different_ops_same_types_not_duplicates():
     caps = [
-        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Disbind"),
-        _make_test_cap("grind", "media:document;ext=pdf", "media:disbound-pages;enc=utf-8;list", "Grind"),
+        _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Disbind"),
+        _make_test_cap("grind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Grind"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2
@@ -111,8 +111,8 @@ def test_992_different_ops_same_types_not_duplicates():
 # TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name
 def test_993_same_op_different_input_types_not_duplicates():
     caps = [
-        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf-8;file-metadata;record", "Extract PDF Metadata"),
-        _make_test_cap("extract_metadata", "media:enc=utf-8;ext=txt", "media:enc=utf-8;file-metadata;record", "Extract TXT Metadata"),
+        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract PDF Metadata"),
+        _make_test_cap("extract_metadata", "media:enc=utf8;ext=txt;plain-text", "media:enc=utf8;file-metadata;record", "Extract TXT Metadata"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2
@@ -133,8 +133,8 @@ def test_1462_a_step_token_cannot_be_empty():
     with pytest.raises(StepTokenError):
         StrandStep(
             step_type=StrandStepType.FOR_EACH,
-            from_spec=MediaUrn.from_string("media:ext=txt;text"),
-            to_spec=MediaUrn.from_string("media:ext=txt;text"),
+            from_spec=MediaUrn.from_string("media:ext=txt;plain-text;text"),
+            to_spec=MediaUrn.from_string("media:ext=txt;plain-text;text"),
             token_id="",
         )
 

@@ -20,13 +20,13 @@ from capdag.planner.policy import ON_ERROR_ABSENT, StepPolicy
 
 from tests.definitions import complete_cap
 
-EXTRACT = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'
-SUMMARIZE = 'cap:in="media:enc=utf-8;ext=txt";summarize;out="media:enc=utf-8;summary"'
-CONCAT = 'cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;joined"'
-SPLIT = 'cap:in="media:enc=utf-8;ext=txt";split;out="media:enc=utf-8;head"'
+EXTRACT = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"'
+SUMMARIZE = 'cap:in="media:enc=utf8;ext=txt;plain-text";summarize;out="media:enc=utf8;summary"'
+CONCAT = 'cap:in="media:enc=utf8";concat;out="media:enc=utf8;joined"'
+SPLIT = 'cap:in="media:enc=utf8;ext=txt;plain-text";split;out="media:enc=utf8;head"'
 NOW = 'cap:in="media:void";now;out="media:stamp"'
-CONTEXT = "media:context;enc=utf-8"
-REST = "media:enc=utf-8;rest"
+CONTEXT = "media:context;enc=utf8"
+REST = "media:enc=utf8;rest"
 
 
 def _registry() -> FabricRegistry:
@@ -57,7 +57,7 @@ def _plan() -> MachinePlan:
     plan.add_node(MachineNode.cap("now", NOW))
     plan.add_node(MachineNode.cap("split", SPLIT))
     plan.add_node(MachineNode.cap_output("split.rest", "split", REST, "rest", False))
-    plan.add_node(MachineNode.collect("both", ["summarize", "split.rest"], "media:enc=utf-8"))
+    plan.add_node(MachineNode.collect("both", ["summarize", "split.rest"], "media:enc=utf8"))
     plan.add_node(MachineNode.cap("concat", CONCAT))
     plan.add_node(MachineNode.output("out", "result", "concat"))
     plan.add_edge(MachinePlanEdge.direct("doc", "extract"))
@@ -94,11 +94,11 @@ def test_1161_a_plan_converts_to_steps_with_their_inputs_and_outputs():
         StepInput(stream_urn="media:document;ext=pdf", source=StepSource.of_node("doc")),
     ]
     assert extract.outputs == []
-    assert extract.out_media == "media:enc=utf-8;ext=txt"
+    assert extract.out_media == "media:enc=utf8;ext=txt;plain-text"
 
     summarize = _step(graph, "summarize")
     assert summarize.inputs == [
-        StepInput(stream_urn="media:enc=utf-8;ext=txt", source=StepSource.of_node("extract")),
+        StepInput(stream_urn="media:enc=utf8;ext=txt;plain-text", source=StepSource.of_node("extract")),
         StepInput(stream_urn=CONTEXT, source=StepSource.of_node("now")),
     ]
 
@@ -110,7 +110,7 @@ def test_1161_a_plan_converts_to_steps_with_their_inputs_and_outputs():
 
     concat = _step(graph, "concat")
     assert concat.inputs == [
-        StepInput(stream_urn="media:enc=utf-8", source=StepSource.gather(["summarize", "split.rest"])),
+        StepInput(stream_urn="media:enc=utf8", source=StepSource.gather(["summarize", "split.rest"])),
     ]
     assert concat.inputs[0].source.is_gather
     assert not extract.inputs[0].source.is_gather
@@ -125,7 +125,7 @@ def test_1161_a_plan_converts_to_steps_with_their_inputs_and_outputs():
     # there as what the graph is given.
     assert graph.nodes["doc"] == "media:document;ext=pdf"
     assert graph.nodes["split.rest"] == REST
-    assert graph.nodes["concat"] == "media:enc=utf-8;joined"
+    assert graph.nodes["concat"] == "media:enc=utf8;joined"
     assert "both" not in graph.nodes, "a gather is an input, not a node of the graph"
     assert "out" not in graph.nodes
 
@@ -133,16 +133,16 @@ def test_1161_a_plan_converts_to_steps_with_their_inputs_and_outputs():
     # the graph reads it, and what it reads is what the graph is given.
     alone = steps_to_resolved_graph(_plan(), ["split"], _registry())
     assert alone.nodes == {
-        "split": "media:enc=utf-8;head",
+        "split": "media:enc=utf8;head",
         "split.rest": REST,
-        "extract": "media:enc=utf-8;ext=txt",
+        "extract": "media:enc=utf8;ext=txt;plain-text",
     }
     # And a step that reads a step's other output from outside the graph is
     # given it under that output's own type.
     gathering = steps_to_resolved_graph(_plan(), ["concat"], _registry())
     assert gathering.nodes == {
-        "concat": "media:enc=utf-8;joined",
-        "summarize": "media:enc=utf-8;summary",
+        "concat": "media:enc=utf8;joined",
+        "summarize": "media:enc=utf8;summary",
         "split.rest": REST,
     }
     # The steps come in the order they were asked for.
@@ -207,11 +207,11 @@ def test_771_a_step_no_invocation_can_be_given_is_refused():
 
     refused(
         lambda plan: plan.add_edge(MachinePlanEdge.direct("now", "summarize")),
-        "step 'summarize' is wired twice on input stream 'media:enc=utf-8;ext=txt'",
+        "step 'summarize' is wired twice on input stream 'media:enc=utf8;ext=txt;plain-text'",
     )
     refused(
         # The same arg, its tags in another order.
-        lambda plan: plan.add_edge(MachinePlanEdge.arg("doc", "summarize", "media:enc=utf-8;context")),
+        lambda plan: plan.add_edge(MachinePlanEdge.arg("doc", "summarize", "media:enc=utf8;context")),
         "step 'summarize' is wired twice on input stream",
     )
     refused(
@@ -252,7 +252,7 @@ def test_771_a_step_no_invocation_can_be_given_is_refused():
     assert "mystery" in missing.value.cap_urn
     # A step the graph only reads from is looked up too.
     reading = _plan()
-    reading.add_node(MachineNode.cap("mystery", 'cap:in="media:x";mystery;out="media:enc=utf-8;ext=txt"'))
+    reading.add_node(MachineNode.cap("mystery", 'cap:in="media:x";mystery;out="media:enc=utf8;ext=txt;plain-text"'))
     reading.edges[:] = [edge for edge in reading.edges if (edge.from_node, edge.to_node) != ("extract", "split")]
     reading.add_edge(MachinePlanEdge.direct("mystery", "split"))
     with pytest.raises(CapNotFoundError) as missing:

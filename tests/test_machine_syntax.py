@@ -135,7 +135,7 @@ def test_12732_the_forms_of_a_wiring():
 # keyword where a header puts it.
 def test_12734_cap_headers_and_machine_headers():
     statements = parse_syntax(
-        'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"\n'
+        'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"\n'
         'clean machine "lib/clean \\"v2\\".machine"\n'
         "[machine cap:in=media:;machine;out=media:]\n"
         "machine -> machine -> machinery"
@@ -144,7 +144,7 @@ def test_12734_cap_headers_and_machine_headers():
 
     assert statements[0].kind == CAP_HEADER
     assert statements[0].alias == "extract"
-    assert statements[0].cap_urn == 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"'
+    assert statements[0].cap_urn == 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"'
 
     assert statements[1].kind == MACHINE_HEADER
     assert statements[1].alias == "clean"

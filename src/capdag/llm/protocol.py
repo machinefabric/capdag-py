@@ -8,10 +8,10 @@ cap as one written in Rust, and the engine cannot tell them apart.
 
 Media defs:
 
-- ``media:fmt=json;llm-generation-request;record``
-- ``media:fmt=ndjson;llm-text-stream``
-- ``media:fmt=json;llm-vocab-response;record``
-- ``media:fmt=json;llm-model-info;record``
+- ``media:enc=utf8;fmt=json;llm-generation-request;record``
+- ``media:enc=utf8;fmt=ndjson;llm-text-stream``
+- ``media:enc=utf8;fmt=json;llm-vocab-response;record``
+- ``media:enc=utf8;fmt=json;llm-model-info;record``
 
 Caps:
 
@@ -109,7 +109,7 @@ def _dumps(record: Any) -> str:
 
 
 # =============================================================================
-# media:fmt=json;llm-generation-request;record
+# media:enc=utf8;fmt=json;llm-generation-request;record
 # =============================================================================
 
 
@@ -117,7 +117,7 @@ def _dumps(record: Any) -> str:
 class LlmGenerationRequest:
     """LLM generation request — the input to every LLM cap.
 
-    Matches ``media:fmt=json;llm-generation-request;record``.
+    Matches ``media:enc=utf8;fmt=json;llm-generation-request;record``.
     """
 
     prompt: str
@@ -343,13 +343,13 @@ class ConstraintSpec:
 
 
 # =============================================================================
-# media:fmt=ndjson;llm-text-stream
+# media:enc=utf8;fmt=ndjson;llm-text-stream
 # =============================================================================
 
 
 @dataclass
 class LlmStreamMessage:
-    """One NDJSON line of ``media:fmt=ndjson;llm-text-stream``.
+    """One NDJSON line of ``media:enc=utf8;fmt=ndjson;llm-text-stream``.
 
     Tagged by ``type``; every variant here is mandated by the media def.
     """
@@ -453,13 +453,13 @@ FINISH_REASON_CONSTRAINT_SATISFIED = "constraint_satisfied"
 
 
 # =============================================================================
-# media:fmt=json;llm-vocab-response;record
+# media:enc=utf8;fmt=json;llm-vocab-response;record
 # =============================================================================
 
 
 @dataclass
 class LlmVocabResponse:
-    """Matches ``media:fmt=json;llm-vocab-response;record``."""
+    """Matches ``media:enc=utf8;fmt=json;llm-vocab-response;record``."""
 
     vocab: list[str]
     vocab_size: Optional[int] = None
@@ -485,13 +485,13 @@ class LlmVocabResponse:
 
 
 # =============================================================================
-# media:fmt=json;llm-model-info;record
+# media:enc=utf8;fmt=json;llm-model-info;record
 # =============================================================================
 
 
 @dataclass
 class LlmModelInfo:
-    """Matches ``media:fmt=json;llm-model-info;record``."""
+    """Matches ``media:enc=utf8;fmt=json;llm-model-info;record``."""
 
     model_spec: str
     vocab_size: int
@@ -544,10 +544,10 @@ class LlmModelInfo:
 # Media URNs — canonical definitions (single source of truth)
 # =============================================================================
 
-MEDIA_LLM_GENERATION_REQUEST = "media:fmt=json;llm-generation-request;record"
-MEDIA_LLM_TEXT_STREAM = "media:fmt=ndjson;llm-text-stream"
-MEDIA_LLM_VOCAB_RESPONSE = "media:fmt=json;llm-vocab-response;record"
-MEDIA_LLM_MODEL_INFO_RESPONSE = "media:fmt=json;llm-model-info;record"
+MEDIA_LLM_GENERATION_REQUEST = "media:enc=utf8;fmt=json;llm-generation-request;record"
+MEDIA_LLM_TEXT_STREAM = "media:enc=utf8;fmt=ndjson;llm-text-stream"
+MEDIA_LLM_VOCAB_RESPONSE = "media:enc=utf8;fmt=json;llm-vocab-response;record"
+MEDIA_LLM_MODEL_INFO_RESPONSE = "media:enc=utf8;fmt=json;llm-model-info;record"
 
 
 # =============================================================================
@@ -555,43 +555,43 @@ MEDIA_LLM_MODEL_INFO_RESPONSE = "media:fmt=json;llm-model-info;record"
 # =============================================================================
 
 CAP_LLM_INFERENCE_GGUF = (
-    'cap:gguf;in="media:fmt=json;llm-generation-request;record";llm;ml-model;'
-    'llm-inference;out="media:fmt=ndjson;llm-text-stream"'
+    'cap:gguf;in="media:enc=utf8;fmt=json;llm-generation-request;record";llm;ml-model;'
+    'llm-inference;out="media:enc=utf8;fmt=ndjson;llm-text-stream"'
 )
 CAP_LLM_INFERENCE_MLX = (
-    'cap:in="media:fmt=json;llm-generation-request;record";llm;ml-model;mlx;'
-    'llm-inference;out="media:fmt=ndjson;llm-text-stream"'
+    'cap:in="media:enc=utf8;fmt=json;llm-generation-request;record";llm;ml-model;mlx;'
+    'llm-inference;out="media:enc=utf8;fmt=ndjson;llm-text-stream"'
 )
 CAP_LLM_INFERENCE_CANDLE = (
-    'cap:candle;in="media:fmt=json;llm-generation-request;record";llm;ml-model;'
-    'llm-inference;out="media:fmt=ndjson;llm-text-stream"'
+    'cap:candle;in="media:enc=utf8;fmt=json;llm-generation-request;record";llm;ml-model;'
+    'llm-inference;out="media:enc=utf8;fmt=ndjson;llm-text-stream"'
 )
 CAP_LLM_INFERENCE_CONSTRAINED = (
-    'cap:constrained;gguf;in="media:fmt=json;llm-generation-request;record";llm;'
-    'ml-model;llm-inference-constrained;out="media:fmt=ndjson;llm-text-stream"'
+    'cap:constrained;gguf;in="media:enc=utf8;fmt=json;llm-generation-request;record";llm;'
+    'ml-model;llm-inference-constrained;out="media:enc=utf8;fmt=ndjson;llm-text-stream"'
 )
 CAP_LLM_VOCAB = (
     'cap:llm-vocab;llm;ml-model;gguf;'
-    'in="media:fmt=json;llm-generation-request;record";'
-    'out="media:fmt=json;llm-vocab-response;record"'
+    'in="media:enc=utf8;fmt=json;llm-generation-request;record";'
+    'out="media:enc=utf8;fmt=json;llm-vocab-response;record"'
 )
 CAP_LLM_MODEL_INFO = (
     'cap:llm-model-info;llm;ml-model;gguf;'
-    'in="media:fmt=json;llm-generation-request;record";'
-    'out="media:fmt=json;llm-model-info;record"'
+    'in="media:enc=utf8;fmt=json;llm-generation-request;record";'
+    'out="media:enc=utf8;fmt=json;llm-model-info;record"'
 )
 CAP_GENERATE_EMBEDDINGS = (
-    'cap:generate-embeddings;ml-model;gguf;in="media:enc=utf-8";'
-    'out="media:embedding-vector;fmt=json;record"'
+    'cap:generate-embeddings;ml-model;gguf;in="media:enc=utf8";'
+    'out="media:embedding-vector;enc=utf8;fmt=json;record"'
 )
 CAP_EMBEDDINGS_DIMENSIONS = (
-    'cap:gguf;in="media:embeddings;enc=utf-8;gguf;model-spec;'
+    'cap:gguf;in="media:embeddings;enc=utf8;gguf;model-spec;'
     'tokenizer-embedded-gguf";ml-model;embeddings-dimensions;'
     'out="media:integer;model-dim;numeric"'
 )
 CAP_DESCRIBE_IMAGE = (
     'cap:gguf;in="media:ext=png;image";ml-model;describe-image;'
-    'out="media:enc=utf-8;ext=txt;image-description;plain-text";vision'
+    'out="media:enc=utf8;ext=txt;image-description;plain-text";vision'
 )
 
 

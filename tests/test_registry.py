@@ -115,7 +115,7 @@ def test_6382_parse_registry_json():
 def test_138_parse_registry_json_with_stdin():
     """Test parsing cap JSON with stdin args"""
     json_str = '''{
-        "urn": "cap:in=\\"media:document;ext=pdf\\";disbind;out=\\"media:enc=utf-8;page\\"",
+        "urn": "cap:in=\\"media:document;ext=pdf\\";disbind;out=\\"media:enc=utf8;page\\"",
         "aliases": ["disbind"],
         "title": "Disbind PDF",
         "args": [
@@ -318,7 +318,7 @@ def test_1899_media_def_resolves_to_versioned_object_path_under_manifest():
     # 1. Object-path rule: the charter's definition location, at the defver.
     locations = _layout_locations("https://fabric.example.test")
     cache = Path("/tmp/capdag-test-cache-0144")
-    urn = "media:enc=utf-8;ext=md"
+    urn = "media:enc=utf8;ext=md;plain-text"
     digest = _hashlib.sha256(urn.encode("utf-8")).hexdigest()
 
     versioned, _ = _definition_url_and_cache_path(cache, locations, "media", urn, 1)
@@ -381,7 +381,7 @@ def test_6340_normalize_urn_with_trailing_semicolon():
 # error type on both the direct and the public (get_cap) paths.
 @pytest.mark.asyncio
 async def test_6396_malformed_cap_urn_fails_hard():
-    malformed = 'cap:coerce;in="media:integer;numeric";out=media:enc=utf-8'
+    malformed = 'cap:coerce;in="media:integer;numeric";out=media:enc=utf8'
 
     # Direct normalization path must raise ParseError, NOT return the raw URN.
     with pytest.raises(ParseError):
@@ -435,7 +435,7 @@ async def test_1893_cache_folder_is_the_charters_slug_and_found_by_anchor(tmp_pa
 def test_12714_a_served_definition_is_held_to_the_definition_rules():
     from capdag.fabric.registry import ParseError, ValidationError, checked_cap_definition
 
-    cap_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"'
+    cap_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"'
 
     def definition(args, outputs) -> bytes:
         return json.dumps({
@@ -445,11 +445,11 @@ def test_12714_a_served_definition_is_held_to_the_definition_rules():
 
     def main(stdin: str) -> dict:
         return {
-            "media_urn": "media:enc=utf-8;file-path", "name": "document", "required": True,
+            "media_urn": "media:enc=utf8;file-path", "name": "document", "required": True,
             "sources": [{"stdin": stdin}],
         }
 
-    page = {"media_urn": "media:enc=utf-8;page", "name": "pages", "output_description": "Pages"}
+    page = {"media_urn": "media:enc=utf8;page", "name": "pages", "output_description": "Pages"}
 
     cap = checked_cap_definition(definition([main("media:document;ext=pdf")], [page]), cap_urn)
     assert cap.main_output() is not None
@@ -513,24 +513,24 @@ def test_12816_a_caps_media_footprint_covers_every_output_and_accepted_type(tmp_
 
     registry = FabricRegistry.new_for_test(tmp_path)
     cap = Cap(
-        CapUrn.from_string('cap:in="media:document;ext=pdf";footprint;out="media:enc=utf-8"'),
+        CapUrn.from_string('cap:in="media:document;ext=pdf";footprint;out="media:enc=utf8"'),
         "Footprint", ["footprint"],
     )
-    cap.add_arg(CapArg("media:enc=utf-8;file-path", "document", True,
+    cap.add_arg(CapArg("media:enc=utf8;file-path", "document", True,
                        [StdinSource("media:document;ext=pdf")]))
-    cap.add_arg(CapArg("media:enc=utf-8;second", "second", False,
-                       [CliFlagSource("--second")]).accepting("media:enc=utf-8;accepted"))
+    cap.add_arg(CapArg("media:enc=utf8;second", "second", False,
+                       [CliFlagSource("--second")]).accepting("media:enc=utf8;accepted"))
     cap.add_arg(CapArg("media:", "anything", False, [CliFlagSource("--anything")]))
-    cap.add_output(CapOutput("media:enc=utf-8", "text", "text"))
-    cap.add_output(CapOutput("media:enc=utf-8;rest", "rest", "rest"))
+    cap.add_output(CapOutput("media:enc=utf8", "text", "text"))
+    cap.add_output(CapOutput("media:enc=utf8;rest", "rest", "rest"))
 
     expected = sorted(normalize_media_urn(urn) for urn in [
         "media:document;ext=pdf",
-        "media:enc=utf-8",
-        "media:enc=utf-8;file-path",
-        "media:enc=utf-8;second",
-        "media:enc=utf-8;accepted",
-        "media:enc=utf-8;rest",
+        "media:enc=utf8",
+        "media:enc=utf8;file-path",
+        "media:enc=utf8;second",
+        "media:enc=utf8;accepted",
+        "media:enc=utf8;rest",
     ])
     got = registry._collect_referenced_media_urns(cap)
     assert sorted(got) == expected, "each once, the wildcard left out"

@@ -4,7 +4,7 @@ from capdag import CapQuery, CapUrn, MatchGrade, MediaUrn
 
 
 def _pages() -> CapUrn:
-    return CapUrn.from_string('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt;page"')
+    return CapUrn.from_string('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;page;plain-text"')
 
 
 def _to_jpeg() -> CapUrn:

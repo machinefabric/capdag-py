@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from capdag.planner.argument_binding import CapInputFile, SourceEntityType
 
-_COLLECTION_MEDIA_URN = "media:collection;enc=utf-8;record"
+_COLLECTION_MEDIA_URN = "media:collection;enc=utf8;record"
 
 
 class CollectionFile:

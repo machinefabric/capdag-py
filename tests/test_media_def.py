@@ -44,11 +44,11 @@ async def create_test_registry():
 async def test_088_resolve_seeded_spec():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:enc=utf-8",
+        urn="media:enc=utf8",
         media_type="text/plain",
         title="Textable",
     ))
-    resolved = await resolve_media_urn("media:enc=utf-8", registry)
+    resolved = await resolve_media_urn("media:enc=utf8", registry)
     assert resolved.media_type == "text/plain"
     assert resolved.profile_uri is None
 
@@ -62,13 +62,13 @@ async def test_089_resolve_seeded_record_spec():
         "properties": {"name": {"type": "string"}},
     }
     registry.add_spec(StoredMediaDef(
-        urn="media:fmt=json;output-spec;record",
+        urn="media:enc=utf8;fmt=json;output-spec;record",
         media_type="application/json",
         title="Output Spec",
         profile_uri="https://example.com/schema/output",
         schema=schema,
     ))
-    resolved = await resolve_media_urn("media:fmt=json;output-spec;record", registry)
+    resolved = await resolve_media_urn("media:enc=utf8;fmt=json;output-spec;record", registry)
     assert resolved.media_type == "application/json"
     assert resolved.profile_uri == "https://example.com/schema/output"
     assert resolved.schema == schema
@@ -92,7 +92,7 @@ async def test_093_resolve_unresolvable_fails_hard():
 # TEST95: Test MediaDef serializes with required fields and skips None fields
 def test_095_media_def_def_serialize():
     spec_def = MediaDef(
-        urn="media:fmt=json;test",
+        urn="media:enc=utf8;fmt=json;test",
         media_type="application/json",
         title="Test Media",
         profile_uri="https://example.com/profile",
@@ -103,7 +103,7 @@ def test_095_media_def_def_serialize():
         extensions=[],
     )
     data = spec_def.to_dict()
-    assert data["urn"] == "media:fmt=json;test"
+    assert data["urn"] == "media:enc=utf8;fmt=json;test"
     assert data["media_type"] == "application/json"
     assert data["profile_uri"] == "https://example.com/profile"
     assert data["title"] == "Test Media"
@@ -116,12 +116,12 @@ def test_095_media_def_def_serialize():
 # TEST96: Test deserializing MediaDef from JSON object
 def test_096_media_def_def_deserialize():
     data = {
-        "urn": "media:fmt=json;test",
+        "urn": "media:enc=utf8;fmt=json;test",
         "media_type": "application/json",
         "title": "Test"
     }
     spec_def = MediaDef.from_dict(data)
-    assert spec_def.urn == "media:fmt=json;test"
+    assert spec_def.urn == "media:enc=utf8;fmt=json;test"
     assert spec_def.media_type == "application/json"
     assert spec_def.title == "Test"
     assert spec_def.profile_uri is None
@@ -136,31 +136,31 @@ def test_096_media_def_def_deserialize():
 def test_097_validate_no_duplicate_urns_catches_duplicates():
     media_defs = [
         MediaDef(
-            urn="media:dup;fmt=json",
+            urn="media:dup;enc=utf8;fmt=json",
             media_type="application/json",
             title="First",
         ),
         MediaDef(
-            urn="media:dup;fmt=json",
+            urn="media:dup;enc=utf8;fmt=json",
             media_type="application/json",
             title="Second",
         ),  # duplicate
     ]
     with pytest.raises(DuplicateMediaUrn) as exc_info:
         validate_media_defs_no_duplicates(media_defs)
-    assert "media:dup;fmt=json" in str(exc_info.value)
+    assert "media:dup;enc=utf8;fmt=json" in str(exc_info.value)
 
 
 # TEST98: Test duplicate URN validation passes for unique URNs
 def test_098_validate_no_duplicate_urns_passes_for_unique():
     media_defs = [
         MediaDef(
-            urn="media:first;fmt=json",
+            urn="media:enc=utf8;first;fmt=json",
             media_type="application/json",
             title="First",
         ),
         MediaDef(
-            urn="media:fmt=json;second",
+            urn="media:enc=utf8;fmt=json;second",
             media_type="application/json",
             title="Second",
         ),
@@ -196,7 +196,7 @@ def test_099_resolved_is_binary():
 # TEST100: Test ResolvedMediaDef is_record returns true when record marker is present
 def test_100_resolved_is_record():
     resolved = ResolvedMediaDef(
-        media_urn="media:enc=utf-8;record",
+        media_urn="media:enc=utf8;record",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -214,7 +214,7 @@ def test_100_resolved_is_record():
 # TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent
 def test_101_resolved_is_scalar():
     resolved = ResolvedMediaDef(
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf8",
         media_type="text/plain",
         profile_uri=None,
         schema=None,
@@ -232,7 +232,7 @@ def test_101_resolved_is_scalar():
 # TEST102: Test ResolvedMediaDef is_list returns true when list marker is present
 def test_102_resolved_is_list():
     resolved = ResolvedMediaDef(
-        media_urn="media:enc=utf-8;list",
+        media_urn="media:enc=utf8;list",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -250,7 +250,7 @@ def test_102_resolved_is_list():
 # TEST103: Test ResolvedMediaDef is_json returns true when json tag is present
 def test_103_resolved_is_json():
     resolved = ResolvedMediaDef(
-        media_urn="media:fmt=json;record",
+        media_urn="media:enc=utf8;fmt=json;record",
         media_type="application/json",
         profile_uri=None,
         schema=None,
@@ -267,7 +267,7 @@ def test_103_resolved_is_json():
 # TEST104: Test ResolvedMediaDef text-representability is carried by the enc= tag
 def test_104_resolved_is_text():
     resolved = ResolvedMediaDef(
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf8",
         media_type="text/plain",
         profile_uri=None,
         schema=None,
@@ -277,7 +277,7 @@ def test_104_resolved_is_text():
         metadata=None,
         extensions=[],
     )
-    assert resolved._parse_media_urn().get_tag("enc") == "utf-8"
+    assert resolved._parse_media_urn().get_tag("enc") == "utf8"
     assert not resolved.is_json()
 
 
@@ -384,7 +384,7 @@ def test_892_extensions_serialization():
 async def test_893_extensions_with_metadata_and_validation():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:custom-output;fmt=json",
+        urn="media:custom-output;enc=utf8;fmt=json",
         media_type="application/json",
         title="Custom Output",
         profile_uri="https://example.com/schema",
@@ -393,7 +393,7 @@ async def test_893_extensions_with_metadata_and_validation():
         extensions=["json"],
     ))
 
-    resolved = await resolve_media_urn("media:custom-output;fmt=json", registry)
+    resolved = await resolve_media_urn("media:custom-output;enc=utf8;fmt=json", registry)
 
     # Verify all fields are present
     assert resolved.validation is not None
@@ -485,14 +485,14 @@ def test_610_get_cached_spec():
 
     # Add a spec and verify we can retrieve it
     spec = StoredMediaDef(
-        urn="media:enc=utf-8;spec;test",
+        urn="media:enc=utf8;spec;test",
         media_type="text/plain",
         title="Test Spec",
     )
     normalized = normalize_media_urn(spec.urn)
     registry.cached_specs[normalized] = spec
 
-    retrieved = registry.get_cached_media_def("media:enc=utf-8;spec;test")
+    retrieved = registry.get_cached_media_def("media:enc=utf8;spec;test")
     assert retrieved is not None, "Should find spec by URN"
     assert retrieved.title == "Test Spec"
 
@@ -548,14 +548,14 @@ async def test_288_media_documentation_propagates_through_resolve():
     registry = await create_test_registry()
     body = "## Markdown body\n\nWith `code` and a [link](https://example.com)."
     registry.add_spec(StoredMediaDef(
-        urn="media:doc-test;enc=utf-8",
+        urn="media:doc-test;enc=utf8",
         media_type="text/plain",
         title="Documented",
         description="short desc",
         documentation=body,
     ))
 
-    resolved = await resolve_media_urn("media:doc-test;enc=utf-8", registry)
+    resolved = await resolve_media_urn("media:doc-test;enc=utf8", registry)
     assert resolved.documentation == body, \
         "documentation must propagate from MediaDef into ResolvedMediaDef"
     # The short description must remain distinct from the long
@@ -622,13 +622,13 @@ def test_1133_media_def_def_documentation_lifecycle():
 async def test_6282_resolve_custom_media_def():
     registry = await create_test_registry()
     registry.add_spec(StoredMediaDef(
-        urn="media:custom-spec;fmt=json",
+        urn="media:custom-spec;enc=utf8;fmt=json",
         media_type="application/json",
         title="Custom Spec",
         profile_uri="https://example.com/schema",
     ))
-    resolved = await resolve_media_urn("media:custom-spec;fmt=json", registry)
-    assert resolved.media_urn == "media:custom-spec;fmt=json"
+    resolved = await resolve_media_urn("media:custom-spec;enc=utf8;fmt=json", registry)
+    assert resolved.media_urn == "media:custom-spec;enc=utf8;fmt=json"
     assert resolved.media_type == "application/json"
     assert resolved.profile_uri == "https://example.com/schema"
     assert resolved.schema is None
@@ -644,14 +644,14 @@ async def test_6283_resolve_custom_with_schema():
         "properties": {"name": {"type": "string"}},
     }
     registry.add_spec(StoredMediaDef(
-        urn="media:fmt=json;output-spec;record",
+        urn="media:enc=utf8;fmt=json;output-spec;record",
         media_type="application/json",
         title="Output Spec",
         profile_uri="https://example.com/schema/output",
         schema=schema,
     ))
-    resolved = await resolve_media_urn("media:fmt=json;output-spec;record", registry)
-    assert resolved.media_urn == "media:fmt=json;output-spec;record"
+    resolved = await resolve_media_urn("media:enc=utf8;fmt=json;output-spec;record", registry)
+    assert resolved.media_urn == "media:enc=utf8;fmt=json;output-spec;record"
     assert resolved.media_type == "application/json"
     assert resolved.profile_uri == "https://example.com/schema/output"
     assert resolved.schema is not None

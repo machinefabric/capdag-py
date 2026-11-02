@@ -170,7 +170,7 @@ def test_579_rule2_empty_sources():
 def test_580_rule3_different_stdin_urns():
     urn = CapUrn.from_string(_test_urn_with_input("type=test;cap"))
     cap = Cap(urn, "Test Capability", ["test-command"])
-    cap.add_arg(CapArg(MEDIA_STRING, "input", True, [StdinSource("media:enc=utf-8;ext=txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, "input", True, [StdinSource("media:enc=utf8;ext=txt;plain-text")]))
     cap.add_arg(CapArg(MEDIA_INTEGER, "arg1", True, [StdinSource("media:")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
@@ -312,7 +312,7 @@ def test_590_cli_flag_only_args():
 def test_1294_rule15_void_input_with_stdin():
     urn = CapUrn.from_string(_test_urn("type=test;cap"))
     cap = Cap(urn, "Test Capability", ["test-command"])
-    cap.add_arg(CapArg(MEDIA_STRING, "input", True, [StdinSource("media:enc=utf-8;ext=txt")]))
+    cap.add_arg(CapArg(MEDIA_STRING, "input", True, [StdinSource("media:enc=utf8;ext=txt;plain-text")]))
 
     with pytest.raises(InvalidCapSchemaError) as exc_info:
         validate_cap_args(cap)
@@ -414,7 +414,7 @@ def test_12705_rule15_the_stdin_argument_is_the_caps_input():
     def cap_of(stdin: str) -> Cap:
         return _cap_with_args(
             'cap:in="media:document;ext=pdf";test;out="media:record"',
-            [CapArg("media:enc=utf-8;file-path", "document", True, [StdinSource(stdin)])],
+            [CapArg("media:enc=utf8;file-path", "document", True, [StdinSource(stdin)])],
         )
 
     validate_cap_args(cap_of("media:document;ext=pdf"))
@@ -459,19 +459,19 @@ def test_12706_rule17_argument_names():
 # TEST12707: RULE18 - an argument says what it accepts in one place; and what
 # it accepts is not what it is delivered under.
 def test_12707_rule18_accepts_and_the_two_urns_of_an_argument():
-    series = "media:fmt=json;list;record;time-series"
+    series = "media:enc=utf8;fmt=json;list;record;time-series"
     benchmark = CapArg(
-        "media:benchmark;fmt=json;list;record;time-series", "benchmark",
+        "media:benchmark;enc=utf8;fmt=json;list;record;time-series", "benchmark",
         True,
         [CliFlagSource("--benchmark")],
     ).accepting(series)
     # It accepts a plain series, and is delivered under its own URN: two
     # args accepting one type stay distinct on the wire.
     assert benchmark.accepted_urn() == series
-    assert benchmark.stream_urn() == "media:benchmark;fmt=json;list;record;time-series"
+    assert benchmark.stream_urn() == "media:benchmark;enc=utf8;fmt=json;list;record;time-series"
 
     # The main input accepts, and is delivered under, its stdin URN.
-    main = CapArg("media:enc=utf-8;file-path", "path", True, [StdinSource(series)])
+    main = CapArg("media:enc=utf8;file-path", "path", True, [StdinSource(series)])
     assert main.accepted_urn() == series
     assert main.stream_urn() == series
 
@@ -491,7 +491,7 @@ def test_12707_rule18_accepts_and_the_two_urns_of_an_argument():
     # `accepts` beside a stdin source says it twice.
     issue = _refused(validate_cap_args, _cap_with_args(cap_urn, [main.accepting(series)]))
     assert "RULE18" in issue
-    assert "media:enc=utf-8;file-path" in issue
+    assert "media:enc=utf8;file-path" in issue
     # Declaring what one copy accepts does not change the argument it was made from.
     assert main.accepts is None
 
@@ -504,7 +504,7 @@ def test_12707_rule18_accepts_and_the_two_urns_of_an_argument():
 
 def _cap_with_outputs(out_spec: str, outputs) -> Cap:
     cap = Cap(
-        CapUrn.from_string(f'cap:in="media:enc=utf-8";test;out="{out_spec}"'), "Test", ["cmd"]
+        CapUrn.from_string(f'cap:in="media:enc=utf8";test;out="{out_spec}"'), "Test", ["cmd"]
     )
     cap.set_outputs(outputs)
     return cap
@@ -513,8 +513,8 @@ def _cap_with_outputs(out_spec: str, outputs) -> Cap:
 # TEST12708: RULE19, RULE20 - outputs have well-formed, distinct names and
 # distinct media URNs, compared as URNs.
 def test_12708_rule19_rule20_output_names_and_identities():
-    regression = "media:fmt=json;record;regression"
-    residual = "media:fmt=json;list;record;residual"
+    regression = "media:enc=utf8;fmt=json;record;regression"
+    residual = "media:enc=utf8;fmt=json;list;record;residual"
 
     def fit() -> CapOutput:
         return CapOutput(regression, "fit", "the fit")
@@ -534,21 +534,21 @@ def test_12708_rule19_rule20_output_names_and_identities():
     assert "RULE19" in issue
     assert "share the name 'fit'" in issue
     # The same URN with its tags in another order is the same output.
-    issue = refused([fit(), CapOutput("media:regression;record;fmt=json", "again", "")])
+    issue = refused([fit(), CapOutput("media:regression;record;fmt=json;enc=utf8", "again", "")])
     assert "RULE20" in issue
 
 
 # TEST12709: RULE21 - exactly one output is the main one, the cap's `out=`;
 # a cap whose `out=` is void declares none.
 def test_12709_rule21_exactly_one_main_output():
-    fit = "media:fmt=json;record;regression"
-    none = _cap_with_outputs(fit, [CapOutput("media:fmt=json;list;record;residual", "residuals", "")])
+    fit = "media:enc=utf8;fmt=json;record;regression"
+    none = _cap_with_outputs(fit, [CapOutput("media:enc=utf8;fmt=json;list;record;residual", "residuals", "")])
     issue = _refused(validate_cap_outputs, none)
     assert "RULE21" in issue
     assert "0 outputs" in issue
     assert "RULE21" in _refused(validate_cap_outputs, _cap_with_outputs(fit, []))
 
-    one = _cap_with_outputs(fit, [CapOutput("media:regression;fmt=json;record", "fit", "")])
+    one = _cap_with_outputs(fit, [CapOutput("media:regression;fmt=json;record;enc=utf8", "fit", "")])
     validate_cap_outputs(one)  # the main output is found by URN equivalence
     assert one.main_output() is not None
     assert one.main_output().name == "fit"
@@ -558,7 +558,7 @@ def test_12709_rule21_exactly_one_main_output():
     assert void.main_output() is None
     issue = _refused(
         validate_cap_outputs,
-        _cap_with_outputs("media:void", [CapOutput("media:enc=utf-8", "text", "")]),
+        _cap_with_outputs("media:void", [CapOutput("media:enc=utf8", "text", "")]),
     )
     assert "RULE21" in issue
     assert "media:void" in issue
@@ -567,25 +567,25 @@ def test_12709_rule21_exactly_one_main_output():
 # TEST12710: RULE22 - only a non-main output of a cap that takes an input
 # may carry that input's type.
 def test_12710_rule22_what_an_output_carries():
-    router = _cap_with_outputs("media:enc=utf-8;kept", [
-        CapOutput("media:enc=utf-8;kept", "yes", "").as_optional(True),
-        CapOutput("media:enc=utf-8;dropped", "no", "").as_optional(True).carrying_input(),
+    router = _cap_with_outputs("media:enc=utf8;kept", [
+        CapOutput("media:enc=utf8;kept", "yes", "").as_optional(True),
+        CapOutput("media:enc=utf8;dropped", "no", "").as_optional(True).carrying_input(),
     ])
     validate_cap_outputs(router)
 
-    main_carries = _cap_with_outputs("media:enc=utf-8;kept", [
-        CapOutput("media:enc=utf-8;kept", "yes", "").carrying_input(),
+    main_carries = _cap_with_outputs("media:enc=utf8;kept", [
+        CapOutput("media:enc=utf8;kept", "yes", "").carrying_input(),
     ])
     issue = _refused(validate_cap_outputs, main_carries)
     assert "RULE22" in issue
     assert "main output" in issue
 
     source = Cap(
-        CapUrn.from_string('cap:in="media:void";now;out="media:enc=utf-8;stamp"'), "Now", ["now"]
+        CapUrn.from_string('cap:in="media:void";now;out="media:enc=utf8;stamp"'), "Now", ["now"]
     )
     source.set_outputs([
-        CapOutput("media:enc=utf-8;stamp", "stamp", ""),
-        CapOutput("media:enc=utf-8;echo", "echo", "").carrying_input(),
+        CapOutput("media:enc=utf8;stamp", "stamp", ""),
+        CapOutput("media:enc=utf8;echo", "echo", "").carrying_input(),
     ])
     issue = _refused(validate_cap_outputs, source)
     assert "RULE22" in issue
@@ -601,11 +601,11 @@ def test_12710_rule22_what_an_output_carries():
     # An output carries its own type or the input's: nothing else is a definition.
     with pytest.raises(ValueError, match="carries"):
         CapOutput.from_dict({
-            "media_urn": "media:enc=utf-8;dropped", "name": "no", "output_description": "",
+            "media_urn": "media:enc=utf8;dropped", "name": "no", "output_description": "",
             "carries": "output",
         })
     # Declaring a copy optional, or carrying, does not change the output it was made from.
-    plain = CapOutput("media:enc=utf-8;kept", "yes", "")
+    plain = CapOutput("media:enc=utf8;kept", "yes", "")
     assert plain.as_optional(True).optional is True
     assert plain.carrying_input().carries == "input"
     assert (plain.optional, plain.carries) == (False, None)

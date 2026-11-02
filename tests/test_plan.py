@@ -337,9 +337,9 @@ def _build_foreach_plan() -> MachinePlan:
         ["foreach_0_item_0", "body_cap_0", "body_cap_1"],
     ))
     plan.add_node(MachineNode.item("foreach_0_item_0", "foreach_0", "cap_0", "media:pdf-page"))
-    plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:enc=utf-8;text"'))
-    plan.add_node(MachineNode.cap("body_cap_1", 'cap:in="media:enc=utf-8;text";out="media:decision;fmt=json;record"'))
-    plan.add_node(MachineNode.cap("cap_post", 'cap:in="media:decision;fmt=json;record";out="media:fmt=json"'))
+    plan.add_node(MachineNode.cap("body_cap_0", 'cap:in=media:pdf-page;out="media:enc=utf8;text"'))
+    plan.add_node(MachineNode.cap("body_cap_1", 'cap:in="media:enc=utf8;text";out="media:decision;enc=utf8;fmt=json;record"'))
+    plan.add_node(MachineNode.cap("cap_post", 'cap:in="media:decision;enc=utf8;fmt=json;record";out="media:enc=utf8;fmt=json"'))
     plan.add_node(MachineNode.output("output", "result", "cap_post"))
 
     plan.add_edge(MachinePlanEdge.direct("input_slot", "cap_0"))
@@ -362,8 +362,8 @@ def test_936_has_foreach():
     assert not linear_plan.has_foreach()
 
     gather_plan = MachinePlan("gather_only")
-    gather_plan.add_node(MachineNode.input_slot("input", "input", "media:enc=utf-8", InputCardinality.SINGLE))
-    gather_plan.add_node(MachineNode.cap("cap_0", 'cap:in="media:enc=utf-8";summarize;out=media:summary'))
+    gather_plan.add_node(MachineNode.input_slot("input", "input", "media:enc=utf8", InputCardinality.SINGLE))
+    gather_plan.add_node(MachineNode.cap("cap_0", 'cap:in="media:enc=utf8";summarize;out=media:summary'))
     gather_plan.add_node(MachineNode.collect("collect_0", ["cap_0"], "media:summary"))
     gather_plan.add_node(MachineNode.output("output", "result", "collect_0"))
     gather_plan.validate()
@@ -388,8 +388,8 @@ def test_12753_a_plan_says_which_map_a_node_runs_in():
         [ForEachSource(node="body_cap_0", item="foreach_1_item_0")],
         ["foreach_1_item_0", "inner_cap"],
     ))
-    plan.add_node(MachineNode.item("foreach_1_item_0", "foreach_1", "body_cap_0", "media:enc=utf-8;text"))
-    plan.add_node(MachineNode.cap("inner_cap", 'cap:in="media:enc=utf-8;text";out=media:word'))
+    plan.add_node(MachineNode.item("foreach_1_item_0", "foreach_1", "body_cap_0", "media:enc=utf8;text"))
+    plan.add_node(MachineNode.cap("inner_cap", 'cap:in="media:enc=utf8;text";out=media:word'))
     plan.nodes["foreach_0"].node_type.body.append("foreach_1")
     plan.validate()
     enclosing = plan.enclosing_maps()

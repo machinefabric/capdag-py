@@ -300,15 +300,15 @@ def test_1284_cap_group_with_adapter_urns():
     group = CapGroup(
         name="data-formats",
         caps=[cap],
-        adapter_urns=["media:fmt=json", "media:fmt=csv"],
+        adapter_urns=["media:enc=utf8;fmt=json", "media:enc=utf8;fmt=csv"],
     )
 
     manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [group])
 
     json_str = manifest.to_json()
     assert '"adapter_urns"' in json_str
-    assert "media:fmt=json" in json_str
-    assert "media:fmt=csv" in json_str
+    assert "media:enc=utf8;fmt=json" in json_str
+    assert "media:enc=utf8;fmt=csv" in json_str
 
     deserialized = CapManifest.from_json(json_str)
     assert len(deserialized.cap_groups[0].adapter_urns) == 2
@@ -433,7 +433,7 @@ def test_12711_validate_refuses_an_invalid_definition():
 
     # Two arguments under one name.
     twins = _complete_convert_cap()
-    twins.add_arg(CapArg("media:enc=utf-8", "same", False, [CliFlagSource("--a")]))
+    twins.add_arg(CapArg("media:enc=utf8", "same", False, [CliFlagSource("--a")]))
     twins.add_arg(CapArg("media:integer", "same", False, [CliFlagSource("--b")]))
     with pytest.raises(ValueError) as exc_info:
         manifest_with(twins).validate()

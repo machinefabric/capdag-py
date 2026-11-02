@@ -1632,13 +1632,13 @@ def test_7011_credit_is_non_flow():
 # TEST7012: STREAM_START unbounded flag round-trips through CBOR; absent flag means bounded
 def test_7012_stream_start_unbounded_roundtrip():
     rid = MessageId.random()
-    bounded = Frame.stream_start(rid, "s1", "media:enc=utf-8", False)
+    bounded = Frame.stream_start(rid, "s1", "media:enc=utf8", False)
     assert not bounded.is_unbounded()
     decoded = decode_frame(encode_frame(bounded))
     assert not decoded.is_unbounded(), "absent flag must read as bounded"
     assert decoded.unbounded is None, "bounded frames omit the key"
 
-    unbounded = Frame.stream_start_unbounded(rid, "s2", "media:enc=utf-8", True)
+    unbounded = Frame.stream_start_unbounded(rid, "s2", "media:enc=utf8", True)
     assert unbounded.is_unbounded()
     decoded = decode_frame(encode_frame(unbounded))
     assert decoded.is_unbounded()
@@ -1906,12 +1906,12 @@ def test_12718_stream_start_names_its_output():
         return decode_frame(encode_frame(frame))
 
     # Two outputs of one cap may carry the same type: the name tells them apart.
-    kept = Frame.stream_start(rid, "s1", "media:enc=utf-8", False).for_output("media:enc=utf-8;kept")
-    dropped = Frame.stream_start(rid, "s2", "media:enc=utf-8", False).for_output("media:dropped;enc=utf-8")
+    kept = Frame.stream_start(rid, "s1", "media:enc=utf8", False).for_output("media:enc=utf8;kept")
+    dropped = Frame.stream_start(rid, "s2", "media:enc=utf8", False).for_output("media:dropped;enc=utf8")
     kept_back, dropped_back = round_trip(kept), round_trip(dropped)
-    assert kept_back.output_urn() == "media:enc=utf-8;kept"
-    assert dropped_back.output_urn() == "media:dropped;enc=utf-8"
-    assert kept_back.media_urn == dropped_back.media_urn == "media:enc=utf-8", \
+    assert kept_back.output_urn() == "media:enc=utf8;kept"
+    assert dropped_back.output_urn() == "media:dropped;enc=utf8"
+    assert kept_back.media_urn == dropped_back.media_urn == "media:enc=utf8", \
         "the data's type is its own field"
 
     # The unbounded form keeps both.
@@ -1923,7 +1923,7 @@ def test_12718_stream_start_names_its_output():
 
     # The main output's stream and a request stream name no output, and the
     # key is not written.
-    encoded = encode_frame(Frame.stream_start(rid, "s4", "media:enc=utf-8"))
+    encoded = encode_frame(Frame.stream_start(rid, "s4", "media:enc=utf8"))
     assert Keys.OUTPUT == 21
     assert 21 not in cbor2.loads(encoded), "a STREAM_START that names no output does not carry key 21"
     assert decode_frame(encoded).output_urn() is None
@@ -1938,8 +1938,8 @@ def test_12718_stream_start_names_its_output():
     # Key 21 that is not text is a malformed frame, not a stream that names
     # no output.
     entries = cbor2.loads(encode_frame(kept))
-    assert entries[21] == "media:enc=utf-8;kept"
-    for malformed in [7, b"media:enc=utf-8;kept", None]:
+    assert entries[21] == "media:enc=utf8;kept"
+    for malformed in [7, b"media:enc=utf8;kept", None]:
         entries[21] = malformed
         with pytest.raises(InvalidFrameError) as refusal:
             decode_frame(cbor2.dumps(entries))

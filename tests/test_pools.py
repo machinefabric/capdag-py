@@ -39,8 +39,8 @@ def test_1520_effective_capacity_min_semantics():
 # with capacities resolved by pool name uniformly.
 def test_1521_declared_states_materialize_every_pool():
     declared_caps = _caps(
-        'cap:generate;in="media:enc=utf-8";out="media:enc=utf-8"',
-        'cap:embed;in="media:enc=utf-8";out="media:embeddings"',
+        'cap:generate;in="media:enc=utf8";out="media:enc=utf8"',
+        'cap:embed;in="media:enc=utf8";out="media:embeddings"',
     )
     generate = declared_caps[0].to_string()
     embed = declared_caps[1].to_string()
@@ -74,7 +74,7 @@ def test_1521_declared_states_materialize_every_pool():
 # named like a cap URN, an unknown member, a duplicate member, and an
 # unknown capacity key are each refused with the offender named.
 def test_1522_pool_declaration_validation_refuses_illegal_shapes():
-    declared_caps = _caps('cap:generate;in="media:enc=utf-8";out="media:enc=utf-8"')
+    declared_caps = _caps('cap:generate;in="media:enc=utf8";out="media:enc=utf8"')
     generate = declared_caps[0].to_string()
 
     with pytest.raises(ValueError, match="reserved"):

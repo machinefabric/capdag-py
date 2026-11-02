@@ -202,7 +202,7 @@ def test_322_cartridge_info_build_for_platform():
 
 # TEST12849: a registry is bytes another program wrote, so reading one holds every cap definition in it to the definition rules: a cartridge whose definition breaks one is refused, naming the cartridge, its channel, the cap and the rule; whole definitions are read.
 def test_12849_reading_a_registry_holds_its_definitions_to_the_rules():
-    compare = 'cap:in="media:enc=utf-8";compare;out="media:record"'
+    compare = 'cap:in="media:enc=utf8";compare;out="media:record"'
 
     def registry_of(cap):
         return _make_registry(release_entries={"comparer": _make_registry_entry(cap_groups=[_make_cap_group("default", caps=[cap])])})
@@ -355,7 +355,7 @@ def test_327_cartridge_repo_server_search_cartridges():
                     "pdf",
                     caps=[
                         _make_cap(
-                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
+                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"',
                             title="Disbind PDF",
                             aliases=["disbind"],
                         )
@@ -389,8 +389,8 @@ def test_328_cartridge_repo_server_get_by_category():
 # whose tags appear in different declared order than the cap's still
 # resolves because the predicate is order-independent.
 def test_329_cartridge_repo_server_get_by_cap():
-    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
-    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"'
+    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"'
 
     server = CartridgeRepoServer(_make_registry(release_entries={
         "pdfcartridge": _make_registry_entry(
@@ -436,8 +436,8 @@ def test_330_cartridge_repo_client_update_cache():
 # propagated from the source cartridge.
 def test_331_cartridge_repo_client_get_suggestions():
     repo = CartridgeRepo(3600)
-    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
-    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
+    declared_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"'
+    request_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"'
 
     info = _make_cartridge_info(
         id="pdfcartridge",
@@ -481,8 +481,8 @@ def test_332_cartridge_repo_client_get_cartridge():
 # TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges.
 def test_333_cartridge_repo_client_get_all_caps():
     repo = CartridgeRepo(3600)
-    cap1 = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"'
-    cap2 = 'cap:in="media:enc=utf-8;ext=txt";disbind;out="media:disbound-page;enc=utf-8;list"'
+    cap1 = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"'
+    cap2 = 'cap:in="media:enc=utf8;ext=txt;plain-text";disbind;out="media:disbound-page;enc=utf8;list"'
     repo.update_cache(
         "https://example.com/cartridges",
         CartridgeRegistryResponse(
@@ -595,13 +595,13 @@ def test_632_deserialize_minimal_registry_cap():
 def test_633_deserialize_rich_registry_cap():
     cap = Cap.from_dict(
         {
-            "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
+            "urn": 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"',
             "title": "Disbind PDF",
             "aliases": ["disbind"],
             "cap_description": "Extract each PDF page as plain page text.",
             "args": [
                 {
-                    "media_urn": "media:enc=utf-8;file-path",
+                    "media_urn": "media:enc=utf8;file-path",
                     "name": "document",
                     "required": True,
                     "is_sequence": False,
@@ -614,13 +614,13 @@ def test_633_deserialize_rich_registry_cap():
             ],
             "outputs": [
                 {
-                    "media_urn": "media:enc=utf-8;page",
+                    "media_urn": "media:enc=utf8;page",
                     "name": "pages",
                     "is_sequence": True,
                     "output_description": "One page text per PDF page",
                 },
                 {
-                    "media_urn": "media:enc=utf-8;outline",
+                    "media_urn": "media:enc=utf8;outline",
                     "name": "outline",
                     "optional": True,
                     "output_description": "The document's outline, when it has one",
@@ -631,7 +631,7 @@ def test_633_deserialize_rich_registry_cap():
     assert cap.aliases == ["disbind"]
     assert cap.cap_description == "Extract each PDF page as plain page text."
     assert len(cap.args) == 1
-    assert cap.args[0].media_urn == "media:enc=utf-8;file-path"
+    assert cap.args[0].media_urn == "media:enc=utf8;file-path"
     assert cap.args[0].name == "document"
     assert isinstance(cap.args[0].sources[1], PositionSource) and cap.args[0].sources[1].position == 0
     main = cap.main_output()
@@ -674,7 +674,7 @@ def test_635_deserialize_cartridge_info_wire_shape():
                     "caps": [
                         identity_cap().to_dict(),
                         _make_cap(
-                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"',
+                            'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"',
                             "Disbind PDF Into Page Text",
                             ["disbind"],
                         ).to_dict(),

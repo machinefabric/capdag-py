@@ -9,6 +9,16 @@ from capdag import (
     MediaUrnError,
     MEDIA_VOID,
     MEDIA_STRING,
+    MEDIA_PLAIN_TEXT,
+    MEDIA_TXT,
+    MEDIA_MD,
+    MEDIA_RST,
+    MEDIA_LOG,
+    MEDIA_HTML,
+    MEDIA_YAML,
+    MEDIA_CSV,
+    MEDIA_JSON_LIST,
+    MEDIA_TEXTABLE_PAGE,
     MEDIA_INTEGER,
     MEDIA_NUMBER,
     MEDIA_BOOLEAN,
@@ -70,7 +80,7 @@ def test_063_is_scalar():
     assert MediaUrn.from_string(MEDIA_NUMBER).is_scalar()
     assert MediaUrn.from_string(MEDIA_BOOLEAN).is_scalar()
     assert MediaUrn.from_string(MEDIA_OBJECT).is_scalar()
-    assert MediaUrn.from_string("media:enc=utf-8").is_scalar()
+    assert MediaUrn.from_string("media:enc=utf8").is_scalar()
     assert not MediaUrn.from_string(MEDIA_STRING_LIST).is_scalar()
 
 
@@ -92,7 +102,7 @@ def test_065_is_opaque():
     assert MediaUrn.from_string(MEDIA_STRING).is_opaque()
     assert MediaUrn.from_string(MEDIA_STRING_LIST).is_opaque()
     assert MediaUrn.from_string(MEDIA_PDF).is_opaque()
-    assert MediaUrn.from_string("media:enc=utf-8").is_opaque()
+    assert MediaUrn.from_string("media:enc=utf8").is_opaque()
     assert not MediaUrn.from_string(MEDIA_OBJECT).is_opaque()
     assert not MediaUrn.from_string(MEDIA_JSON).is_opaque()
     assert not MediaUrn.from_string("media:list;record").is_opaque()
@@ -108,14 +118,14 @@ def test_066_is_json():
     assert not obj_urn.is_json()
 
 
-# TEST67: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
+# TEST67: A media is characters iff it declares an encoding (`enc=`). Every textual value carries it — free text and the textual serializations alike (a JSON record is UTF-8) — while a boolean, a number, an image and the top type do not. Whether text is written to be read is `plain-text`'s to say (TEST1973), never enc's.
 def test_067_is_text():
-    # Has enc= → text-representable
-    assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf-8
-    # No enc= → not text-representable
+    # Has enc= → characters
+    assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf8
+    assert MediaUrn.from_string(MEDIA_JSON).get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    # No enc= → not characters
     assert MediaUrn.from_string(MEDIA_BOOLEAN).get_tag("enc") is None  # media:bool — its own kind
     assert MediaUrn.from_string(MEDIA_INTEGER).get_tag("enc") is None  # media:integer;numeric
-    assert MediaUrn.from_string(MEDIA_JSON).get_tag("enc") is None  # media:fmt=json;record
     assert MediaUrn.from_string(MEDIA_IDENTITY).get_tag("enc") is None  # media:
     assert MediaUrn.from_string(MEDIA_PNG).get_tag("enc") is None  # media:ext=png;image
     assert MediaUrn.from_string(MEDIA_OBJECT).get_tag("enc") is None  # media:record
@@ -169,11 +179,16 @@ def test_073_extension_helpers():
     assert file_urn.extension() == "dat"
     assert file_urn.get_tag("enc") is None
 
-    # Text file with extension — carries enc=utf-8 + ext
+    # Text file with extension — carries enc=utf8 + ext, and a prose type is plain text besides
     text_ext = text_media_urn_for_ext("txt")
     text_urn = MediaUrn.from_string(text_ext)
     assert text_urn.extension() == "txt"
-    assert text_urn.get_tag("enc") == "utf-8"
+    assert text_urn.get_tag("enc") == "utf8"
+    assert text_urn.has_marker_tag("plain-text")
+    assert text_ext == MEDIA_TXT
+    html_ext = text_media_urn_for_ext("html")
+    assert not MediaUrn.from_string(html_ext).has_marker_tag("plain-text")  # markup, not plain text
+    assert html_ext == MEDIA_HTML
 
     # Image with extension
     img_ext = image_media_urn_for_ext("jpg")
@@ -186,6 +201,28 @@ def test_073_extension_helpers():
     assert audio_urn.extension() == "mp3"
 
 
+# TEST1973: Plain text is UTF-8 text written to be read. Every prose file type and the kinds of plain text conform to MEDIA_PLAIN_TEXT; a bare UTF-8 string, markup and serialized data do not. Every textual value — plain text and the textual serializations alike — is a UTF-8 string and conforms to MEDIA_STRING.
+def test_1973_plain_text_and_utf8_strings():
+    plain = MediaUrn.from_string(MEDIA_PLAIN_TEXT)
+    string = MediaUrn.from_string(MEDIA_STRING)
+    for urn in (
+        MEDIA_TXT,
+        MEDIA_MD,
+        MEDIA_RST,
+        MEDIA_LOG,
+        MEDIA_TEXTABLE_PAGE,
+        "media:digitized;enc=utf8;ext=txt;plain-text",
+        "media:enc=utf8;ext=txt;image-description;plain-text",
+    ):
+        assert MediaUrn.from_string(urn).conforms_to(plain), f"{urn} is plain text"
+    for urn in (MEDIA_STRING, MEDIA_HTML, MEDIA_JSON, MEDIA_YAML, MEDIA_CSV, "media:code;enc=utf8;python"):
+        assert not MediaUrn.from_string(urn).conforms_to(plain), f"{urn} is not plain text"
+    for urn in (MEDIA_PLAIN_TEXT, MEDIA_TXT, MEDIA_HTML, MEDIA_JSON, MEDIA_JSON_LIST, MEDIA_YAML, MEDIA_CSV):
+        assert MediaUrn.from_string(urn).conforms_to(string), f"{urn} is a UTF-8 string"
+    for urn in (MEDIA_BOOLEAN, MEDIA_INTEGER, MEDIA_PNG, MEDIA_OBJECT):
+        assert not MediaUrn.from_string(urn).conforms_to(string), f"{urn} is not characters"
+
+
 # TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 def test_074_media_urn_matching():
     # A more-specific URN must conform to a less-specific URN with the
@@ -195,9 +232,9 @@ def test_074_media_urn_matching():
     top_requirement = MediaUrn.from_string("media:")
     assert pdf_listing.conforms_to(top_requirement)
 
-    # A keyed-ext text URN conforms to the same URN without the ext tag.
-    md_listing = MediaUrn.from_string("media:enc=utf-8;ext=md")
-    md_requirement = MediaUrn.from_string("media:enc=utf-8")
+    # A Markdown file conforms to bare UTF-8 text: it carries enc=utf8 and adds ext and plain-text.
+    md_listing = MediaUrn.from_string("media:enc=utf8;ext=md;plain-text")
+    md_requirement = MediaUrn.from_string("media:enc=utf8")
     assert md_listing.conforms_to(md_requirement)
 
     string_urn = MediaUrn.from_string(MEDIA_STRING)
@@ -220,12 +257,12 @@ def test_075_matching():
 
 # TEST76: Test specificity increases with more tags for ranking conformance
 def test_076_specificity():
-    # More tags = higher specificity. Use the same enc=utf-8 base and add
+    # More tags = higher specificity. Use the same enc=utf8 base and add
     # markers so each URN is a strict superset of the previous — the
     # specificity must be monotonic non-decreasing as tags accrue.
-    urn1 = MediaUrn.from_string("media:enc=utf-8")
-    urn2 = MediaUrn.from_string("media:enc=utf-8;numeric")
-    urn3 = MediaUrn.from_string("media:enc=utf-8;list;numeric")
+    urn1 = MediaUrn.from_string("media:enc=utf8")
+    urn2 = MediaUrn.from_string("media:enc=utf8;numeric")
+    urn3 = MediaUrn.from_string("media:enc=utf8;list;numeric")
 
     s1 = urn1.specificity()
     s2 = urn2.specificity()
@@ -260,7 +297,8 @@ def test_304_media_availability_output_constant():
     urn = MediaUrn.from_string(MEDIA_AVAILABILITY_OUTPUT)
     assert urn is not None
     assert urn.get_tag("fmt") == "json"  # a JSON record
-    assert urn.get_tag("enc") is None  # not also text
+    assert urn.get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    assert not urn.has_marker_tag("plain-text")  # and not plain text
     assert urn.is_record()
 
 
@@ -269,7 +307,8 @@ def test_305_media_path_output_constant():
     urn = MediaUrn.from_string(MEDIA_PATH_OUTPUT)
     assert urn is not None
     assert urn.get_tag("fmt") == "json"  # a JSON record
-    assert urn.get_tag("enc") is None  # not also text
+    assert urn.get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    assert not urn.has_marker_tag("plain-text")  # and not plain text
     assert urn.is_record()
 
 
@@ -460,20 +499,20 @@ def test_853_lub_no_common_tags():
 # TEST854: LUB keeps common tags, drops differing ones. Two text values with
 # differing serialization formats share their encoding but not their fmt.
 def test_854_lub_partial_overlap():
-    json_text = MediaUrn.from_string("media:enc=utf-8;fmt=json")
-    csv_text = MediaUrn.from_string("media:enc=utf-8;fmt=csv")
+    json_text = MediaUrn.from_string("media:enc=utf8;fmt=json")
+    csv_text = MediaUrn.from_string("media:enc=utf8;fmt=csv")
     lub = MediaUrn.least_upper_bound([json_text, csv_text])
-    expected = MediaUrn.from_string("media:enc=utf-8")
+    expected = MediaUrn.from_string("media:enc=utf8")
     assert lub.is_equivalent(expected), \
-        f"LUB should be media:enc=utf-8 but got {lub.to_string()}"
+        f"LUB should be media:enc=utf8 but got {lub.to_string()}"
 
 
 # TEST855: LUB of list and non-list drops list tag
 def test_855_lub_list_vs_scalar():
-    json_list = MediaUrn.from_string("media:fmt=json;list")
-    json_scalar = MediaUrn.from_string("media:fmt=json")
+    json_list = MediaUrn.from_string("media:enc=utf8;fmt=json;list")
+    json_scalar = MediaUrn.from_string("media:enc=utf8;fmt=json")
     lub = MediaUrn.least_upper_bound([json_list, json_scalar])
-    expected = MediaUrn.from_string("media:fmt=json")
+    expected = MediaUrn.from_string("media:enc=utf8;fmt=json")
     assert lub.is_equivalent(expected), \
         f"LUB should drop list tag, got {lub.to_string()}"
 
@@ -494,9 +533,9 @@ def test_857_lub_single():
 
 # TEST858: LUB with three+ inputs narrows correctly
 def test_858_lub_three_inputs():
-    a = MediaUrn.from_string("media:fmt=json;list;record")
-    b = MediaUrn.from_string("media:fmt=csv;list;record")
-    c = MediaUrn.from_string("media:fmt=ndjson;list")
+    a = MediaUrn.from_string("media:enc=utf8;fmt=json;list;record")
+    b = MediaUrn.from_string("media:enc=utf8;fmt=csv;list;record")
+    c = MediaUrn.from_string("media:enc=utf8;fmt=ndjson;list")
     lub = MediaUrn.least_upper_bound([a, b, c])
     expected = MediaUrn.from_string("media:list")
     assert lub.is_equivalent(expected), \

@@ -94,7 +94,7 @@ def test_7154_scaffold_writes_a_runnable_project_in_every_language(tmp_path):
         )
 
         # The project name reaches the cap it declares, in every language.
-        assert f"media:enc=utf-8;{name}-input" in sources, (
+        assert f"media:enc=utf8;{name}-input" in sources, (
             f"{lang.id}: input media URN is not seeded from the project name"
         )
         assert "command=" not in sources, f"{lang.id}: carries the removed `command=` field"
@@ -163,7 +163,7 @@ def _write_stub_entry_with(directory: Path, name: str, cap_json: str) -> Path:
 def test_7156_dev_install_and_find_by_alias(tmp_path):
     project = tmp_path / "proj"
     project.mkdir()
-    cap_urn = 'cap:greet;in="media:enc=utf-8";out="media:enc=utf-8;greeting"'
+    cap_urn = 'cap:greet;in="media:enc=utf8";out="media:enc=utf8;greeting"'
     _write_stub_entry(project, "greeter", "greet", cap_urn)
 
     user_dir = tmp_path / "cartridges"
@@ -193,7 +193,7 @@ def test_12716_an_entry_manifest_with_an_invalid_definition_is_refused(tmp_path)
     project.mkdir()
     # `out=` states a greeting and the definition declares no output.
     bare = json.dumps({
-        "urn": 'cap:greet;in="media:void";out="media:enc=utf-8;greeting"',
+        "urn": 'cap:greet;in="media:void";out="media:enc=utf8;greeting"',
         "title": "Greeter",
         "aliases": ["greet"],
     })
@@ -358,7 +358,7 @@ def test_7160_vendored_stub_contract_matches_the_canonical_source():
 # a DIFFERENT cap is rejected; a brand-new alias, and a dev cap that matches an
 # existing fabric cap exactly, are both accepted.
 def test_7158_fabric_conflict_guard():
-    alpha_urn = 'cap:alpha;in="media:enc=utf-8";out="media:enc=utf-8;alpha"'
+    alpha_urn = 'cap:alpha;in="media:enc=utf8";out="media:enc=utf8;alpha"'
     alpha = Cap(CapUrn.from_string(alpha_urn), "Alpha", ["alpha"])
 
     # The fabric knows exactly one alias: `alpha`.
@@ -367,7 +367,7 @@ def test_7158_fabric_conflict_guard():
 
     # A dev cap claiming `alpha` but with a DIFFERENT URN => conflict.
     clashing = Cap(
-        CapUrn.from_string('cap:beta;in="media:enc=utf-8";out="media:enc=utf-8;beta"'),
+        CapUrn.from_string('cap:beta;in="media:enc=utf8";out="media:enc=utf8;beta"'),
         "Clash",
         ["alpha"],
     )
@@ -377,7 +377,7 @@ def test_7158_fabric_conflict_guard():
 
     # A brand-new alias the fabric never heard of => fine.
     fresh = Cap(
-        CapUrn.from_string('cap:gamma;in="media:enc=utf-8";out="media:enc=utf-8;gamma"'),
+        CapUrn.from_string('cap:gamma;in="media:enc=utf8";out="media:enc=utf8;gamma"'),
         "Fresh",
         ["gamma"],
     )

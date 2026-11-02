@@ -503,8 +503,8 @@ def test_12809_inclusion_nests_and_an_untaken_output_is_not_the_wholes():
     )
 
 
-LOOSE = 'cap:in="media:fmt=json;list;record;time-series";loose;out="media:enc=utf-8"'
-TIGHT = 'cap:in="media:enc=utf-8;note";tight;out="media:tightened"'
+LOOSE = 'cap:in="media:enc=utf8;fmt=json;list;record;time-series";loose;out="media:enc=utf8"'
+TIGHT = 'cap:in="media:enc=utf8;note";tight;out="media:tightened"'
 
 
 def registry_with_a_refinement():
@@ -516,7 +516,7 @@ def registry_with_a_refinement():
             LOOSE,
             "loose",
             [stdin_arg(SERIES, "series")],
-            [output_of("media:enc=utf-8", "text", "Some text")],
+            [output_of("media:enc=utf8", "text", "Some text")],
         ),
         definition(
             TIGHT,

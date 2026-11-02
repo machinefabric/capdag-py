@@ -12,6 +12,8 @@ from capdag.urn.media_urn import (
     # Standard media URN constants
     MEDIA_VOID,
     MEDIA_STRING,
+    MEDIA_PLAIN_TEXT,
+    PLAIN_TEXT_EXTENSIONS,
     MEDIA_INTEGER,
     MEDIA_NUMBER,
     MEDIA_BOOLEAN,
@@ -95,7 +97,6 @@ from capdag.urn.media_urn import (
     MEDIA_PATH_OUTPUT,
     MEDIA_EMBEDDING_VECTOR,
     MEDIA_IMAGE_DESCRIPTION,
-    MEDIA_PLAIN_TEXT,
     MEDIA_TRANSCRIPT_OUTPUT,
     MEDIA_DECISION,
     file_media_urn_for_ext,
@@ -290,6 +291,8 @@ __all__ = [
     # Media constants
     "MEDIA_VOID",
     "MEDIA_STRING",
+    "MEDIA_PLAIN_TEXT",
+    "PLAIN_TEXT_EXTENSIONS",
     "MEDIA_INTEGER",
     "MEDIA_NUMBER",
     "MEDIA_BOOLEAN",
@@ -373,7 +376,6 @@ __all__ = [
     "MEDIA_PATH_OUTPUT",
     "MEDIA_EMBEDDING_VECTOR",
     "MEDIA_IMAGE_DESCRIPTION",
-    "MEDIA_PLAIN_TEXT",
     "MEDIA_TRANSCRIPT_OUTPUT",
     "MEDIA_DECISION",
     "file_media_urn_for_ext",

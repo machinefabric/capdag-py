@@ -401,9 +401,9 @@ def test_260_extract_effective_payload_no_content_type():
 
 # TEST261: Test extract_effective_payload with CBOR content extracts matching argument value
 def test_261_extract_effective_payload_cbor_match():
-    args = [{"media_urn": "media:enc=utf-8;string", "value": b"hello"}]
+    args = [{"media_urn": "media:enc=utf8;string", "value": b"hello"}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:enc=utf-8;string";test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:enc=utf8;string";test;out="media:void"', "Test", "test", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     # NEW REGIME: result is full CBOR array; extract value from matching arg
     result_arr = cbor2.loads(result)
@@ -415,7 +415,7 @@ def test_261_extract_effective_payload_cbor_match():
 def test_262_extract_effective_payload_cbor_no_match():
     args = [{"media_urn": "media:other-type", "value": b"data"}]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:enc=utf-8;string";test;out="media:void"', "Test", "test", [])
+    cap = create_test_cap('cap:in="media:enc=utf8;string";test;out="media:void"', "Test", "test", [])
     with pytest.raises(DeserializeError) as exc_info:
         extract_effective_payload(payload, "application/cbor", cap, False)
     assert "No argument found matching" in str(exc_info.value)
@@ -527,16 +527,16 @@ def test_271_handler_replacement():
 # TEST272: Test extract_effective_payload CBOR with multiple arguments selects the correct one
 def test_272_extract_effective_payload_multiple_args():
     args = [
-        {"media_urn": "media:enc=utf-8;other-type", "value": b"wrong"},
-        {"media_urn": "media:enc=utf-8;model-spec", "value": b"correct"},
+        {"media_urn": "media:enc=utf8;other-type", "value": b"wrong"},
+        {"media_urn": "media:enc=utf8;model-spec", "value": b"correct"},
     ]
     payload = cbor2.dumps(args)
-    cap = create_test_cap('cap:in="media:enc=utf-8;model-spec";infer;out="media:void"', "Test", "infer", [])
+    cap = create_test_cap('cap:in="media:enc=utf8;model-spec";infer;out="media:void"', "Test", "infer", [])
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     # NEW REGIME: handler receives full CBOR array; matches against in_spec.
     result_arr = cbor2.loads(result)
     assert len(result_arr) == 2
-    in_spec = MediaUrn.from_string("media:enc=utf-8;model-spec")
+    in_spec = MediaUrn.from_string("media:enc=utf8;model-spec")
     found = None
     for arg in result_arr:
         arg_urn = MediaUrn.from_string(arg["media_urn"])
@@ -592,7 +592,7 @@ def test_336_file_path_reads_file_passes_bytes(tmp_path):
         "Process PDF",
         "process",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -654,7 +654,7 @@ def test_337_file_path_without_stdin_passes_string(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="arg1",
+            media_urn="media:enc=utf8;file-path", name="arg1",
             required=True,
             sources=[PositionSource(0)]  # NO stdin source!
         )]
@@ -682,7 +682,7 @@ def test_338_file_path_via_cli_flag(tmp_path):
         "Process",
         "process",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -716,7 +716,7 @@ def test_339_file_path_array_glob_expansion(tmp_path):
         "Batch",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             is_sequence=True,
             sources=[
@@ -748,7 +748,7 @@ def test_340_file_not_found_clear_error():
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -782,7 +782,7 @@ def test_341_stdin_precedence_over_file_path(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),  # First
@@ -814,7 +814,7 @@ def test_342_file_path_position_zero_reads_first_arg(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -841,10 +841,10 @@ def test_343_non_file_path_args_unaffected():
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;model-spec", name="input",  # NOT file-path
+            media_urn="media:enc=utf8;model-spec", name="input",  # NOT file-path
             required=True,
             sources=[
-                StdinSource("media:enc=utf-8;model-spec"),
+                StdinSource("media:enc=utf8;model-spec"),
                 PositionSource(0),
             ]
         )]
@@ -870,7 +870,7 @@ def test_6586_file_path_array_invalid_json_fails():
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -902,7 +902,7 @@ def test_6587_file_path_array_one_file_missing_fails_hard(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -938,7 +938,7 @@ def test_346_large_file_reads_successfully(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -968,7 +968,7 @@ def test_347_empty_file_reads_as_empty_bytes(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -998,7 +998,7 @@ def test_348_file_path_conversion_respects_source_order(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 PositionSource(0),            # First
@@ -1029,7 +1029,7 @@ def test_349_file_path_multiple_sources_fallback(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 CliFlagSource("--file"),     # First (not provided)
@@ -1058,11 +1058,11 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
     test_file.write_bytes(test_content)
 
     cap = create_test_cap(
-        'cap:in="media:document;ext=pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:document;ext=pdf";process;out="media:enc=utf8;result"',
         "Process PDF",
         "process",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -1083,7 +1083,7 @@ def test_350_full_cli_mode_with_file_path_integration(tmp_path):
         def metadata(self): return OpMetadata.builder("CollectBytesOp").build()
 
     runtime.register_op(
-        'cap:in="media:document;ext=pdf";process;out="media:enc=utf-8;result"',
+        'cap:in="media:document;ext=pdf";process;out="media:enc=utf8;result"',
         CollectBytesOp,
     )
 
@@ -1124,7 +1124,7 @@ def test_6588_file_path_array_empty_array():
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=False,
             is_sequence=True,
             sources=[StdinSource("media:")]
@@ -1132,7 +1132,7 @@ def test_6588_file_path_array_empty_array():
     )
 
     # CBOR-mode payload: value is an empty Array.
-    args = [{"media_urn": "media:enc=utf-8;file-path", "value": []}]
+    args = [{"media_urn": "media:enc=utf8;file-path", "value": []}]
     payload = cbor2.dumps(args)
     result = extract_effective_payload(payload, "application/cbor", cap, False)
 
@@ -1160,7 +1160,7 @@ def test_352_file_permission_denied_clear_error(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -1188,14 +1188,14 @@ def test_353_cbor_payload_format_consistency():
     from capdag.cap.definition import CapArg, StdinSource, PositionSource
 
     cap = create_test_cap(
-        'cap:in="media:enc=utf-8;text";test;out="media:void"',
+        'cap:in="media:enc=utf8;text";test;out="media:void"',
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;text", name="input",
+            media_urn="media:enc=utf8;text", name="input",
             required=True,
             sources=[
-                StdinSource("media:enc=utf-8;text"),
+                StdinSource("media:enc=utf8;text"),
                 PositionSource(0),
             ]
         )]
@@ -1208,7 +1208,7 @@ def test_353_cbor_payload_format_consistency():
     payload = runtime.build_payload_from_cli(cap, cli_args)
     arr = cbor2.loads(payload)
     assert len(arr) == 1
-    assert arr[0]["media_urn"] == "media:enc=utf-8;text"
+    assert arr[0]["media_urn"] == "media:enc=utf8;text"
     assert arr[0]["value"] == b"test value"
 
 
@@ -1223,7 +1223,7 @@ def test_354_glob_pattern_no_matches_fails_hard(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             is_sequence=True,
             sources=[
@@ -1263,7 +1263,7 @@ def test_355_glob_pattern_skips_directories(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             is_sequence=True,
             sources=[
@@ -1301,7 +1301,7 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             is_sequence=True,
             sources=[
@@ -1317,7 +1317,7 @@ def test_356_multiple_glob_patterns_combined(tmp_path):
     # CBOR mode allows arrays of patterns. Mirrors Rust test356.
     pattern1 = f"{test_dir}/*.txt"
     pattern2 = f"{test_dir}/*.json"
-    args = [{"media_urn": "media:enc=utf-8;file-path", "value": [pattern1, pattern2]}]
+    args = [{"media_urn": "media:enc=utf8;file-path", "value": [pattern1, pattern2]}]
     payload = cbor2.dumps(args)
     result = extract_effective_payload(payload, "application/cbor", cap, False)
     result_arr = cbor2.loads(result)
@@ -1346,7 +1346,7 @@ def test_357_symlinks_followed(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -1378,7 +1378,7 @@ def test_358_binary_file_non_utf8(tmp_path):
         "Test",
         "test",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:"),
@@ -1404,7 +1404,7 @@ def test_359_invalid_glob_pattern_fails():
         "Test",
         "batch",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             is_sequence=True,
             sources=[
@@ -1418,7 +1418,7 @@ def test_359_invalid_glob_pattern_fails():
     runtime = CartridgeRuntime.with_manifest(manifest)
 
     # Invalid glob pattern (unclosed bracket) sent in CBOR mode.
-    args = [{"media_urn": "media:enc=utf-8;file-path", "value": "[invalid"}]
+    args = [{"media_urn": "media:enc=utf8;file-path", "value": "[invalid"}]
     payload = cbor2.dumps(args)
 
     from capdag.bifaci.cartridge_runtime import RuntimeError as _Rt
@@ -1441,7 +1441,7 @@ def test_360_extract_effective_payload_with_file_data(tmp_path):
         "Process",
         "process",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -1477,7 +1477,7 @@ def test_361_cli_mode_file_path(tmp_path):
         "Process",
         "process",
         [CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             sources=[
                 StdinSource("media:document;ext=pdf"),
@@ -1638,7 +1638,7 @@ def test_364_cbor_mode_file_path(tmp_path):
     # Build CBOR arguments with file-path URN
     from capdag.cap.caller import CapArgumentValue
     args = [CapArgumentValue(
-        media_urn="media:enc=utf-8;file-path",
+        media_urn="media:enc=utf8;file-path",
         value=str(test_file).encode('utf-8'),
     )]
     payload = cbor2.dumps([
@@ -1660,7 +1660,7 @@ def test_364_cbor_mode_file_path(tmp_path):
     media_urn = arg_map.get("media_urn")
     value = arg_map.get("value")
 
-    assert media_urn == "media:enc=utf-8;file-path", "Expected media:file-path URN"
+    assert media_urn == "media:enc=utf8;file-path", "Expected media:file-path URN"
     assert value == str(test_file).encode('utf-8'), "Expected file path as value"
 
 
@@ -1979,7 +1979,7 @@ def test_538_input_package_error_propagation():
 # TEST539: OutputStream sends STREAM_START on first write
 # ── Live-feed transport resolution (13.2 §Reference Media, live family) ──
 
-LIVE_FEED_CAP_URN = 'cap:drain;in="media:feed-frames";out="media:fmt=json;record"'
+LIVE_FEED_CAP_URN = 'cap:drain;in="media:feed-frames";out="media:enc=utf8;fmt=json;record"'
 
 
 def _live_feed_manifest(arg_is_sequence: bool):
@@ -2268,7 +2268,7 @@ def _blind_live_feed_ctx(main_in: str):
     from capdag.bifaci.live_feed import _Counter
     from capdag.bifaci.manifest import CapManifest
 
-    cap_urn = f'cap:consume;in="{main_in}";out="media:fmt=json;record"'
+    cap_urn = f'cap:consume;in="{main_in}";out="media:enc=utf8;fmt=json;record"'
     manifest = CapManifest.from_dict({
         "name": "BlindCartridge",
         "version": "1.0.0",
@@ -2439,7 +2439,7 @@ def test_8119_coalesce_age_bound_flushes_on_next_write():
         writer=sync_writer,
         request_id=MessageId.new_uuid(),
         stream_id="stream-1",
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf8",
         max_chunk=256_000,
     )
     stream.start(False, None)
@@ -2471,7 +2471,7 @@ def test_8120_non_bytes_emission_barriers_coalesced_bytes():
         writer=sync_writer,
         request_id=MessageId.new_uuid(),
         stream_id="stream-1",
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf8",
         max_chunk=256_000,
     )
     stream.start(False, None)
@@ -2719,25 +2719,25 @@ def test_841_peer_response_collect_value_rejects_unhandled_logs():
 # TEST678: find_stream with exact equivalent URN (same tags, different order) succeeds
 def test_678_find_stream_equivalent_urn():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello world", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"hello world", None),
     ]
-    result = find_stream(streams, "media:enc=utf-8;ext=txt")
+    result = find_stream(streams, "media:enc=utf8;ext=txt;plain-text")
     assert result == b"hello world"
 
 
-# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:fmt=json;llm-generation-request;record".
+# TEST679: find_stream with base URN vs full URN fails — is_equivalent is strict This is the root cause of the cartridge_client.rs bug. Sender sent "media:llm-generation-request" but receiver looked for "media:enc=utf8;fmt=json;llm-generation-request;record".
 def test_679_find_stream_base_vs_full_fails():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"hello", None),
     ]
-    result = find_stream(streams, "media:enc=utf-8")
+    result = find_stream(streams, "media:enc=utf8")
     assert result is None, "Base URN must not match more specific URN (is_equivalent is strict)"
 
 
 # TEST680: require_stream with missing URN returns hard StreamError
 def test_680_require_stream_missing_fails():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"hello", None),
     ]
     with pytest.raises(CartridgeRuntimeError) as exc_info:
         require_stream(streams, "media:binary")
@@ -2747,28 +2747,28 @@ def test_680_require_stream_missing_fails():
 # TEST681: find_stream with multiple streams returns the correct one
 def test_681_find_stream_multiple():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"text data", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"text data", None),
         ("media:ext=png;image", b"image data", None),
-        ("media:fmt=json", b"json data", None),
+        ("media:enc=utf8;fmt=json", b"json data", None),
     ]
     assert find_stream(streams, "media:ext=png;image") == b"image data"
-    assert find_stream(streams, "media:enc=utf-8;ext=txt") == b"text data"
-    assert find_stream(streams, "media:fmt=json") == b"json data"
+    assert find_stream(streams, "media:enc=utf8;ext=txt;plain-text") == b"text data"
+    assert find_stream(streams, "media:enc=utf8;fmt=json") == b"json data"
 
 
 # TEST682: require_stream_str returns UTF-8 string for text data
 def test_682_require_stream_returns_data():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"hello text", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"hello text", None),
     ]
-    result = require_stream(streams, "media:enc=utf-8;ext=txt")
+    result = require_stream(streams, "media:enc=utf8;ext=txt;plain-text")
     assert result == b"hello text"
 
 
 # TEST683: find_stream returns None for invalid media URN string (not a parse error — just None)
 def test_683_find_stream_invalid_urn_returns_none():
     streams = [
-        ("media:enc=utf-8;ext=txt", b"data", None),
+        ("media:enc=utf8;ext=txt;plain-text", b"data", None),
     ]
     found = find_stream(streams, "")
     assert found is None, "Invalid URN must return None, not panic"
@@ -3065,7 +3065,7 @@ def test_7050_sender_stalls_at_window_and_resumes_on_grant():
         writer=sync_writer,
         request_id=rid,
         stream_id="s1",
-        media_urn="media:enc=utf-8",
+        media_urn="media:enc=utf8",
         max_chunk=4,
         credit_router=router,
         initial_credit=4,
@@ -3113,7 +3113,7 @@ def test_7062_log_flows_while_window_exhausted():
     router = CreditRouter()
     rid = MessageId.new_uuid()
     emitter = ThreadSafeEmitter(
-        sync_writer, rid, "s1", "media:enc=utf-8", None, 4,
+        sync_writer, rid, "s1", "media:enc=utf8", None, 4,
         credit_router=router, initial_credit=1,
     )
 
@@ -3152,7 +3152,7 @@ def test_7052_input_grants_are_batched():
     raw = queue.Queue()
 
     # Stream 16 chunks through a credited demux with window 8.
-    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf8", False))
     for i in range(8):
         raw.put(_mk_scalar_chunk(rid, "s1", i))
 
@@ -3200,7 +3200,7 @@ def test_7063_pending_grants_flush_before_blocking():
     # different link) has a window of only 8: it emits 8 chunks and stalls,
     # BELOW the receiver's batch threshold. Channel stays open — the sender
     # is stalled, not finished.
-    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf8", False))
     for i in range(8):
         raw.put(_mk_scalar_chunk(rid, "s1", i))
 
@@ -3244,7 +3244,7 @@ def test_7053_over_window_chunk_is_credit_violation():
     rid = MessageId.new_uuid()
     raw = queue.Queue()
 
-    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf-8", False))
+    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf8", False))
     # Window is 2; a misbehaving sender pushes 3 chunks with no grants
     # possible (nothing consumed yet).
     for i in range(3):
@@ -3468,7 +3468,7 @@ def test_7070_unbounded_input_consumed_live():
     raw = queue.Queue()
 
     # Announce an UNBOUNDED stream and send only the first item.
-    raw.put(Frame.stream_start_unbounded(rid, "live", "media:enc=utf-8", True))
+    raw.put(Frame.stream_start_unbounded(rid, "live", "media:enc=utf8", True))
     raw.put(_seq_mk_chunk(rid, "live", 0))
 
     package = demux_multi_stream(raw)
@@ -3503,7 +3503,7 @@ def test_7073_collect_refuses_unbounded_streams():
         # Producer stays open — an unbounded collect would hang forever;
         # the guard must reject BEFORE consuming.
         stream = InputStream(
-            media_urn="media:enc=utf-8", stream_meta=None, q=q, unbounded=True, grants=None,
+            media_urn="media:enc=utf8", stream_meta=None, q=q, unbounded=True, grants=None,
         )
         return stream
 
@@ -3964,7 +3964,7 @@ def test_351_frames_cut_short_are_an_error():
 
     # A request's input, stopped mid-stream (the runtime's None).
     raw = queue.Queue()
-    raw.put(Frame.stream_start(rid, "arg0", "media:enc=utf-8"))
+    raw.put(Frame.stream_start(rid, "arg0", "media:enc=utf8"))
     raw.put(_chunk(rid, "arg0", b"part"))
     package = demux_multi_stream(raw)
     stream = package.recv()
@@ -3976,7 +3976,7 @@ def test_351_frames_cut_short_are_an_error():
     # The same input with its END is a stream that finished.
     raw = queue.Queue()
     for frame in (
-        Frame.stream_start(rid, "arg0", "media:enc=utf-8"),
+        Frame.stream_start(rid, "arg0", "media:enc=utf8"),
         _chunk(rid, "arg0", b"part"),
         Frame.stream_end(rid, "arg0", 1),
         Frame.end(rid),
@@ -3990,7 +3990,7 @@ def test_351_frames_cut_short_are_an_error():
 
     # A peer response, stopped before its END.
     raw = queue.Queue()
-    raw.put(Frame.stream_start(rid, "r", "media:enc=utf-8"))
+    raw.put(Frame.stream_start(rid, "r", "media:enc=utf8"))
     raw.put(_chunk(rid, "r", b"part"))
     raw.put(None)
     response = demux_peer_response(raw)
@@ -4003,7 +4003,7 @@ def test_351_frames_cut_short_are_an_error():
     # A peer response that reached its END is complete.
     raw = queue.Queue()
     for frame in (
-        Frame.stream_start(rid, "r", "media:enc=utf-8"),
+        Frame.stream_start(rid, "r", "media:enc=utf8"),
         _chunk(rid, "r", b"part"),
         Frame.stream_end(rid, "r", 1),
         Frame.end(rid),

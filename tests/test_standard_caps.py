@@ -24,6 +24,8 @@ from capdag.urn.media_urn import (
     MEDIA_AVAILABILITY_OUTPUT,
     MEDIA_PATH_OUTPUT,
     MEDIA_STRING,
+    MEDIA_PLAIN_TEXT,
+    MEDIA_TXT,
     MEDIA_INTEGER,
     MEDIA_ADAPTER_SELECTION,
     MEDIA_FABRIC_DEFVER,
@@ -54,13 +56,15 @@ def test_309_model_availability_and_path_are_distinct():
     assert avail.to_string() != path.to_string(), "availability and path must be distinct cap URNs"
 
 
-# TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output.
+# TEST310: llm_generate_text_urn() produces a valid cap URN with a plain-text input and a `.txt` plain-text output.
 def test_310_llm_generate_text_urn_shape():
     urn = CapUrn.from_string(llm_generate_text_urn())
     assert urn is not None, "llm_generate_text_urn must parse as a valid CapUrn"
-    assert urn.has_marker_tag("generate_text"), "must have generate_text marker"
-    assert MediaUrn.from_string(urn.in_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
-    assert MediaUrn.from_string(urn.out_spec()).conforms_to(MediaUrn.from_string(MEDIA_STRING))
+    assert urn.has_marker_tag("generate-text"), "must have generate-text marker"
+    assert urn.has_marker_tag("llm"), "must have llm tag"
+    assert urn.has_marker_tag("ml-model"), "must have ml-model tag"
+    assert MediaUrn.from_string(urn.in_spec()).is_equivalent(MediaUrn.from_string(MEDIA_PLAIN_TEXT))
+    assert MediaUrn.from_string(urn.out_spec()).is_equivalent(MediaUrn.from_string(MEDIA_TXT))
 
 
 

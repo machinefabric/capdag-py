@@ -26,13 +26,13 @@ def _refused(sources, args, arg_is_sequence) -> MatchFailure:
 # exists. Three page sources feed a one-arg concat cap whose arg is a sequence
 # — all three land on the same arg, in source-declaration order.
 def test_1400_gather_n_sources_into_sequence_arg():
-    sources = [media("media:enc=utf-8;page")] * 3
-    args = [media("media:enc=utf-8")]
+    sources = [media("media:enc=utf8;page")] * 3
+    args = [media("media:enc=utf8")]
     pairs = match_sources_to_args(sources, args, [True], None)
     assert len(pairs) == 3, "one binding per gathered source"
     for arg, source in pairs:
-        assert arg.is_equivalent(media("media:enc=utf-8"))
-        assert source.is_equivalent(media("media:enc=utf-8;page"))
+        assert arg.is_equivalent(media("media:enc=utf8"))
+        assert source.is_equivalent(media("media:enc=utf8;page"))
     # The same three with an arg that takes one value have nowhere to go.
     failure = _refused(sources, args, [False])
     assert (failure.ambiguous, failure.source) == (False, 0)
@@ -42,22 +42,22 @@ def test_1400_gather_n_sources_into_sequence_arg():
 # though gathering everything into the sequence arg is also valid. s1 exactly
 # fits the scalar page arg; s2 only fits the sequence arg.
 def test_1401_product_precedence_over_gather():
-    sources = [media("media:enc=utf-8;page"), media("media:enc=utf-8;summary")]
-    args = [media("media:enc=utf-8;page"), media("media:enc=utf-8")]
+    sources = [media("media:enc=utf8;page"), media("media:enc=utf8;summary")]
+    args = [media("media:enc=utf8;page"), media("media:enc=utf8")]
     pairs = match_sources_to_args(sources, args, [False, True], None)
     assert len(pairs) == 2
     # The page source must claim the scalar page arg (injection), NOT be
     # gathered into the sequence arg alongside the summary.
     assert {arg.to_string(): source.to_string() for arg, source in pairs} == {
-        canonical("media:enc=utf-8;page"): canonical("media:enc=utf-8;page"),
-        canonical("media:enc=utf-8"): canonical("media:enc=utf-8;summary"),
+        canonical("media:enc=utf8;page"): canonical("media:enc=utf8;page"),
+        canonical("media:enc=utf8"): canonical("media:enc=utf8;summary"),
     }
 
     # Two pages, a sequence arg that takes pages and a scalar arg that takes
     # any text: each page can take either arg, at one cost — a tie. Gathering
     # both into the sequence arg would be cheaper and unique, and it is not
     # what is asked: a tied product is ambiguous, it does not become a gather.
-    pages = [media("media:enc=utf-8;page")] * 2
+    pages = [media("media:enc=utf8;page")] * 2
     failure = _refused(pages, args, [True, False])
     assert failure.ambiguous
     assert failure.undecided == [(0, [0, 1]), (1, [0, 1])]
@@ -69,35 +69,35 @@ def test_1402_gather_ambiguity_and_scalar_pigeonhole_fail_hard():
     # Two equally-costed sequence args (each drops a different one of the
     # source's tags → the same absolute specificity gap) → every distribution
     # of the three sources ties → ambiguous.
-    chunk = media("media:chunk;enc=utf-8;page")
-    args = [media("media:enc=utf-8;page"), media("media:chunk;enc=utf-8")]
+    chunk = media("media:chunk;enc=utf8;page")
+    args = [media("media:enc=utf8;page"), media("media:chunk;enc=utf8")]
     failure = _refused([chunk] * 3, args, [True, True])
     assert failure.ambiguous, "tied gather distributions must be ambiguous"
     assert failure.undecided == [(0, [0, 1]), (1, [0, 1]), (2, [0, 1])]
 
 
-URN_A = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf-8;page"'
-URN_B = 'cap:in="media:ext=md";op-b;out="media:enc=utf-8;page"'
-URN_CONCAT = 'cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt"'
+URN_A = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf8;page"'
+URN_B = 'cap:in="media:ext=md;plain-text";op-b;out="media:enc=utf8;page"'
+URN_CONCAT = 'cap:in="media:enc=utf8";concat;out="media:enc=utf8;ext=txt;plain-text"'
 
 
 def _gather_fixture(first_produces_sequence: bool):
     """Two producers of a page and a `concat` whose one arg takes a sequence,
     wired `(page from a, page from b) -> concat`."""
-    cap_a = stdin_cap(URN_A, "op_a", "media:document;ext=pdf", "media:enc=utf-8;page")
+    cap_a = stdin_cap(URN_A, "op_a", "media:document;ext=pdf", "media:enc=utf8;page")
     cap_a.main_output().is_sequence = first_produces_sequence
-    cap_b = stdin_cap(URN_B, "op_b", "media:ext=md", "media:enc=utf-8;page")
-    concat = stdin_cap(URN_CONCAT, "concat", "media:enc=utf-8", "media:enc=utf-8;ext=txt")
+    cap_b = stdin_cap(URN_B, "op_b", "media:ext=md;plain-text", "media:enc=utf8;page")
+    concat = stdin_cap(URN_CONCAT, "concat", "media:enc=utf8", "media:enc=utf8;ext=txt;plain-text")
     concat.get_args()[0].is_sequence = True
     registry = registry_of([cap_a, cap_b, concat])
 
     # nodes: 0=pdf, 1=md, 2=page(from a), 3=page(from b), 4=txt
     nodes = [
         media("media:document;ext=pdf"),
-        media("media:ext=md"),
-        media("media:enc=utf-8;page"),
-        media("media:enc=utf-8;page"),
-        media("media:enc=utf-8;ext=txt"),
+        media("media:ext=md;plain-text"),
+        media("media:enc=utf8;page"),
+        media("media:enc=utf8;page"),
+        media("media:enc=utf8;ext=txt;plain-text"),
     ]
 
     def wiring(token: str, cap_urn: str, sources, target: int) -> PreInternedWiring:
@@ -138,7 +138,7 @@ def test_1403_resolve_gather_emits_n_bindings_on_sequence_arg():
     assert len(strand.output_anchors()) == 1
     # Anchors come by the URN they hold, not by when their node was made.
     assert [anchor.to_string() for anchor in strand.input_anchors()] == [
-        canonical("media:document;ext=pdf"), canonical("media:ext=md"),
+        canonical("media:document;ext=pdf"), canonical("media:ext=md;plain-text"),
     ]
     assert strand.input_anchor_ids() == [0, 1]
     # The gather is written as its arg's name once per member, in item order.

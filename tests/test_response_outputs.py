@@ -37,11 +37,11 @@ from capdag.cap.validation import validate_cap_definition
 from capdag.standard.caps import identity_cap
 from capdag.urn.cap_urn import CapUrn
 
-SERIES = "media:enc=utf-8;series"
-FIT = "media:fmt=json;record;regression"
-RESIDUALS = "media:fmt=json;list;record;residual"
-NOTE = "media:enc=utf-8;note"
-REJECTED = "media:enc=utf-8;rejected"
+SERIES = "media:enc=utf8;series"
+FIT = "media:enc=utf8;fmt=json;record;regression"
+RESIDUALS = "media:enc=utf8;fmt=json;list;record;residual"
+NOTE = "media:enc=utf8;note"
+REJECTED = "media:enc=utf8;rejected"
 
 
 
@@ -133,10 +133,10 @@ def test_12719_a_request_answers_on_every_declared_output():
 
     # The main output is the one whose URN is `out=`, wherever it is declared.
     assert req.emitter() is req.output_for(FIT)
-    assert req.emitter() is req.output_for("media:regression;record;fmt=json")
+    assert req.emitter() is req.output_for("media:regression;record;fmt=json;enc=utf8")
     # Another output, with its tags in another order, is the same stream.
     residuals = req.output_for(RESIDUALS)
-    assert residuals is req.output_for("media:residual;record;list;fmt=json")
+    assert residuals is req.output_for("media:residual;record;list;fmt=json;enc=utf8")
     assert residuals is not req.emitter()
 
     for urn, sequence in [(FIT, False), (RESIDUALS, True), (NOTE, False), (REJECTED, False)]:
@@ -168,7 +168,7 @@ def test_12719_a_request_answers_on_every_declared_output():
 
     # What the cap does not declare is not an output of it — a tag short or a
     # tag more is another URN.
-    for unknown in ["media:enc=utf-8", "media:fmt=json;record", "media:enc=utf-8;note;extra", "not a urn"]:
+    for unknown in ["media:enc=utf8", "media:enc=utf8;fmt=json;record", "media:enc=utf8;note;extra", "not a urn"]:
         with pytest.raises(UnknownOutputError) as refusal:
             req.output_for(unknown)
         assert refusal.value.cap_urn == cap.urn_string()
@@ -180,7 +180,7 @@ def test_12719_a_request_answers_on_every_declared_output():
         req.emitter().close()
 
     # A request made from a bare stream has the one output that stream is.
-    bare, _ = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
+    bare, _ = _recorded_outputs('cap:in="media:enc=utf8";count;out="media:integer"', None)
     lone = Request(_empty_input(), bare.main(), NoPeerInvoker(), _full_network())
     assert lone.emitter() is bare.main()
     assert lone.output_for("media:") is bare.main()
@@ -268,24 +268,24 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     assert all(frame.frame_type != FrameType.STREAM_END for frame in frames)
 
     # A cap whose `out=` is void has no output: nothing is opened for it.
-    outputs, frames = _recorded_outputs('cap:in="media:enc=utf-8";sink;out=media:void', None)
+    outputs, frames = _recorded_outputs('cap:in="media:enc=utf8";sink;out=media:void', None)
     dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     assert frames == []
 
     # The main output's label follows the cap's effect, and is not its name:
     # a cap that passes its input through labels the stream with the input's
     # type and names the output its `out=`.
-    passing = 'cap:effect=none;in="media:enc=utf-8;line";out="media:enc=utf-8";pass'
+    passing = 'cap:effect=none;in="media:enc=utf8;line";out="media:enc=utf8";pass'
     outputs, frames = _recorded_outputs(passing, None)
     dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 1
     assert sent[0][0] is None, "the main output's stream names no output"
     assert sent[0][1] == derive_response_media(passing)
-    assert sent[0][1] != "media:enc=utf-8", f"the label is the input's type: {sent[0][1]}"
+    assert sent[0][1] != "media:enc=utf8", f"the label is the input's type: {sent[0][1]}"
 
     # A cap served without a definition answers on the one output its URN states.
-    outputs, frames = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
+    outputs, frames = _recorded_outputs('cap:in="media:enc=utf8";count;out="media:integer"', None)
     dispatch_op(_Silent(), _empty_input(), outputs, NoPeerInvoker(), _full_network())
     sent = _starts(frames)
     assert len(sent) == 1
@@ -294,10 +294,10 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
     # A main output declared a sequence, that nobody wrote to, is an empty
     # sequence.
     listing = Cap(
-        CapUrn.from_string('cap:in="media:enc=utf-8";list;out="media:enc=utf-8;line"'), "List", ["list"],
+        CapUrn.from_string('cap:in="media:enc=utf8";list;out="media:enc=utf8;line"'), "List", ["list"],
     )
-    listing.add_arg(CapArg("media:enc=utf-8", "input", True, [StdinSource("media:enc=utf-8")]))
-    lines = CapOutput("media:enc=utf-8;line", "lines", "The lines")
+    listing.add_arg(CapArg("media:enc=utf8", "input", True, [StdinSource("media:enc=utf8")]))
+    lines = CapOutput("media:enc=utf8;line", "lines", "The lines")
     lines.is_sequence = True
     listing.add_output(lines)
     validate_cap_definition(listing)
@@ -308,16 +308,16 @@ def test_12720_unwritten_outputs_when_the_handler_returns():
 
     # A request made from a bare stream has an output nothing is known of:
     # nothing is sent for it unless the handler writes.
-    bare, frames = _recorded_outputs('cap:in="media:enc=utf-8";count;out="media:integer"', None)
+    bare, frames = _recorded_outputs('cap:in="media:enc=utf8";count;out="media:integer"', None)
     dispatch_op(_Silent(), _empty_input(), ResponseOutputs.undeclared(bare.main()), NoPeerInvoker(), _full_network())
     assert frames == []
 
     # A main output its definition declares optional is not sent when nobody
     # wrote to it.
     optional_main = Cap(
-        CapUrn.from_string('cap:in="media:enc=utf-8";maybe;out="media:integer"'), "Maybe", ["maybe"],
+        CapUrn.from_string('cap:in="media:enc=utf8";maybe;out="media:integer"'), "Maybe", ["maybe"],
     )
-    optional_main.add_arg(CapArg("media:enc=utf-8", "input", True, [StdinSource("media:enc=utf-8")]))
+    optional_main.add_arg(CapArg("media:enc=utf8", "input", True, [StdinSource("media:enc=utf8")]))
     optional_main.add_output(CapOutput("media:integer", "count", "A count").as_optional(True))
     validate_cap_definition(optional_main)
     outputs, frames = _recorded_outputs(optional_main.urn_string(), _manifest(optional_main))
@@ -332,27 +332,27 @@ def test_12721_a_request_stream_names_no_output():
     recorder = _Recorder()
     writer = SyncFrameWriter(recorder)
     call = PeerCall(writer=writer, request_id=MessageId.new_uuid())
-    arg = call.arg("media:enc=utf-8;prompt")
+    arg = call.arg("media:enc=utf8;prompt")
     arg.start(False, None)
     sent = _starts(recorder.frames)
     assert len(sent) == 1
     assert sent[0][0] is None, "an argument stream does not carry key 21"
-    assert sent[0][1] == "media:enc=utf-8;prompt"
+    assert sent[0][1] == "media:enc=utf8;prompt"
 
     # And the arguments a whole call is made with: one stream each.
     recorder = _Recorder()
     peer = PeerInvokerImpl(SyncFrameWriter(recorder), {})
     peer.invoke(
-        'cap:in="media:enc=utf-8;prompt";ask;out="media:enc=utf-8"',
+        'cap:in="media:enc=utf8;prompt";ask;out="media:enc=utf8"',
         [
-            CapArgumentValue("media:enc=utf-8;prompt", b"why"),
-            CapArgumentValue("media:enc=utf-8;model-spec", b"small"),
+            CapArgumentValue("media:enc=utf8;prompt", b"why"),
+            CapArgumentValue("media:enc=utf8;model-spec", b"small"),
         ],
     )
     sent = _starts(recorder.frames)
     assert [(start[0], start[1]) for start in sent] == [
-        (None, "media:enc=utf-8;prompt"),
-        (None, "media:enc=utf-8;model-spec"),
+        (None, "media:enc=utf8;prompt"),
+        (None, "media:enc=utf8;model-spec"),
     ]
 
 
@@ -424,16 +424,16 @@ def _drain(response):
         items.append(item)
 
 
-REST = "media:enc=utf-8;split-rest"
+REST = "media:enc=utf8;split-rest"
 
 
 def _two_output_response(rid: MessageId):
     return [
         # The other output starts first, ends first, and carries the same type
         # as the main one.
-        Frame.stream_start(rid, "rest", "media:enc=utf-8", False).for_output(REST),
+        Frame.stream_start(rid, "rest", "media:enc=utf8", False).for_output(REST),
         _value_chunk(rid, "rest", 0, b"R1"),
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
         _value_chunk(rid, "rest", 1, b"R2"),
         Frame.stream_end(rid, "rest", 2),
@@ -467,9 +467,9 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     # A caller that collects the cap's answer gets the main output only.
     assert _feed(_two_output_response(rid)).collect_bytes() == b"H1H2"
     one_answer = [
-        Frame.stream_start(rid, "rest", "media:enc=utf-8", False).for_output(REST),
+        Frame.stream_start(rid, "rest", "media:enc=utf8", False).for_output(REST),
         _value_chunk(rid, "rest", 0, b"R1"),
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
         _value_chunk(rid, "rest", 1, b"R2"),
         Frame.end_ok(rid, None),
@@ -504,7 +504,7 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     # and the response ends there: what follows it is not read.
     stray = _drain(_feed([
         _value_chunk(rid, "ghost", 0, b"?"),
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
         Frame.end_ok(rid, None),
     ]))
@@ -513,9 +513,9 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     # So does a second STREAM_START for a stream: which of the two the chunks
     # after it belong to is not something to guess.
     twice = _drain(_feed([
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False).for_output(REST),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False).for_output(REST),
         _value_chunk(rid, "head", 1, b"H2"),
         Frame.end_ok(rid, None),
     ]))
@@ -528,8 +528,8 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     damaged = _value_chunk(rid, "rest", 0, b"R1")
     damaged.checksum = (damaged.checksum + 1) & 0xFFFFFFFF
     broken = [
-        Frame.stream_start(rid, "rest", "media:enc=utf-8", False).for_output(REST),
-        Frame.stream_start(rid, "head", "media:enc=utf-8", False),
+        Frame.stream_start(rid, "rest", "media:enc=utf8", False).for_output(REST),
+        Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
         damaged,
         Frame.stream_end(rid, "rest", 1),
@@ -550,7 +550,7 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     # an item ends with that error, under its output.
     rows = cbor2.dumps([1, 2, 3])
     cut = [
-        Frame.stream_start(rid, "rest", "media:enc=utf-8", True).for_output(REST),
+        Frame.stream_start(rid, "rest", "media:enc=utf8", True).for_output(REST),
         Frame.chunk(rid, "rest", 0, rows[:2], 0, compute_checksum(rows[:2])),
         Frame.end_ok(rid, None),
     ]
@@ -569,7 +569,7 @@ def test_12731_a_request_stream_that_names_an_output_is_refused():
 
     def feed(named):
         frames: queue.Queue = queue.Queue()
-        start = Frame.stream_start(rid, "arg0", "media:enc=utf-8")
+        start = Frame.stream_start(rid, "arg0", "media:enc=utf8")
         if named is not None:
             start.for_output(named)
         frames.put(start)
@@ -586,8 +586,8 @@ def test_12731_a_request_stream_that_names_an_output_is_refused():
 
     # The same stream naming an output: a response stream where an argument
     # belongs.
-    named = feed("media:enc=utf-8;kept")
+    named = feed("media:enc=utf8;kept")
     refusal = named.recv()
     assert isinstance(refusal, StreamError), refusal
-    assert "names an output" in str(refusal) and "media:enc=utf-8;kept" in str(refusal), str(refusal)
+    assert "names an output" in str(refusal) and "media:enc=utf8;kept" in str(refusal), str(refusal)
     assert named.recv() is None, "nothing of the request is read as an argument"

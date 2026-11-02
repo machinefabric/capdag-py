@@ -27,12 +27,12 @@ python3 -m pip install -e '.[dev]'
 from capdag import CapUrn, CapUrnBuilder
 
 parsed = CapUrn.from_string(
-    'cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;page"'
+    'cap:disbind;in="media:document;ext=pdf";out="media:enc=utf8;page"'
 )
 built = (
     CapUrnBuilder()
     .in_spec("media:document;ext=pdf")
-    .out_spec("media:enc=utf-8;page")
+    .out_spec("media:enc=utf8;page")
     .marker("disbind")
     .build()
 )

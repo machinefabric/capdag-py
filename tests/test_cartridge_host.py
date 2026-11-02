@@ -204,13 +204,13 @@ def test_12712_parse_cap_groups_rejects_an_invalid_definition():
             "cap_groups": [{"name": "default", "caps": [json.loads(IDENTITY_CAP_JSON), definition]}],
         }).encode("utf-8")
 
-    cap_urn = 'cap:in="media:enc=utf-8";compare;out="media:record"'
+    cap_urn = 'cap:in="media:enc=utf8";compare;out="media:record"'
 
     def arg(media_urn: str, name: str, source: dict) -> dict:
         return {"media_urn": media_urn, "name": name, "required": True, "sources": [source]}
 
     output = {"media_urn": "media:record", "name": "result", "output_description": "The result"}
-    left = arg("media:enc=utf-8", "left", {"stdin": "media:enc=utf-8"})
+    left = arg("media:enc=utf8", "left", {"stdin": "media:enc=utf8"})
 
     groups = _parse_cap_groups_from_manifest(manifest_with({
         "urn": cap_urn, "title": "Compare", "aliases": ["compare"],
@@ -229,7 +229,7 @@ def test_12712_parse_cap_groups_rejects_an_invalid_definition():
     # Two arguments claim the main input.
     assert "RULE3" in refused({
         "urn": cap_urn, "title": "Compare", "aliases": ["compare"],
-        "args": [left, arg("media:enc=utf-8;other", "right", {"stdin": "media:enc=utf-8"})],
+        "args": [left, arg("media:enc=utf8;other", "right", {"stdin": "media:enc=utf8"})],
         "outputs": [output],
     })
     # The output the cap URN states is not declared.

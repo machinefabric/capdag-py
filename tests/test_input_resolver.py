@@ -274,9 +274,9 @@ def test_1098_extension_based_pdf(tmp_path: Path):
 # TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure
 def test_1288_structure_from_marker_tags():
     scalar_opaque = MediaUrn.from_string("media:text")
-    scalar_record = MediaUrn.from_string("media:fmt=json;record")
-    list_opaque = MediaUrn.from_string("media:enc=utf-8;list")
-    list_record = MediaUrn.from_string("media:fmt=json;list;record")
+    scalar_record = MediaUrn.from_string("media:enc=utf8;fmt=json;record")
+    list_opaque = MediaUrn.from_string("media:enc=utf8;list")
+    list_record = MediaUrn.from_string("media:enc=utf8;fmt=json;list;record")
     from capdag.input_resolver import structure_from_marker_tags
 
     assert structure_from_marker_tags(scalar_opaque) == ContentStructure.SCALAR_OPAQUE
@@ -302,13 +302,13 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
         extensions=["pdf"],
     ))
     registry.add_spec(StoredMediaDef(
-        urn="media:fmt=json;record",
+        urn="media:enc=utf8;fmt=json;record",
         media_type="application/json",
         title="JSON",
         extensions=["json"],
     ))
     registry.add_spec(StoredMediaDef(
-        urn="media:enc=utf-8;ext=txt;list",
+        urn="media:enc=utf8;ext=txt;list;plain-text",
         media_type="text/plain",
         title="Text",
         extensions=["txt"],
@@ -318,7 +318,7 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
     # candidate. The validation pattern matches the canonical
     # `scheme:rest` shape so plain prose is filtered out.
     registry.add_spec(StoredMediaDef(
-        urn="media:enc=utf-8;model-spec",
+        urn="media:enc=utf8;model-spec",
         media_type="text/plain",
         title="Model spec",
         validation={
@@ -360,21 +360,21 @@ def test_1221_refine_with_matching_adapter():
     registry.register("media:test", _SpecialAdapter())
     # The adapter is keyed by the `media:test` prefix; the base URN starts
     # with that prefix, so the adapter fires and appends `refined`.
-    assert registry.refine_media_urn("media:test;enc=utf-8", "something-special") == "media:enc=utf-8;refined;test"
+    assert registry.refine_media_urn("media:test;enc=utf8", "something-special") == "media:enc=utf8;refined;test"
 
 
 # TEST1222: Base URNs without a registered adapter are returned unchanged.
 def test_1222_refine_no_matching_adapter():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:other;enc=utf-8", "something-special") == "media:other;enc=utf-8"
+    assert registry.refine_media_urn("media:other;enc=utf8", "something-special") == "media:other;enc=utf8"
 
 
 # TEST1223: Adapters that decline to refine leave the original media URN intact.
 def test_1223_refine_adapter_returns_none():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:test;enc=utf-8", "ordinary-value") == "media:test;enc=utf-8"
+    assert registry.refine_media_urn("media:test;enc=utf8", "ordinary-value") == "media:test;enc=utf8"
 
 
 # TEST1224: When multiple adapter prefixes match, the longest prefix wins.
@@ -382,7 +382,7 @@ def test_1224_refine_longest_prefix_match():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
     registry.register("media:test;specific", _SpecificAdapter())
-    assert registry.refine_media_urn("media:test;specific;enc=utf-8", "something-specific") == "media:enc=utf-8;result;specific;test"
+    assert registry.refine_media_urn("media:test;specific;enc=utf8", "something-specific") == "media:enc=utf8;result;specific;test"
 
 
 # TEST1225: An empty value adapter registry returns the input media URN unchanged.
@@ -402,19 +402,19 @@ def test_1226_has_adapter():
 # TEST1228: Value adapters can append a more specific marker when both base URN and value match.
 def test_1228_value_adapter_refine_match():
     adapter = _SpecialAdapter()
-    assert adapter.refine("media:test;enc=utf-8", "something-special") == "media:enc=utf-8;refined;test"
+    assert adapter.refine("media:test;enc=utf8", "something-special") == "media:enc=utf8;refined;test"
 
 
 # TEST1229: Value adapters return no refinement when the base media URN is outside their domain.
 def test_1229_value_adapter_refine_no_match_base():
     adapter = _SpecialAdapter()
-    assert adapter.refine("media:other;enc=utf-8", "something-special") is None
+    assert adapter.refine("media:other;enc=utf8", "something-special") is None
 
 
 # TEST1230: Value adapters return no refinement when the inspected value does not match.
 def test_1230_value_adapter_refine_no_match_value():
     adapter = _SpecialAdapter()
-    assert adapter.refine("media:test;enc=utf-8", "ordinary-value") is None
+    assert adapter.refine("media:test;enc=utf8", "ordinary-value") is None
 
 
 # TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates.
@@ -427,7 +427,7 @@ def test_1235_disc_1_plain_text_eliminates_model_specs(tmp_path: Path):
         b"Hello world\nThis is a plain text file\nNo colons here",
         all_txt_urns,
         registry,
-        "media:enc=utf-8;ext=txt;list",
+        "media:enc=utf8;ext=txt;list;plain-text",
     )
     for survivor in survivors:
         assert "model-spec" not in survivor
@@ -438,25 +438,25 @@ def test_1236_disc_2_model_spec_validation_pattern_filters_content(tmp_path: Pat
     registry = _create_test_media_registry(tmp_path)
     from capdag.input_resolver.resolver import discriminate_candidates_by_validation
 
-    candidates = ["media:enc=utf-8;model-spec"]
+    candidates = ["media:enc=utf8;model-spec"]
 
     # Spec-shaped content survives the regex filter.
     survivors = discriminate_candidates_by_validation(
         b"hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
         candidates,
         registry,
-        "media:enc=utf-8",
+        "media:enc=utf8",
     )
-    assert "media:enc=utf-8;model-spec" in survivors
+    assert "media:enc=utf8;model-spec" in survivors
 
     # Plain prose with internal whitespace is rejected by the same regex.
     survivors_prose = discriminate_candidates_by_validation(
         b"this is not a model spec",
         candidates,
         registry,
-        "media:enc=utf-8",
+        "media:enc=utf8",
     )
-    assert "media:enc=utf-8;model-spec" not in survivors_prose
+    assert "media:enc=utf8;model-spec" not in survivors_prose
 
 
 # TEST1237: Empty candidates → empty result
@@ -479,7 +479,7 @@ def test_1238_disc_6_unknown_urn_survives(tmp_path: Path):
 # TEST1276: Registration of a cap group with non-conflicting adapters succeeds
 def test_1276_register_non_conflicting(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("text-formats", ["media:fmt=json", "media:fmt=yaml"], "txtcartridge")
+    registry.register_cap_group("text-formats", ["media:enc=utf8;fmt=json", "media:enc=utf8;fmt=yaml"], "txtcartridge")
     assert registry.has_adapter_for_extension("json")
 
 
@@ -490,26 +490,26 @@ def test_1276_register_non_conflicting(tmp_path: Path):
 # cartridge claiming the same URN stays rejected.
 def test_1478_exact_reregistration_is_idempotent(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    urns = ["media:fmt=json", "media:fmt=yaml"]
+    urns = ["media:enc=utf8;fmt=json", "media:enc=utf8;fmt=yaml"]
     registry.register_cap_group("text-formats", urns, "txtcartridge")
     registry.register_cap_group("text-formats", urns, "txtcartridge")
     assert len(registry._registered_adapters) == 2, "re-registration must not duplicate rows"
 
     # A partially-new group from the same owner registers only the new URN.
-    registry.register_cap_group("text-formats", ["media:fmt=json", "media:fmt=toml"], "txtcartridge")
+    registry.register_cap_group("text-formats", ["media:enc=utf8;fmt=json", "media:fmt=toml"], "txtcartridge")
     assert len(registry._registered_adapters) == 3
 
     # Another cartridge claiming an identical URN is still ambiguity.
     with pytest.raises(Exception):
-        registry.register_cap_group("text-formats", ["media:fmt=json"], "other")
+        registry.register_cap_group("text-formats", ["media:enc=utf8;fmt=json"], "other")
 
 
 # TEST1277: Registration of a cap group with an adapter that conforms_to an existing adapter is rejected
 def test_1277_reject_conforming_overlap(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
+    registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json"], "cartridge-a")
     with pytest.raises(Exception) as exc_info:
-        registry.register_cap_group("group-b", ["media:fmt=json;record"], "cartridge-b")
+        registry.register_cap_group("group-b", ["media:enc=utf8;fmt=json;record"], "cartridge-b")
     message = str(exc_info.value)
     assert "group-b" in message
     assert "group-a" in message
@@ -518,26 +518,26 @@ def test_1277_reject_conforming_overlap(tmp_path: Path):
 # TEST1278: Registration rejects the entire group — no partial registration
 def test_1278_reject_entire_group(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
+    registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json"], "cartridge-a")
     with pytest.raises(Exception):
-        registry.register_cap_group("group-b", ["media:fmt=yaml", "media:fmt=json", "media:fmt=csv"], "cartridge-b")
-    assert registry.find_adapters_for_extension("json") == [("cartridge-a", MediaUrn.from_string("media:fmt=json"))]
+        registry.register_cap_group("group-b", ["media:enc=utf8;fmt=yaml", "media:enc=utf8;fmt=json", "media:enc=utf8;fmt=csv"], "cartridge-b")
+    assert registry.find_adapters_for_extension("json") == [("cartridge-a", MediaUrn.from_string("media:enc=utf8;fmt=json"))]
 
 
 # TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected
 def test_1279_intra_group_conflict(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     with pytest.raises(Exception):
-        registry.register_cap_group("group-a", ["media:fmt=json", "media:fmt=json;record"], "cartridge-a")
+        registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json", "media:enc=utf8;fmt=json;record"], "cartridge-a")
 
 
 # TEST1280: find_adapters_for_extension returns correct cartridge IDs
 def test_1280_find_adapters_for_extension(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("group-a", ["media:fmt=json"], "cartridge-a")
-    registry.register_cap_group("group-b", ["media:fmt=yaml"], "cartridge-b")
+    registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json"], "cartridge-a")
+    registry.register_cap_group("group-b", ["media:enc=utf8;fmt=yaml"], "cartridge-b")
     matches = registry.find_adapters_for_extension("json")
-    assert matches == [("cartridge-a", MediaUrn.from_string("media:fmt=json"))]
+    assert matches == [("cartridge-a", MediaUrn.from_string("media:enc=utf8;fmt=json"))]
 
 
 # TEST1281: has_adapter_for_extension returns false for unregistered extension
@@ -562,12 +562,12 @@ async def test_1286_confirmed_adapter_returns_urns(tmp_path: Path):
     path = tmp_path / "data.json"
     path.write_text('{"key":"value"}')
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:fmt=json"], "test-cartridge")
+    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
 
     resolved = await detect_file_confirmed(
         path,
         registry,
-        _MockInvoker(["media:fmt=json;record"]),
+        _MockInvoker(["media:enc=utf8;fmt=json;record"]),
     )
     assert "json" in resolved.media_urn
     assert resolved.content_structure == ContentStructure.SCALAR_RECORD
@@ -579,7 +579,7 @@ async def test_1287_confirmed_all_adapters_no_match(tmp_path: Path):
     path = tmp_path / "data.json"
     path.write_text("not json")
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:fmt=json"], "test-cartridge")
+    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
 
     with pytest.raises(InspectionFailedError, match="All registered adapters returned no match"):
         await detect_file_confirmed(path, registry, _MockInvoker(None))
@@ -591,11 +591,11 @@ async def test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_pat
     path = tmp_path / "data.json"
     path.write_text('{"key":"value"}')
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:fmt=json"], "test-cartridge")
+    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
 
-    resolved = await resolve_inputs_confirmed([InputItem.file(path)], registry, _MockInvoker(["media:fmt=json;record"]))
+    resolved = await resolve_inputs_confirmed([InputItem.file(path)], registry, _MockInvoker(["media:enc=utf8;fmt=json;record"]))
     assert len(resolved.files) == 1
-    assert resolved.files[0].media_urn == "media:fmt=json;record"
+    assert resolved.files[0].media_urn == "media:enc=utf8;fmt=json;record"
 
 
 # =============================================================================
@@ -637,32 +637,32 @@ def test_1145_resolved_input_set_uses_equivalent_media_and_file_count_cardinalit
 
     single_list_file = ResolvedInputSet.new([ResolvedFile(
         path=Path("/tmp/items.json"),
-        media_urn="media:application;fmt=json;list;record",
+        media_urn="media:application;enc=utf8;fmt=json;list;record",
         size_bytes=42,
         content_structure=ContentStructure.LIST_RECORD,
     )])
     assert not single_list_file.is_sequence
     assert single_list_file.is_homogeneous()
-    assert single_list_file.common_media == "media:application;fmt=json;list;record"
+    assert single_list_file.common_media == "media:application;enc=utf8;fmt=json;list;record"
 
     # Two files with tag-equivalent URNs (different tag order) → homogeneous, is_sequence
     equivalent_ordering = ResolvedInputSet.new([
         ResolvedFile(
             path=Path("/tmp/a.json"),
-            media_urn="media:application;fmt=json;record",
+            media_urn="media:application;enc=utf8;fmt=json;record",
             size_bytes=10,
             content_structure=ContentStructure.SCALAR_RECORD,
         ),
         ResolvedFile(
             path=Path("/tmp/b.json"),
-            media_urn="media:application;fmt=json;record",
+            media_urn="media:application;enc=utf8;fmt=json;record",
             size_bytes=11,
             content_structure=ContentStructure.SCALAR_RECORD,
         ),
     ])
     assert equivalent_ordering.is_sequence
     assert equivalent_ordering.is_homogeneous()
-    assert equivalent_ordering.common_media == "media:application;fmt=json;record"
+    assert equivalent_ordering.common_media == "media:application;enc=utf8;fmt=json;record"
 
 
 # TEST1146: InputResolverError subclass display messages and exception hierarchy are correct.

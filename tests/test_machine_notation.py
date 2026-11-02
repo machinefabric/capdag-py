@@ -45,15 +45,15 @@ from tests.machine_fixtures import (
     stdin_arg,
 )
 
-SERIES = "media:fmt=json;list;record;time-series"
-BENCHMARK = "media:benchmark;fmt=json;list;record;time-series"
+SERIES = "media:enc=utf8;fmt=json;list;record;time-series"
+BENCHMARK = "media:benchmark;enc=utf8;fmt=json;list;record;time-series"
 WINDOW = "media:integer;window"
-LABEL = "media:enc=utf-8;label"
-TAG = "media:enc=utf-8;tag"
-COMPARISON = "media:comparison;fmt=json;record"
-RESIDUALS = "media:fmt=json;list;record;residual"
-NOTE = "media:enc=utf-8;note"
-REFERENCE = "media:enc=utf-8;series-ref"
+LABEL = "media:enc=utf8;label"
+TAG = "media:enc=utf8;tag"
+COMPARISON = "media:comparison;enc=utf8;fmt=json;record"
+RESIDUALS = "media:enc=utf8;fmt=json;list;record;residual"
+NOTE = "media:enc=utf8;note"
+REFERENCE = "media:enc=utf8;series-ref"
 
 
 def compare_cap():
@@ -142,12 +142,12 @@ def titled_registry():
 
 
 HEADERS = (
-    '[compare cap:in="media:fmt=json;list;record;time-series";compare;'
-    'out="media:comparison;fmt=json;record"]'
-    '[fetch cap:in=media:void;fetch;out="media:fmt=json;list;record;time-series"]'
-    '[publish cap:in="media:comparison;fmt=json;record";publish;out=media:void]'
-    '[mean cap:in="media:fmt=json;list;record;residual";mean;out="media:mean;numeric"]'
-    '[score cap:in="media:fmt=json;list;record;residual";score;out="media:numeric;score"]'
+    '[compare cap:in="media:enc=utf8;fmt=json;list;record;time-series";compare;'
+    'out="media:comparison;enc=utf8;fmt=json;record"]'
+    '[fetch cap:in=media:void;fetch;out="media:enc=utf8;fmt=json;list;record;time-series"]'
+    '[publish cap:in="media:comparison;enc=utf8;fmt=json;record";publish;out=media:void]'
+    '[mean cap:in="media:enc=utf8;fmt=json;list;record;residual";mean;out="media:mean;numeric"]'
+    '[score cap:in="media:enc=utf8;fmt=json;list;record;residual";score;out="media:numeric;score"]'
 )
 
 
@@ -257,8 +257,8 @@ def test_12737_a_named_member_binds_the_arg_it_names():
             "mix",
             [
                 stdin_arg(SERIES, "first"),
-                flag_arg("media:second;fmt=json;list;record;time-series", "second").accepting(SERIES),
-                flag_arg("media:third;fmt=json;list;record;time-series", "third").accepting(SERIES),
+                flag_arg("media:second;fmt=json;list;record;time-series;enc=utf8", "second").accepting(SERIES),
+                flag_arg("media:third;fmt=json;list;record;time-series;enc=utf8", "third").accepting(SERIES),
             ],
             [output_of(COMPARISON, "mixed", "The mix")],
         )
@@ -675,7 +675,7 @@ def test_12743_render_payload_carries_names_constants_and_outputs():
 # step that takes that type can be wired to one. Which branch a wiring takes
 # is part of what the machine is, although both hold one type.
 def test_12833_a_carried_output_holds_the_inputs_type():
-    verdict = "media:enc=utf-8;verdict"
+    verdict = "media:enc=utf8;verdict"
     kept = "media:kept;marker"
     dropped = "media:dropped;marker"
     route_urn = f'cap:in="{SERIES}";route;out="{verdict}"'
@@ -761,7 +761,7 @@ def test_12838_urns_are_ordered_by_their_parts_not_their_text():
     # value before the same tag with one; values in their own order.
     assert stands_before("media:file", "media:file;sample")
     assert stands_before("media:enc", "media:enc=ascii")
-    assert stands_before("media:enc=ascii", "media:enc=utf-8")
+    assert stands_before("media:enc=ascii", "media:enc=utf8")
     assert media("media:sample;file").ordering_key() == media(sample).ordering_key()
 
     def cap_before(first: str, second: str) -> bool:

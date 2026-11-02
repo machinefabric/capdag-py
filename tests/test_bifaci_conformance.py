@@ -522,7 +522,7 @@ def test_12385_what_reaches_the_wire_is_a_flow_in_order():
     writer = SyncFrameWriter(wire)
     rid = MessageId.new_uuid()
     stream = OutputStream(
-        writer=writer, request_id=rid, stream_id="s1", media_urn="media:enc=utf-8", max_chunk=4
+        writer=writer, request_id=rid, stream_id="s1", media_urn="media:enc=utf8", max_chunk=4
     )
     stream.start(False, None)
     stream.write(bytes([7] * 10))

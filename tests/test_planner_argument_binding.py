@@ -62,15 +62,15 @@ def test_669_resolve_slot_falls_back_to_default():
 # TEST670: resolve_binding returns error when required slot has no value and no default
 def test_670_resolve_required_slot_no_value_returns_err():
     ctx = _empty_context()
-    binding = ArgumentBinding.slot("media:enc=utf-8;question")
+    binding = ArgumentBinding.slot("media:enc=utf8;question")
     with pytest.raises(InternalError) as exc_info:
         resolve_binding(binding, ctx, "cap:generate", "step_0", None, True)
-    assert "media:enc=utf-8;question" in str(exc_info.value)
+    assert "media:enc=utf8;question" in str(exc_info.value)
 
 # TEST671: resolve_binding returns None when optional slot has no value and no default
 def test_671_resolve_optional_slot_no_value_returns_none():
     ctx = _empty_context()
-    binding = ArgumentBinding.slot("media:enc=utf-8;suffix")
+    binding = ArgumentBinding.slot("media:enc=utf8;suffix")
     result = resolve_binding(binding, ctx, "cap:rename", "step_0", None, False)
     assert result is None
 
@@ -82,7 +82,7 @@ def test_671_resolve_optional_slot_no_value_returns_none():
 # TEST1105: Two steps with the same cap_urn get distinct slot values via different node_ids. This is the core disambiguation scenario that step-index keying was designed to solve.
 def test_1105_two_steps_same_cap_urn_different_slot_values():
     cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool"'
-    slot_name = "media:enc=utf-8;list;question"
+    slot_name = "media:enc=utf8;list;question"
     slot_values = {
         f"step_0:{slot_name}": b"Is this a contract?",
         f"step_2:{slot_name}": b"Is this confidential?",
@@ -109,7 +109,7 @@ def test_1105_two_steps_same_cap_urn_different_slot_values():
 # TEST1106: Slot resolution falls through to cap_settings when no slot_value exists. cap_settings are keyed by cap_urn (shared across steps), so both steps get the same value.
 def test_1106_slot_falls_through_to_cap_settings_shared():
     cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool"'
-    slot_name = "media:enc=utf-8;language-code"
+    slot_name = "media:enc=utf8;language-code"
     cap_settings = {
         cap_urn: {slot_name: "en"},
     }
@@ -129,7 +129,7 @@ def test_1106_slot_falls_through_to_cap_settings_shared():
 # TEST1107: step_0 has a slot_value override, step_1 falls through to cap_settings. Proves per-step override works while shared settings remain as fallback.
 def test_1107_slot_value_overrides_cap_settings_per_step():
     cap_urn = 'cap:in="media:document;ext=pdf";make-decision;out="media:bool"'
-    slot_name = "media:enc=utf-8;language-code"
+    slot_name = "media:enc=utf8;language-code"
     slot_values = {
         f"step_0:{slot_name}": b"fr",
         # step_1 has no slot_value entry

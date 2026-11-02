@@ -77,7 +77,7 @@ def test_7087_snapshot_field_names_are_stable():
     k = _key(1, 9)
     table.register(k, _state(0, 1, True))
     rid = MessageId(9)
-    ss = Frame.stream_start(rid, "s", "media:enc=utf-8", False)
+    ss = Frame.stream_start(rid, "s", "media:enc=utf8", False)
     table.record_frame(k, FrameDirection.INBOUND, ss)
 
     snap = table.snapshot().to_dict()
@@ -220,7 +220,7 @@ def test_7032_record_frame_stats_and_phase():
     assert table.get(k).phase == RequestPhase.CREATED
 
     rid = MessageId(7)
-    ss = Frame.stream_start_unbounded(rid, "s1", "media:enc=utf-8", None)
+    ss = Frame.stream_start_unbounded(rid, "s1", "media:enc=utf8", None)
     table.record_frame(k, FrameDirection.INBOUND, ss)
     assert table.get(k).phase == RequestPhase.STREAMING
 

@@ -67,16 +67,16 @@ def test_1880_alias_name_normalization_rules():
 
 # TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 def test_1881_token_urn_vs_alias_detection():
-    assert token_is_urn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"')
-    assert token_is_urn("media:fmt=json;record")
+    assert token_is_urn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"')
+    assert token_is_urn("media:enc=utf8;fmt=json;record")
     assert not token_is_urn("pdf2text")
     assert is_alias_token("pdf2text")
-    assert not is_alias_token("media:enc=utf-8")
+    assert not is_alias_token("media:enc=utf8")
 
 
 # TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this.
 def test_1882_classify_alias_target_by_prefix():
-    assert classify_alias_target("media:fmt=json;record") == ALIAS_TARGET_MEDIA
+    assert classify_alias_target("media:enc=utf8;fmt=json;record") == ALIAS_TARGET_MEDIA
     assert (
         classify_alias_target(
             'cap:effect=patch;in="media:image";name;out="media:ext=png;image"'
@@ -111,10 +111,10 @@ def test_1887_manifest_serde_round_trips_aliases():
 async def test_1888_resolve_alias_returns_target():
     registry = FabricRegistry.new_for_test()
     registry.insert_cached_alias_for_test(
-        StoredAlias("jsondoc", "media:fmt=json;record", 1)
+        StoredAlias("jsondoc", "media:enc=utf8;fmt=json;record", 1)
     )
-    assert await registry.resolve_alias("jsondoc") == "media:fmt=json;record"
-    assert await registry.resolve_alias("JSONDoc") == "media:fmt=json;record"
+    assert await registry.resolve_alias("jsondoc") == "media:enc=utf8;fmt=json;record"
+    assert await registry.resolve_alias("JSONDoc") == "media:enc=utf8;fmt=json;record"
     with pytest.raises(ValidationError):
         await registry.resolve_alias("bad:name")
 
@@ -124,13 +124,13 @@ async def test_1888_resolve_alias_returns_target():
 async def test_1889_resolve_alias_typed_enforces_kind():
     registry = FabricRegistry.new_for_test()
     registry.insert_cached_alias_for_test(
-        StoredAlias("jsondoc", "media:fmt=json;record", 1)
+        StoredAlias("jsondoc", "media:enc=utf8;fmt=json;record", 1)
     )
     assert (
         await registry.resolve_alias_typed("jsondoc", ALIAS_TARGET_MEDIA)
-        == "media:fmt=json;record"
+        == "media:enc=utf8;fmt=json;record"
     )
-    assert await registry.resolve_alias_typed("jsondoc", None) == "media:fmt=json;record"
+    assert await registry.resolve_alias_typed("jsondoc", None) == "media:enc=utf8;fmt=json;record"
     with pytest.raises(ValidationError):
         await registry.resolve_alias_typed("jsondoc", ALIAS_TARGET_CAP)
 
@@ -140,10 +140,10 @@ async def test_1889_resolve_alias_typed_enforces_kind():
 async def test_1890_get_cap_via_alias_and_type_mismatch():
     registry = FabricRegistry.new_for_test()
     cap = _build_cap(
-        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8"',
         "extract",
         ["media:document;ext=pdf"],
-        "media:enc=utf-8",
+        "media:enc=utf8",
     )
     canonical = cap.urn_string()
     registry.add_caps_to_cache([cap])
@@ -153,7 +153,7 @@ async def test_1890_get_cap_via_alias_and_type_mismatch():
     assert got.urn_string() == canonical
 
     registry.insert_cached_alias_for_test(
-        StoredAlias("jsondoc", "media:fmt=json;record", 1)
+        StoredAlias("jsondoc", "media:enc=utf8;fmt=json;record", 1)
     )
     with pytest.raises(ValidationError):
         await registry.get_cap("jsondoc")
@@ -164,19 +164,19 @@ async def test_1890_get_cap_via_alias_and_type_mismatch():
 async def test_1891_get_media_def_via_alias_and_type_mismatch():
     registry = FabricRegistry.new_for_test()
     registry.add_spec(
-        StoredMediaDef(urn="media:fmt=json;record", media_type="application/json", title="JSON")
+        StoredMediaDef(urn="media:enc=utf8;fmt=json;record", media_type="application/json", title="JSON")
     )
     registry.insert_cached_alias_for_test(
-        StoredAlias("jsondoc", "media:fmt=json;record", 1)
+        StoredAlias("jsondoc", "media:enc=utf8;fmt=json;record", 1)
     )
     spec = await registry.get_media_def("jsondoc")
-    assert spec.urn == "media:fmt=json;record"
+    assert spec.urn == "media:enc=utf8;fmt=json;record"
 
     cap = _build_cap(
-        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8"',
         "extract",
         ["media:document;ext=pdf"],
-        "media:enc=utf-8",
+        "media:enc=utf8",
     )
     canonical = cap.urn_string()
     registry.add_caps_to_cache([cap])
@@ -201,8 +201,8 @@ async def test_1892_unknown_alias_is_not_found():
 
 
 def _extract_with_alias_registry():
-    extract_urn = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'
-    cap = _build_cap(extract_urn, "extract", ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt")
+    extract_urn = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"'
+    cap = _build_cap(extract_urn, "extract", ["media:document;ext=pdf"], "media:enc=utf8;ext=txt;plain-text")
     canonical = cap.urn_string()
     registry = FabricRegistry.new_for_test()
     registry.add_caps_to_cache([cap])
@@ -223,8 +223,8 @@ def test_1883_cap_position_alias_resolves_to_cap():
 # TEST1884: a local header alias shadows a fabric alias of the same name.
 def test_1884_local_header_shadows_cap_alias():
     registry, _ = _extract_with_alias_registry()
-    other_urn = 'cap:other;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'
-    other = _build_cap(other_urn, "other", ["media:document;ext=pdf"], "media:enc=utf-8;ext=txt")
+    other_urn = 'cap:other;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"'
+    other = _build_cap(other_urn, "other", ["media:document;ext=pdf"], "media:enc=utf8;ext=txt;plain-text")
     other_canonical = other.urn_string()
     registry.add_caps_to_cache([other])
     notation = f"[pdf2text {other_urn}]\n[doc -> pdf2text -> txt]"
@@ -235,15 +235,15 @@ def test_1884_local_header_shadows_cap_alias():
 # TEST1885: a cap-position alias that resolves to a MEDIA URN is a hard error.
 def test_1885_cap_position_alias_to_media_is_error():
     cap = _build_cap(
-        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"',
+        'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"',
         "extract",
         ["media:document;ext=pdf"],
-        "media:enc=utf-8;ext=txt",
+        "media:enc=utf8;ext=txt;plain-text",
     )
     registry = FabricRegistry.new_for_test()
     registry.add_caps_to_cache([cap])
     registry.insert_cached_alias_for_test(
-        StoredAlias("jsondoc", "media:fmt=json;record", 1)
+        StoredAlias("jsondoc", "media:enc=utf8;fmt=json;record", 1)
     )
     # parse_machine wraps syntax errors in MachineParseError; the cause is the
     # specific AliasNotACapError.
@@ -282,35 +282,35 @@ def test_1895_display_alias_for_urn():
     registry.insert_cached_alias_for_test(
         StoredAlias(
             "int2str",
-            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf8"',
             1,
         )
     )
     registry.insert_cached_alias_for_test(
         StoredAlias(
             "i2s",
-            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf8"',
             1,
         )
     )
     # A media alias too.
     registry.insert_cached_alias_for_test(
-        StoredAlias("json", "media:fmt=json;record", 1)
+        StoredAlias("json", "media:enc=utf8;fmt=json;record", 1)
     )
 
     # Canonical query -> shortest alias wins.
     assert (
         registry.display_alias_for_urn(
-            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"'
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf8"'
         )
         == "i2s"
     )
     # NON-canonical query (media tags reordered): must still resolve via
-    # canonicalisation. `media:record;fmt=json` canonicalises to
-    # `media:fmt=json;record`.
-    assert registry.display_alias_for_urn("media:record;fmt=json") == "json"
+    # canonicalisation. `media:record;fmt=json;enc=utf8` canonicalises to
+    # `media:enc=utf8;fmt=json;record`.
+    assert registry.display_alias_for_urn("media:record;fmt=json;enc=utf8") == "json"
     # A real URN with no alias -> None.
-    assert registry.display_alias_for_urn("media:document;enc=utf-8;ext=pdf") is None
+    assert registry.display_alias_for_urn("media:document;enc=utf8;ext=pdf") is None
     # A non-URN (no cap:/media: prefix) -> None, never a crash.
     assert registry.display_alias_for_urn("int2str") is None
 
@@ -321,12 +321,12 @@ def test_1896_cached_cap_aliases_filters_to_cap_targets():
     registry.insert_cached_alias_for_test(
         StoredAlias(
             "int2str",
-            'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"',
+            'cap:coerce;in="media:integer;numeric";out="media:enc=utf8"',
             1,
         )
     )
     registry.insert_cached_alias_for_test(
-        StoredAlias("json", "media:fmt=json;record", 1)
+        StoredAlias("json", "media:enc=utf8;fmt=json;record", 1)
     )
     cap_aliases = registry.cached_cap_aliases()
     # Only the cap alias is returned; the media alias is filtered out.
@@ -334,5 +334,5 @@ def test_1896_cached_cap_aliases_filters_to_cap_targets():
     assert cap_aliases[0][0] == "int2str"
     assert (
         cap_aliases[0][1]
-        == 'cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"'
+        == 'cap:coerce;in="media:integer;numeric";out="media:enc=utf8"'
     )

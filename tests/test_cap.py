@@ -89,14 +89,14 @@ def test_113_cap_stdin():
 
     # Enable stdin support by adding an arg with a stdin source
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8", name="input",
+        media_urn="media:enc=utf8", name="input",
         required=True,
-        sources=[StdinSource("media:enc=utf-8")],
+        sources=[StdinSource("media:enc=utf8")],
         arg_description="Input text",
     ))
 
     assert cap.accepts_stdin()
-    assert cap.get_stdin_media_urn() == "media:enc=utf-8"
+    assert cap.get_stdin_media_urn() == "media:enc=utf8"
 
     # Serialization preserves the args + stdin source.
     serialized = json.dumps(cap.to_dict())
@@ -104,13 +104,13 @@ def test_113_cap_stdin():
     assert '"stdin"' in serialized
     restored = Cap.from_dict(json.loads(serialized))
     assert restored.accepts_stdin()
-    assert restored.get_stdin_media_urn() == "media:enc=utf-8"
+    assert restored.get_stdin_media_urn() == "media:enc=utf8"
 
 
 # TEST114: Test ArgSource type variants stdin, position, and cli_flag with their accessors
 def test_114_arg_source_types():
-    stdin_src = StdinSource("media:enc=utf-8")
-    assert stdin_src.stdin == "media:enc=utf-8"
+    stdin_src = StdinSource("media:enc=utf8")
+    assert stdin_src.stdin == "media:enc=utf8"
 
     pos_src = PositionSource(2)
     assert pos_src.position == 2
@@ -493,7 +493,7 @@ def test_1128_cap_documentation_omitted_when_none():
 # TEST1129: A JSON document produced by capfab (the canonical source) with a `documentation` field must deserialize into a Cap with the body intact. Models the actual on-disk shape — not a synthetic round-trip — to catch a mismatch between the JSON schema and the Rust struct field naming.
 def test_1129_cap_documentation_parses_from_capfab_json():
     data = {
-        "urn": "cap:in=\"media:enc=utf-8\";docparse;out=\"media:enc=utf-8\"",
+        "urn": "cap:in=\"media:enc=utf8\";docparse;out=\"media:enc=utf8\"",
         "title": "Doc Parse",
         "aliases": ["docparse"],
         "cap_description": "short",
@@ -511,11 +511,11 @@ def test_1129_cap_documentation_parses_from_capfab_json():
 # appearing on stdin.
 def test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source():
     arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt", name="arg1",
+        media_urn="media:enc=utf8;system-prompt", name="arg1",
         required=True,
         sources=[CliFlagSource("--system-prompt")],
     )
-    assert arg.stream_urn() == "media:enc=utf-8;system-prompt"
+    assert arg.stream_urn() == "media:enc=utf8;system-prompt"
 
 
 # TEST8103: (py-specific) CapArg.stream_urn() returns the Stdin source's
@@ -523,7 +523,7 @@ def test_8102_cap_arg_stream_urn_falls_back_to_media_urn_without_stdin_source():
 # file-path slot whose piped content is actually a pdf-stream.
 def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
@@ -538,7 +538,7 @@ def test_8103_cap_arg_stream_urn_uses_stdin_source_urn_when_present():
 def test_8104_cap_arg_is_main_input_true_when_stdin_urn_equivalent_to_in_spec():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
@@ -562,9 +562,9 @@ def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
     assert not no_stdin_arg.is_main_input(in_spec)
 
     mismatched_stdin_arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt", name="input",
+        media_urn="media:enc=utf8;system-prompt", name="input",
         required=False,
-        sources=[StdinSource("media:enc=utf-8;system-prompt")],
+        sources=[StdinSource("media:enc=utf8;system-prompt")],
     )
     assert not mismatched_stdin_arg.is_main_input(in_spec)
 
@@ -575,7 +575,7 @@ def test_8105_cap_arg_is_main_input_false_without_matching_stdin_source():
 def test_8106_cap_arg_is_main_input_false_on_unparseable_stdin_urn():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("not a valid tagged urn")],
     )
@@ -613,7 +613,7 @@ def test_1130_cap_documentation_set_and_clear_lifecycle():
 # runtime demuxes the arg's input stream by.
 def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn():
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf;pdf-stream")],
     )
@@ -626,11 +626,11 @@ def test_7100_stream_urn_returns_stdin_source_urn_when_it_differs_from_slot_urn(
 # declared URN without ever appearing on stdin.
 def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source():
     arg = CapArg(
-        media_urn="media:enc=utf-8;system-prompt", name="arg1",
+        media_urn="media:enc=utf8;system-prompt", name="arg1",
         required=True,
         sources=[CliFlagSource("--system-prompt")],
     )
-    assert arg.stream_urn() == "media:enc=utf-8;system-prompt"
+    assert arg.stream_urn() == "media:enc=utf8;system-prompt"
 
 
 # TEST7102: is_main_input() is True when the Stdin URN is order-theoretically
@@ -640,7 +640,7 @@ def test_7101_stream_urn_falls_back_to_declared_media_urn_without_stdin_source()
 def test_7102_is_main_input_true_on_tag_order_insensitive_equivalence_to_in_spec():
     in_spec = MediaUrn.from_string("media:document;ext=pdf;pdf-stream")
     arg = CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:pdf-stream;document;ext=pdf")],  # same tags, different order
     )
@@ -671,9 +671,9 @@ def test_7103_is_main_input_false_without_equivalent_stdin_source():
     assert not position_only.is_main_input(in_spec)
 
     non_equivalent_stdin = CapArg(
-        media_urn="media:enc=utf-8;system-prompt", name="input",
+        media_urn="media:enc=utf8;system-prompt", name="input",
         required=False,
-        sources=[StdinSource("media:enc=utf-8;system-prompt")],
+        sources=[StdinSource("media:enc=utf8;system-prompt")],
     )
     assert not non_equivalent_stdin.is_main_input(in_spec)
 
@@ -687,14 +687,14 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
 
     args = [
         CapArg(
-            media_urn="media:enc=utf-8;file-path", name="input",
+            media_urn="media:enc=utf8;file-path", name="input",
             required=True,
             # Main input may ALSO be delivered by cli-flag; stdin is the
             # defining route.
             sources=[StdinSource("media:pdf-stream;document;ext=pdf"), CliFlagSource("--input")],
         ),
         CapArg(
-            media_urn="media:enc=utf-8;question", name="arg1",
+            media_urn="media:enc=utf8;question", name="arg1",
             required=True,
             sources=[CliFlagSource("--question")],
         ),
@@ -711,7 +711,7 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
             default_value=0.7,
         ),
         CapArg(
-            media_urn="media:enc=utf-8;system-prompt", name="arg4",
+            media_urn="media:enc=utf8;system-prompt", name="arg4",
             required=False,
             sources=[CliFlagSource("--system-prompt")],
             default_value="You are a helpful assistant.",
@@ -725,13 +725,13 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
     ]
     with_default = [a.media_urn for a in rest if a.default_value is not None]
 
-    assert main_inputs == ["media:enc=utf-8;file-path"], \
+    assert main_inputs == ["media:enc=utf8;file-path"], \
         "exactly one arg must be the main input"
-    assert required_without_default == ["media:enc=utf-8;question"]
+    assert required_without_default == ["media:enc=utf8;question"]
     assert with_default == [
         "media:max-tokens;numeric",
         "media:numeric;temperature",
-        "media:enc=utf-8;system-prompt",
+        "media:enc=utf8;system-prompt",
     ]
 
 
@@ -740,20 +740,20 @@ def test_7104_multi_arg_cap_exactly_one_main_input_and_partition_of_rest():
 def test_8065_sequence_shape_uses_main_input_identity_not_argument_order():
     cap = Cap.with_args(
         CapUrn.from_string(
-            'cap:in="media:enc=utf-8";ordered;out="media:enc=utf-8;result"'
+            'cap:in="media:enc=utf8";ordered;out="media:enc=utf8;result"'
         ),
         "Ordered args",
         ["ordered"],
         [
             CapArg(
-                media_urn="media:enc=utf-8;context", name="input",
+                media_urn="media:enc=utf8;context", name="input",
                 required=False,
-                sources=[StdinSource("media:enc=utf-8;context")],
+                sources=[StdinSource("media:enc=utf8;context")],
             ),
             CapArg(
-                media_urn="media:enc=utf-8", name="arg1",
+                media_urn="media:enc=utf8", name="arg1",
                 required=True,
-                sources=[StdinSource("media:enc=utf-8")],
+                sources=[StdinSource("media:enc=utf8")],
                 is_sequence=True,
             ),
         ],
@@ -777,19 +777,19 @@ def test_8066_void_input_sequence_shape_is_scalar_without_arguments():
 # key names the other implementations read.
 def test_7150_cap_output_survives_serialization_roundtrip():
     cap = Cap(
-        CapUrn.from_string('cap:in="media:enc=utf-8;in";out="media:enc=utf-8;tag";tag'),
+        CapUrn.from_string('cap:in="media:enc=utf8;in";out="media:enc=utf8;tag";tag'),
         "tag",
         ["tag"],
     )
     cap.add_output(CapOutput(
-        media_urn="media:enc=utf-8;tag", name="output",
+        media_urn="media:enc=utf8;tag", name="output",
         output_description="One of 'positive', 'neutral', or 'negative'.",
     ))
 
     encoded = cap.to_dict()
     assert "outputs" in encoded, "a cap that declares an output must serialize it"
     assert len(encoded["outputs"]) == 1
-    assert encoded["outputs"][0]["media_urn"] == "media:enc=utf-8;tag"
+    assert encoded["outputs"][0]["media_urn"] == "media:enc=utf8;tag"
     assert encoded["outputs"][0]["name"] == "output"
     assert encoded["outputs"][0]["optional"] is False, "`optional` is written even when false"
     assert "carries" not in encoded["outputs"][0], "an output that carries its own type says nothing"
@@ -797,7 +797,7 @@ def test_7150_cap_output_survives_serialization_roundtrip():
 
     back = Cap.from_dict(json.loads(json.dumps(encoded)))
     assert back.main_output() is not None, "output survives the round-trip"
-    assert back.main_output().media_urn == "media:enc=utf-8;tag"
+    assert back.main_output().media_urn == "media:enc=utf8;tag"
     assert back.main_output().name == "output"
     assert back.main_output().is_sequence is False
 
@@ -815,15 +815,15 @@ def test_7150_cap_output_survives_serialization_roundtrip():
 # test passes through.
 def test_7151_is_sequence_is_serialized_even_when_false():
     arg = CapArg(
-        media_urn="media:enc=utf-8;in", name="input",
+        media_urn="media:enc=utf8;in", name="input",
         required=True,
-        sources=[StdinSource("media:enc=utf-8;in")],
+        sources=[StdinSource("media:enc=utf8;in")],
     )
     arg_encoded = arg.to_dict()
     assert "is_sequence" in arg_encoded, "CapArg must write is_sequence even when false"
     assert arg_encoded["is_sequence"] is False
 
-    output = CapOutput(media_urn="media:enc=utf-8;tag", name="output", output_description="a tag")
+    output = CapOutput(media_urn="media:enc=utf8;tag", name="output", output_description="a tag")
     output_encoded = output.to_dict()
     assert "is_sequence" in output_encoded, "CapOutput must write is_sequence even when false"
     assert output_encoded["is_sequence"] is False
@@ -834,7 +834,7 @@ def test_1969_cap_dims_round_trip_in_order_and_refuse_what_they_cannot_hold():
     from capdag.fabric.dim import DimRef
 
     text = (
-        '{"urn":"cap:ask;constrained;in=\\"media:enc=utf-8\\";language=en;out=\\"media:enc=utf-8\\"",'
+        '{"urn":"cap:ask;constrained;in=\\"media:enc=utf8\\";language=en;out=\\"media:enc=utf8\\"",'
         '"version":3,"title":"Ask","aliases":["ask-en"],"documentation":"Only about asking.",'
         '"dims":[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]}'
     )

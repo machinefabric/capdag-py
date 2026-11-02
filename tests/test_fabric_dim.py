@@ -308,7 +308,7 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     for urn, spec_dims in (
         ("media:void", []),
         ("media:record", []),
-        ("media:enc=utf-8;spoken", [{"dim": "tone", "value": "formal"}]),
+        ("media:enc=utf8;spoken", [{"dim": "tone", "value": "formal"}]),
     ):
         normalized = normalize_media_urn(urn)
         registry.manifest.media[normalized] = 1
@@ -347,7 +347,7 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     )
     assert registry.get_cached_cap(mumbles) is None, "a cap whose dim lacks its value is not cached"
 
-    spoken = "media:enc=utf-8;spoken"
+    spoken = "media:enc=utf8;spoken"
     with pytest.raises(NotFoundError) as exc_info:
         await registry.get_media_def(spoken)
     assert str(exc_info.value) == (

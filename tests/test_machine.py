@@ -154,8 +154,8 @@ def test_1188_resolve_strand_no_cap_steps_fails_hard():
 # TEST1187: Strand resolution fails when a referenced cap is not found in the registry.
 def test_1187_unknown_cap_error_when_not_in_registry():
     reg = _registry_with([])  # empty registry
-    cap_urn = _cap_urn("cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\"")
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;ext=txt")]
+    cap_urn = _cap_urn("cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\"")
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8;ext=txt;plain-text")]
     wirings = [_wiring(cap_urn, [0], 1)]
     with pytest.raises(UnknownCapError) as exc_info:
         resolve_pre_interned(nodes, wirings, reg, 0)
@@ -164,12 +164,12 @@ def test_1187_unknown_cap_error_when_not_in_registry():
 
 # TEST1184: Resolving a strand with one cap produces one resolved machine edge.
 def test_1184_single_edge_strand_resolves_correctly():
-    cap_urn_str = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
     strand = _strand_with_cap_steps([
-        (cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
+        (cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
     ])
     ms = resolve_strand(strand, reg, 0)
 
@@ -180,29 +180,29 @@ def test_1184_single_edge_strand_resolves_correctly():
 
     # Input anchor should be media:document;ext=pdf
     assert ms.nodes()[ms.input_anchor_ids()[0]].is_equivalent(_media("media:document;ext=pdf"))
-    # Output anchor should be media:enc=utf-8;ext=txt
-    assert ms.nodes()[ms.output_anchor_ids()[0]].is_equivalent(_media("media:enc=utf-8;ext=txt"))
+    # Output anchor should be media:enc=utf8;ext=txt;plain-text
+    assert ms.nodes()[ms.output_anchor_ids()[0]].is_equivalent(_media("media:enc=utf8;ext=txt;plain-text"))
 
 
 # TEST6709: Resolving a strand with two chained caps shares the intermediate node.
 def test_6709_two_step_chain_shares_intermediate_node():
-    urn1 = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    urn1 = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:in=\"media:enc=utf8\";embed;out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
 
     strand = _strand_with_cap_steps([
-        (urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (urn2, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (urn2, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     ms = resolve_strand(strand, reg, 0)
 
     assert len(ms.edges()) == 2
     # In a chain: node 0=source, node 1=intermediate (shared), node 2=final output.
     # But the intermediate may be one node (reused) depending on is_comparable.
-    # media:enc=utf-8;ext=txt is_comparable to media:enc=utf-8 → reused.
-    # So: node 0=pdf, node 1=enc=utf-8;ext=txt (output of cap1, input refinement of cap2), node 2=vec;record
+    # media:enc=utf8;ext=txt;plain-text is_comparable to media:enc=utf8 → reused.
+    # So: node 0=pdf, node 1=enc=utf8;ext=txt (output of cap1, input refinement of cap2), node 2=vec;record
     assert len(ms.nodes()) == 3
 
     edge0 = ms.edges()[0]
@@ -218,11 +218,11 @@ def test_6709_two_step_chain_shares_intermediate_node():
 
 # TEST1155: Building a machine from one strand produces one strand with one resolved edge.
 def test_1155_from_strand_produces_single_strand_machine():
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
-    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
     m = Machine.from_strand(strand, reg)
 
     assert m.strand_count() == 1
@@ -232,14 +232,14 @@ def test_1155_from_strand_produces_single_strand_machine():
 
 # TEST1156: Building from multiple strands keeps them disjoint and preserves input strand order.
 def test_1156_from_strands_keeps_strands_disjoint():
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:embed;in=\"media:enc=utf8\";out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
 
-    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
-    s2 = _strand_with_cap_steps([(urn2, "media:enc=utf-8;ext=txt", "media:vec;record")])
+    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
+    s2 = _strand_with_cap_steps([(urn2, "media:enc=utf8;ext=txt;plain-text", "media:vec;record")])
     m = Machine.from_strands([s1, s2], reg)
 
     assert m.strand_count() == 2
@@ -260,14 +260,14 @@ def test_1157_from_strands_empty_raises_no_capability_steps():
 
 # TEST1158: Machine equivalence is strict about strand order and rejects reordered strands.
 def test_1158_machine_is_equivalent_strict_positional_order_matters():
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:embed;in=\"media:enc=utf8\";out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
 
-    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
-    s2 = _strand_with_cap_steps([(urn2, "media:enc=utf-8;ext=txt", "media:vec;record")])
+    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
+    s2 = _strand_with_cap_steps([(urn2, "media:enc=utf8;ext=txt;plain-text", "media:vec;record")])
 
     forward = Machine.from_strands([s1, s2], reg)
     reversed_ = Machine.from_strands([s2, s1], reg)
@@ -281,11 +281,11 @@ def test_1158_machine_is_equivalent_strict_positional_order_matters():
 
 # TEST1159: MachineStrand equivalence accepts two separately built but structurally identical strands.
 def test_1159_strand_is_equivalent_consistent_node_bijection():
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
-    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
     m1 = Machine.from_strand(strand, reg)
     m2 = Machine.from_strand(strand, reg)
 
@@ -296,7 +296,7 @@ def test_1159_strand_is_equivalent_consistent_node_bijection():
 def test_6703_match_sources_to_args_single_trivial():
     sources = [_media("media:document;ext=pdf")]
     args = [_media("media:document;ext=pdf")]
-    cap_urn_str = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
+    cap_urn_str = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\""
 
     pairs = _match(sources, args)
 
@@ -307,27 +307,27 @@ def test_6703_match_sources_to_args_single_trivial():
 
 # TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
 def test_1179_match_sources_more_specific_source_matches_general_arg():
-    sources = [_media("media:enc=utf-8;page")]
-    args = [_media("media:enc=utf-8")]
+    sources = [_media("media:enc=utf8;page")]
+    args = [_media("media:enc=utf8")]
     pairs = _match(sources, args)
     assert len(pairs) == 1
-    assert pairs[0][0].is_equivalent(_media("media:enc=utf-8"))
-    assert pairs[0][1].is_equivalent(_media("media:enc=utf-8;page"))
+    assert pairs[0][0].is_equivalent(_media("media:enc=utf8"))
+    assert pairs[0][1].is_equivalent(_media("media:enc=utf8;page"))
 
 
 # TEST1180: Matching fails when a source does not conform to any cap input argument.
 def test_1180_match_sources_unmatched_source_fails_hard():
     sources = [_media("media:numeric")]
-    args = [_media("media:enc=utf-8")]
-    cap_urn_str = "cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\""
+    args = [_media("media:enc=utf8")]
+    cap_urn_str = "cap:in=\"media:enc=utf8\";t;out=\"media:enc=utf8\""
 
     failure = _refused(sources, args)
     assert not failure.ambiguous
     assert failure.source == 0, "unmatched source must fail hard"
 
     # It is the source that fits nothing that is named, wherever it stands.
-    sources = [_media("media:enc=utf-8;page"), _media("media:numeric")]
-    args = [_media("media:enc=utf-8"), _media("media:enc=utf-8;page")]
+    sources = [_media("media:enc=utf8;page"), _media("media:numeric")]
+    args = [_media("media:enc=utf8"), _media("media:enc=utf8;page")]
     failure = _refused(sources, args)
     assert (failure.ambiguous, failure.source) == (False, 1)
 
@@ -335,9 +335,9 @@ def test_1180_match_sources_unmatched_source_fails_hard():
 # TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost.
 def test_1182_match_sources_ambiguous_raises_ambiguous_error():
     # Two sources both conform equally to both args at the same distance.
-    sources = [_media("media:enc=utf-8"), _media("media:enc=utf-8")]
-    args = [_media("media:enc=utf-8"), _media("media:enc=utf-8")]
-    cap_urn_str = "cap:in=\"media:enc=utf-8\";t;out=\"media:enc=utf-8\""
+    sources = [_media("media:enc=utf8"), _media("media:enc=utf8")]
+    args = [_media("media:enc=utf8"), _media("media:enc=utf8")]
+    cap_urn_str = "cap:in=\"media:enc=utf8\";t;out=\"media:enc=utf8\""
 
     # Both are left open, and each could go to either arg.
     failure = _refused(sources, args)
@@ -346,7 +346,7 @@ def test_1182_match_sources_ambiguous_raises_ambiguous_error():
 
     # Only the sources the tie is about are named: a third that fits one arg
     # alone is decided, whatever the other two do.
-    text, number = _media("media:enc=utf-8"), _media("media:numeric")
+    text, number = _media("media:enc=utf8"), _media("media:numeric")
     failure = _refused([text, number, text], [text, text, number])
     assert failure.ambiguous
     assert failure.undecided == [(0, [0, 1]), (2, [0, 1])]
@@ -358,14 +358,14 @@ def test_1308_cyclic_strand_fails_hard():
 
     Cycle: node 0 → cap A → node 1 → cap B → node 0
     """
-    urn_a = "cap:in=\"media:document;ext=pdf\";op-a;out=\"media:enc=utf-8;ext=txt\""
-    urn_b = "cap:in=\"media:enc=utf-8;ext=txt\";op-b;out=\"media:document;ext=pdf\""
+    urn_a = "cap:in=\"media:document;ext=pdf\";op-a;out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn_b = "cap:in=\"media:enc=utf8;ext=txt;plain-text\";op-b;out=\"media:document;ext=pdf\""
 
-    cap_a = _simple_cap(urn_a, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap_b = _simple_cap(urn_b, "media:enc=utf-8;ext=txt", "media:document;ext=pdf")
+    cap_a = _simple_cap(urn_a, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap_b = _simple_cap(urn_b, "media:enc=utf8;ext=txt;plain-text", "media:document;ext=pdf")
     reg = _registry_with([cap_a, cap_b])
 
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;ext=txt")]
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8;ext=txt;plain-text")]
     # node 0 -> cap_a -> node 1  and  node 1 -> cap_b -> node 0 (cycle)
     wirings = [
         _wiring(_cap_urn(urn_a), [0], 1),
@@ -395,7 +395,7 @@ def test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
     reg = _registry_with([])  # empty — no caps loaded
 
     notation = (
-        "[extract cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\"]\n"
+        "[extract cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\"]\n"
         "[doc -> extract -> text]"
     )
 
@@ -410,8 +410,8 @@ def test_1165_parse_machine_unknown_cap_raises_parse_error_with_abstraction_caus
 
 # TEST1309: Parsing a single-cap machine notation produces one strand with one edge.
 def test_1309_parse_machine_single_wiring_one_strand():
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
     notation = (
@@ -428,10 +428,10 @@ def test_1309_parse_machine_single_wiring_one_strand():
 
 # TEST1164: Parsing two disconnected strand definitions yields two separate machine strands.
 def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:in=media:image;caption;out=\"media:enc=utf-8;ext=txt\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:image", "media:enc=utf-8;ext=txt")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:in=media:image;caption;out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:image", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap1, cap2])
 
     # Two fully disconnected wirings (no shared node names).
@@ -452,10 +452,10 @@ def test_1164_parse_machine_disconnected_wirings_become_separate_strands():
 # =============================================================================
 
 def test_6698_parse_machine_shared_node_name_yields_one_strand():
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:embed;in=\"media:enc=utf8\";out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
 
     # "text" node is shared between the two wirings.
@@ -481,30 +481,30 @@ def test_6713_binding_slot_identity_is_outer_media_urn():
     not the stdin inner URN.
 
     This tests the slot-vs-stdin distinction: a cap arg may have
-    media_urn="media:enc=utf-8;file-path" with stdin="media:document;ext=pdf".
+    media_urn="media:enc=utf8;file-path" with stdin="media:document;ext=pdf".
     The binding must record the slot identity, not the stdin type.
     """
-    cap_urn_str = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
+    cap_urn_str = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf8;page\""
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "Disbind", ["disbind"], "disbinds a PDF")
-    # slot identity = "media:enc=utf-8;file-path", stdin = "media:document;ext=pdf"
+    # slot identity = "media:enc=utf8;file-path", stdin = "media:document;ext=pdf"
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.add_output(CapOutput("media:enc=utf-8;page", "output", "page output"))
+    cap.add_output(CapOutput("media:enc=utf8;page", "output", "page output"))
     reg = _registry_with([cap])
 
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;page")]
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8;page")]
     wirings = [_wiring(_cap_urn(cap_urn_str), [0], 1)]
 
     ms = resolve_pre_interned(nodes, wirings, reg, 0)
     assert len(ms.edges()) == 1
     binding = ms.edges()[0].assignment[0]
 
-    # Slot identity must be the outer media_urn ("media:enc=utf-8;file-path")
-    assert binding.cap_arg_media_urn.is_equivalent(_media("media:enc=utf-8;file-path"))
+    # Slot identity must be the outer media_urn ("media:enc=utf8;file-path")
+    assert binding.cap_arg_media_urn.is_equivalent(_media("media:enc=utf8;file-path"))
     # Source NodeId must be 0
     assert not binding.source.is_constant
     assert binding.source.node == 0
@@ -521,14 +521,14 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
     The NodeBijection check requires URN-level is_equivalent at both ends of
     every mapped NodeId pair.
     """
-    urn_extract = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn_summarize = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=md\""
-    cap_e = _simple_cap(urn_extract, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap_s = _simple_cap(urn_summarize, "media:document;ext=pdf", "media:enc=utf-8;ext=md")
+    urn_extract = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn_summarize = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=md;plain-text\""
+    cap_e = _simple_cap(urn_extract, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap_s = _simple_cap(urn_summarize, "media:document;ext=pdf", "media:enc=utf8;ext=md;plain-text")
     reg = _registry_with([cap_e, cap_s])
 
-    strand_e = _strand_with_cap_steps([(urn_extract, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
-    strand_s = _strand_with_cap_steps([(urn_summarize, "media:document;ext=pdf", "media:enc=utf-8;ext=md")])
+    strand_e = _strand_with_cap_steps([(urn_extract, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
+    strand_s = _strand_with_cap_steps([(urn_summarize, "media:document;ext=pdf", "media:enc=utf8;ext=md;plain-text")])
 
     m1 = Machine.from_strand(strand_e, reg)
     m2 = Machine.from_strand(strand_s, reg)
@@ -538,8 +538,8 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 
     # The same step over nodes that differ in one URN: the steps alone do not
     # make two strands one.
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;ext=txt")]
-    scanned = [_media("media:document;ext=pdf;scanned"), _media("media:enc=utf-8;ext=txt")]
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8;ext=txt;plain-text")]
+    scanned = [_media("media:document;ext=pdf;scanned"), _media("media:enc=utf8;ext=txt;plain-text")]
     plain = resolve_pre_interned(nodes, [_wiring(_cap_urn(urn_extract), [0], 1)], reg, 0)
     other = resolve_pre_interned(scanned, [_wiring(_cap_urn(urn_extract), [0], 1)], reg, 0)
     assert not plain.is_equivalent(other)
@@ -554,30 +554,30 @@ def test_1310_strand_equivalence_rejects_mismatched_node_urns():
 # =============================================================================
 
 def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
-    split_urn = "cap:in=\"media:list;enc=utf-8\";split;out=\"media:enc=utf-8\""
-    embed_urn = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
-    splitter = _simple_cap(split_urn, "media:list;enc=utf-8", "media:enc=utf-8")
+    split_urn = "cap:in=\"media:list;enc=utf8\";split;out=\"media:enc=utf8\""
+    embed_urn = "cap:in=\"media:enc=utf8\";embed;out=\"media:vec;record\""
+    splitter = _simple_cap(split_urn, "media:list;enc=utf8", "media:enc=utf8")
     splitter.main_output().is_sequence = True
-    embed = _simple_cap(embed_urn, "media:enc=utf-8", "media:vec;record")
+    embed = _simple_cap(embed_urn, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([splitter, embed])
 
     split_step = StrandStep(
         step_type=StrandStepType.CAP,
-        from_spec=_media("media:list;enc=utf-8"),
-        to_spec=_media("media:enc=utf-8"),
+        from_spec=_media("media:list;enc=utf8"),
+        to_spec=_media("media:enc=utf8"),
         cap_urn=_cap_urn(split_urn),
-        inputs=[CapInput(arg_urn=_media("media:list;enc=utf-8"), source=ArgSourceRef.strand_input())],
+        inputs=[CapInput(arg_urn=_media("media:list;enc=utf8"), source=ArgSourceRef.strand_input())],
     )
     embed_step = StrandStep(
         step_type=StrandStepType.CAP,
-        from_spec=_media("media:enc=utf-8"),
+        from_spec=_media("media:enc=utf8"),
         to_spec=_media("media:vec;record"),
         cap_urn=_cap_urn(embed_urn),
-        inputs=[CapInput(arg_urn=_media("media:enc=utf-8"), source=ArgSourceRef.step(split_step.token_id))],
+        inputs=[CapInput(arg_urn=_media("media:enc=utf8"), source=ArgSourceRef.step(split_step.token_id))],
     )
     strand = Strand(
         steps=[split_step, embed_step],
-        source_media_urn=_media("media:list;enc=utf-8"),
+        source_media_urn=_media("media:list;enc=utf8"),
         target_media_urn=_media("media:vec;record"),
         total_steps=2,
         cap_step_count=2,
@@ -597,8 +597,8 @@ def test_6710_resolve_strand_foreach_sets_is_loop_on_next_cap():
 # =============================================================================
 
 def test_1311_machine_from_string_delegates_to_parse_machine():
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
     notation = (
@@ -636,14 +636,14 @@ def test_6689_abstraction_error_subclass_hierarchy():
 
 def test_1135_strand_node_urn_accessor():
     """TEST1135: MachineStrand.node_urn(id) returns the MediaUrn at that NodeId."""
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
-    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
     ms = Machine.from_strand(strand, reg).strands()[0]
 
-    # There are exactly 2 nodes: source (pdf) and target (enc=utf-8;ext=txt)
+    # There are exactly 2 nodes: source (pdf) and target (enc=utf8;ext=txt)
     for nid in range(len(ms.nodes())):
         urn = ms.node_urn(nid)
         assert isinstance(urn, MediaUrn)
@@ -673,14 +673,14 @@ def test_6691_two_strand_machine_serializes_to_notation():
     """TEST6691: Machine with two strands serializes to a non-empty notation string."""
     import capdag.machine.serializer  # ensure methods are attached
 
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:in=media:image;caption;out=\"media:enc=utf-8;ext=txt\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:image", "media:enc=utf-8;ext=txt")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:in=media:image;caption;out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:image", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap1, cap2])
 
-    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
-    s2 = _strand_with_cap_steps([(urn2, "media:image", "media:enc=utf-8;ext=txt")])
+    s1 = _strand_with_cap_steps([(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
+    s2 = _strand_with_cap_steps([(urn2, "media:image", "media:enc=utf8;ext=txt;plain-text")])
     m = Machine.from_strands([s1, s2], reg)
 
     notation = m.to_machine_notation()
@@ -702,25 +702,25 @@ def test_6692_assignment_bindings_sorted_by_slot_urn():
     different binding orderings. Assert the bindings are always sorted.
     """
     # Cap with two stdin args in reverse alphabetical slot order
-    cap_urn_str = "cap:in=\"media:document;ext=pdf\";merge;out=\"media:enc=utf-8;ext=txt\""
+    cap_urn_str = "cap:in=\"media:document;ext=pdf\";merge;out=\"media:enc=utf8;ext=txt;plain-text\""
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "Merge", ["merge"], "merge two inputs")
     # Slot B comes before A alphabetically; add them in B, A order.
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8", name="input",      # slot: enc=utf-8 (later alphabetically)
+        media_urn="media:enc=utf8", name="input",      # slot: enc=utf8 (later alphabetically)
         required=True,
-        sources=[StdinSource("media:enc=utf-8")],
+        sources=[StdinSource("media:enc=utf8")],
     ))
     cap.add_arg(CapArg(
         media_urn="media:document;ext=pdf", name="arg1",            # slot: pdf (earlier alphabetically)
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.add_output(CapOutput("media:enc=utf-8;ext=txt", "output", "merged output"))
+    cap.add_output(CapOutput("media:enc=utf8;ext=txt;plain-text", "output", "merged output"))
     reg = _registry_with([cap])
 
-    # Two source nodes: node 0 = pdf, node 1 = enc=utf-8
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8"), _media("media:enc=utf-8;ext=txt")]
+    # Two source nodes: node 0 = pdf, node 1 = enc=utf8
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8"), _media("media:enc=utf8;ext=txt;plain-text")]
     wirings = [_wiring(_cap_urn(cap_urn_str), [0, 1], 2)]
 
     ms = resolve_pre_interned(nodes, wirings, reg, 0)
@@ -765,7 +765,7 @@ def test_1148_machine_parse_error_from_syntax_preserves_variant():
 # TEST1149: MachineParseError::from(MachineAbstractionError) preserves the resolution error variant
 def test_1149_machine_parse_error_from_resolution_preserves_variant():
     def undecided(node: str) -> UndecidedMember:
-        return UndecidedMember(node=node, source_urn="media:enc=utf-8", could_be=("left", "right"))
+        return UndecidedMember(node=node, source_urn="media:enc=utf8", could_be=("left", "right"))
 
     ambiguous = AmbiguousMachineNotationError(
         2, "cap:in=\"media:document;ext=pdf\";out=media:text", [undecided("a"), undecided("")]
@@ -778,19 +778,19 @@ def test_1149_machine_parse_error_from_resolution_preserves_variant():
     assert parse_err.cause.cap_urn == "cap:in=\"media:document;ext=pdf\";out=media:text"
     # What it says is which members to name, and what each could be.
     assert str(parse_err).endswith(
-        "name them: 'a' (media:enc=utf-8) could be left or right; "
-        "a member of type 'media:enc=utf-8' could be left or right"
+        "name them: 'a' (media:enc=utf8) could be left or right; "
+        "a member of type 'media:enc=utf8' could be left or right"
     ), str(parse_err)
     assert len(parse_err.cause.members) == 2, "the members are carried"
 
 
-_URN_EXTRACT = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'
-_URN_EMBED = 'cap:embed;in="media:enc=utf-8";out="media:vec;record"'
+_URN_EXTRACT = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"'
+_URN_EMBED = 'cap:embed;in="media:enc=utf8";out="media:vec;record"'
 
 
 def _pdf_extract_embed_registry() -> "FabricRegistry":
-    cap_e = _simple_cap(_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap_b = _simple_cap(_URN_EMBED, "media:enc=utf-8", "media:vec;record")
+    cap_e = _simple_cap(_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap_b = _simple_cap(_URN_EMBED, "media:enc=utf8", "media:vec;record")
     return _registry_with([cap_e, cap_b])
 
 
@@ -839,25 +839,25 @@ def test_1168_parse_node_alias_collision_with_header_alias_fails_hard():
 def test_1169_sequence_into_scalar_cap_derives_is_loop():
     # Producer: scalar text -> SEQUENCE of items.
     splitter = _build_cap(
-        "cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"",
+        "cap:in=\"media:enc=utf8\";split;out=\"media:enc=utf8;item\"",
         "split",
-        ["media:enc=utf-8"],
-        ["media:enc=utf-8"],
-        "media:enc=utf-8;item",
+        ["media:enc=utf8"],
+        ["media:enc=utf8"],
+        "media:enc=utf8;item",
     )
     splitter.main_output().is_sequence = True
     # Consumer: scalar item -> scalar text.
     texter = _build_cap(
-        "cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"",
+        "cap:in=\"media:enc=utf8;item\";t;out=\"media:enc=utf8\"",
         "t",
-        ["media:enc=utf-8;item"],
-        ["media:enc=utf-8;item"],
-        "media:enc=utf-8",
+        ["media:enc=utf8;item"],
+        ["media:enc=utf8;item"],
+        "media:enc=utf8",
     )
     reg = _registry_with([splitter, texter])
     notation = (
-        "[split cap:in=\"media:enc=utf-8\";split;out=\"media:enc=utf-8;item\"]"
-        "[t cap:in=\"media:enc=utf-8;item\";t;out=\"media:enc=utf-8\"]"
+        "[split cap:in=\"media:enc=utf8\";split;out=\"media:enc=utf8;item\"]"
+        "[t cap:in=\"media:enc=utf8;item\";t;out=\"media:enc=utf8\"]"
         "[a -> split -> items]"
         "[items -> t -> b]"
     )
@@ -902,8 +902,8 @@ def test_1172_serialize_two_step_strand_emits_global_aliases_and_node_names():
     import capdag.machine.serializer  # ensure methods are attached
     reg = _pdf_extract_embed_registry()
     strand = _strand_with_cap_steps([
-        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (_URN_EMBED, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (_URN_EMBED, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     machine = Machine.from_strand(strand, reg)
     notation = machine.to_machine_notation()
@@ -920,8 +920,8 @@ def test_1173_serialize_then_parse_round_trip_preserves_strict_equivalence():
     import capdag.machine.serializer  # ensure methods are attached
     reg = _pdf_extract_embed_registry()
     strand = _strand_with_cap_steps([
-        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (_URN_EMBED, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (_URN_EMBED, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     m1 = Machine.from_strand(strand, reg)
     notation = m1.to_machine_notation()
@@ -937,8 +937,8 @@ def test_1174_line_based_format_round_trips_to_same_machine():
     import capdag.machine.serializer  # ensure methods are attached
     reg = _pdf_extract_embed_registry()
     strand = _strand_with_cap_steps([
-        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (_URN_EMBED, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (_URN_EXTRACT, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (_URN_EMBED, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     m1 = Machine.from_strand(strand, reg)
     line_based = m1.to_machine_notation_formatted("line-based")
@@ -964,14 +964,14 @@ def test_1176_render_payload_json_includes_strand_with_anchors():
     from capdag.machine.error import UncachedCapError, UncachedMediaDefError
 
     import capdag.machine.serializer  # ensure to_render_payload_json is attached
-    extract_urn = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    embed_urn = "cap:embed;in=\"media:enc=utf-8;ext=txt\";out=\"media:record;vec\""
-    cap_e = _simple_cap(extract_urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap_s = _simple_cap(embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record")
+    extract_urn = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    embed_urn = "cap:embed;in=\"media:enc=utf8;ext=txt;plain-text\";out=\"media:record;vec\""
+    cap_e = _simple_cap(extract_urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap_s = _simple_cap(embed_urn, "media:enc=utf8;ext=txt;plain-text", "media:vec;record")
     reg = _registry_with([cap_e, cap_s])
     strand = _strand_with_cap_steps([
-        (extract_urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (extract_urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (embed_urn, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     machine = Machine.from_strand(strand, reg)
     # No media definition is cached: there is no title for the first node.
@@ -979,7 +979,7 @@ def test_1176_render_payload_json_includes_strand_with_anchors():
         machine.to_render_payload_json(reg)
     titles = {
         "media:document;ext=pdf": "PDF",
-        "media:enc=utf-8;ext=txt": "Plain Text",
+        "media:enc=utf8;ext=txt;plain-text": "Plain Text",
         "media:vec;record": "Vector",
     }
     for urn, title in titles.items():
@@ -1016,9 +1016,9 @@ def test_1177_render_payload_for_empty_machine_has_empty_strands_array():
 
 # TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
 def test_1181_match_two_sources_disambiguated_by_specificity():
-    urn = "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf-8;image-description\""
-    sources = [_media("media:ext=png;image"), _media("media:enc=utf-8;model-spec")]
-    args = [_media("media:ext=png;image"), _media("media:enc=utf-8")]
+    urn = "cap:in=\"media:ext=png;image\";describe;out=\"media:enc=utf8;image-description\""
+    sources = [_media("media:ext=png;image"), _media("media:enc=utf8;model-spec")]
+    args = [_media("media:ext=png;image"), _media("media:enc=utf8")]
     pairs = _match(sources, args)
     assert len(pairs) == 2
     found_image = False
@@ -1027,8 +1027,8 @@ def test_1181_match_two_sources_disambiguated_by_specificity():
         if arg.is_equivalent(_media("media:ext=png;image")):
             assert src.is_equivalent(_media("media:ext=png;image"))
             found_image = True
-        elif arg.is_equivalent(_media("media:enc=utf-8")):
-            assert src.is_equivalent(_media("media:enc=utf-8;model-spec"))
+        elif arg.is_equivalent(_media("media:enc=utf8")):
+            assert src.is_equivalent(_media("media:enc=utf8;model-spec"))
             found_text = True
     assert found_image and found_text, "both arg slots must be assigned"
 
@@ -1048,9 +1048,9 @@ def test_1181_match_two_sources_disambiguated_by_specificity():
 
     # One source that fits two args takes the one it is closest to, whichever
     # of the two is tried first.
-    general, exact = _media("media:enc=utf-8"), _media("media:enc=utf-8;page")
+    general, exact = _media("media:enc=utf8"), _media("media:enc=utf8;page")
     for either in ([general, exact], [exact, general]):
-        pairs = _match([_media("media:enc=utf-8;page")], either)
+        pairs = _match([_media("media:enc=utf8;page")], either)
         assert len(pairs) == 1
         assert pairs[0][0].is_equivalent(exact), \
             f"the exact arg, not the general one: {pairs[0][0]}"
@@ -1073,10 +1073,10 @@ def test_1183_match_more_sources_than_args_fails_hard():
 
 # TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs.
 def test_1189_resolve_strand_canonical_anchor_order_is_stable():
-    urn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'
-    cap = _simple_cap(urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    urn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"'
+    cap = _simple_cap(urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
-    strand = _strand_with_cap_steps([(urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
+    strand = _strand_with_cap_steps([(urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
     r1 = resolve_strand(strand, reg, 0)
     r2 = resolve_strand(strand, reg, 0)
     i1 = r1.input_anchors()
@@ -1114,11 +1114,11 @@ def test_1190_resolve_strand_inverse_format_converters_no_cycle():
 # TEST1160: Creating a MachineRun stores the canonical notation and starts in the pending state.
 def test_1160_machine_run_new_stores_canonical_notation():
     import capdag.machine.serializer  # ensure to_machine_notation is attached
-    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
+    cap_urn_str = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    cap = _simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
     reg = _registry_with([cap])
 
-    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
     machine = Machine.from_strand(strand, reg)
     canonical = machine.to_machine_notation()
     run = MachineRun.new("run-id-1", machine, strand)
@@ -1129,10 +1129,10 @@ def test_1160_machine_run_new_stores_canonical_notation():
 
 # TEST1163: Parsing one connected strand yields a single machine strand with both caps connected by the shared node.
 def test_1163_parse_single_strand_two_caps_connected_via_shared_node():
-    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    urn2 = "cap:embed;in=\"media:enc=utf-8\";out=\"media:vec;record\""
-    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    cap2 = _simple_cap(urn2, "media:enc=utf-8", "media:vec;record")
+    urn1 = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn2 = "cap:embed;in=\"media:enc=utf8\";out=\"media:vec;record\""
+    cap1 = _simple_cap(urn1, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    cap2 = _simple_cap(urn2, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([cap1, cap2])
 
     notation = (
@@ -1164,15 +1164,15 @@ def test_1178_match_single_source_picks_unique_arg():
 
 # TEST1185: Resolving a chained strand reuses the intermediate node between adjacent caps.
 def test_1185_resolve_strand_chained_caps_share_intermediate_node():
-    urn_extract = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf-8;ext=txt\""
-    urn_embed = "cap:in=\"media:enc=utf-8\";embed;out=\"media:vec;record\""
-    extract = _simple_cap(urn_extract, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    embed = _simple_cap(urn_embed, "media:enc=utf-8", "media:vec;record")
+    urn_extract = "cap:in=\"media:document;ext=pdf\";extract;out=\"media:enc=utf8;ext=txt;plain-text\""
+    urn_embed = "cap:in=\"media:enc=utf8\";embed;out=\"media:vec;record\""
+    extract = _simple_cap(urn_extract, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    embed = _simple_cap(urn_embed, "media:enc=utf8", "media:vec;record")
     reg = _registry_with([extract, embed])
 
     strand = _strand_with_cap_steps([
-        (urn_extract, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (urn_embed, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (urn_extract, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (urn_embed, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
 
     resolved = resolve_strand(strand, reg, 0)
@@ -1200,43 +1200,43 @@ def test_1185_resolve_strand_chained_caps_share_intermediate_node():
 # make_decision consumes a scalar page, so make_decision's edge maps per item.
 # The trailing Collect step is also elided.
 def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
-    urn_disbind = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
-    urn_decision = "cap:in=\"media:enc=utf-8\";make-decision;out=\"media:decision;fmt=json;record\""
-    disbind = _simple_cap(urn_disbind, "media:document;ext=pdf", "media:enc=utf-8;page")
+    urn_disbind = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf8;page\""
+    urn_decision = "cap:in=\"media:enc=utf8\";make-decision;out=\"media:decision;enc=utf8;fmt=json;record\""
+    disbind = _simple_cap(urn_disbind, "media:document;ext=pdf", "media:enc=utf8;page")
     disbind.main_output().is_sequence = True
-    make_decision = _simple_cap(urn_decision, "media:enc=utf-8", "media:decision;fmt=json;record")
+    make_decision = _simple_cap(urn_decision, "media:enc=utf8", "media:decision;enc=utf8;fmt=json;record")
     reg = _registry_with([disbind, make_decision])
 
     disbind_step = StrandStep(
         step_type=StrandStepType.CAP,
         from_spec=_media("media:document;ext=pdf"),
-        to_spec=_media("media:enc=utf-8;page"),
+        to_spec=_media("media:enc=utf8;page"),
         cap_urn=_cap_urn(urn_disbind),
         inputs=[CapInput(arg_urn=_media("media:document;ext=pdf"), source=ArgSourceRef.strand_input())],
     )
     foreach_step = StrandStep(
         step_type=StrandStepType.FOR_EACH,
-        from_spec=_media("media:enc=utf-8;page"),
-        to_spec=_media("media:enc=utf-8;page"),
-        media_def=_media("media:enc=utf-8;page"),
+        from_spec=_media("media:enc=utf8;page"),
+        to_spec=_media("media:enc=utf8;page"),
+        media_def=_media("media:enc=utf8;page"),
     )
     decision_step = StrandStep(
         step_type=StrandStepType.CAP,
-        from_spec=_media("media:enc=utf-8"),
-        to_spec=_media("media:decision;fmt=json;record"),
+        from_spec=_media("media:enc=utf8"),
+        to_spec=_media("media:decision;enc=utf8;fmt=json;record"),
         cap_urn=_cap_urn(urn_decision),
-        inputs=[CapInput(arg_urn=_media("media:enc=utf-8"), source=ArgSourceRef.step(disbind_step.token_id))],
+        inputs=[CapInput(arg_urn=_media("media:enc=utf8"), source=ArgSourceRef.step(disbind_step.token_id))],
     )
     collect_step = StrandStep(
         step_type=StrandStepType.COLLECT,
-        from_spec=_media("media:decision;fmt=json;record"),
-        to_spec=_media("media:decision;fmt=json;record"),
-        media_def=_media("media:decision;fmt=json;record"),
+        from_spec=_media("media:decision;enc=utf8;fmt=json;record"),
+        to_spec=_media("media:decision;enc=utf8;fmt=json;record"),
+        media_def=_media("media:decision;enc=utf8;fmt=json;record"),
     )
     strand = Strand(
         steps=[disbind_step, foreach_step, decision_step, collect_step],
         source_media_urn=_media("media:document;ext=pdf"),
-        target_media_urn=_media("media:decision;fmt=json;record"),
+        target_media_urn=_media("media:decision;enc=utf8;fmt=json;record"),
         total_steps=4,
         cap_step_count=2,
         description="disbind+foreach+make_decision",
@@ -1261,33 +1261,33 @@ def test_1186_resolve_strand_foreach_marks_following_cap_as_loop():
     assert disbind_target == decision_source, \
         "disbind target and make_decision source must share the same NodeId (positional interning)"
     # The canonical URN at that shared node must be the more-specific one.
-    assert resolved.node_urn(disbind_target).is_equivalent(_media("media:enc=utf-8;page")), \
-        f"shared node URN must be the more-specific media:enc=utf-8;page, got: {resolved.node_urn(disbind_target)}"
+    assert resolved.node_urn(disbind_target).is_equivalent(_media("media:enc=utf8;page")), \
+        f"shared node URN must be the more-specific media:enc=utf8;page, got: {resolved.node_urn(disbind_target)}"
 
 
 # TEST1191: Disbinding a PDF with a file-path slot preserves the expected identity of the slot binding.
 def test_1191_resolve_strand_disbind_pdf_with_file_path_slot_identity():
     # A cap whose arg slot identity differs from its stdin source URN.
-    # slot identity = media:enc=utf-8;file-path, stdin source = media:document;ext=pdf.
-    cap_urn_str = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf-8;page\""
+    # slot identity = media:enc=utf8;file-path, stdin source = media:document;ext=pdf.
+    cap_urn_str = "cap:in=\"media:document;ext=pdf\";disbind;out=\"media:enc=utf8;page\""
     urn = CapUrn.from_string(cap_urn_str)
     cap = Cap.with_description(urn, "disbind", ["disbind"], "disbind cap")
     cap.add_arg(CapArg(
-        media_urn="media:enc=utf-8;file-path", name="input",
+        media_urn="media:enc=utf8;file-path", name="input",
         required=True,
         sources=[StdinSource("media:document;ext=pdf")],
     ))
-    cap.add_output(CapOutput("media:enc=utf-8;page", "output", "page output"))
+    cap.add_output(CapOutput("media:enc=utf8;page", "output", "page output"))
     reg = _registry_with([cap])
 
-    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;page")])
+    strand = _strand_with_cap_steps([(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;page")])
 
     resolved = resolve_strand(strand, reg, 0)
     assert len(resolved.edges()) == 1
     binding = resolved.edges()[0].assignment[0]
 
     # The binding's cap_arg_media_urn must be the SLOT identity.
-    assert binding.cap_arg_media_urn.is_equivalent(_media("media:enc=utf-8;file-path")), \
+    assert binding.cap_arg_media_urn.is_equivalent(_media("media:enc=utf8;file-path")), \
         f"binding cap_arg_media_urn must be the slot identity, got: {binding.cap_arg_media_urn}"
 
     # The source NodeId must point at a node whose URN is media:document;ext=pdf.
@@ -1305,10 +1305,10 @@ def test_1196_aliased_serialization_uses_alias_and_round_trips():
     import capdag.machine.serializer  # ensure aliased serializer is attached
     from capdag.fabric.registry import StoredAlias
 
-    extract_urn = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf-8;ext=txt\""
-    embed_urn = "cap:embed;in=\"media:enc=utf-8;ext=txt\";out=\"media:vec;record\""
-    extract_cap = _simple_cap(extract_urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")
-    embed_cap = _simple_cap(embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record")
+    extract_urn = "cap:extract;in=\"media:document;ext=pdf\";out=\"media:enc=utf8;ext=txt;plain-text\""
+    embed_urn = "cap:embed;in=\"media:enc=utf8;ext=txt;plain-text\";out=\"media:vec;record\""
+    extract_cap = _simple_cap(extract_urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")
+    embed_cap = _simple_cap(embed_urn, "media:enc=utf8;ext=txt;plain-text", "media:vec;record")
     reg = _registry_with([extract_cap, embed_cap])
 
     # Two aliases on the extract cap; "ex" is shorter than "extract-pdf".
@@ -1317,8 +1317,8 @@ def test_1196_aliased_serialization_uses_alias_and_round_trips():
     # No alias for the embed cap -> it must stay a raw URN.
 
     strand = _strand_with_cap_steps([
-        (extract_urn, "media:document;ext=pdf", "media:enc=utf-8;ext=txt"),
-        (embed_urn, "media:enc=utf-8;ext=txt", "media:vec;record"),
+        (extract_urn, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text"),
+        (embed_urn, "media:enc=utf8;ext=txt;plain-text", "media:vec;record"),
     ])
     m1 = Machine.from_strand(strand, reg)
     aliased = m1.to_machine_notation_aliased(reg, "bracketed")
@@ -1359,11 +1359,11 @@ def test_1196_aliased_serialization_uses_alias_and_round_trips():
 def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
     from capdag.machine.error import DisconnectedStrandError
 
-    loose_urn = 'cap:in="media:enc=utf-8";count;out="media:count;numeric"'
-    tight_urn = 'cap:in="media:enc=utf-8;page";title;out="media:enc=utf-8;title"'
+    loose_urn = 'cap:in="media:enc=utf8";count;out="media:count;numeric"'
+    tight_urn = 'cap:in="media:enc=utf8;page";title;out="media:enc=utf8;title"'
     reg = _registry_with([
-        _simple_cap(loose_urn, "media:enc=utf-8", "media:count;numeric"),
-        _simple_cap(tight_urn, "media:enc=utf-8;page", "media:enc=utf-8;title"),
+        _simple_cap(loose_urn, "media:enc=utf8", "media:count;numeric"),
+        _simple_cap(tight_urn, "media:enc=utf8;page", "media:enc=utf8;title"),
     ])
 
     def step(cap_urn: str, from_urn: str, to_urn: str, source) -> StrandStep:
@@ -1387,10 +1387,10 @@ def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
 
     # Both steps take the strand's input; the second declares it more tightly.
     for first, second in (
-        ((loose_urn, "media:enc=utf-8", "media:count;numeric"),
-         (tight_urn, "media:enc=utf-8;page", "media:enc=utf-8;title")),
-        ((tight_urn, "media:enc=utf-8;page", "media:enc=utf-8;title"),
-         (loose_urn, "media:enc=utf-8", "media:count;numeric")),
+        ((loose_urn, "media:enc=utf8", "media:count;numeric"),
+         (tight_urn, "media:enc=utf8;page", "media:enc=utf8;title")),
+        ((tight_urn, "media:enc=utf8;page", "media:enc=utf8;title"),
+         (loose_urn, "media:enc=utf8", "media:count;numeric")),
     ):
         resolved = resolve_strand(
             strand_of([
@@ -1403,15 +1403,15 @@ def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
         assert len(resolved.nodes()) == 3, "the input once, and what each step makes"
         assert len(resolved.input_anchor_ids()) == 1
         anchor = resolved.input_anchor_ids()[0]
-        assert resolved.node_urn(anchor).is_equivalent(_media("media:enc=utf-8;page")), \
+        assert resolved.node_urn(anchor).is_equivalent(_media("media:enc=utf8;page")), \
             "the most specific type a step declares for it, whichever step comes first"
         for edge in resolved.edges():
             assert edge.source_nodes() == [anchor]
 
     # A producer that is no step of the strand.
-    orphan = step(loose_urn, "media:enc=utf-8", "media:count;numeric", ArgSourceRef.strand_input())
+    orphan = step(loose_urn, "media:enc=utf8", "media:count;numeric", ArgSourceRef.strand_input())
     reads_nothing = step(
-        tight_urn, "media:enc=utf-8;page", "media:enc=utf-8;title",
+        tight_urn, "media:enc=utf8;page", "media:enc=utf8;title",
         ArgSourceRef.step(StepToken.parse("no-such-step")),
     )
     with pytest.raises(DisconnectedStrandError) as exc_info:
@@ -1426,9 +1426,9 @@ def test_12837_the_resolver_refuses_names_a_definition_does_not_declare():
     from capdag.machine.error import UnknownArgNameError, UnknownOutputNameError
     from capdag.machine.graph import BindingSource
 
-    cap_urn_str = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'
-    reg = _registry_with([_simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf-8;ext=txt")])
-    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf-8;ext=txt")]
+    cap_urn_str = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"'
+    reg = _registry_with([_simple_cap(cap_urn_str, "media:document;ext=pdf", "media:enc=utf8;ext=txt;plain-text")])
+    nodes = [_media("media:document;ext=pdf"), _media("media:enc=utf8;ext=txt;plain-text")]
 
     def wiring(named, targets) -> PreInternedWiring:
         return PreInternedWiring(

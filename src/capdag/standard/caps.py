@@ -18,6 +18,7 @@ from capdag.urn.media_urn import (
     MEDIA_FABRIC_DEFVER,
     # Primitives
     MEDIA_STRING,
+    MEDIA_PLAIN_TEXT,
     MEDIA_INTEGER,
     MEDIA_NUMBER,
     MEDIA_BOOLEAN,
@@ -87,18 +88,18 @@ CAP_DISCARD = "cap:out=media:void"
 # Adapter-selection capability. Default implementation returns empty END (no match).
 # Cartridges that inspect file content override this with a handler
 # that returns {"media_urns": [...]}.
-CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;fmt=json;record"'
+CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;enc=utf8;fmt=json;record"'
 
 # Fabric registry lookup caps. Implemented by fetchcartridge.
 # CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
 # cap definition; CAP_LOOKUP_MEDIA_DEF_FABRIC does the same for media defs.
 CAP_LOOKUP_CAP_FABRIC = (
-    'cap:in="media:cap-urn;enc=utf-8";fabric;lookup-cap;'
-    'out="media:cap-definition;fmt=json;record"'
+    'cap:in="media:cap-urn;enc=utf8";fabric;lookup-cap;'
+    'out="media:cap-definition;enc=utf8;fmt=json;record"'
 )
 CAP_LOOKUP_MEDIA_DEF_FABRIC = (
-    'cap:in="media:enc=utf-8;media-urn";fabric;lookup-media-def;'
-    'out="media:fmt=json;media-definition;record"'
+    'cap:in="media:enc=utf8;media-urn";fabric;lookup-media-def;'
+    'out="media:enc=utf8;fmt=json;media-definition;record"'
 )
 
 
@@ -251,14 +252,15 @@ def all_coercion_paths() -> List[Tuple[str, str]]:
 
 
 def llm_generate_text_urn() -> str:
-    """Build URN for LLM text generation capability"""
+    """Build URN for LLM text generation capability: plain text in, a `.txt`
+    plain-text file out."""
     return (
         CapUrnBuilder()
-        .marker("generate_text")
-        .tag("llm", "*")
-        .tag("ml-model", "*")
-        .in_spec(MEDIA_STRING)
-        .out_spec(MEDIA_STRING)
+        .marker("generate-text")
+        .marker("llm")
+        .marker("ml-model")
+        .in_spec(MEDIA_PLAIN_TEXT)
+        .out_spec(MEDIA_TXT)
         .build()
         .to_string()
     )
@@ -285,7 +287,7 @@ def embeddings_generation_urn() -> CapUrn:
     return (
         CapUrnBuilder()
         .marker("generate_embeddings")
-        .in_spec(MEDIA_STRING)
+        .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_EMBEDDING_VECTOR)
         .build()
     )
@@ -506,7 +508,7 @@ def generate_json_urn(lang_code: str) -> CapUrn:
         .marker("generate_json")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
+        .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_JSON)
         .build()
     )
@@ -520,8 +522,8 @@ def same_urn(lang_code: str) -> CapUrn:
         .marker("same")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
-        .out_spec("media:fmt=json;record;semantic-judgment")
+        .in_spec(MEDIA_PLAIN_TEXT)
+        .out_spec("media:enc=utf8;fmt=json;record;semantic-judgment")
         .build()
     )
 
@@ -534,8 +536,8 @@ def _semantic_judgment_urn(marker: str, lang_code: str) -> CapUrn:
         .marker(marker)
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
-        .out_spec("media:fmt=json;record;semantic-judgment")
+        .in_spec(MEDIA_PLAIN_TEXT)
+        .out_spec("media:enc=utf8;fmt=json;record;semantic-judgment")
         .build()
     )
 
@@ -588,8 +590,8 @@ def summarize_urn(lang_code: str) -> CapUrn:
         .marker("summarize")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
-        .out_spec("media:enc=utf-8;ext=txt;plain-text")
+        .in_spec(MEDIA_PLAIN_TEXT)
+        .out_spec(MEDIA_TXT)
         .build()
     )
 
@@ -601,7 +603,7 @@ def make_decision_urn(lang_code: str) -> CapUrn:
         .marker("make_decision")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
+        .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_DECISION)
         .build()
     )
@@ -614,7 +616,7 @@ def make_multiple_decisions_urn(lang_code: str) -> CapUrn:
         .marker("make_multiple_decisions")
         .tag("language", lang_code)
         .tag("constrained", "*")
-        .in_spec(MEDIA_STRING)
+        .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_DECISION)
         .build()
     )

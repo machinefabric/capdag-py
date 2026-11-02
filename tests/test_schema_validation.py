@@ -421,13 +421,13 @@ async def test_6314_complex_nested_schema_validation(registry):
     }
 
     registry.add_spec(MediaDef(
-        urn="media:user-data;enc=utf-8;record",
+        urn="media:user-data;enc=utf8;record",
         media_type="application/json",
         title="User Data",
         schema=schema,
     ).to_stored())
 
-    arg = CapArg("media:user-data;enc=utf-8;record", "arg1", True, [PositionSource(0)])
+    arg = CapArg("media:user-data;enc=utf8;record", "arg1", True, [PositionSource(0)])
 
     valid = {
         "user": {
@@ -455,9 +455,9 @@ async def test_6317_media_urn_resolution_with_registry():
 
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp(prefix="capdag-fabric-")))
     for urn, mt in [
-        ("media:enc=utf-8", "text/plain"),
+        ("media:enc=utf8", "text/plain"),
         ("media:integer;numeric", "text/plain"),
-        ("media:fmt=json;record", "application/json"),
+        ("media:enc=utf8;fmt=json;record", "application/json"),
     ]:
         registry.add_spec(MediaDef(
             urn=urn,
@@ -465,7 +465,7 @@ async def test_6317_media_urn_resolution_with_registry():
             title=urn,
         ).to_stored())
 
-    resolved = await resolve_media_urn("media:enc=utf-8", registry)
+    resolved = await resolve_media_urn("media:enc=utf8", registry)
     assert resolved.media_type == "text/plain"
-    json_resolved = await resolve_media_urn("media:fmt=json;record", registry)
+    json_resolved = await resolve_media_urn("media:enc=utf8;fmt=json;record", registry)
     assert json_resolved.media_type == "application/json"
