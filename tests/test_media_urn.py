@@ -464,10 +464,10 @@ def test_558_predicate_constant_consistency():
     assert not bool_urn.is_numeric()
 
     # MEDIA_JSON is json, record, scalar (single object), NOT list.
-    # JSON declares its format via fmt=json and carries no enc= tag.
+    # JSON is characters, so it carries enc=utf8; fmt=json says how they are structured.
     json_urn = MediaUrn.from_string(MEDIA_JSON)
     assert json_urn.is_json()
-    assert json_urn.get_tag("enc") is None
+    assert json_urn.get_tag("enc") == "utf8"
     assert json_urn.is_record()
     assert json_urn.is_scalar()  # JSON object is a single value (scalar cardinality)
     assert not json_urn.is_list()
@@ -486,22 +486,27 @@ def test_852_lub_identical():
     assert lub.is_equivalent(pdf)
 
 
-# TEST853: LUB of URNs with no common tags returns media: (universal)
-def test_853_lub_no_common_tags():
+# TEST853: LUB promotes a shared key with differing values to "some value": both
+# inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator
+# generic caps like in="media:ext" accept — not the trivial media:. The image
+# marker is only on one side, so it is dropped.
+def test_853_lub_shared_key_promotes_to_wildcard():
     pdf = MediaUrn.from_string("media:document;ext=pdf")
     png = MediaUrn.from_string("media:ext=png;image")
     lub = MediaUrn.least_upper_bound([pdf, png])
-    universal = MediaUrn.from_string("media:")
-    assert lub.is_equivalent(universal), \
-        f"LUB of pdf and png should be media: but got {lub.to_string()}"
+    expected = MediaUrn.from_string("media:ext")
+    assert lub.is_equivalent(expected), \
+        f"LUB of ext=pdf and ext=png;image should be media:ext but got {lub.to_string()}"
+    assert pdf.conforms_to(lub)
+    assert png.conforms_to(lub)
 
 
-# TEST854: LUB keeps common tags, drops differing ones. Two text values with
-# differing serialization formats share their encoding but not their fmt.
+# TEST854: LUB keeps common tags, drops differing ones. Both inputs are UTF-8
+# text (shared enc=utf8) but differ in structure (list vs record).
 def test_854_lub_partial_overlap():
-    json_text = MediaUrn.from_string("media:enc=utf8;fmt=json")
-    csv_text = MediaUrn.from_string("media:enc=utf8;fmt=csv")
-    lub = MediaUrn.least_upper_bound([json_text, csv_text])
+    text_list = MediaUrn.from_string("media:enc=utf8;list")
+    text_record = MediaUrn.from_string("media:enc=utf8;record")
+    lub = MediaUrn.least_upper_bound([text_list, text_record])
     expected = MediaUrn.from_string("media:enc=utf8")
     assert lub.is_equivalent(expected), \
         f"LUB should be media:enc=utf8 but got {lub.to_string()}"
@@ -537,19 +542,22 @@ def test_858_lub_three_inputs():
     b = MediaUrn.from_string("media:enc=utf8;fmt=csv;list;record")
     c = MediaUrn.from_string("media:enc=utf8;fmt=ndjson;list")
     lub = MediaUrn.least_upper_bound([a, b, c])
-    expected = MediaUrn.from_string("media:list")
+    # All three are UTF-8 lists and all three HAVE a fmt (json/csv/ndjson —
+    # differing values → "some fmt"); record is on a and b only → dropped.
+    expected = MediaUrn.from_string("media:enc=utf8;fmt;list")
     assert lub.is_equivalent(expected), \
-        f"LUB should be media:list but got {lub.to_string()}"
+        f"LUB should be media:enc=utf8;fmt;list but got {lub.to_string()}"
+    assert a.conforms_to(lub) and b.conforms_to(lub) and c.conforms_to(lub)
 
 
-# TEST859: LUB with valued tags (non-marker) that differ
+# TEST859: LUB with valued tags (non-marker) that differ promotes the key
 def test_859_lub_valued_tags():
     v1 = MediaUrn.from_string("media:ext=png;image")
     v2 = MediaUrn.from_string("media:ext=jpeg;image")
     lub = MediaUrn.least_upper_bound([v1, v2])
-    expected = MediaUrn.from_string("media:image")
+    expected = MediaUrn.from_string("media:ext;image")
     assert lub.is_equivalent(expected), \
-        f"LUB should drop conflicting ext tag, got {lub.to_string()}"
+        f"LUB should promote conflicting ext to some ext, got {lub.to_string()}"
 
 
 # TEST628: Verify media URN constants all start with "media:" prefix

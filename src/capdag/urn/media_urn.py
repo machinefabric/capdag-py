@@ -363,37 +363,23 @@ class MediaUrn:
 
     @staticmethod
     def least_upper_bound(urns: "List[MediaUrn]") -> "MediaUrn":
-        """Compute the least upper bound (most specific common type) of a set of MediaUrns.
+        """The most specific media type every one of ``urns`` conforms to: their
+        common denominator, as a gather's element type or the meeting point
+        where branches of different media converge.
 
-        Returns the MediaUrn whose tag set is the intersection of all input tag sets:
-        only tags present in ALL inputs with matching values are kept.
+        Made by tagged-urn's proved model (``TaggedUrn.least_upper_bound``):
+        key by key, the bound allows every state some input allows, and where
+        no single form says exactly that, it is the least bound that excludes
+        only values the inputs name.
 
-        - Empty input -> media: (universal type)
-        - Single input -> returned as-is
-        - [media:document;ext=pdf, media:document;ext=pdf] -> media:document;ext=pdf
-        - [media:document;ext=pdf, media:ext=png;image] -> media: (no common tags)
-        - [media:enc=utf8;fmt=json, media:enc=utf8;fmt=csv] -> media:enc=utf8
+        - [media:document;ext=pdf, media:ext=png;image] -> media:ext
+        - [media:ext=png, media:ext!=pdf] -> media:ext!=pdf (one holds the other)
+        - [media:enc=utf8;fmt=json;list, media:enc=utf8;fmt=json] -> media:enc=utf8;fmt=json
+        - no inputs -> media:
         """
         from tagged_urn import TaggedUrn
 
-        if not urns:
-            return MediaUrn.from_string("media:")
-
-        if len(urns) == 1:
-            return urns[0]
-
-        # Start with the first URN's tags, intersect with each subsequent URN
-        common_tags = dict(urns[0]._urn.tags)
-
-        for urn in urns[1:]:
-            common_tags = {
-                key: value
-                for key, value in common_tags.items()
-                if urn._urn.tags.get(key) == value
-            }
-
-        result_urn = TaggedUrn("media", common_tags)
-        return MediaUrn(result_urn)
+        return MediaUrn(TaggedUrn.least_upper_bound("media", [u._urn for u in urns]))
 
     def tags_to_string(self) -> str:
         """Serialize just the tags portion (without "media:" prefix)
