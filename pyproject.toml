@@ -2,8 +2,11 @@
 # see ../lungo.toml) with CMake, on lungo-py — at exactly the lungo release that generated it. The
 # model's URNs are tagged-urn's, so tagged-urn is pinned exactly too: its model must have the layout
 # this program was generated against, which the module checks when it is imported.
+# MFR_LOCAL_LIBS: lungo-py and tagged-urn at the working copies' versions. lungo-py's wheel is in
+# lungo's local distribution (pip --find-links <build root>/lungo/distribution/wheels); tagged-urn is
+# the working copy, installed with this package. Re-render without it before committing or releasing.
 [build-system]
-requires = ["scikit-build-core>=0.10", "lungo-py==1.117.0"]
+requires = ["scikit-build-core>=0.10", "lungo-py==1.125.196"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -16,8 +19,8 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    "lungo-py==1.117.0",
-    "tagged-urn==1.138.43",
+    "lungo-py==1.125.196",
+    "tagged-urn==1.140.6",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.
