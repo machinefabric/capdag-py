@@ -464,10 +464,10 @@ def test_558_predicate_constant_consistency():
     assert not bool_urn.is_numeric()
 
     # MEDIA_JSON is json, record, scalar (single object), NOT list.
-    # JSON declares its format via fmt=json and carries no enc= tag.
+    # JSON is characters, so it carries enc=utf8; fmt=json says how they are structured.
     json_urn = MediaUrn.from_string(MEDIA_JSON)
     assert json_urn.is_json()
-    assert json_urn.get_tag("enc") is None
+    assert json_urn.get_tag("enc") == "utf8"
     assert json_urn.is_record()
     assert json_urn.is_scalar()  # JSON object is a single value (scalar cardinality)
     assert not json_urn.is_list()
