@@ -54,6 +54,8 @@ from capdag.bifaci.cartridge_runtime import (
     demux_peer_response,
     StreamAbandoned,
     TerminalClaim,
+    HeartbeatResponder,
+    spawn_frame_reader,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
@@ -4036,3 +4038,97 @@ def test_373_a_terminal_is_claimed_exactly_once():
         thread.join()
         assert handler_won[0] != cancel_won, "exactly one of them ends the request"
         assert not claim.for_handler() and not claim.for_cancel(), "and nobody after"
+
+
+def _responder_with_no_pools() -> HeartbeatResponder:
+    """A responder over real pools (none declared), as a started cartridge has."""
+    from capdag.bifaci.pools import PoolDeclarations
+    return HeartbeatResponder(
+        RuntimePools([], PoolDeclarations()),
+        threading.Lock(),
+        DropCounters(),
+        StragglerCounters(),
+        lambda: 7,
+    )
+
+
+def _reader_under_test():
+    """The frame reader between two pipes, as the runtime runs it between stdin
+    and stdout: the host's writer and the file it writes into, the host's
+    reader of what the cartridge wrote, and the reader's feed."""
+    import os
+    from capdag.bifaci.io import FrameReader, FrameWriter
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    host_in = os.fdopen(in_w, "wb")
+    writer = SyncFrameWriter(FrameWriter(os.fdopen(out_w, "wb")))
+    feed = spawn_frame_reader(FrameReader(os.fdopen(in_r, "rb")), _responder_with_no_pools(), writer)
+    return FrameWriter(host_in), host_in, FrameReader(os.fdopen(out_r, "rb")), feed
+
+
+# TEST12647: A heartbeat is answered while the main loop takes nothing — the reader's thread answers it by itself. A cartridge whose main loop waited (on a handler slow to take a peer call's answer) stopped answering, and was declared dead in the middle of correct work.
+def test_12647_heartbeat_is_answered_without_the_main_loop():
+    host_writer, host_in, host_reader, feed = _reader_under_test()
+    try:
+        probe = MessageId.new_uuid()
+        # Nothing takes from the feed from here on: whatever answers, it is
+        # not the main loop.
+        host_writer.write(Frame.heartbeat(probe))
+
+        replies: "queue.Queue" = queue.Queue()
+        threading.Thread(target=lambda: replies.put(host_reader.read()), daemon=True).start()
+        reply = replies.get(timeout=5)
+        assert reply.frame_type == FrameType.HEARTBEAT
+        assert reply.id == probe, "the reply is to the probe that was sent"
+        from capdag.bifaci.pools import META_POOLS
+        assert META_POOLS in reply.meta, "the pool state rides every reply; the host refuses one without it"
+        assert reply.meta["overruns_total"] == 7
+
+        # And the main loop is still told, so that it turns and admits.
+        passed_on = feed.next()
+        assert passed_on.frame_type == FrameType.HEARTBEAT
+        assert passed_on.id == probe
+    finally:
+        host_in.close()
+
+
+# TEST12648: Every other frame goes to the main loop untouched and in order, and nothing is written for it; the end of input ends the reader and closes the loop's channel.
+def test_12648_other_frames_reach_the_loop_in_order_and_eof_closes_it():
+    host_writer, host_in, host_reader, feed = _reader_under_test()
+    written: "queue.Queue" = queue.Queue()
+
+    def _drain():
+        while True:
+            try:
+                frame = host_reader.read()
+            except Exception:
+                return
+            if frame is None:
+                return
+            written.put(frame)
+
+    threading.Thread(target=_drain, daemon=True).start()
+
+    first, second = MessageId.new_uuid(), MessageId.new_uuid()
+    host_writer.write(Frame.end(first))
+    host_writer.write(Frame.heartbeat(MessageId.new_uuid()))
+    host_writer.write(Frame.end(second))
+    host_in.close()  # the host closes its end
+
+    seen = []
+    while True:
+        frame = feed.next()
+        if frame is None:
+            break
+        seen.append(frame)
+    assert [f.frame_type for f in seen] == [FrameType.END, FrameType.HEARTBEAT, FrameType.END], \
+        "in the order the host sent them"
+    assert seen[0].id == first
+    assert seen[2].id == second
+    feed.thread.join(timeout=5)
+    assert not feed.thread.is_alive(), "the reader's thread ends at the end of input"
+
+    reply = written.get(timeout=5)
+    assert reply.frame_type == FrameType.HEARTBEAT, "one reply, to the one heartbeat"
+    with pytest.raises(queue.Empty):
+        written.get(timeout=0.2)  # and nothing for the others

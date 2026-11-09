@@ -3942,6 +3942,148 @@ def build_cli_foreach_iterations(raw_payload: bytes, cap: Cap) -> List[bytes]:
     return out
 
 
+class HeartbeatResponder:
+    """What a heartbeat reply is made from. All of it is shared state behind
+    locks, so a reply can be built on any thread. (matches Rust
+    HeartbeatResponder)"""
+
+    def __init__(
+        self,
+        pools: RuntimePools,
+        pools_lock: threading.Lock,
+        drop_counters: DropCounters,
+        straggler_counters: StragglerCounters,
+        overruns_total: Callable[[], int],
+    ):
+        self._pools = pools
+        self._pools_lock = pools_lock
+        self._drop_counters = drop_counters
+        self._straggler_counters = straggler_counters
+        self._overruns_total = overruns_total
+
+    def answer(self, frame: Frame) -> Frame:
+        """The reply to one heartbeat probe — or the ERR that refuses it."""
+        from capdag.bifaci.pools import META_POOLS, decode_desired, encode_pool_states
+
+        # The heartbeat is the capacity CONFIG channel: a probe may carry the
+        # operator's desired ``configured`` values. The whole batch is
+        # validated first — an unknown pool refuses it all with an ERR naming
+        # it, and the probe gets that ERR instead of a reply, so the host's
+        # awaited apply fails precisely rather than silently.
+        desired_bytes = frame.desired_capacity_bytes()
+        if desired_bytes is not None:
+            try:
+                desired = decode_desired(desired_bytes)
+                with self._pools_lock:
+                    self._pools.apply_desired(desired)
+            except ValueError as apply_err:
+                return Frame.err(
+                    frame.id,
+                    "UNKNOWN_POOL",
+                    AttributionClass.INTERNAL,
+                    f"desired capacities refused: {apply_err}",
+                )
+        with self._pools_lock:
+            snapshot = self._pools.snapshot()
+        response = Frame.heartbeat(frame.id)
+        # Protocol observability (L8): the dropped-frame total rides every
+        # heartbeat so the host can surface it without a stats round-trip.
+        # The benign straggler total rides alongside, under its own name —
+        # stragglers are not drops. The pool map is MANDATORY: the host
+        # hard-errors on a reply without it.
+        response.meta = {
+            "drops_total": self._drop_counters.total(),
+            "stragglers_total": self._straggler_counters.total(),
+            "overruns_total": self._overruns_total(),
+            META_POOLS: encode_pool_states(snapshot),
+        }
+        return response
+
+
+class FrameReaderFailure(Exception):
+    """The input ended other than at its end: a read failed, or the writer a
+    heartbeat reply went to was gone."""
+
+
+class FrameFeed:
+    """What the frame reader hands the main loop: every frame the host sent,
+    in order, then ``None`` at the end of input — or the exception that ended
+    it."""
+
+    def __init__(self, thread: threading.Thread, items: "queue.Queue[Any]", stopped: threading.Event):
+        self.thread = thread
+        self._items = items
+        self._stopped = stopped
+
+    def next(self) -> Optional[Frame]:
+        """The next frame; None at the end of input. Raises
+        ``FrameReaderFailure`` when the input ended any other way."""
+        item = self._items.get()
+        if isinstance(item, FrameReaderFailure):
+            raise item
+        return item
+
+    def stop(self) -> None:
+        """The main loop is gone: the reader stops at its next frame,
+        answering nothing more."""
+        self._stopped.set()
+
+
+def spawn_frame_reader(
+    reader: FrameReader,
+    responder: HeartbeatResponder,
+    writer: SyncFrameWriter,
+) -> FrameFeed:
+    """Read the host's frames on a thread of their own, and answer its
+    heartbeats from there.
+
+    A HEARTBEAT ASKS WHETHER THE CARTRIDGE IS THERE, and the host gives it
+    ten seconds to say so. The main loop read the frames and answered the
+    probes itself, so the answer waited on everything the loop did before it
+    — including handing a peer call's answer to a handler through a bounded
+    queue, which waits whenever that handler is busy elsewhere. A cartridge
+    whose handler kept it waiting was declared dead in the middle of work it
+    was doing correctly.
+
+    The reader answers a heartbeat itself, straight to the writer, and passes
+    every frame — heartbeats included — to the main loop in the order it
+    arrived, through a queue that never makes the reader wait. Nothing between
+    the probe arriving and the reply leaving waits on the main loop or on a
+    handler.
+
+    What this does NOT claim: that the handlers are making progress. That is
+    what a request's own activity and stall tracking say. A heartbeat says the
+    process is alive and reading its input. (matches Rust spawn_frame_reader)
+    """
+    items: "queue.Queue[Any]" = queue.Queue()
+    stopped = threading.Event()
+
+    def _read() -> None:
+        while True:
+            try:
+                frame = reader.read()
+            except Exception as e:
+                items.put(FrameReaderFailure(f"Read error: {e}"))
+                return
+            if frame is None:
+                items.put(None)  # EOF — stdin closed
+                return
+            if stopped.is_set():
+                return  # The main loop is gone — shutting down
+            if frame.frame_type == FrameType.HEARTBEAT:
+                try:
+                    writer.write(responder.answer(frame))
+                except Exception as e:
+                    # The writer is gone — shutting down
+                    items.put(FrameReaderFailure(f"Failed to write heartbeat response: {e}"))
+                    return
+            items.put(frame)
+
+    thread = threading.Thread(target=_read, name="capdag-frame-reader", daemon=True)
+    thread.start()
+    return FrameFeed(thread, items, stopped)
+
+
 class CartridgeRuntime:
     """The cartridge runtime that handles all I/O for cartridge binaries.
 
@@ -4195,16 +4337,18 @@ class CartridgeRuntime:
         **Cartridge CBOR Mode** (no CLI args):
         1. Receive HELLO from host
         2. Send HELLO back with manifest (handshake)
-        3. Main loop reads frames:
+        3. A reader thread reads frames (``spawn_frame_reader``): it answers
+           a HEARTBEAT itself and passes every frame to the main loop in order
+        4. Main loop takes the frames:
            - REQ frames: spawn handler thread, continue reading
-           - HEARTBEAT frames: respond immediately
+           - HEARTBEAT frames: already answered; admit whoever can now go
            - RES/CHUNK/END frames: route to pending peer requests
            - Other frames: ignore
-        4. Exit when stdin closes, wait for active handlers to complete
+        5. Exit when stdin closes, wait for active handlers to complete
 
-        **Multiplexing** (CBOR mode): The main loop never blocks on handler execution.
-        Handlers run in separate threads, allowing concurrent processing
-        of multiple requests and immediate heartbeat responses.
+        **Multiplexing** (CBOR mode): Handlers run in separate threads,
+        allowing concurrent processing of multiple requests. Heartbeats are
+        answered by the reader, so nothing the main loop waits on delays them.
 
         **Bidirectional communication** (CBOR mode): Handlers can invoke caps on the host
         using the `PeerInvoker` parameter. Response frames from the host are
@@ -4502,510 +4646,482 @@ class CartridgeRuntime:
             else:
                 _spawn_thread(request_id, routing_id, target_fn)
 
+        # The host's frames are read on a thread of their own, which also
+        # answers heartbeats: see ``spawn_frame_reader`` for why neither may
+        # wait on this loop.
+        feed = spawn_frame_reader(
+            reader,
+            HeartbeatResponder(
+                self._pools,
+                self._pools_lock,
+                self._drop_counters,
+                self._straggler_counters,
+                self.protocol_overruns_total,
+            ),
+            sync_writer,
+        )
+
         # Process requests - main loop stays responsive
-        while True:
-            # Clean up finished handlers periodically
-            active_handlers = [h for h in active_handlers if h.is_alive()]
+        try:
+            while True:
+                # Clean up finished handlers periodically
+                active_handlers = [h for h in active_handlers if h.is_alive()]
 
-            try:
-                frame = reader.read()
-            except Exception as e:
-                print(f"[CartridgeRuntime] Read error: {e}", file=sys.stderr)
-                break
+                try:
+                    frame = feed.next()
+                except FrameReaderFailure as e:
+                    print(f"[CartridgeRuntime] {e}", file=sys.stderr)
+                    break
 
-            if frame is None:
-                # EOF - stdin closed, exit cleanly
-                break
+                if frame is None:
+                    # EOF - stdin closed, exit cleanly
+                    break
 
-            if frame.frame_type == FrameType.REQ:
-                # Extract routing_id (XID) FIRST — all error paths must include it
-                routing_id_for_errors = frame.routing_id
+                if frame.frame_type == FrameType.REQ:
+                    # Extract routing_id (XID) FIRST — all error paths must include it
+                    routing_id_for_errors = frame.routing_id
 
-                cap_urn = frame.cap
-                if cap_urn is None:
-                    err_frame = Frame.err(
-                        frame.id,
-                        "INVALID_REQUEST",
-                        AttributionClass.INTERNAL,
-                        "Request missing cap URN"
-                    )
-                    err_frame.routing_id = routing_id_for_errors
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
+                    cap_urn = frame.cap
+                    if cap_urn is None:
+                        err_frame = Frame.err(
+                            frame.id,
+                            "INVALID_REQUEST",
+                            AttributionClass.INTERNAL,
+                            "Request missing cap URN"
+                        )
+                        err_frame.routing_id = routing_id_for_errors
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception:
+                            pass
+                        continue
 
-                # No routed request before the host's first policy: a
-                # cartridge never serves work without knowing what it may do.
-                # The host's identity check belongs to the handshake and comes
-                # before any policy (12.3).
-                if self._policy.current() is None and not _is_identity_request(cap_urn):
-                    err_frame = Frame.err(
-                        frame.id,
-                        "PROTOCOL_VIOLATION",
-                        AttributionClass.INTERNAL,
-                        f"request for '{cap_urn}' arrived before the host sent its policy; "
-                        "a host sends Policy before it routes anything to a cartridge",
-                    )
-                    err_frame.routing_id = routing_id_for_errors
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
+                    # No routed request before the host's first policy: a
+                    # cartridge never serves work without knowing what it may do.
+                    # The host's identity check belongs to the handshake and comes
+                    # before any policy (12.3).
+                    if self._policy.current() is None and not _is_identity_request(cap_urn):
+                        err_frame = Frame.err(
+                            frame.id,
+                            "PROTOCOL_VIOLATION",
+                            AttributionClass.INTERNAL,
+                            f"request for '{cap_urn}' arrived before the host sent its policy; "
+                            "a host sends Policy before it routes anything to a cartridge",
+                        )
+                        err_frame.routing_id = routing_id_for_errors
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception:
+                            pass
+                        continue
 
-                raw_payload = frame.payload if frame.payload is not None else b""
+                    raw_payload = frame.payload if frame.payload is not None else b""
 
-                # Protocol v2: REQ must have empty payload — arguments come as streams
-                if len(raw_payload) > 0:
+                    # Protocol v2: REQ must have empty payload — arguments come as streams
+                    if len(raw_payload) > 0:
+                        err_frame = Frame.err(
+                            frame.id,
+                            "PROTOCOL_ERROR",
+                            AttributionClass.INTERNAL,
+                            "REQ frame must have empty payload — use STREAM_START for arguments"
+                        )
+                        err_frame.routing_id = routing_id_for_errors
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception:
+                            pass
+                        continue
+
+                    found = self.find_handler_with_pattern(cap_urn)
+                    factory, pattern = found if found is not None else (None, None)
+                    if factory is None:
+                        # A dispatched cap this binary doesn't handle is a
+                        # deployment/manifest mismatch — Environment.
+                        err_frame = Frame.err(
+                            frame.id,
+                            "NO_HANDLER",
+                            AttributionClass.ENVIRONMENT,
+                            f"No handler registered for cap: {cap_urn}",
+                        )
+                        err_frame.routing_id = routing_id_for_errors
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception:
+                            pass
+                        continue
+
+                    # Register the LIVE per-request frame queue NOW — before the
+                    # handler thread is spawned — so subsequent STREAM_START/
+                    # CHUNK/STREAM_END/END frames route onto it immediately
+                    # (even while capacity-queued). The handler's
+                    # `demux_multi_stream` drains this queue incrementally as
+                    # frames arrive (protocol v4, L16) — never buffered to
+                    # completion first.
+                    request_id = frame.id
+                    routing_id = frame.routing_id
+                    with active_requests_lock:
+                        active_requests[request_id.to_string()] = ActiveRequest(
+                            cap_urn=cap_urn, routing_id=routing_id,
+                        )
+                    raw_queue = active_requests[request_id.to_string()].raw_queue
+
+                    _max_chunk = self.limits.max_chunk
+                    _initial_credit = self.limits.initial_credit
+
+                    def handle_request(
+                        request_id=request_id,
+                        raw_queue=raw_queue,
+                        factory=factory,
+                        pattern=pattern,
+                        max_chunk=_max_chunk,
+                        routing_id=routing_id,
+                        initial_credit=_initial_credit,
+                        cap_urn=cap_urn,
+                    ):
+                        import uuid as _uuid
+                        response_stream_prefix = f"resp-{_uuid.uuid4().hex[:8]}"
+                        opened: List[ThreadSafeEmitter] = []
+
+                        def open_stream(label: str) -> ThreadSafeEmitter:
+                            # SyncFrameWriter assigns seq centrally for all frames.
+                            # routing_id (XID) is propagated from incoming REQ to
+                            # all response frames. Output is credited (L9): the
+                            # receiver's consumption grants each stream's window.
+                            stream = ThreadSafeEmitter(
+                                sync_writer, request_id, f"{response_stream_prefix}-{len(opened)}",
+                                label, routing_id, max_chunk,
+                                credit_router=credit_router, initial_credit=initial_credit,
+                            )
+                            opened.append(stream)
+                            return stream
+
+                        # One stream per output the cap declares, each naming its
+                        # output. The main output's label is DERIVED from the
+                        # cap's declared effect — not chosen by the op — so an
+                        # honest lib-runtime cartridge satisfies the engine's
+                        # effect audit by construction. An underivable label is a
+                        # broken cap declaration: fail the request, never fall
+                        # back.
+                        try:
+                            outputs = ResponseOutputs.for_cap(cap_urn, self.manifest, open_stream)
+                        except Exception as derive_err:
+                            print(
+                                f"[CartridgeRuntime] response media derivation FAILED: cap={cap_urn} error={derive_err}",
+                                file=sys.stderr,
+                            )
+                            code, attribution_class, message, arg_urn = _classify_handler_error(derive_err)
+                            err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+                            err_frame.routing_id = routing_id
+                            if _terminal(request_id).for_handler():
+                                try:
+                                    sync_writer.write(err_frame)
+                                except Exception as write_err:
+                                    print(
+                                        f"[CartridgeRuntime] Failed to write error response: {write_err}",
+                                        file=sys.stderr,
+                                    )
+                            # Release credit waiters and the pool chain exactly
+                            # like a completed handler (L13) — a failed derivation
+                            # must not leak the chain.
+                            _on_handler_done(request_id, pattern)
+                            return
+                        emitter = outputs.main()
+                        peer_invoker = PeerInvokerImpl(
+                            sync_writer, pending_peer_requests, max_chunk,
+                            credit_router=credit_router, initial_credit=initial_credit,
+                            origin=request_id.to_string(),
+                        )
+                        terminal = _terminal(request_id)
+
+                        try:
+                            # Input streams are credited (L14): the handler's
+                            # consumption grants the engine's sender window;
+                            # over-window chunks are CREDIT_VIOLATION. Delivered
+                            # LIVE as frames arrive on raw_queue — never
+                            # buffered to completion first.
+                            # Live-feed resolution context (13.2). The
+                            # per-request handle list is registered under the
+                            # rid so a STOP (non-force CANCEL) closes the taps
+                            # and the run drains (15.2 §Runs Stop) — mirroring
+                            # the Rust/Swift Cancel arm.
+                            try:
+                                lf_handles: list = []
+                                with self._lf_handles_lock:
+                                    self._live_feed_handles_by_rid[str(request_id)] = lf_handles
+                                lf_ctx = LiveFeedContext(
+                                    cap_urn,
+                                    self.manifest,
+                                    self._live_feed_overruns,
+                                    lf_handles,
+                                )
+                            except Exception as lf_err:
+                                print(
+                                    f"[CartridgeRuntime] live-feed context unavailable for cap={cap_urn}: {lf_err}",
+                                    file=sys.stderr,
+                                )
+                                lf_ctx = None
+                            input_package = demux_multi_stream(
+                                raw_queue,
+                                InputCreditContext(
+                                    writer=sync_writer, rid=request_id, xid=routing_id,
+                                    initial_credit=initial_credit,
+                                ),
+                                live_feed_ctx=lf_ctx,
+                            )
+                            try:
+                                # Every output is ended when the op returns —
+                                # a required one it never wrote to is sent
+                                # empty, an optional one it never wrote to is not
+                                # sent.
+                                dispatch_op(factory(), input_package, outputs, peer_invoker, NetworkAccess(self._policy))
+
+                                # A cancel that claimed the request first ends it
+                                # with its own ERR, sent once this returns.
+                                if terminal.for_handler():
+                                    # END (seq assigned by SyncFrameWriter) carries
+                                    # the handler's declared final progress (L3/L5).
+                                    sync_writer.write(emitter.end_frame())
+
+                            except Exception as e:
+                                # The ERR frame carries the failure's DECLARED
+                                # identity (docs/failure-taxonomy.md): the code,
+                                # class, and argument attribution from the emit
+                                # source when classified, HANDLER_ERROR/INTERNAL
+                                # when the handler never declared one.
+                                code, attribution_class, message, arg_urn = _classify_handler_error(e)
+                                err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+                                err_frame.routing_id = routing_id  # Propagate XID
+                                if terminal.for_handler():
+                                    try:
+                                        sync_writer.write(err_frame)
+                                    except Exception as write_err:
+                                        print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
+                        finally:
+                            # The request is over: its feeds are closed (a
+                            # handler that consumed them already saw their end)
+                            # and the rid leaves the stop registry.
+                            with self._lf_handles_lock:
+                                for handle in self._live_feed_handles_by_rid.pop(str(request_id), []):
+                                    handle.close()
+                            # Release this request's credit waiters (L13), the
+                            # whole pool chain, and immediately admit the oldest
+                            # admissible queued request.
+                            _on_handler_done(request_id, pattern)
+
+                    _spawn_or_queue(request_id, routing_id, pattern, handle_request)
+                    continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
+
+                elif frame.frame_type == FrameType.CLOSE_STREAM:
+                    # The tap-off (15.2 §Runs Stop): close the request's live feed
+                    # taps — capture ends, the pipeline drains, and the run
+                    # completes its outputs (a stopped recording is a valid
+                    # recording). Nothing is cancelled. A CloseStream for a
+                    # request that holds no open feed is a caller's mistake,
+                    # logged and ignored — it never turns into an abort.
+                    target_rid = frame.id
+                    with self._lf_handles_lock:
+                        feeds = list(self._live_feed_handles_by_rid.get(str(target_rid), []))
+                    if feeds:
+                        for handle in feeds:
+                            handle.close()
+                    else:
+                        print(
+                            f"[CartridgeRuntime] CloseStream for rid={target_rid} with no open "
+                            "live feed — nothing to close, request continues",
+                            file=sys.stderr,
+                        )
+
+                elif frame.frame_type == FrameType.CANCEL:
+                    # The attribution rides in meta like an ERR's (12.2 §Cancel);
+                    # an unattributed Cancel is still a cancel. (matches the Rust
+                    # runtime's Cancel arm)
+                    target_rid = frame.id
+                    key = target_rid.to_string()
+                    reason = frame.cancel_reason()
+                    assert reason is not None
+                    # Close any live feeds the request holds so a capture source
+                    # does not keep producing for a request that is ending.
+                    with self._lf_handles_lock:
+                        feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
+                    for handle in feeds:
+                        handle.close()
+
+                    # Case 1: queued on its singleton pool — take it out of line
+                    # (it holds no pool slots) and answer with the cancel's ERR.
+                    with self._pools_lock:
+                        queued = self._pools.remove_queued(lambda request: request[0] == target_rid)
+                    if queued is not None:
+                        with active_requests_lock:
+                            active_requests.pop(key, None)
+                        err_frame = Frame.err(
+                            target_rid, reason.terminal_code(), reason.terminal_class(),
+                            f"{reason.terminal_message()} (while queued)",
+                        )
+                        err_frame.routing_id = queued[1]
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception as write_err:
+                            print(f"[CartridgeRuntime] Failed to write cancel ERR: {write_err}", file=sys.stderr)
+                        continue
+
+                    # Case 2: its handler is running — a cooperative cancel (a
+                    # Python thread cannot be aborted, and need not be). The
+                    # handler may already have ended the request and not yet
+                    # returned: then a cancel's ERR would be a second terminal,
+                    # and the cancel adds nothing. Otherwise the cancel ends it:
+                    # its input stops (a reader of it gets StreamAbandoned), its
+                    # credit waiters and peer calls are released, and its ERR is
+                    # sent when the handler returns.
+                    with running_lock:
+                        target = running.get(key)
+                        claimed = target is not None and target.terminal.for_cancel()
+                        if claimed:
+                            target.cancelled = reason
+                    if target is None:
+                        # Case 3: unknown — already ended, or never seen.
+                        print(f"[CartridgeRuntime] Cancel for unknown rid={target_rid} — ignoring", file=sys.stderr)
+                        continue
+                    if not claimed:
+                        print(
+                            f"[CartridgeRuntime] Cancel for rid={target_rid} whose handler already ended it — nothing to send",
+                            file=sys.stderr,
+                        )
+                        continue
+                    with active_requests_lock:
+                        ar = active_requests.pop(key, None)
+                    if ar is not None:
+                        ar.raw_queue.put(None)
+                    # A cancelled producer must not hang on credit (L13, L17).
+                    credit_router.close_request(target_rid, reason.terminal_code())
+                    # Its peer calls end under the SAME reason — a peer of a
+                    # cancelled request is collateral of the same failure. Their
+                    # response queues end without an END, so a reader of one gets
+                    # StreamAbandoned.
+                    with pending_lock:
+                        peers = [
+                            (peer_key, pending)
+                            for peer_key, pending in pending_peer_requests.items()
+                            if pending.origin == key
+                        ]
+                        for peer_key, _ in peers:
+                            del pending_peer_requests[peer_key]
+                    for peer_key, pending in peers:
+                        try:
+                            sync_writer.write(Frame.cancel(pending.rid, reason))
+                        except Exception as write_err:
+                            print(f"[CartridgeRuntime] Failed to write peer Cancel: {write_err}", file=sys.stderr)
+                        pending.queue.put(None)
+                    print(f"[CartridgeRuntime] Cancelled in-flight request (cooperative): rid={target_rid}", file=sys.stderr)
+
+                elif frame.frame_type == FrameType.HEARTBEAT:
+                    # ALREADY ANSWERED, by the reader's own thread (see
+                    # ``spawn_frame_reader``). It is passed on so this loop
+                    # turns: a probe may have raised a pool's capacity, and a
+                    # limit that rose may let requests in line go.
+                    _admit_waiting()
+
+                elif frame.frame_type == FrameType.CREDIT:
+                    # Flow-control grant for one of this request's output streams
+                    # (ours or a peer-call arg stream). Grants only ever unblock a
+                    # credit-waiting sender; a grant for a request with no
+                    # registered gate (request finished, or its output is not
+                    # credit-blocked) is a correct no-op.
+                    credit_router.grant(frame)
+
+                elif frame.frame_type == FrameType.HELLO:
+                    # Unexpected HELLO after handshake - protocol error
                     err_frame = Frame.err(
                         frame.id,
                         "PROTOCOL_ERROR",
                         AttributionClass.INTERNAL,
-                        "REQ frame must have empty payload — use STREAM_START for arguments"
+                        "Unexpected HELLO after handshake",
                     )
-                    err_frame.routing_id = routing_id_for_errors
                     try:
                         sync_writer.write(err_frame)
                     except Exception:
                         pass
-                    continue
 
-                found = self.find_handler_with_pattern(cap_urn)
-                factory, pattern = found if found is not None else (None, None)
-                if factory is None:
-                    # A dispatched cap this binary doesn't handle is a
-                    # deployment/manifest mismatch — Environment.
-                    err_frame = Frame.err(
-                        frame.id,
-                        "NO_HANDLER",
-                        AttributionClass.ENVIRONMENT,
-                        f"No handler registered for cap: {cap_urn}",
-                    )
-                    err_frame.routing_id = routing_id_for_errors
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception:
-                        pass
-                    continue
-
-                # Register the LIVE per-request frame queue NOW — before the
-                # handler thread is spawned — so subsequent STREAM_START/
-                # CHUNK/STREAM_END/END frames route onto it immediately
-                # (even while capacity-queued). The handler's
-                # `demux_multi_stream` drains this queue incrementally as
-                # frames arrive (protocol v4, L16) — never buffered to
-                # completion first.
-                request_id = frame.id
-                routing_id = frame.routing_id
-                with active_requests_lock:
-                    active_requests[request_id.to_string()] = ActiveRequest(
-                        cap_urn=cap_urn, routing_id=routing_id,
-                    )
-                raw_queue = active_requests[request_id.to_string()].raw_queue
-
-                _max_chunk = self.limits.max_chunk
-                _initial_credit = self.limits.initial_credit
-
-                def handle_request(
-                    request_id=request_id,
-                    raw_queue=raw_queue,
-                    factory=factory,
-                    pattern=pattern,
-                    max_chunk=_max_chunk,
-                    routing_id=routing_id,
-                    initial_credit=_initial_credit,
-                    cap_urn=cap_urn,
+                elif frame.frame_type in (
+                    FrameType.STREAM_START, FrameType.CHUNK, FrameType.STREAM_END, FrameType.LOG,
                 ):
-                    import uuid as _uuid
-                    response_stream_prefix = f"resp-{_uuid.uuid4().hex[:8]}"
-                    opened: List[ThreadSafeEmitter] = []
-
-                    def open_stream(label: str) -> ThreadSafeEmitter:
-                        # SyncFrameWriter assigns seq centrally for all frames.
-                        # routing_id (XID) is propagated from incoming REQ to
-                        # all response frames. Output is credited (L9): the
-                        # receiver's consumption grants each stream's window.
-                        stream = ThreadSafeEmitter(
-                            sync_writer, request_id, f"{response_stream_prefix}-{len(opened)}",
-                            label, routing_id, max_chunk,
-                            credit_router=credit_router, initial_credit=initial_credit,
-                        )
-                        opened.append(stream)
-                        return stream
-
-                    # One stream per output the cap declares, each naming its
-                    # output. The main output's label is DERIVED from the
-                    # cap's declared effect — not chosen by the op — so an
-                    # honest lib-runtime cartridge satisfies the engine's
-                    # effect audit by construction. An underivable label is a
-                    # broken cap declaration: fail the request, never fall
-                    # back.
-                    try:
-                        outputs = ResponseOutputs.for_cap(cap_urn, self.manifest, open_stream)
-                    except Exception as derive_err:
-                        print(
-                            f"[CartridgeRuntime] response media derivation FAILED: cap={cap_urn} error={derive_err}",
-                            file=sys.stderr,
-                        )
-                        code, attribution_class, message, arg_urn = _classify_handler_error(derive_err)
-                        err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
-                        err_frame.routing_id = routing_id
-                        if _terminal(request_id).for_handler():
-                            try:
-                                sync_writer.write(err_frame)
-                            except Exception as write_err:
-                                print(
-                                    f"[CartridgeRuntime] Failed to write error response: {write_err}",
-                                    file=sys.stderr,
-                                )
-                        # Release credit waiters and the pool chain exactly
-                        # like a completed handler (L13) — a failed derivation
-                        # must not leak the chain.
-                        _on_handler_done(request_id, pattern)
-                        return
-                    emitter = outputs.main()
-                    peer_invoker = PeerInvokerImpl(
-                        sync_writer, pending_peer_requests, max_chunk,
-                        credit_router=credit_router, initial_credit=initial_credit,
-                        origin=request_id.to_string(),
-                    )
-                    terminal = _terminal(request_id)
-
-                    try:
-                        # Input streams are credited (L14): the handler's
-                        # consumption grants the engine's sender window;
-                        # over-window chunks are CREDIT_VIOLATION. Delivered
-                        # LIVE as frames arrive on raw_queue — never
-                        # buffered to completion first.
-                        # Live-feed resolution context (13.2). The
-                        # per-request handle list is registered under the
-                        # rid so a STOP (non-force CANCEL) closes the taps
-                        # and the run drains (15.2 §Runs Stop) — mirroring
-                        # the Rust/Swift Cancel arm.
-                        try:
-                            lf_handles: list = []
-                            with self._lf_handles_lock:
-                                self._live_feed_handles_by_rid[str(request_id)] = lf_handles
-                            lf_ctx = LiveFeedContext(
-                                cap_urn,
-                                self.manifest,
-                                self._live_feed_overruns,
-                                lf_handles,
-                            )
-                        except Exception as lf_err:
+                    # Route to the active (live) request's raw queue, or to a
+                    # pending peer-response queue. No frame-level validation
+                    # here — that is the receiving demux's job
+                    # (`demux_multi_stream` / peer-response consumption), exactly
+                    # like the Rust reference's routing-only main loop.
+                    frame_id_str = frame.id.to_string()
+                    with active_requests_lock:
+                        ar = active_requests.get(frame_id_str)
+                    if ar is not None:
+                        ar.raw_queue.put(frame)
+                        continue
+                    with pending_lock:
+                        if frame_id_str in pending_peer_requests:
+                            pending_peer_requests[frame_id_str].queue.put(frame)
+                        else:
                             print(
-                                f"[CartridgeRuntime] live-feed context unavailable for cap={cap_urn}: {lf_err}",
+                                f"[CartridgeRuntime] {frame.frame_type} rid={frame_id_str} not found "
+                                "in active_requests or pending_peer_requests",
                                 file=sys.stderr,
                             )
-                            lf_ctx = None
-                        input_package = demux_multi_stream(
-                            raw_queue,
-                            InputCreditContext(
-                                writer=sync_writer, rid=request_id, xid=routing_id,
-                                initial_credit=initial_credit,
-                            ),
-                            live_feed_ctx=lf_ctx,
-                        )
-                        try:
-                            # Every output is ended when the op returns —
-                            # a required one it never wrote to is sent
-                            # empty, an optional one it never wrote to is not
-                            # sent.
-                            dispatch_op(factory(), input_package, outputs, peer_invoker, NetworkAccess(self._policy))
 
-                            # A cancel that claimed the request first ends it
-                            # with its own ERR, sent once this returns.
-                            if terminal.for_handler():
-                                # END (seq assigned by SyncFrameWriter) carries
-                                # the handler's declared final progress (L3/L5).
-                                sync_writer.write(emitter.end_frame())
-
-                        except Exception as e:
-                            # The ERR frame carries the failure's DECLARED
-                            # identity (docs/failure-taxonomy.md): the code,
-                            # class, and argument attribution from the emit
-                            # source when classified, HANDLER_ERROR/INTERNAL
-                            # when the handler never declared one.
-                            code, attribution_class, message, arg_urn = _classify_handler_error(e)
-                            err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
-                            err_frame.routing_id = routing_id  # Propagate XID
-                            if terminal.for_handler():
-                                try:
-                                    sync_writer.write(err_frame)
-                                except Exception as write_err:
-                                    print(f"[CartridgeRuntime] Failed to write error response: {write_err}", file=sys.stderr)
-                    finally:
-                        # The request is over: its feeds are closed (a
-                        # handler that consumed them already saw their end)
-                        # and the rid leaves the stop registry.
-                        with self._lf_handles_lock:
-                            for handle in self._live_feed_handles_by_rid.pop(str(request_id), []):
-                                handle.close()
-                        # Release this request's credit waiters (L13), the
-                        # whole pool chain, and immediately admit the oldest
-                        # admissible queued request.
-                        _on_handler_done(request_id, pattern)
-
-                _spawn_or_queue(request_id, routing_id, pattern, handle_request)
-                continue  # Wait for STREAM_START/CHUNK/STREAM_END/END frames
-
-            elif frame.frame_type == FrameType.CLOSE_STREAM:
-                # The tap-off (15.2 §Runs Stop): close the request's live feed
-                # taps — capture ends, the pipeline drains, and the run
-                # completes its outputs (a stopped recording is a valid
-                # recording). Nothing is cancelled. A CloseStream for a
-                # request that holds no open feed is a caller's mistake,
-                # logged and ignored — it never turns into an abort.
-                target_rid = frame.id
-                with self._lf_handles_lock:
-                    feeds = list(self._live_feed_handles_by_rid.get(str(target_rid), []))
-                if feeds:
-                    for handle in feeds:
-                        handle.close()
-                else:
-                    print(
-                        f"[CartridgeRuntime] CloseStream for rid={target_rid} with no open "
-                        "live feed — nothing to close, request continues",
-                        file=sys.stderr,
-                    )
-
-            elif frame.frame_type == FrameType.CANCEL:
-                # The attribution rides in meta like an ERR's (12.2 §Cancel);
-                # an unattributed Cancel is still a cancel. (matches the Rust
-                # runtime's Cancel arm)
-                target_rid = frame.id
-                key = target_rid.to_string()
-                reason = frame.cancel_reason()
-                assert reason is not None
-                # Close any live feeds the request holds so a capture source
-                # does not keep producing for a request that is ending.
-                with self._lf_handles_lock:
-                    feeds = self._live_feed_handles_by_rid.pop(str(target_rid), [])
-                for handle in feeds:
-                    handle.close()
-
-                # Case 1: queued on its singleton pool — take it out of line
-                # (it holds no pool slots) and answer with the cancel's ERR.
-                with self._pools_lock:
-                    queued = self._pools.remove_queued(lambda request: request[0] == target_rid)
-                if queued is not None:
+                elif frame.frame_type == FrameType.END:
+                    # Route END like any other flow frame, then stop routing
+                    # further frames for this request — the demux thread sees
+                    # END and stops draining (matches the Rust reference: the
+                    # active_requests entry is dropped right after routing END).
+                    frame_id_str = frame.id.to_string()
                     with active_requests_lock:
-                        active_requests.pop(key, None)
-                    err_frame = Frame.err(
-                        target_rid, reason.terminal_code(), reason.terminal_class(),
-                        f"{reason.terminal_message()} (while queued)",
-                    )
-                    err_frame.routing_id = queued[1]
-                    try:
-                        sync_writer.write(err_frame)
-                    except Exception as write_err:
-                        print(f"[CartridgeRuntime] Failed to write cancel ERR: {write_err}", file=sys.stderr)
-                    continue
-
-                # Case 2: its handler is running — a cooperative cancel (a
-                # Python thread cannot be aborted, and need not be). The
-                # handler may already have ended the request and not yet
-                # returned: then a cancel's ERR would be a second terminal,
-                # and the cancel adds nothing. Otherwise the cancel ends it:
-                # its input stops (a reader of it gets StreamAbandoned), its
-                # credit waiters and peer calls are released, and its ERR is
-                # sent when the handler returns.
-                with running_lock:
-                    target = running.get(key)
-                    claimed = target is not None and target.terminal.for_cancel()
-                    if claimed:
-                        target.cancelled = reason
-                if target is None:
-                    # Case 3: unknown — already ended, or never seen.
-                    print(f"[CartridgeRuntime] Cancel for unknown rid={target_rid} — ignoring", file=sys.stderr)
-                    continue
-                if not claimed:
-                    print(
-                        f"[CartridgeRuntime] Cancel for rid={target_rid} whose handler already ended it — nothing to send",
-                        file=sys.stderr,
-                    )
-                    continue
-                with active_requests_lock:
-                    ar = active_requests.pop(key, None)
-                if ar is not None:
-                    ar.raw_queue.put(None)
-                # A cancelled producer must not hang on credit (L13, L17).
-                credit_router.close_request(target_rid, reason.terminal_code())
-                # Its peer calls end under the SAME reason — a peer of a
-                # cancelled request is collateral of the same failure. Their
-                # response queues end without an END, so a reader of one gets
-                # StreamAbandoned.
-                with pending_lock:
-                    peers = [
-                        (peer_key, pending)
-                        for peer_key, pending in pending_peer_requests.items()
-                        if pending.origin == key
-                    ]
-                    for peer_key, _ in peers:
-                        del pending_peer_requests[peer_key]
-                for peer_key, pending in peers:
-                    try:
-                        sync_writer.write(Frame.cancel(pending.rid, reason))
-                    except Exception as write_err:
-                        print(f"[CartridgeRuntime] Failed to write peer Cancel: {write_err}", file=sys.stderr)
-                    pending.queue.put(None)
-                print(f"[CartridgeRuntime] Cancelled in-flight request (cooperative): rid={target_rid}", file=sys.stderr)
-
-            elif frame.frame_type == FrameType.HEARTBEAT:
-                # The heartbeat is the capacity CONFIG channel: a probe may
-                # carry the operator's desired ``configured`` values. The
-                # whole batch is validated first — an unknown pool refuses
-                # it all with an ERR naming it, and the probe gets that ERR
-                # instead of a reply, so the host's awaited apply fails
-                # precisely rather than silently.
-                from capdag.bifaci.pools import (
-                    META_POOLS,
-                    decode_desired,
-                    encode_pool_states,
-                )
-                desired_bytes = frame.desired_capacity_bytes()
-                if desired_bytes is not None:
-                    try:
-                        desired = decode_desired(desired_bytes)
-                        with self._pools_lock:
-                            self._pools.apply_desired(desired)
-                    except ValueError as apply_err:
-                        err_frame = Frame.err(
-                            frame.id,
-                            "UNKNOWN_POOL",
-                            AttributionClass.INTERNAL,
-                            f"desired capacities refused: {apply_err}",
-                        )
-                        try:
-                            sync_writer.write(err_frame)
-                        except Exception as write_err:
-                            print(f"[CartridgeRuntime] Failed to write UNKNOWN_POOL error: {write_err}", file=sys.stderr)
-                            break
+                        ar = active_requests.pop(frame_id_str, None)
+                    if ar is not None:
+                        ar.raw_queue.put(frame)
                         continue
-                    # A limit that rose may let requests in line go.
-                    _admit_waiting()
-                # Respond to heartbeat immediately - never blocked by handlers
-                response = Frame.heartbeat(frame.id)
-                with self._pools_lock:
-                    heartbeat_snapshot = self._pools.snapshot()
-                # Protocol observability (L8): this cartridge's dropped-frame
-                # total rides every heartbeat so the host can surface it
-                # without a dedicated stats round-trip. The benign straggler
-                # total rides alongside, under its own name — stragglers are
-                # not drops. The pool map is MANDATORY: the host hard-errors
-                # on a reply without it.
-                response.meta = {
-                    "drops_total": self._drop_counters.total(),
-                    "stragglers_total": self._straggler_counters.total(),
-                    "overruns_total": self.protocol_overruns_total(),
-                    META_POOLS: encode_pool_states(heartbeat_snapshot),
-                }
-                try:
-                    sync_writer.write(response)
-                except Exception as e:
-                    print(f"[CartridgeRuntime] Failed to write heartbeat response: {e}", file=sys.stderr)
-                    break
 
-            elif frame.frame_type == FrameType.CREDIT:
-                # Flow-control grant for one of this request's output streams
-                # (ours or a peer-call arg stream). Grants only ever unblock a
-                # credit-waiting sender; a grant for a request with no
-                # registered gate (request finished, or its output is not
-                # credit-blocked) is a correct no-op.
-                credit_router.grant(frame)
+                    # Not an incoming request end - must be a peer response end
+                    # Forward bare Frame to handler's queue and close channel
+                    with pending_lock:
+                        if frame_id_str in pending_peer_requests:
+                            pending_req = pending_peer_requests[frame_id_str]
+                            pending_req.ended = True
+                            pending_req.queue.put(frame)
+                            pending_req.queue.put(None)  # Signal end of stream
+                            del pending_peer_requests[frame_id_str]
 
-            elif frame.frame_type == FrameType.HELLO:
-                # Unexpected HELLO after handshake - protocol error
-                err_frame = Frame.err(
-                    frame.id,
-                    "PROTOCOL_ERROR",
-                    AttributionClass.INTERNAL,
-                    "Unexpected HELLO after handshake",
-                )
-                try:
-                    sync_writer.write(err_frame)
-                except Exception:
-                    pass
+                elif frame.frame_type == FrameType.ERR:
+                    # Error frame from host - could be response to peer request
+                    # Forward bare Frame to handler's queue and close channel
+                    frame_id_str = frame.id.to_string()
+                    with active_requests_lock:
+                        ar = active_requests.pop(frame_id_str, None)
+                    if ar is not None:
+                        ar.raw_queue.put(frame)
+                        continue
+                    with pending_lock:
+                        if frame_id_str in pending_peer_requests:
+                            pending_req = pending_peer_requests[frame_id_str]
+                            pending_req.ended = True
+                            pending_req.queue.put(frame)
+                            pending_req.queue.put(None)  # Signal end of stream
+                            del pending_peer_requests[frame_id_str]
 
-            elif frame.frame_type in (
-                FrameType.STREAM_START, FrameType.CHUNK, FrameType.STREAM_END, FrameType.LOG,
-            ):
-                # Route to the active (live) request's raw queue, or to a
-                # pending peer-response queue. No frame-level validation
-                # here — that is the receiving demux's job
-                # (`demux_multi_stream` / peer-response consumption), exactly
-                # like the Rust reference's routing-only main loop.
-                frame_id_str = frame.id.to_string()
-                with active_requests_lock:
-                    ar = active_requests.get(frame_id_str)
-                if ar is not None:
-                    ar.raw_queue.put(frame)
-                    continue
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_peer_requests[frame_id_str].queue.put(frame)
-                    else:
-                        print(
-                            f"[CartridgeRuntime] {frame.frame_type} rid={frame_id_str} not found "
-                            "in active_requests or pending_peer_requests",
-                            file=sys.stderr,
-                        )
+                elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
+                    # Relay-level frames must never reach a cartridge runtime.
+                    # If they do, it's a bug in the relay layer — fail hard.
+                    raise ProtocolError(
+                        f"Relay frame {frame.frame_type} must not reach cartridge runtime"
+                    )
 
-            elif frame.frame_type == FrameType.END:
-                # Route END like any other flow frame, then stop routing
-                # further frames for this request — the demux thread sees
-                # END and stops draining (matches the Rust reference: the
-                # active_requests entry is dropped right after routing END).
-                frame_id_str = frame.id.to_string()
-                with active_requests_lock:
-                    ar = active_requests.pop(frame_id_str, None)
-                if ar is not None:
-                    ar.raw_queue.put(frame)
-                    continue
-
-                # Not an incoming request end - must be a peer response end
-                # Forward bare Frame to handler's queue and close channel
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.ended = True
-                        pending_req.queue.put(frame)
-                        pending_req.queue.put(None)  # Signal end of stream
-                        del pending_peer_requests[frame_id_str]
-
-            elif frame.frame_type == FrameType.ERR:
-                # Error frame from host - could be response to peer request
-                # Forward bare Frame to handler's queue and close channel
-                frame_id_str = frame.id.to_string()
-                with active_requests_lock:
-                    ar = active_requests.pop(frame_id_str, None)
-                if ar is not None:
-                    ar.raw_queue.put(frame)
-                    continue
-                with pending_lock:
-                    if frame_id_str in pending_peer_requests:
-                        pending_req = pending_peer_requests[frame_id_str]
-                        pending_req.ended = True
-                        pending_req.queue.put(frame)
-                        pending_req.queue.put(None)  # Signal end of stream
-                        del pending_peer_requests[frame_id_str]
-
-            elif frame.frame_type in (FrameType.RELAY_NOTIFY, FrameType.RELAY_STATE):
-                # Relay-level frames must never reach a cartridge runtime.
-                # If they do, it's a bug in the relay layer — fail hard.
-                raise ProtocolError(
-                    f"Relay frame {frame.frame_type} must not reach cartridge runtime"
-                )
-
-            elif frame.frame_type == FrameType.POLICY:
-                # The host's new policy (12.2 §Policy): every handler's
-                # network() reads it at its next check, running ones too.
-                try:
-                    self._policy.set(frame.host_policy())
-                except ValueError as e:
-                    raise ProtocolError(str(e)) from None
+                elif frame.frame_type == FrameType.POLICY:
+                    # The host's new policy (12.2 §Policy): every handler's
+                    # network() reads it at its next check, running ones too.
+                    try:
+                        self._policy.set(frame.host_policy())
+                    except ValueError as e:
+                        raise ProtocolError(str(e)) from None
+        finally:
+            # A loop that ends, however it ends, stops the reader too:
+            # nothing is left answering for a runtime that has stopped.
+            feed.stop()
 
         # Wait for all active handlers to complete before exiting
         for thread in active_handlers:
