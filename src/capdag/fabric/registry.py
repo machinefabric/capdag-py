@@ -1316,9 +1316,6 @@ class FabricRegistry:
     def _media_defver(self, normalized_urn: str) -> int:
         if self.manifest_version == 0:
             return 0
-        # The bare `media:` wildcard is a sentinel with no published spec.
-        if normalized_urn == "media:":
-            return 0
         defver = self.manifest.media.get(normalized_urn)
         if defver is None:
             raise NotFoundError(
@@ -1375,30 +1372,16 @@ class FabricRegistry:
     # Atomic cap fetch — the core of the merged registry
     # -------------------------------------------------------------------------
 
-    @staticmethod
-    def _is_wildcard_media_urn(urn: str) -> bool:
-        """Return True if `urn` is the bare `media:` identity URN.
-
-        The wildcard URN is not a fetchable spec — it is the universal
-        input/output marker. Skip it from the recursive fetch list of
-        a cap so the cap can still be cached even if the registry has
-        no entry for `media:`.
-        """
-        try:
-            parsed = MediaUrn.from_string(urn)
-        except Exception:
-            return False
-        return parsed.is_top()
-
     def _collect_referenced_media_urns(self, cap: Cap) -> List[str]:
-        """Collect every media URN a cap definition references, skipping
-        the bare `media:` wildcard. Order is deterministic (in-spec,
+        """Collect every media URN a cap definition references, the
+        universal type `media:` among them (the fabric defines it like any
+        other media URN). Order is deterministic (in-spec,
         out-spec, each arg and what it accepts, every output) and
         de-duplicated."""
         seen: List[str] = []
 
         def push(urn: str) -> None:
-            if not urn or self._is_wildcard_media_urn(urn):
+            if not urn:
                 return
             normalized = normalize_media_urn(urn)
             if normalized not in seen:

@@ -505,8 +505,9 @@ def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
 # TEST12816: fetching a cap requires the definition of every media URN a
 # machine can meet through it: its in= and out=, every arg's own URN and
 # the type it accepts, and every output's URN — not the main output's
-# alone. Each once; the wildcard names no definition; a URN that does not
-# parse fails the footprint rather than being left out of it.
+# alone. Each once, the universal type `media:` among them (it is a
+# definition like any other); a URN that does not parse fails the footprint
+# rather than being left out of it.
 def test_12816_a_caps_media_footprint_covers_every_output_and_accepted_type(tmp_path):
     from capdag.cap.definition import CapOutput, CliFlagSource
     from capdag.fabric.registry import FabricRegistry, ParseError, normalize_media_urn
@@ -531,10 +532,28 @@ def test_12816_a_caps_media_footprint_covers_every_output_and_accepted_type(tmp_
         "media:enc=utf8;second",
         "media:enc=utf8;accepted",
         "media:enc=utf8;rest",
+        "media:",
     ])
     got = registry._collect_referenced_media_urns(cap)
-    assert sorted(got) == expected, "each once, the wildcard left out"
+    assert sorted(got) == expected, "each once, the universal type included"
 
     cap.add_output(CapOutput("not a urn", "broken", "broken"))
     with pytest.raises(ParseError):
         registry._collect_referenced_media_urns(cap)
+
+
+# TEST1974: the universal type `media:` is a definition like any other: under
+# a versioned manifest it resolves at the definition version the manifest
+# pins, and a manifest that does not hold it does not resolve it.
+def test_1974_the_universal_type_resolves_at_its_pinned_defver(tmp_path):
+    from capdag.fabric.registry import FabricRegistry, Manifest, NotFoundError
+
+    registry = FabricRegistry.new_for_test(tmp_path)
+    registry.manifest_version = 12
+    registry.manifest = Manifest.empty(12)
+    registry.manifest.media["media:"] = 2
+    assert registry.media_defver_for("media:") == 2
+
+    del registry.manifest.media["media:"]
+    with pytest.raises(NotFoundError, match="media def 'media:' is not part of manifest v12"):
+        registry.media_defver_for("media:")
