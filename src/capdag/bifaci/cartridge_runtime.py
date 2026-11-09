@@ -2481,16 +2481,19 @@ class LiveFeedContext:
     """Runtime-side context for LIVE-FEED reference resolution (13.2
     §Reference Media, live family). An incoming stream whose media URN
     carries the ``live`` marker is a reference: the demux accumulates its
-    selector value, opens the feed through the built-in capture dispatch, and
-    delivers an UNBOUNDED SEQUENCE ``InputStream`` labeled with the arg's
-    stdin content URN. Opened feeds register their handles for stop.
-    (matches Rust LiveFeedContext)"""
+    selector value, opens the feed through the cartridge's own live families
+    or the built-in device dispatch, and delivers an UNBOUNDED SEQUENCE
+    ``InputStream`` labeled with the arg's stdin content URN. Opened feeds
+    register their handles for stop. (matches Rust LiveFeedContext)"""
 
-    def __init__(self, cap_urn: str, manifest, overruns_counter, handles: list):
+    def __init__(self, cap_urn: str, manifest, families, overruns_counter, handles: list):
         # Canonical rendering so the manifest lookup compares
         # canonical-to-canonical, independent of surface spelling.
         self._cap_urn = CapUrn.from_string(cap_urn).to_string()
         self._manifest = manifest
+        # The families this runtime resolves: the cartridge's own, then the
+        # built-in devices.
+        self._families = families
         self._overruns_counter = overruns_counter
         self._handles = handles
 
@@ -2549,12 +2552,7 @@ class LiveFeedContext:
         ``is_sequence=false``, non-conforming backend content, an
         unparseable selector, or a backend/device failure.
         (matches Rust LiveFeedContext::resolve)"""
-        from capdag.bifaci.live_feed import (
-            DELIVERY_QUEUE_CAP,
-            LiveFeedSelector,
-            capture_open,
-            content_urn_for,
-        )
+        from capdag.bifaci.live_feed import DELIVERY_QUEUE_CAP, LiveFeedSelector
 
         incoming = MediaUrn.from_string(reference_urn)
         arg = self._find_arg(incoming)
@@ -2580,12 +2578,12 @@ class LiveFeedContext:
                     f"reference '{reference_urn}' and no stdin-sourced main input "
                     f"to resolve it against"
                 )
-            provider_content = content_urn_for(incoming)
+            provider_content = self._families.content_urn_for(incoming)
             if provider_content is None:
                 raise StreamError(
-                    f"live reference '{reference_urn}' is not a known device "
-                    f"family — no capture backend exists for it "
-                    f"(13.2 §Reference Media)"
+                    f"live reference '{reference_urn}' is in no family this "
+                    f"cartridge resolves: not one it registered, and not a "
+                    f"built-in device (13.2 §Reference Media)"
                 )
             content = MediaUrn.from_string(provider_content)
             main_urn = MediaUrn.from_string(arg.media_urn)
@@ -2610,7 +2608,7 @@ class LiveFeedContext:
             raise StreamError(str(e))
         delivery: queue.Queue = queue.Queue(maxsize=DELIVERY_QUEUE_CAP)
         try:
-            opened = capture_open(
+            opened = self._families.open(
                 reference_urn, selector, delivery.put, self._overruns_counter
             )
         except Exception as e:
@@ -3995,11 +3993,13 @@ class CartridgeRuntime:
         # terminal gate (L4) — never drops, nothing went wrong.
         self._straggler_counters = StragglerCounters()
         # Runtime-wide live-feed overrun aggregate (12.5 §Overrun); rides
-        # heartbeat meta as ``overruns_total``. Capture backends are the
-        # built-in compile-time dispatch in live_feed.capture_open — nothing
-        # to register.
-        from capdag.bifaci.live_feed import _Counter
+        # heartbeat meta as ``overruns_total``.
+        from capdag.bifaci.live_feed import LiveFamilies, _Counter
         self._live_feed_overruns = _Counter()
+        # The live families this cartridge resolves itself
+        # (register_live_family), consulted before the built-in device
+        # dispatch in live_feed.capture_open.
+        self._live_families = LiveFamilies()
         # The host's latest policy (12.2 §Policy): empty until the first
         # POLICY frame, replaced by every later one, read live by every
         # handler through Request.network().
@@ -4098,6 +4098,23 @@ class CartridgeRuntime:
         The factory creates a fresh Op[None] instance per invocation.
         """
         self.handlers[cap_urn] = factory
+
+    def register_live_family(self, pattern: str, content_urn: str, opener) -> None:
+        """Register a live family this cartridge resolves itself (13.2
+        §Reference Media): a reference ``pattern`` accepts — a live
+        reference, carrying the ``live`` marker — is opened by ``opener``,
+        and its feed delivers ``content_urn``. The feed is bridged exactly as
+        a device's: the selector's ring, overrun policy and stop conditions
+        apply, its handle is registered under the request, and a stop to that
+        request closes it. ``opener(selector, sink)`` produces into the sink
+        until a push returns False (the feed was closed or a stop condition
+        fired), or ends the feed with ``sink.finish()``.
+
+        Refused, naming it, when ``pattern`` is not a live reference, when
+        ``content_urn`` is one, or when ``pattern`` covers a reference a
+        built-in device family or an already registered family covers.
+        (matches Rust CartridgeRuntime::register_live_family)"""
+        self._live_families.register(pattern, content_urn, opener)
 
     def register_op_type(self, cap_urn: str, op_class: type) -> None:
         """Register an Op class for a cap URN. Instance created via op_class() per invocation."""
@@ -4691,6 +4708,7 @@ class CartridgeRuntime:
                             lf_ctx = LiveFeedContext(
                                 cap_urn,
                                 self.manifest,
+                                self._live_families,
                                 self._live_feed_overruns,
                                 lf_handles,
                             )

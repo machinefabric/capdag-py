@@ -2013,13 +2013,14 @@ def _live_feed_manifest(arg_is_sequence: bool):
 
 def _live_feed_ctx(arg_is_sequence: bool = True):
     from capdag.bifaci.cartridge_runtime import LiveFeedContext
-    from capdag.bifaci.live_feed import _Counter
+    from capdag.bifaci.live_feed import LiveFamilies, _Counter
 
     overruns = _Counter()
     handles: list = []
     ctx = LiveFeedContext(
         LIVE_FEED_CAP_URN,
         _live_feed_manifest(arg_is_sequence),
+        LiveFamilies(),
         overruns,
         handles,
     )
@@ -2265,7 +2266,7 @@ def _blind_live_feed_ctx(main_in: str):
     """A TRANSPORT-BLIND cap (no explicit live arg): its main input consumes
     ``main_in`` via stdin. Used by the main-input fallback tests."""
     from capdag.bifaci.cartridge_runtime import LiveFeedContext
-    from capdag.bifaci.live_feed import _Counter
+    from capdag.bifaci.live_feed import LiveFamilies, _Counter
     from capdag.bifaci.manifest import CapManifest
 
     cap_urn = f'cap:consume;in="{main_in}";out="media:enc=utf8;fmt=json;record"'
@@ -2292,7 +2293,7 @@ def _blind_live_feed_ctx(main_in: str):
     })
     overruns = _Counter()
     handles: list = []
-    ctx = LiveFeedContext(cap_urn, manifest, overruns, handles)
+    ctx = LiveFeedContext(cap_urn, manifest, LiveFamilies(), overruns, handles)
     return ctx, overruns, handles
 
 
@@ -2341,6 +2342,208 @@ def test_8138_main_input_fallback_content_mismatch_rejected():
     err = package.recv()
     assert isinstance(err, Exception), "a non-conforming provider content must be rejected"
     assert "does not conform" in str(err), f"the error names the conformance failure: {err}"
+
+
+# ── Live families a cartridge resolves itself ──
+
+#: A family the test cartridge registers: an endless ticker whose items are
+#: their own index, produced until a push says the feed is closed.
+TICKS = "media:live;ticks"
+TICK = "media:tick"
+
+
+def _ticks_opener(_selector, sink):
+    from capdag.bifaci.live_feed import LiveFeedItem
+
+    def _produce():
+        index = 0
+        while sink.push(
+            LiveFeedItem(payload=index.to_bytes(8, "big"), pts_us=index * 1000, capture_ts_us=0)
+        ):
+            index += 1
+            time.sleep(0.001)
+
+    threading.Thread(target=_produce, daemon=True, name="ticks").start()
+    return {"feed": "ticks"}
+
+
+def _ticks_family():
+    from capdag.bifaci.live_feed import LiveFamilies
+
+    families = LiveFamilies()
+    families.register(TICKS, TICK, _ticks_opener)
+    return families
+
+
+def _ticks_ctx(cap_urn: str, arg_urn: str, stdin_urn: str):
+    """A context for ``cap_urn``, whose one arg is ``arg_urn`` piped as
+    ``stdin_urn``, resolving through the ticks family."""
+    from capdag.bifaci.cartridge_runtime import LiveFeedContext
+    from capdag.bifaci.live_feed import _Counter
+    from capdag.bifaci.manifest import CapManifest
+
+    manifest = CapManifest.from_dict({
+        "name": "TickCartridge",
+        "version": "1.0.0",
+        "channel": "release",
+        "registry_url": None,
+        "description": "Its own live family",
+        "cap_groups": [{
+            "name": "default",
+            "caps": [{
+                "urn": cap_urn,
+                "title": "Ticks",
+                "aliases": ["ticks"],
+                "args": [{
+                    "media_urn": arg_urn, "name": "input",
+                    "required": True,
+                    "is_sequence": True,
+                    "sources": [{"stdin": stdin_urn}],
+                }],
+            }],
+        }],
+    })
+    handles: list = []
+    ctx = LiveFeedContext(cap_urn, manifest, _ticks_family(), _Counter(), handles)
+    return ctx, handles
+
+
+def _send_reference(raw_queue, rid, reference: str, selector: str):
+    payload = cbor2.dumps(selector)
+    raw_queue.put(Frame.stream_start(rid, "ref", reference))
+    raw_queue.put(Frame.chunk(rid, "ref", 0, payload, 0, compute_checksum(payload)))
+    raw_queue.put(Frame.stream_end(rid, "ref", 1))
+    raw_queue.put(Frame.end(rid))
+
+
+def _tick_index(value) -> int:
+    assert isinstance(value, bytes) and len(value) == 8, f"a tick is 8 bytes, got {value!r}"
+    return int.from_bytes(value, "big")
+
+
+# TEST8163: a live family the cartridge registered resolves like a device:
+# the arg declaring the family's reference is handed an unbounded sequence
+# labeled with its stdin content, carrying the opener's stream meta, its
+# handle is registered for stop, and the selector's stop condition ends the
+# feed — the opener produces without end, and exactly `max_items` arrive.
+def test_8163_a_registered_live_family_resolves_and_its_stop_condition_applies():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    cap = f'cap:drain-ticks;in="{TICK}";out="media:enc=utf8;fmt=json;record"'
+    ctx, handles = _ticks_ctx(cap, TICKS, TICK)
+    raw_queue = queue.Queue()
+    _send_reference(raw_queue, MessageId.new_uuid(), TICKS, '{"stop":{"max_items":4}}')
+
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"it resolves: {stream}"
+    assert stream.media_urn() == TICK, "labeled with the arg's content"
+    assert stream.is_unbounded(), "a feed makes no length promise"
+    assert stream.stream_meta().get("feed") == "ticks", \
+        "the opener's stream meta rides STREAM_START"
+    ticks = []
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), f"items deliver cleanly: {item}"
+        ticks.append(_tick_index(item[0]))
+    assert ticks == [0, 1, 2, 3], "the selector's max_items ends the family's feed"
+    assert len(handles) == 1, "the open feed registered its handle"
+
+
+# TEST8164: a transport-blind cap consumes a registered family through its
+# main input when the family's content conforms to it, and is refused,
+# naming the conformance, when it does not.
+def test_8164_a_registered_family_feeds_a_transport_blind_main_input():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    cap = f'cap:consume;in="{TICK}";out="media:enc=utf8;fmt=json;record"'
+    ctx, _handles = _ticks_ctx(cap, TICK, TICK)
+    raw_queue = queue.Queue()
+    _send_reference(raw_queue, MessageId.new_uuid(), TICKS, '{"stop":{"max_items":2}}')
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"it resolves: {stream}"
+    assert stream.media_urn() == TICK
+    count = 0
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), f"items deliver cleanly: {item}"
+        count += 1
+    assert count == 2
+
+    other = "media:image;video-frame"
+    cap = f'cap:consume;in="{other}";out="media:enc=utf8;fmt=json;record"'
+    ctx, _handles = _ticks_ctx(cap, other, other)
+    raw_queue = queue.Queue()
+    _send_reference(raw_queue, MessageId.new_uuid(), TICKS, "{}")
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    err = package.recv()
+    assert isinstance(err, Exception), \
+        "a family whose content the main input does not take is refused"
+    assert "does not conform" in str(err), f"{err}"
+
+
+# TEST8165: a stop reaches a registered family's feed as it reaches a
+# device's: closing the registered handle (what a stop to the request does)
+# ends the opener's production, the items already given are delivered, and
+# the stream ends cleanly — no error, no further items.
+def test_8165_closing_a_registered_familys_feed_drains_and_ends_it():
+    from capdag.bifaci.cartridge_runtime import demux_multi_stream
+
+    cap = f'cap:drain-ticks;in="{TICK}";out="media:enc=utf8;fmt=json;record"'
+    ctx, handles = _ticks_ctx(cap, TICKS, TICK)
+    raw_queue = queue.Queue()
+    _send_reference(raw_queue, MessageId.new_uuid(), TICKS, "{}")
+    package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
+    stream = package.recv()
+    assert not isinstance(stream, Exception), f"it resolves: {stream}"
+    ticks = []
+    for _ in range(3):
+        item = stream.recv()
+        assert item is not None, "the feed is running"
+        assert not isinstance(item, Exception), f"items deliver cleanly: {item}"
+        ticks.append(_tick_index(item[0]))
+    for handle in handles:
+        handle.close()
+    deadline = time.monotonic() + 5.0
+    while True:
+        item = stream.recv()
+        if item is None:
+            break
+        assert not isinstance(item, Exception), \
+            f"a stopped feed ends cleanly, not with an error: {item}"
+        assert time.monotonic() < deadline, "a closed feed must end promptly"
+        ticks.append(_tick_index(item[0]))
+    assert ticks[:3] == [0, 1, 2], "in order from the first"
+    assert all(b == a + 1 for a, b in zip(ticks, ticks[1:])), f"nothing skipped: {ticks}"
+
+
+# TEST8166: a live family is refused, naming why, when its pattern is no
+# live reference, when its content is one, when it is a built-in device
+# family, or when it covers references a registered family covers.
+def test_8166_a_live_family_that_cannot_be_one_is_refused():
+    from capdag.bifaci.live_feed import LiveFamilies, LiveFeedError
+
+    def opener(_selector, _sink):
+        return None
+
+    def refused(families, pattern: str, content: str) -> str:
+        with pytest.raises(LiveFeedError) as exc_info:
+            families.register(pattern, content, opener)
+        return str(exc_info.value)
+
+    families = LiveFamilies()
+    assert "does not carry the `live` marker" in refused(families, "media:ticks", TICK)
+    assert "is itself a live reference" in refused(families, TICKS, "media:live;other")
+    assert "built-in device family" in refused(families, "media:live;synthetic", TICK)
+    assert "built-in device family" in refused(families, "media:live", TICK)
+    families.register(TICKS, TICK, opener)
+    assert "one reference has one opener" in refused(families, "media:live;ticks;fast", TICK)
+    assert "one reference has one opener" in refused(families, "media:live;ticks", "media:other")
 
 
 # TEST8126: derive_response_media — the response label is the effect

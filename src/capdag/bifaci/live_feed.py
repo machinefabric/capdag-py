@@ -2,8 +2,9 @@
 
 A live feed is an input that arrives BY REFERENCE: the wire value is a
 small selector record, and the runtime — never the op — resolves it by
-opening a capture device through the built-in capture dispatch
-(``capture_open`` below — the device analog of file-path reading) and
+opening the feed: through a live family the cartridge registered
+(``LiveFamilies`` below), else through the built-in device dispatch
+(``capture_open`` — the device analog of file-path reading), and
 delivering an UNBOUNDED SEQUENCE stream of items labeled with the arg's
 stdin content URN. The op is transport-blind.
 
@@ -14,12 +15,13 @@ applies the feed's declared overrun policy at the capture edge — the only
 place loss can occur, always counted, with an in-band ``gap`` marker on
 the next delivered item.
 
-Capture is transport resolution, not a capability and not a plugin
-surface: the set of backends is a closed compile-time dispatch. This
-runtime ships the deterministic synthetic clock (``media:live;synthetic``)
-used by the shared test range. Hardware backends (microphone, webcam) are
-registered by capture-capable cartridges; sandboxed platforms use
-host-mediated capture instead.
+The DEVICE backends are a closed dispatch. This runtime ships the
+deterministic synthetic clock (``media:live;synthetic``) used by the shared
+test range; the hardware families (microphone, webcam) are named so their
+absence is a hard, named error. A live family that is not a device (a
+source a cartridge reaches or makes itself) is the cartridge's own: it
+registers the family and its opener with its runtime, and its feeds are
+bridged and stopped exactly as a device's.
 
 (matches Rust src/bifaci/live_feed.rs)
 """
@@ -279,6 +281,10 @@ MICROPHONE_CONTENT = "media:audio;audio-frames;pcm"
 WEBCAM_REFERENCE = "media:image;live;webcam"
 WEBCAM_CONTENT = "media:image;video-frame"
 
+#: The reference of every device family: the families a cartridge's own
+#: live family may not cover. (matches Rust capture::DEVICE_FAMILIES)
+DEVICE_FAMILIES = (MEDIA_LIVE_SYNTHETIC, MICROPHONE_REFERENCE, WEBCAM_REFERENCE)
+
 def content_urn_for(reference: MediaUrn) -> Optional[str]:
     """The CONTENT urn a reference's resolved feed delivers, when the
     reference belongs to a known device family. Used by main-input
@@ -332,7 +338,20 @@ def capture_open(
             f"no capture backend exists for live reference '{reference_urn}' — "
             f"it is not a known device family (microphone, webcam, synthetic)"
         )
+    return bridge_feed(selector, deliver, overruns_counter, open_device)
 
+
+def bridge_feed(
+    selector: LiveFeedSelector,
+    deliver: Callable[[object], None],
+    overruns_counter: "_Counter",
+    open_device: Callable[[LiveFeedSelector, LiveFeedSink], Optional[dict]],
+) -> OpenedFeed:
+    """Bridge one opened feed into bounded delivery: build the ring + sink,
+    hand the sink to ``open_device`` (a device backend or a cartridge's live
+    family opener), and start the feeder thread enforcing the backpressure
+    chain and the ``duration_ms`` stop condition. (matches Rust
+    live_feed::bridge_feed)"""
     ring_cap = selector.params.get("ring", DEFAULT_RING_CAP)
     if not isinstance(ring_cap, int) or ring_cap < 1:
         raise LiveFeedError(f"live-feed 'ring' param must be a positive integer, got {ring_cap!r}")
@@ -393,6 +412,107 @@ def capture_open(
 
     threading.Thread(target=_feeder, daemon=True, name="live-feed-feeder").start()
     return OpenedFeed(stream_meta=stream_meta, handle=LiveFeedHandle(shared))
+
+
+#: What opens one live family's feeds: handed the selector and the feed's
+#: sink, it starts producing items into the sink (on a thread of its own) and
+#: returns the stream-level meta for STREAM_START — the shape of a device
+#: backend, so a cartridge's family is bridged exactly as a device is.
+LiveFeedOpener = Callable[[LiveFeedSelector, LiveFeedSink], Optional[dict]]
+
+
+@dataclass
+class _LiveFamily:
+    pattern: MediaUrn
+    content_urn: str
+    opener: LiveFeedOpener
+
+
+class LiveFamilies:
+    """The live families a runtime resolves (13.2 §Reference Media): the
+    families a cartridge registered, then the built-in device families. A
+    reference neither covers is a hard, named error.
+    (matches Rust live_feed::LiveFamilies)"""
+
+    def __init__(self) -> None:
+        self._families: List[_LiveFamily] = []
+
+    def register(self, pattern: str, content_urn: str, opener: LiveFeedOpener) -> None:
+        """Register a family. ``pattern`` must be a live reference (it
+        carries the ``live`` marker) and ``content_urn`` a media URN that is
+        not one. A family that covers a reference a built-in device family or
+        an already registered family also covers is refused, naming both:
+        one reference has one opener."""
+        try:
+            parsed = MediaUrn.from_string(pattern)
+        except Exception as e:
+            raise LiveFeedError(f"live family '{pattern}' is not a valid media URN: {e}")
+        if not parsed.is_live_feed():
+            raise LiveFeedError(
+                f"live family '{pattern}' does not carry the `live` marker: only a live "
+                f"reference names a family"
+            )
+        try:
+            content = MediaUrn.from_string(content_urn)
+        except Exception as e:
+            raise LiveFeedError(
+                f"live family '{pattern}' delivers '{content_urn}', which is not a valid "
+                f"media URN: {e}"
+            )
+        if content.is_live_feed():
+            raise LiveFeedError(
+                f"live family '{pattern}' delivers '{content_urn}', which is itself a live "
+                f"reference: a feed delivers content"
+            )
+
+        def overlaps(a: MediaUrn, b: MediaUrn) -> bool:
+            return a.accepts(b) or b.accepts(a)
+
+        for device in DEVICE_FAMILIES:
+            if overlaps(MediaUrn.from_string(device), parsed):
+                raise LiveFeedError(
+                    f"live family '{pattern}' covers references the built-in device family "
+                    f"'{device}' covers, which capdag opens itself"
+                )
+        for existing in self._families:
+            if overlaps(existing.pattern, parsed):
+                raise LiveFeedError(
+                    f"live family '{pattern}' covers references '{existing.pattern}', "
+                    f"registered already, covers too: one reference has one opener"
+                )
+        self._families.append(_LiveFamily(parsed, content_urn, opener))
+
+    def _find(self, reference: MediaUrn) -> Optional[_LiveFamily]:
+        return next((f for f in self._families if f.pattern.accepts(reference)), None)
+
+    def content_urn_for(self, reference: MediaUrn) -> Optional[str]:
+        """The content a reference's feed delivers: a registered family's,
+        else a built-in device family's. None when no family covers it."""
+        family = self._find(reference)
+        if family is not None:
+            return family.content_urn
+        return content_urn_for(reference)
+
+    def open(
+        self,
+        reference_urn: str,
+        selector: LiveFeedSelector,
+        deliver: Callable[[object], None],
+        overruns_counter: "_Counter",
+    ) -> OpenedFeed:
+        """Open the feed a reference names: through the registered family
+        that covers it, else through the built-in device dispatch, which
+        names a reference no family covers."""
+        try:
+            reference = MediaUrn.from_string(reference_urn)
+        except Exception as e:
+            raise LiveFeedError(
+                f"live-feed reference URN '{reference_urn}' is not a valid media URN: {e}"
+            )
+        family = self._find(reference)
+        if family is not None:
+            return bridge_feed(selector, deliver, overruns_counter, family.opener)
+        return capture_open(reference_urn, selector, deliver, overruns_counter)
 
 
 def synthetic_open(selector: LiveFeedSelector, sink: LiveFeedSink) -> Optional[dict]:
