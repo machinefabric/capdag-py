@@ -23,6 +23,8 @@ add_library(capdagFormal_lean SHARED
   program/modules/CapDAG-Query.c
   program/modules/CapDAG-Ranking.c
   program/modules/CapDAG-Route.c
+  program/modules/CapDAG-Run-Control.c
+  program/modules/CapDAG-Run-Step.c
   program/modules/Init-Core.c
   program/modules/Init-Data-ByteArray-Basic.c
   program/modules/Init-Data-ByteArray-Extra.c

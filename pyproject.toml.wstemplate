@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# The Python mirror's CLI. `capdag new` is how a cartridge project comes into
+# The Python mirror's CLI. `capdag dev new` is how a cartridge project comes into
 # existence, and every mirror creates the same project — so every mirror ships
 # the command.
 capdag = "capdag.cli:main"

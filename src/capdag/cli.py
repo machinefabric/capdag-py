@@ -1,6 +1,6 @@
 """capdag — the Python capdag CLI.
 
-A capdag mirror is not just a library: ``capdag new`` is how a cartridge project
+A capdag mirror is not just a library: ``capdag dev new`` is how a cartridge project
 comes into existence, and every mirror must be able to create the same project.
 This module is the Python mirror's CLI, installed as the ``capdag`` console
 script.
@@ -8,22 +8,24 @@ script.
 What this binary does and does not do
 -------------------------------------
 
-The commands here are exactly those the Python library can back today::
+The commands here are exactly those the Python library can back today, named
+and shaped as the reference capdag CLI names them::
 
-    new                  scaffold a cartridge project in any vendored language
-    dev-install          install/update a dev cartridge under the dev slug
-    find                 show what an alias or URN resolves to
-    resolve              print cap definition JSON
-    cache                clear/refresh the local fabric cache
-    hash-cartridge-dir   the deterministic content hash of a version directory
+    info <cap>...        a capability: title, aliases, URN; --json, its definition
+    cache refresh|clear  renew or remove the local copy of the fabric
+    dev new <path> --lang <language>
+                         start a cartridge project in any vendored language
+    dev install [<dir>]  install a cartridge project for local runs
+    dev hash-dir <dir>   the deterministic content hash of a version directory
 
-``run``, single-cap dispatch, ``plan`` and ``dag-viz`` are NOT here, because
+``run``, ``plan``, ``caps``, ``check`` and ``graph`` are NOT here, because
 this mirror has no plan executor. They are absent rather than stubbed: a command
 that accepted the arguments and then reported "unsupported" would be a worse lie
 than not existing, and ``capdag help`` says plainly what is missing and where it
 lives.
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -37,59 +39,31 @@ from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION
 from capdag.fabric.registry import FabricRegistry, RegistryConfig
 
 
-COMMANDS = ["new", "dev-install", "find", "resolve", "cache", "hash-cartridge-dir"]
+COMMANDS = ["info", "cache", "dev"]
 
 
-def _usage(program: str) -> str:
-    p = os.path.basename(program)
-    return f"""Usage:
-  {p} new <name> <{dev.language_flag_list()}> [-o <dir>]   Scaffold a new cartridge project
-  {p} dev-install [<project-dir>]     Install/update a dev cartridge under the dev slug
-  {p} find <cap-alias-or-urn>         Show what an alias or URN resolves to
-  {p} resolve <cap-alias-or-urn>...   Print cap definition JSON (array for >1)
-  {p} cache [status|clear|refresh]    Invalidate/renew the local fabric cache
-  {p} hash-cartridge-dir <dir>        Deterministic content hash of a version directory
+class CliError(Exception):
+    """What went wrong, said as the reference CLI says it: the problem, what
+    was expected and found, and what to type next."""
 
-Options:
-  --fabric <anchor>  Resolve caps/media/aliases against the fabric registry
-                   chartered at this anchor instead of the built-in one
-                   (env: CDG_FABRIC_REGISTRY_URL).
-                   Works before any subcommand.
-  --help           Show this help
+    def __init__(self, problem: str, context: Optional[List[str]] = None, hint: Optional[str] = None, exit: int = 1):
+        super().__init__(problem)
+        self.problem = problem
+        self.context = context or []
+        self.hint = hint
+        self.exit = exit
 
-Not in this mirror: run, single-cap dispatch, plan, dag-viz. They need the plan
-executor, which the Python library does not implement. Use the reference capdag
-CLI for those.
-"""
+    def render(self) -> str:
+        out = f"error: {self.problem}\n"
+        for line in self.context:
+            out += f"  {line}\n"
+        if self.hint:
+            out += f"hint: {self.hint}\n"
+        return out
 
 
-def _die(message: str, code: int = 1) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(code)
-
-
-def _take_fabric_flag(argv: List[str]) -> List[str]:
-    """Strip ``--fabric <anchor>`` from argv and apply it to the environment:
-    the registry reads everything else from that anchor's charter.
-
-    It is stripped before dispatch so it works in front of ANY subcommand and
-    never reaches a cap's own argument parsing.
-    """
-    out: List[str] = []
-    i = 0
-    while i < len(argv):
-        if argv[i] != "--fabric":
-            out.append(argv[i])
-            i += 1
-            continue
-        if i + 1 >= len(argv):
-            _die("--fabric requires a registry anchor", 2)
-        url = argv[i + 1]
-        if not url or url.startswith("-"):
-            _die(f"--fabric requires a registry anchor, got {url!r}", 2)
-        os.environ["CDG_FABRIC_REGISTRY_URL"] = url
-        i += 2
-    return out
+def usage_error(problem: str, hint: Optional[str] = None, context: Optional[List[str]] = None) -> CliError:
+    return CliError(problem, context=context, hint=hint, exit=2)
 
 
 def user_cartridge_dir() -> Path:
@@ -102,101 +76,87 @@ async def _registry() -> FabricRegistry:
     return await FabricRegistry.with_config(RegistryConfig())
 
 
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="capdag",
+        description="The Python capdag CLI: capability lookup, the fabric cache and cartridge development.",
+        epilog="This mirror has no plan executor: run, plan, caps, check and graph are the reference capdag's.",
+    )
+    parser.add_argument("--fabric", metavar="URL", help="resolve against this fabric instead of the built-in one (env: CDG_FABRIC_REGISTRY_URL)")
+    parser.add_argument("--json", action="store_true", help="print JSON Lines on stdout, one record per line")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    info = sub.add_parser("info", help="show a capability", epilog="Examples:\n  capdag info disbind-pdf\n  capdag info --json disbind-pdf", formatter_class=argparse.RawDescriptionHelpFormatter)
+    info.add_argument("names", nargs="+", metavar="NAME", help="capabilities, by alias or URN")
+    info.add_argument("--no-cache", action="store_true", help="read the fabric afresh")
+
+    cache = sub.add_parser("cache", help="the local copy of the fabric")
+    cache_sub = cache.add_subparsers(dest="cache_command", metavar="ACTION", required=True)
+    cache_sub.add_parser("refresh", help="fetch the fabric afresh", epilog="Examples:\n  capdag cache refresh", formatter_class=argparse.RawDescriptionHelpFormatter)
+    cache_sub.add_parser("clear", help="remove the local copy", epilog="Examples:\n  capdag cache clear", formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    dev_parser = sub.add_parser("dev", help="develop cartridges")
+    dev_sub = dev_parser.add_subparsers(dest="dev_command", metavar="ACTION", required=True)
+    new = dev_sub.add_parser("new", help="start a cartridge project", epilog="Examples:\n  capdag dev new sentiment --lang python", formatter_class=argparse.RawDescriptionHelpFormatter)
+    new.add_argument("path", metavar="PATH", help="where to make it; its last part is the cartridge's name")
+    new.add_argument("--lang", required=True, choices=[lang.id for lang in dev.languages()], help="the language to write it in")
+    install = dev_sub.add_parser("install", help="install a cartridge project for local runs", epilog="Examples:\n  capdag dev install ./sentiment", formatter_class=argparse.RawDescriptionHelpFormatter)
+    install.add_argument("dir", nargs="?", default=".", metavar="DIR", help="the project's directory")
+    hash_dir = dev_sub.add_parser("hash-dir")
+    hash_dir.add_argument("dir", metavar="DIR")
+    return parser
+
+
 # ---------------------------------------------------------------------------
-# new
+# dev new
 # ---------------------------------------------------------------------------
 
 
-def cmd_new(argv: List[str]) -> int:
-    name: Optional[str] = None
-    lang = None
-    parent = Path(".")
-
-    i = 2
-    while i < len(argv):
-        arg = argv[i]
-        if arg in ("-o", "--output"):
-            i += 1
-            if i >= len(argv):
-                _die("--output requires a directory path", 2)
-            parent = Path(argv[i])
-        elif dev.language(arg) is not None:
-            # Two language flags is not a preference to resolve, it is a
-            # command that cannot mean one thing.
-            if lang is not None:
-                _die(
-                    f"`new` takes one language: '{lang.flag}' was already given, then '{arg}'.",
-                    2,
-                )
-            lang = dev.language(arg)
-        elif arg.startswith("--"):
-            _die(
-                f"Unknown option '{arg}' for `new`. Languages: {dev.language_flag_list()}.",
-                2,
-            )
-        elif name is None:
-            name = arg
-        else:
-            _die(f"Unexpected argument '{arg}' for `new`.", 2)
-        i += 1
-
-    if name is None:
-        _die(
-            f"Usage: {os.path.basename(argv[0])} new <name> "
-            f"<{dev.language_flag_list()}> [-o <dir>]",
-            2,
-        )
-    # No default language. Defaulting would make `capdag new mycart` produce a
-    # different project as the stub set grows, and silently pick for someone who
-    # simply forgot to say.
-    if lang is None:
-        _die(
-            f"`new` requires a language: {dev.language_flag_list()}. "
-            "Each scaffolds the same cartridge, in that language.",
-            2,
-        )
-
+def cmd_dev_new(path: Path, lang_id: str, as_json: bool) -> int:
+    lang = dev.language(lang_id)
+    name = path.name
+    if not name:
+        raise usage_error(f"'{path}' names no directory to make")
+    parent = path.parent if str(path.parent) else Path(".")
     try:
         project_dir = dev.scaffold_cartridge(name, lang, parent)
     except dev.DevError as e:
-        _die(str(e))
-
-    print(f"Scaffolded {lang.display} cartridge '{name}' at {project_dir}", file=sys.stderr)
+        raise CliError(f"the project {path} could not be made", [str(e)])
+    if as_json:
+        print(json.dumps({"type": "project", "dir": str(project_dir), "language": lang.id}))
+        return 0
+    print(f"Made the {lang.display} cartridge '{name}' at {project_dir}", file=sys.stderr)
     print("Next:", file=sys.stderr)
     print(f"  cd {project_dir}", file=sys.stderr)
     for step in lang.build:
         print(f"  {step.replace(dev.STUB_PLACEHOLDER, name)}", file=sys.stderr)
-    print("  capdag dev-install .          # install under the local `dev` slug", file=sys.stderr)
-    print(f'  echo "I love this" | capdag {name}', file=sys.stderr)
+    print("  capdag dev install", file=sys.stderr)
+    print(f'  echo "I love this" | capdag run {name}', file=sys.stderr)
     print(project_dir)
     return 0
 
 
 # ---------------------------------------------------------------------------
-# dev-install
+# dev install
 # ---------------------------------------------------------------------------
 
 
-async def cmd_dev_install(argv: List[str]) -> int:
-    project_dir = Path(argv[2]) if len(argv) > 2 else Path(".")
-
+async def cmd_dev_install(project_dir: Path, as_json: bool) -> int:
     try:
         entry = dev.project_entry(project_dir)
         manifest = dev.read_entry_manifest(entry)
     except dev.DevError as e:
-        _die(str(e))
+        raise CliError(f"{project_dir} is not a cartridge project that is built", [str(e)],
+                       "build it first, as `capdag dev new` said; then run this again")
 
     # A dev cartridge may declare caps the fabric does not know, but its aliases
-    # must not collide with the fabric. Check every declared cap up front so a
-    # conflict is reported before anything is written to disk.
+    # must not collide with the fabric. Every alias it claims is warmed first:
+    # the cached resolver only sees aliases already on disk.
     registry = await _registry()
 
     def resolve(alias: str) -> Optional[str]:
         return registry.resolve_alias_cached(alias)
 
-    # The cached resolver only sees aliases already on disk, so warm every alias
-    # the dev cartridge claims before checking — an unwarmed cache would report
-    # "no conflict" for an alias the fabric does in fact own.
     for group in manifest.cap_groups:
         for c in group.caps:
             for alias in c.get_aliases():
@@ -204,39 +164,31 @@ async def cmd_dev_install(argv: List[str]) -> int:
                     await registry.get_alias(alias)
                 except Exception:
                     # An alias the fabric does not define is the ordinary case
-                    # for a dev cap; the conflict check below reads the cache
-                    # and finds nothing, which is the correct answer.
+                    # for a dev cap; the check below finds no conflict for it.
                     pass
-
     try:
         for group in manifest.cap_groups:
             for c in group.caps:
                 dev.check_no_fabric_conflict(resolve, c)
     except dev.DevError as e:
-        _die(str(e))
+        raise CliError("the cartridge's caps conflict with the fabric", [str(e)])
 
     try:
         version_dir = dev.stage_dev_cartridge(
-            project_dir,
-            manifest,
-            user_cartridge_dir(),
-            CARTRIDGE_REGISTRY_VERSION,
-            registry.manifest_version,
+            project_dir, manifest, user_cartridge_dir(), CARTRIDGE_REGISTRY_VERSION, registry.manifest_version,
         )
     except dev.DevError as e:
-        _die(str(e))
+        raise CliError("the cartridge could not be installed", [str(e)])
 
-    print(
-        f"Installed dev cartridge '{manifest.name}' v{manifest.version} "
-        f"({manifest.channel}) at {version_dir}",
-        file=sys.stderr,
-    )
-    # Hint the run command using the first non-identity cap alias.
+    if as_json:
+        print(json.dumps({"type": "cartridge", "id": manifest.name, "version": manifest.version, "state": "dev", "dir": str(version_dir)}))
+        return 0
+    print(f"Installed the dev cartridge '{manifest.name}' {manifest.version} at {version_dir}", file=sys.stderr)
     for group in manifest.cap_groups:
         for c in group.caps:
             aliases = c.get_aliases()
             if aliases and aliases[0] != "identity":
-                print(f'Run it:  echo "..." | capdag {aliases[0]}', file=sys.stderr)
+                print(f"Run it: capdag run {aliases[0]} <input>", file=sys.stderr)
                 print(version_dir)
                 return 0
     print(version_dir)
@@ -244,55 +196,38 @@ async def cmd_dev_install(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# find
+# info
 # ---------------------------------------------------------------------------
 
 
-async def cmd_find(argv: List[str]) -> int:
-    if len(argv) < 3:
-        _die(f"Usage: {os.path.basename(argv[0])} find <cap-alias-or-urn>", 2)
-    token = argv[2]
+async def cmd_info(names: List[str], no_cache: bool, as_json: bool) -> int:
+    if no_cache:
+        (await _registry()).clear_cache()
     registry = await _registry()
-
-    cap_urn = token
-    if ":" not in token:
-        cap_urn = await registry.resolve_alias(token)
-        print(f"alias  {token} -> {cap_urn}")
-
-    definition = await registry.get_cap(cap_urn)
-    print(f"cap    {definition.urn_string()}")
-    print(f"title  {definition.title}")
-    print(f"aliases {', '.join(definition.aliases)}")
-
-    # A dev-installed cartridge answers caps the fabric does not, and it is the
-    # thing a developer is most often looking for here.
-    for alias in definition.aliases:
-        found = dev.find_dev_cap_by_alias(
-            user_cartridge_dir(), CARTRIDGE_REGISTRY_VERSION, alias
-        )
-        if found is not None:
-            print(f"dev    {found[1]} (alias {alias})")
-            break
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# resolve
-# ---------------------------------------------------------------------------
-
-
-async def cmd_resolve(argv: List[str]) -> int:
-    tokens = argv[2:]
-    if not tokens:
-        _die(f"Usage: {os.path.basename(argv[0])} resolve <cap-alias-or-urn>...", 2)
-    registry = await _registry()
-
-    definitions = [(await registry.get_cap(t)).to_dict() for t in tokens]
-    # One argument prints the object; several print the array. Callers pipe this
-    # into jq, and wrapping a single result would make every one-cap invocation
-    # index into an array for no reason.
-    payload = definitions[0] if len(definitions) == 1 else definitions
-    print(json.dumps(payload, indent=2))
+    for index, name in enumerate(names):
+        try:
+            definition = await registry.get_cap(name if ":" in name else await registry.resolve_alias(name))
+        except Exception as e:
+            raise usage_error(f"there is no capability named '{name}'", f"find one with the reference CLI: capdag caps {name}", [str(e)])
+        if as_json:
+            # The definition as the fabric publishes it, its fields in their
+            # declared order, as the reference CLI writes it.
+            record = {"type": "cap", "alias": definition.aliases[0] if definition.aliases else name,
+                      "urn": definition.urn_string(), "bundled": [], "installed": [],
+                      "definition": definition.to_dict()}
+            print(json.dumps(record, separators=(",", ":")))
+            continue
+        if index > 0:
+            print()
+        alias = definition.aliases[0] if definition.aliases else name
+        print(f"{alias} — {definition.title}")
+        print(definition.urn_string())
+        print(f"Aliases: {', '.join(definition.aliases)}")
+        for alias_name in definition.aliases:
+            found = dev.find_dev_cap_by_alias(user_cartridge_dir(), CARTRIDGE_REGISTRY_VERSION, alias_name)
+            if found is not None:
+                print(f"Provided by the dev cartridge at {found[1]}")
+                break
     return 0
 
 
@@ -301,54 +236,36 @@ async def cmd_resolve(argv: List[str]) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def cmd_cache(argv: List[str]) -> int:
-    sub = argv[2] if len(argv) > 2 else "status"
+async def cmd_cache(action: str, as_json: bool) -> int:
     registry = await _registry()
-
-    if sub == "status":
-        print(f"anchor   {registry.charter.anchor}")
-        print(f"slug     {registry.charter.slug}")
-        print(f"manifest v{registry.manifest_version}")
-        print(f"root     {registry.cache_dir}")
-        print(f"caps     {len(await registry.get_cached_caps())}")
-        print(f"media    {len(await registry.get_cached_media_defs())}")
-        print(f"aliases  {len(registry.cached_cap_aliases())}")
-    elif sub == "clear":
-        registry.clear_cache()
-        print(f"Cleared {registry.cache_dir}", file=sys.stderr)
-    elif sub == "refresh":
-        # Refresh is clear followed by a re-read: the manifest is re-fetched by
-        # the next construction, which is what makes the following lookups warm
-        # against the current snapshot rather than the one on disk.
-        registry.clear_cache()
-        refreshed = await _registry()
-        print(
-            f"Refreshed {refreshed.cache_dir} at manifest v{refreshed.manifest_version}",
-            file=sys.stderr,
-        )
+    directory = registry.cache_dir
+    registry.clear_cache()
+    manifest = None
+    if action == "refresh":
+        # The manifest and everything it pins, fetched afresh into the now
+        # empty cache, so the renewal is complete rather than lazy.
+        manifest = (await _registry()).manifest_version
+    if as_json:
+        print(json.dumps({"type": "cache", "dir": str(directory), "refreshed": manifest is not None, "manifest": manifest}))
+    elif manifest is not None:
+        print(f"Fabric cache refreshed at {directory}: manifest {manifest}", file=sys.stderr)
     else:
-        _die(f"Usage: {os.path.basename(argv[0])} cache [status|clear|refresh]", 2)
+        print(f"Fabric cache cleared at {directory}; the next command fetches what it needs.", file=sys.stderr)
     return 0
 
 
 # ---------------------------------------------------------------------------
-# hash-cartridge-dir
+# dev hash-dir
 # ---------------------------------------------------------------------------
 
 
-def cmd_hash_cartridge_dir(argv: List[str]) -> int:
-    """Print the deterministic content hash of a cartridge version directory.
-
-    This is the same walk every host computes at discovery time, so a hash
-    printed here is byte-identical to the one a running engine derives. Never
-    reimplement the walk elsewhere — it would silently drift.
-    """
-    if len(argv) < 3:
-        _die(f"Usage: {os.path.basename(argv[0])} hash-cartridge-dir <version-dir>", 2)
+def cmd_hash_dir(directory: Path) -> int:
+    """Print the deterministic content hash of a cartridge version directory:
+    the walk every host computes at discovery time, byte-identical to it."""
     try:
-        print(hash_cartridge_directory(Path(argv[2])))
+        print(hash_cartridge_directory(directory))
     except Exception as e:
-        _die(f"hash-cartridge-dir: failed to hash '{argv[2]}': {e}")
+        raise CliError(f"{directory} could not be hashed", [str(e)])
     return 0
 
 
@@ -358,43 +275,35 @@ def cmd_hash_cartridge_dir(argv: List[str]) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    argv = list(sys.argv if argv is None else argv)
-    argv = _take_fabric_flag(argv)
-
-    if len(argv) < 2:
-        print(_usage(argv[0]), file=sys.stderr, end="")
-        return 1
-
-    command = argv[1]
-    if command == "new":
-        return cmd_new(argv)
-    if command == "dev-install":
-        return asyncio.run(cmd_dev_install(argv))
-    if command == "find":
-        return asyncio.run(cmd_find(argv))
-    if command == "resolve":
-        return asyncio.run(cmd_resolve(argv))
-    if command == "cache":
-        return asyncio.run(cmd_cache(argv))
-    if command == "hash-cartridge-dir":
-        return cmd_hash_cartridge_dir(argv)
-    if command in ("help", "--help", "-h"):
-        print(_usage(argv[0]), file=sys.stderr, end="")
-        return 0
-
-    # A `.machine` file or a bare cap alias means the caller wants to EXECUTE
-    # something, which this mirror cannot do. Saying so — and naming what does —
-    # beats "unknown command".
-    if command.endswith(".machine") or not command.startswith("-"):
-        _die(
-            f"{command}: this mirror does not execute machines or caps — it has no "
-            "plan executor.\nRun it with the reference capdag CLI (the Rust build) "
-            f"instead.\nThis binary covers: {', '.join(COMMANDS)}",
-            2,
-        )
-    print(f"Unknown option '{command}'.", file=sys.stderr)
-    print(_usage(argv[0]), file=sys.stderr, end="")
-    return 2
+    argv = list(sys.argv[1:] if argv is None else argv[1:])
+    parser = _parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as e:
+        return 0 if e.code in (0, None) else 2
+    if args.fabric:
+        if not args.fabric.startswith(("http://", "https://")):
+            print(usage_error(f"--fabric '{args.fabric}' is not an http(s) URL", "for example: --fabric https://fabric-staging.capdag.com").render(), file=sys.stderr, end="")
+            return 2
+        os.environ["CDG_FABRIC_REGISTRY_URL"] = args.fabric
+    try:
+        if args.command == "info":
+            return asyncio.run(cmd_info(args.names, args.no_cache, args.json))
+        if args.command == "cache":
+            return asyncio.run(cmd_cache(args.cache_command, args.json))
+        if args.command == "dev":
+            if args.dev_command == "new":
+                return cmd_dev_new(Path(args.path), args.lang, args.json)
+            if args.dev_command == "install":
+                return asyncio.run(cmd_dev_install(Path(args.dir), args.json))
+            return cmd_hash_dir(Path(args.dir))
+        parser.print_help(sys.stderr)
+        return 2
+    except CliError as error:
+        if args.json:
+            print(json.dumps({"type": "error", "problem": error.problem, "context": error.context, "hint": error.hint, "exit": error.exit}))
+        print(error.render(), file=sys.stderr, end="")
+        return error.exit
 
 
 if __name__ == "__main__":

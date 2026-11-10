@@ -2,19 +2,19 @@
 
 This package backs three developer commands and the local-manifest run path:
 
-- :func:`scaffold_cartridge` — ``capdag new <name> --<language>``: write a
+- :func:`scaffold_cartridge` — ``capdag dev new <path> --lang <language>``: write a
   fresh, runnable cartridge project (one custom cap, one Op that peer-calls a
   model, one manifest) into a new directory, in any language the vendored
   canonical stubs cover. The stubs are the SAME bytes in every capdag
   implementation (see :mod:`capdag.dev.stubs_generated`), so the project you get
   does not depend on which capdag binary you ran.
-- :func:`stage_dev_cartridge` — ``capdag dev-install <project-dir>``: read the
+- :func:`stage_dev_cartridge` — ``capdag dev install <project-dir>``: read the
   project's manifest, then copy it under the per-user cartridge root's reserved
   ``dev`` slug so the capdag host discovers it. Re-running overwrites the same
   version directory — the update step of the edit/reinstall loop.
 - :func:`find_dev_cap_by_alias` + :func:`check_no_fabric_conflict` — the
-  local-manifest run path: when ``capdag <alias>`` names a cap the fabric does
-  NOT define, a locally dev-installed cartridge's OWN manifest answers it, as
+  local-manifest run path: when ``capdag run <alias>`` names a cap the fabric does
+  NOT define, a locally installed dev cartridge's OWN manifest answers it, as
   long as the cap does not conflict with the fabric. A dev cap never needs to be
   published to be developed and run locally.
 
@@ -67,7 +67,6 @@ __all__ = [
     "StubLanguage",
     "languages",
     "language",
-    "language_flag_list",
     "entry_for",
     "valid_cartridge_name",
     "scaffold_cartridge",
@@ -117,7 +116,7 @@ class NoEntryError(DevError):
             f"no cartridge entry found in '{project}'. Looked for "
             f"{_entry_candidates_description(project)}. A compiled cartridge must be BUILT "
             "before it is installed — the host launches the binary, not the sources. "
-            "Create the project with `capdag new`."
+            "Create the project with `capdag dev new`."
         )
         self.project = project
 
@@ -142,7 +141,7 @@ class NotDevError(DevError):
     def __init__(self, registry_url: str):
         super().__init__(
             f"this project's manifest declares registry_url {registry_url!r}, so it is a "
-            "PUBLISHED cartridge, not a dev one. `dev-install` stages only dev cartridges "
+            "PUBLISHED cartridge, not a dev one. `capdag dev install` stages only dev cartridges "
             "(registry_url null)."
         )
         self.registry_url = registry_url
@@ -168,33 +167,24 @@ class FabricConflictError(DevError):
 
 
 def languages() -> List[StubLanguage]:
-    """Every language ``capdag new`` can scaffold, in contract order.
+    """Every language ``capdag dev new`` can scaffold, in contract order.
 
-    A mirror that offered a subset would silently make ``capdag new --rust``
+    A mirror that offered a subset would silently make ``capdag dev new --lang rust``
     mean different things depending on which capdag binary you happened to run.
     """
     return STUB_LANGUAGES
 
 
 def language(selector: str) -> Optional[StubLanguage]:
-    """Look a language up by its id (``python``) or its flag (``--python``).
+    """Look a language up by its id (``python``).
 
     Returns ``None`` for anything else; the caller turns that into an error that
     lists what IS available, which is the only useful thing to say.
     """
     for candidate in STUB_LANGUAGES:
-        if candidate.id == selector or candidate.flag == selector:
+        if candidate.id == selector:
             return candidate
     return None
-
-
-def language_flag_list() -> str:
-    """The scaffoldable flags, for usage and error messages.
-
-    Built from the contract so a newly vendored language appears everywhere at
-    once rather than in whichever message someone remembered to update.
-    """
-    return " | ".join(candidate.flag for candidate in STUB_LANGUAGES)
 
 
 def _render(template: str, name: str) -> str:
@@ -267,9 +257,9 @@ def scaffold_cartridge(name: str, lang: StubLanguage, parent_dir: Path) -> Path:
 def _project_name(project_dir: Path) -> str:
     """The name a scaffolded directory carries: its own directory name.
 
-    ``capdag new <name>`` creates ``<parent>/<name>`` and every rendered path is
-    seeded from that name, so the directory IS the name. Reading it back is how
-    dev-install knows what a compiled entry is called without being told.
+    ``capdag dev new <path>`` creates the directory ``<path>``, its last part the
+    name, and every rendered path is seeded from that name, so the directory IS
+    the name. Reading it back is how ``capdag dev install`` knows what a compiled entry is called without being told.
     """
     return Path(project_dir).resolve().name
 
@@ -348,7 +338,7 @@ def read_entry_manifest(entry: Path) -> CapManifest:
 
 
 # ---------------------------------------------------------------------------
-# dev-install — stage a project under the `dev` slug.
+# dev install — stage a project under the `dev` slug.
 # ---------------------------------------------------------------------------
 
 
@@ -465,7 +455,7 @@ def stage_dev_cartridge(
 def find_dev_cap_by_alias(
     user_cartridge_dir: Path, registry_version: int, alias: str
 ) -> Optional[Tuple[Cap, Path]]:
-    """Search every dev-installed cartridge's own manifest for a cap carrying
+    """Search every installed dev cartridge's own manifest for a cap carrying
     ``alias``, returning ``(cap, version_dir)``.
 
     Returns ``None`` when no dev cartridge claims the alias — an ordinary
@@ -492,7 +482,7 @@ def find_dev_cap_by_alias(
 def _walk_version_dirs(dev_root: Path) -> List[Path]:
     """Every ``{channel}/{name}/{version}/`` directory under a dev root.
 
-    A missing root is not an error — nothing has been dev-installed yet.
+    A missing root is not an error — no dev cartridge has been installed yet.
     """
     out: List[Path] = []
     for channel in _read_subdirs(dev_root):

@@ -219,7 +219,7 @@ def test_12716_an_entry_manifest_with_an_invalid_definition_is_refused(tmp_path)
     assert "invalid cap definition" not in text
 
 
-# TEST7157: dev-install refuses a PUBLISHED manifest. `registry_url` non-null
+# TEST7157: `dev install` refuses a PUBLISHED manifest. `registry_url` non-null
 # means the cartridge belongs to a registry, and staging it under the dev slug
 # would put a published identity in a slot reserved for local work.
 def test_7157_dev_install_rejects_published_manifest(tmp_path):
@@ -261,7 +261,7 @@ def test_7159_two_entries_is_ambiguous_not_a_coin_flip(tmp_path):
 
 # TEST7160: the vendored stub contract is IDENTICAL to the canonical source.
 #
-# This is the whole promise of `capdag new`: the same command from any capdag
+# This is the whole promise of `capdag dev new`: the same command from any capdag
 # binary writes the same project. Every mirror's copy is generated from this
 # one source, so a difference here means the reference itself was vendored from
 # a different commit than the stub repo currently holds — which would ship
@@ -344,7 +344,6 @@ def test_7160_vendored_stub_contract_matches_the_canonical_source():
     for vendored in STUB_LANGUAGES:
         spec = contract["languages"].get(vendored.id)
         assert spec is not None, f"vendored language {vendored.id} is not in the canonical contract"
-        assert spec["flag"] == vendored.flag
         assert spec["entry"] == vendored.entry
         assert len(spec["files"]) == len(vendored.files)
         for declared, got in zip(spec["files"], vendored.files):
