@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
-version = "1.536.0"
+version = "1.537.9"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# The Python mirror's CLI. `capdag new` is how a cartridge project comes into
+# The Python mirror's CLI. `capdag dev new` is how a cartridge project comes into
 # existence, and every mirror creates the same project — so every mirror ships
 # the command.
 capdag = "capdag.cli:main"

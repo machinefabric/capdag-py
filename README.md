@@ -64,10 +64,10 @@ reference. Language-neutral rules belong to the canonical specification.
 ## Scaffold a Python cartridge
 
 ```bash
-capdag new sentiment-tagger --python
+capdag dev new sentiment-tagger --lang python
 cd sentiment-tagger
-capdag dev-install .
-echo "I love this" | capdag sentiment-tagger
+capdag dev install
+echo "I love this" | capdag run sentiment-tagger
 ```
 
 The generated project demonstrates a manifest, canonical URNs, handler
