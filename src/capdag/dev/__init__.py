@@ -142,7 +142,8 @@ class NotDevError(DevError):
         super().__init__(
             f"this project's manifest declares registry_url {registry_url!r}, so it is a "
             "PUBLISHED cartridge, not a dev one. `capdag dev install` stages only dev cartridges "
-            "(registry_url null)."
+            "(registry_url null). Publish it through the cartridge registry instead, or set "
+            "registry_url to null for local development."
         )
         self.registry_url = registry_url
 

@@ -26,6 +26,7 @@ from capdag.dev import (
     DevError,
     FabricConflictError,
     InvalidNameError,
+    NoEntryError,
     NotDevError,
     check_no_fabric_conflict,
     entry_for,
@@ -222,19 +223,43 @@ def test_12716_an_entry_manifest_with_an_invalid_definition_is_refused(tmp_path)
 # TEST7157: `dev install` refuses a PUBLISHED manifest. `registry_url` non-null
 # means the cartridge belongs to a registry, and staging it under the dev slug
 # would put a published identity in a slot reserved for local work.
+# The refusal names the registry and the command that refused, and says
+# what to do instead.
 def test_7157_dev_install_rejects_published_manifest(tmp_path):
     project = tmp_path / "proj"
     project.mkdir()
+    registry = "https://cartridges.machinefabric.com/v1/manifest"
     manifest = CapManifest(
         name="greeter",
         version="0.1.0",
         channel="nightly",
-        registry_url="https://cartridges.machinefabric.com/v1/manifest",
+        registry_url=registry,
         description="published",
         cap_groups=[],
     )
-    with pytest.raises(NotDevError):
+    with pytest.raises(NotDevError) as refused:
         stage_dev_cartridge(project, manifest, tmp_path / "cartridges", 1, 7)
+    text = str(refused.value)
+    assert registry in text
+    assert "`capdag dev install`" in text
+    assert "set registry_url to null" in text
+    assert not (tmp_path / "cartridges").exists(), "nothing was staged"
+
+
+# TEST7166: a project with no cartridge entry is refused. The error names
+# the project, every entry that would have been taken — each language's,
+# under the project's name — and the command that makes a project.
+def test_7166_a_project_with_no_entry_is_refused_naming_each_entry_and_dev_new(tmp_path):
+    project = tmp_path / "tagger"
+    project.mkdir()
+    with pytest.raises(NoEntryError) as refused:
+        project_entry(project)
+    assert refused.value.project == project
+    text = str(refused.value)
+    assert str(project) in text
+    for lang in STUB_LANGUAGES:
+        assert entry_for(lang, "tagger") in text, f"{lang.display}'s entry is not named: {text}"
+    assert "`capdag dev new`" in text
 
 
 # TEST7159: a project with two languages' entries is REFUSED, not silently
