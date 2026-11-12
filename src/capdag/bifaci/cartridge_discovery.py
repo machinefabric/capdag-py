@@ -76,6 +76,135 @@ class DiscoveryIdentity:
     bundle: BundleProof
 
 
+
+@dataclass(frozen=True)
+class AttachTerms:
+    """What a host holds a cartridge to before it attaches it, from what the
+    cartridge's ``cartridge.json`` says: the part of a host's identity that
+    :func:`refusal` reads."""
+
+    channel: CartridgeChannel
+    fabric_manifest_version: int
+    #: What proves a cartridge that says it was bundled; see
+    #: :attr:`DiscoveryIdentity.bundle`.
+    bundle: BundleProof
+
+    @classmethod
+    def of(cls, identity: "DiscoveryIdentity") -> "AttachTerms":
+        """The terms the host ``identity`` attaches cartridges on."""
+        return cls(
+            channel=identity.channel,
+            fabric_manifest_version=identity.fabric_manifest_version,
+            bundle=identity.bundle,
+        )
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """Why a host does not attach a cartridge."""
+
+    kind: CartridgeAttachmentErrorKind
+    message: str
+
+    def at(self, detected_at_unix_seconds: int) -> CartridgeAttachmentError:
+        """The refusal as the attachment error a roster carries."""
+        return CartridgeAttachmentError(
+            kind=self.kind,
+            message=self.message,
+            detected_at_unix_seconds=detected_at_unix_seconds,
+        )
+
+
+def refusal(cj: Any, version_dir: Path, terms: AttachTerms) -> Optional[Refusal]:
+    """Why a cartridge whose ``cartridge.json`` reads as ``cj``, installed in
+    ``version_dir``, is not attached under ``terms``; ``None`` when it may be.
+
+    The one rule every host decides by: discovery's roster and a run that
+    attaches the installed cartridge a cap needs both call it, so a cartridge
+    one of them refuses is never run by the other."""
+    if CartridgeChannel(cj.channel) != terms.channel:
+        return Refusal(
+            kind=CartridgeAttachmentErrorKind.MISPLACED,
+            message=(
+                f"Channel mismatch: cartridge declares '{cj.channel}' but host "
+                f"is pinned to '{terms.channel.value}'. Release and nightly "
+                f"artefacts must not mix."
+            ),
+        )
+
+    # NO registry pin: the host's baked registry does NOT restrict which
+    # registries' cartridges are attached. Whether a version is actually
+    # LISTED upstream is the verdict layer's call.
+
+    bundled = cj.installed_from == CartridgeInstallSource.BUNDLE
+    if cj.fabric_manifest_version != terms.fabric_manifest_version:
+        ours = terms.fabric_manifest_version
+        # What to do differs by where the cartridge came from, told as every
+        # host tells it: ``installed_from: bundle`` is the one provenance with
+        # meaning, and otherwise a registry_url is a registry install and none
+        # a dev cartridge.
+        if bundled:
+            remedy = (
+                "The build that bundled it is inconsistent: its bundle holds a "
+                "cartridge for another fabric manifest."
+            )
+        elif cj.registry_url is not None:
+            remedy = "Remove it and install it again from its registry."
+        else:
+            remedy = f"Rebuild it with MFR_FABRIC_MANIFEST_VERSION={ours} and install it again."
+        return Refusal(
+            kind=CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
+            message=(
+                f"{cj.name} {cj.version} was installed for fabric manifest "
+                f"{cj.fabric_manifest_version}, and this host reads fabric manifest "
+                f"{ours}. {remedy}"
+            ),
+        )
+
+    # Bundled-cartridge integrity. A cartridge marked `installed_from:
+    # bundle` is shipped INSIDE this build, not user-installed, and has no
+    # upstream registry to verify against — so it needs its own integrity
+    # proof.
+    #
+    # ONE mechanism, on every platform: the build's signed bundle manifest.
+    # The proof was established when this discovery started (see
+    # BundleProof); here it is applied to the cartridge in hand.
+    #
+    # This used to be platform-split, and macOS had no check of ours at
+    # all. The manifest is produced at the END of a build, after every
+    # platform signing step, which is what removed the ordering problem
+    # that split existed for. Apple's signature still matters, and it is
+    # what stops the operating system warning a user; it is not what
+    # decides whether code runs here.
+    if bundled:
+        reason = terms.bundle.check(cj.name, cj.version, version_dir)
+        if reason is not None:
+            return Refusal(
+                kind=CartridgeAttachmentErrorKind.MISPLACED,
+                message=f"bundled cartridge integrity check failed: {reason}",
+            )
+
+    return None
+
+
+def _version_key(name: str) -> List[tuple]:
+    """A version string's sort key: dotted numbers compare as numbers, any
+    other part as text, and a version that runs out of parts first is the
+    older."""
+    return [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in name.split(".")]
+
+
+def newest_version_dir(version_dirs: List[Path]) -> Optional[Path]:
+    """The newest of a cartridge's installed version directories, by their
+    names: dotted numbers compare as numbers (``1.174.0`` is newer than
+    ``1.99.0``), anything else as text. Every host attaches this one and only
+    this one, so what a roster shows for a cartridge is what a run uses.
+    ``None`` for no directories."""
+    if not version_dirs:
+        return None
+    return max(version_dirs, key=lambda p: _version_key(p.name))
+
+
 @dataclass
 class DiscoveredCartridgeDirectory:
     """A discovered cartridge that passed every identity check and whose
@@ -289,10 +418,7 @@ def _scan_channel_root(
             )
             continue
 
-        # Prefer the newest version (lexical-descending on the version
-        # folder name).
-        version_dirs.sort(key=lambda p: p.name, reverse=True)
-        version_dir = version_dirs[0]
+        version_dir = newest_version_dir(version_dirs)
 
         path_derived_name = name_dir.name or "unknown"
         path_derived_version = version_dir.name or "unknown"
@@ -363,101 +489,28 @@ def _scan_channel_root(
             )
             continue
 
+        refused = refusal(cj, version_dir, AttachTerms.of(identity))
+        if refused is not None:
+            logger.error(
+                "cartridge refused (%s, %s %s) — surfacing as incompatible: %s",
+                version_dir,
+                cj.name,
+                cj.version,
+                refused.message,
+            )
+            discovered.append(
+                DiscoveredCartridgeIncompatible(
+                    version_dir=version_dir,
+                    id=cj.name,
+                    channel=CartridgeChannel(cj.channel),
+                    registry_url=cj.registry_url,
+                    version=cj.version,
+                    error=refused.at(detected_at),
+                )
+            )
+            continue
+
         cj_channel = CartridgeChannel(cj.channel)
-        if cj_channel != identity.channel:
-            discovered.append(
-                DiscoveredCartridgeIncompatible(
-                    version_dir=version_dir,
-                    id=cj.name,
-                    channel=cj_channel,
-                    registry_url=cj.registry_url,
-                    version=cj.version,
-                    error=CartridgeAttachmentError(
-                        kind=CartridgeAttachmentErrorKind.MISPLACED,
-                        message=(
-                            f"Channel mismatch: cartridge declares '{cj.channel}' but host "
-                            f"is pinned to '{identity.channel.value}'. Release and nightly "
-                            f"artefacts must not mix."
-                        ),
-                        detected_at_unix_seconds=detected_at,
-                    ),
-                )
-            )
-            continue
-
-        # NO registry pin: the host's baked registry does NOT restrict
-        # which registries' cartridges are discovered. A self-consistent
-        # cartridge (its registry_url is its folder's anchor, validated
-        # above) from any registry present on disk is accepted; whether its
-        # version is actually LISTED upstream is the verdict layer's call,
-        # applied after discovery.
-
-        if cj.fabric_manifest_version != identity.fabric_manifest_version:
-            discovered.append(
-                DiscoveredCartridgeIncompatible(
-                    version_dir=version_dir,
-                    id=cj.name,
-                    channel=cj_channel,
-                    registry_url=cj.registry_url,
-                    version=cj.version,
-                    error=CartridgeAttachmentError(
-                        kind=CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
-                        message=(
-                            f"Cartridge built against fabric manifest version "
-                            f"{cj.fabric_manifest_version}, but host is pinned to "
-                            f"{identity.fabric_manifest_version}. Rebuild the cartridge with "
-                            f"MFR_FABRIC_MANIFEST_VERSION={identity.fabric_manifest_version}."
-                        ),
-                        detected_at_unix_seconds=detected_at,
-                    ),
-                )
-            )
-            continue
-
-        # Bundled-cartridge integrity. A cartridge marked
-        # ``installed_from: bundle`` is shipped INSIDE this build, not
-         # Bundled-cartridge integrity. A cartridge marked `installed_from:
-        # bundle` is shipped INSIDE this build, not user-installed, and has no
-        # upstream registry to verify against — so it needs its own integrity
-        # proof.
-        #
-        # ONE mechanism, on every platform: the build's signed bundle manifest.
-        # The proof was established when this discovery started (see
-        # BundleProof); here it is applied to the cartridge in hand.
-        #
-        # This used to be platform-split, and macOS had no check of ours at
-        # all. The manifest is produced at the END of a build, after every
-        # platform signing step, which is what removed the ordering problem
-        # that split existed for. Apple's signature still matters, and it is
-        # what stops the operating system warning a user; it is not what
-        # decides whether code runs here.
-        if cj.installed_from == CartridgeInstallSource.BUNDLE:
-            reason = identity.bundle.check(cj.name, cj.version, version_dir)
-            if reason is not None:
-                logger.error(
-                    "bundled cartridge is not proven by this build's signed bundle "
-                    "manifest (%s, %s %s) — surfacing as incompatible: %s",
-                    version_dir,
-                    cj.name,
-                    cj.version,
-                    reason,
-                )
-                discovered.append(
-                    DiscoveredCartridgeIncompatible(
-                        version_dir=version_dir,
-                        id=cj.name,
-                        channel=cj_channel,
-                        registry_url=cj.registry_url,
-                        version=cj.version,
-                        error=CartridgeAttachmentError(
-                            kind=CartridgeAttachmentErrorKind.MISPLACED,
-                            message=f"bundled cartridge integrity check failed: {reason}",
-                            detected_at_unix_seconds=detected_at,
-                        ),
-                    )
-                )
-                continue
-
         entry_point = cj.resolve_entry_point(version_dir)
         try:
             cap_groups = probe_cartridge_cap_groups(entry_point)

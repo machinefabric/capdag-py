@@ -16,12 +16,15 @@ import sys
 import pytest
 
 from capdag.bifaci.cartridge_discovery import (
+    AttachTerms,
     DiscoveredCartridgeIncompatible,
     DiscoveryIdentity,
     discover_cartridges,
+    newest_version_dir,
+    refusal,
 )
 from capdag.bifaci.bundle_manifest import BundleManifest, BundledCartridge, BundleProof
-from capdag.bifaci.cartridge_json import hash_cartridge_directory
+from capdag.bifaci.cartridge_json import CartridgeInstallSource, CartridgeJson, hash_cartridge_directory
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION, CartridgeChannel
 from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
 from tests.charter_fixtures import (
@@ -131,6 +134,80 @@ def test_0094_fabric_manifest_mismatch_is_flagged(tmp_path):
     _install_fixture(tmp_path, "dev", "nightly", "cart", "1.0.0", json_str, "cart")
     out = discover_cartridges(tmp_path, _nightly_dev_identity())
     _expect_incompatible(out, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH)
+
+
+# TEST1907: a cartridge's installed version is its newest, dotted numbers
+# compared as numbers: 1.174.414 is newer than 1.99.0, though it sorts before
+# it as text. Discovery shows that version, and a run uses it.
+def test_1907_the_newest_version_is_chosen_by_number_not_text(tmp_path):
+    from pathlib import Path
+
+    dirs = [Path("cart") / v for v in ("1.99.0", "1.174.414", "1.9.12", "1.174.9")]
+    assert newest_version_dir(dirs) == Path("cart") / "1.174.414"
+    assert newest_version_dir([]) is None
+
+    for version, manifest in (("1.99.0", 1), ("1.174.414", 999)):
+        json_str = (
+            '{"name":"cart","version":"%s","channel":"nightly","registry_url":null,'
+            '"entry":"cart","installed_at":"2024-01-01T00:00:00Z",'
+            '"fabric_manifest_version":%d}' % (version, manifest)
+        )
+        _install_fixture(tmp_path, "dev", "nightly", "cart", version, json_str, "cart")
+    out = discover_cartridges(tmp_path, _nightly_dev_identity())
+    # 1.174.414 is the one shown, and it is stamped for another manifest, so
+    # the cartridge is refused rather than 1.99.0 being probed.
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH)
+    assert out[0].version == "1.174.414"
+
+
+# TEST1908: a cartridge stamped for another fabric manifest is refused naming
+# it, its version, its manifest and the host's, with the remedy that fits
+# where it came from: a registry install is installed again, a dev cartridge
+# rebuilt, and a bundled one means the build is wrong.
+def test_1908_a_manifest_refusal_names_both_manifests_and_the_remedy():
+    from pathlib import Path
+
+    terms = AttachTerms(
+        channel=CartridgeChannel.RELEASE,
+        fabric_manifest_version=13,
+        bundle=BundleProof.none("no bundle here"),
+    )
+
+    def stamped(installed_from, registry_url, manifest):
+        return CartridgeJson(
+            name="imagecartridge",
+            version="1.174.414",
+            channel="release",
+            registry_url=registry_url,
+            entry="imagecartridge",
+            installed_at="2024-01-01T00:00:00Z",
+            installed_from=installed_from,
+            fabric_manifest_version=manifest,
+        )
+
+    version_dir = Path("imagecartridge") / "1.174.414"
+    assert refusal(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), version_dir, terms) is None
+
+    def refused(installed_from, registry_url):
+        r = refusal(stamped(installed_from, registry_url, 12), version_dir, terms)
+        assert r is not None, "stamped for 12, refused by a host at 13"
+        return r
+
+    installed = refused(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR)
+    assert installed.kind == CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH
+    assert installed.message == (
+        "imagecartridge 1.174.414 was installed for fabric manifest 12, and this host reads "
+        "fabric manifest 13. Remove it and install it again from its registry."
+    )
+    # Provenance other than `bundle` carries no meaning: a registry_url is
+    # what makes it a registry install.
+    assert refused(None, CARTRIDGES_ANCHOR) == installed
+    rebuild = "Rebuild it with MFR_FABRIC_MANIFEST_VERSION=13 and install it again."
+    assert refused(CartridgeInstallSource.DEV, None).message.endswith(rebuild)
+    assert refused(None, None).message.endswith(rebuild)
+    assert refused(CartridgeInstallSource.BUNDLE, CARTRIDGES_ANCHOR).message.endswith(
+        "its bundle holds a cartridge for another fabric manifest."
+    )
 
 
 # TEST120: Registry url under dev slug is rejected
