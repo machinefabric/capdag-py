@@ -531,6 +531,25 @@ class CartridgeRepoError(ValueError):
     pass
 
 
+def compare_versions(a: str, b: str) -> int:
+    """Order two cartridge version strings by their dotted numeric parts,
+    returning -1, 0 or 1; a missing part counts as 0 and a part that is not a
+    number is skipped. The one order cartridge versions have: the registry's
+    latest, and the installed version a host attaches
+    (:func:`capdag.bifaci.cartridge_discovery.newest_version_dir`)."""
+    parts_a = [int(part) for part in a.split(".") if part.isdigit()]
+    parts_b = [int(part) for part in b.split(".") if part.isdigit()]
+    max_len = max(len(parts_a), len(parts_b))
+    for index in range(max_len):
+        num_a = parts_a[index] if index < len(parts_a) else 0
+        num_b = parts_b[index] if index < len(parts_b) else 0
+        if num_a < num_b:
+            return -1
+        if num_a > num_b:
+            return 1
+    return 0
+
+
 class CartridgeRepoServer:
     """Transforms a validated channel-partitioned registry into flat API
     responses, preserving channel provenance."""
@@ -595,20 +614,6 @@ class CartridgeRepoServer:
                     f"Cartridge {cartridge_id} ({channel.value}) v{version}: build[{index}] ({build.platform}) missing package.name"
                 )
 
-    @staticmethod
-    def _compare_versions(a: str, b: str) -> int:
-        parts_a = [int(part) for part in a.split(".") if part.isdigit()]
-        parts_b = [int(part) for part in b.split(".") if part.isdigit()]
-        max_len = max(len(parts_a), len(parts_b))
-        for index in range(max_len):
-            num_a = parts_a[index] if index < len(parts_a) else 0
-            num_b = parts_b[index] if index < len(parts_b) else 0
-            if num_a < num_b:
-                return -1
-            if num_a > num_b:
-                return 1
-        return 0
-
     def _channel_entries(self, channel: CartridgeChannel) -> Dict[str, CartridgeRegistryEntry]:
         if channel is CartridgeChannel.RELEASE:
             return self.registry.channels.release.cartridges
@@ -631,7 +636,7 @@ class CartridgeRepoServer:
         self._validate_version_data(cartridge_id, channel, latest_version, version_data)
         available_versions = sorted(
             entry.versions.keys(),
-            key=cmp_to_key(lambda a, b: self._compare_versions(b, a)),
+            key=cmp_to_key(lambda a, b: compare_versions(b, a)),
         )
         return CartridgeInfo(
             id=cartridge_id,

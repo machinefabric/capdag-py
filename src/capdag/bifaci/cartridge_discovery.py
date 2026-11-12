@@ -25,6 +25,7 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass, field
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -37,7 +38,7 @@ from capdag.bifaci.cartridge_json import (
     read_cartridge_json_from_dir,
 )
 from capdag.bifaci import launch
-from capdag.bifaci.cartridge_repo import CartridgeChannel
+from capdag.bifaci.cartridge_repo import CartridgeChannel, compare_versions
 from capdag.bifaci.charter import CharterError, RegistryFolder
 from capdag.bifaci.io import FrameReader, FrameWriter, handshake, verify_identity
 from capdag.bifaci.relay_switch import (
@@ -187,22 +188,16 @@ def refusal(cj: Any, version_dir: Path, terms: AttachTerms) -> Optional[Refusal]
     return None
 
 
-def _version_key(name: str) -> List[tuple]:
-    """A version string's sort key: dotted numbers compare as numbers, any
-    other part as text, and a version that runs out of parts first is the
-    older."""
-    return [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in name.split(".")]
-
-
 def newest_version_dir(version_dirs: List[Path]) -> Optional[Path]:
     """The newest of a cartridge's installed version directories, by their
-    names: dotted numbers compare as numbers (``1.174.0`` is newer than
-    ``1.99.0``), anything else as text. Every host attaches this one and only
-    this one, so what a roster shows for a cartridge is what a run uses.
-    ``None`` for no directories."""
+    names, in the order the registry gives versions (:func:`compare_versions`:
+    dotted numbers compared as numbers, so ``1.174.0`` is newer than
+    ``1.99.0``). Every host attaches this one and only this one, so what a
+    roster shows for a cartridge is what a run uses. ``None`` for no
+    directories."""
     if not version_dirs:
         return None
-    return max(version_dirs, key=lambda p: _version_key(p.name))
+    return max(version_dirs, key=cmp_to_key(lambda a, b: compare_versions(a.name, b.name)))
 
 
 @dataclass
