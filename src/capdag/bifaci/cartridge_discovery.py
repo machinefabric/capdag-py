@@ -2,9 +2,11 @@
 
 The on-disk scan + identity validation + HELLO probe that classifies each
 installed cartridge version directory as attachable (``Directory``) or
-``Incompatible``. This is the single source of truth used by both the
-engine (for the bundled ``bundled-cartridges/`` tree next to its binary) and the
-daemon (for the user-installed cartridge tree).
+``Incompatible``. A bundled cartridge is not probed: its build's signed bundle
+manifest records what the probe would learn, and its bytes are held to that
+manifest when a host starts it. This is the single source of truth used by
+both the engine (for the bundled ``bundled-cartridges/`` tree next to its
+binary) and the daemon (for the user-installed cartridge tree).
 
 Keeping one implementation guarantees the two hosts accept exactly the
 same cartridges and reject the rest with byte-identical verdicts. The
@@ -28,12 +30,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
 
-from capdag.bifaci.bundle_manifest import BundleProof
+from capdag.bifaci.bundle_manifest import BundleError, BundleProof
 from capdag.bifaci.cartridge_json import (
     CartridgeInstallSource,
     CartridgeJsonError,
     CartridgeJsonRegistryFolderMismatch,
-    hash_cartridge_directory,
     read_cartridge_json_from_dir,
 )
 from capdag.bifaci import launch
@@ -78,8 +79,10 @@ class DiscoveryIdentity:
 
 @dataclass
 class DiscoveredCartridgeDirectory:
-    """A discovered cartridge that passed every identity check and whose
-    HELLO probe succeeded. Its caps will be registered for dispatch."""
+    """A discovered cartridge that passed every identity check and whose caps
+    are known: from its HELLO probe, or, for a bundled cartridge, from its
+    build's signed bundle manifest. Its caps will be registered for
+    dispatch."""
 
     entry_point: Path
     version_dir: Path
@@ -88,6 +91,14 @@ class DiscoveredCartridgeDirectory:
     registry_url: Optional[str]
     version: str
     cap_groups: List[Any]
+    #: For a bundled cartridge, the directory hash its build's signed bundle
+    #: manifest records; ``None`` for an installed or dev one.
+    #:
+    #: Discovery does not hash a bundled cartridge. A host holds its directory
+    #: to this value each time it starts the cartridge
+    #: (:func:`capdag.bifaci.bundle_manifest.verify_content`), and refuses to
+    #: start one that was changed.
+    bundle_sha256: Optional[str]
 
 
 @dataclass
@@ -158,11 +169,20 @@ def probe_cartridge_cap_groups(path: Path) -> List[Any]:
         raise RuntimeError(f"cartridge {path} HELLO failed: {e}") from e
     finally:
         # SIGKILL immediately — we have the manifest and don't wait for a
-        # clean exit.
+        # clean exit — then reap the process and release its pipes, so no
+        # pipe outlives the probe. Bytes still buffered for a child that
+        # already died cannot be delivered, and need not be: the probe is
+        # over either way.
         try:
             child.kill()
         except Exception:
             pass
+        child.wait()
+        try:
+            child.stdin.close()
+        except BrokenPipeError:
+            pass
+        child.stdout.close()
 
     manifest = result.manifest
     try:
@@ -184,7 +204,8 @@ def discover_cartridges(
     """Discover every cartridge under ``{cartridges_root}/{slug}/{channel}/``.
 
     Each cartridge name directory's newest version is validated against
-    ``identity`` and probed; the result is the full classified roster
+    ``identity`` and probed (a bundled one is admitted from its build's signed
+    bundle manifest instead); the result is the full classified roster
     (attachable + incompatible). An empty/absent scan root is not an
     error — it yields an empty roster. A real IO failure reading an
     existing scan root IS an error (it would otherwise masquerade as "no
@@ -414,26 +435,23 @@ def _scan_channel_root(
             )
             continue
 
-        # Bundled-cartridge integrity. A cartridge marked
-        # ``installed_from: bundle`` is shipped INSIDE this build, not
-         # Bundled-cartridge integrity. A cartridge marked `installed_from:
-        # bundle` is shipped INSIDE this build, not user-installed, and has no
-        # upstream registry to verify against — so it needs its own integrity
-        # proof.
+        # A bundled cartridge. A cartridge marked ``installed_from: bundle`` is
+        # shipped INSIDE this build (the engine/daemon/capdag-CLI's own
+        # bundled-cartridges/ tree), not user-installed, and has no upstream
+        # registry to verify against — so the build's signed bundle manifest
+        # is what proves it, on every platform. The proof was established once
+        # when this discovery started (see BundleProof); here it is applied to
+        # the cartridge in hand.
         #
-        # ONE mechanism, on every platform: the build's signed bundle manifest.
-        # The proof was established when this discovery started (see
-        # BundleProof); here it is applied to the cartridge in hand.
-        #
-        # This used to be platform-split, and macOS had no check of ours at
-        # all. The manifest is produced at the END of a build, after every
-        # platform signing step, which is what removed the ordering problem
-        # that split existed for. Apple's signature still matters, and it is
-        # what stops the operating system warning a user; it is not what
-        # decides whether code runs here.
+        # The manifest records what a probe would learn — the caps the
+        # cartridge advertises, and the fabric manifest version it was built
+        # against — so a bundled cartridge is neither started nor hashed here.
+        # Its bytes are held to the recorded hash when a host starts it, which
+        # is when they are about to run.
         if cj.installed_from == CartridgeInstallSource.BUNDLE:
-            reason = identity.bundle.check(cj.name, cj.version, version_dir)
-            if reason is not None:
+            try:
+                recorded = identity.bundle.admit(cj.name, cj.version, cj_channel.value)
+            except BundleError as reason:
                 logger.error(
                     "bundled cartridge is not proven by this build's signed bundle "
                     "manifest (%s, %s %s) — surfacing as incompatible: %s",
@@ -457,6 +475,45 @@ def _scan_channel_root(
                     )
                 )
                 continue
+            # cartridge.json is outside the hash; the signed record is what is
+            # believed about the fabric the cartridge was built against.
+            if recorded.fabric_manifest_version != identity.fabric_manifest_version:
+                discovered.append(
+                    DiscoveredCartridgeIncompatible(
+                        version_dir=version_dir,
+                        id=cj.name,
+                        channel=cj_channel,
+                        registry_url=cj.registry_url,
+                        version=cj.version,
+                        error=CartridgeAttachmentError(
+                            kind=CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
+                            message=(
+                                f"Bundled cartridge built against fabric manifest version "
+                                f"{recorded.fabric_manifest_version}, as its build's signed "
+                                f"bundle manifest records, but host is pinned to "
+                                f"{identity.fabric_manifest_version}. Rebuild the bundle with "
+                                f"MFR_FABRIC_MANIFEST_VERSION={identity.fabric_manifest_version}."
+                            ),
+                            detected_at_unix_seconds=detected_at,
+                        ),
+                    )
+                )
+                continue
+            discovered.append(
+                DiscoveredCartridgeDirectory(
+                    entry_point=cj.resolve_entry_point(version_dir),
+                    version_dir=version_dir,
+                    id=cj.name,
+                    channel=cj_channel,
+                    registry_url=cj.registry_url,
+                    version=cj.version,
+                    # The wire shape a HELLO probe yields, so a bundled
+                    # cartridge's caps reach the host as a probed one's do.
+                    cap_groups=[group.to_dict() for group in recorded.cap_groups],
+                    bundle_sha256=recorded.sha256,
+                )
+            )
+            continue
 
         entry_point = cj.resolve_entry_point(version_dir)
         try:
@@ -492,6 +549,7 @@ def _scan_channel_root(
                 registry_url=cj.registry_url,
                 version=cj.version,
                 cap_groups=cap_groups,
+                bundle_sha256=None,
             )
         )
 
