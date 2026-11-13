@@ -21,7 +21,6 @@ from capdag.media.registry import (
     FabricRegistry,
     StoredMediaDef,
     normalize_media_urn,
-    ExtensionNotFoundError,
     NotFoundError,
 )
 
@@ -425,56 +424,58 @@ async def test_894_multiple_extensions():
 # =============================================================================
 
 
-# TEST607: media_urns_for_extension returns error for unknown extension
-def test_607_media_urns_for_extension_unknown():
+# TEST607: file_media_for_extension answers no file type for an extension no
+# definition of the manifest declares
+@pytest.mark.asyncio
+async def test_607_file_media_for_an_unknown_extension_is_none():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-    with pytest.raises(ExtensionNotFoundError) as exc_info:
-        registry.media_urns_for_extension("zzzzunknown")
-    assert "zzzzunknown" in str(exc_info.value)
-
-
-# TEST608: media_urns_for_extension returns URNs after adding a spec with extensions
-def test_608_media_urns_for_extension_populated():
-    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
-
-    spec = StoredMediaDef(
+    registry.add_spec(StoredMediaDef(
         urn="media:document;ext=pdf",
         media_type="application/pdf",
         title="PDF Document",
         extensions=["pdf"],
-    )
-    normalized = normalize_media_urn(spec.urn)
-    registry.cached_specs[normalized] = spec
-    registry._update_extension_index(spec)
-
-    urns = registry.media_urns_for_extension("pdf")
-    assert len(urns) > 0, "Should have at least one URN for pdf"
-    assert any("pdf" in u for u in urns), f"URNs should contain pdf: {urns}"
-
-    # Case-insensitive
-    urns_upper = registry.media_urns_for_extension("PDF")
-    assert urns == urns_upper
+    ))
+    defs = await registry.file_media_for_extension("zzzzunknown")
+    assert defs == [], f"no definition declares .zzzzunknown, got {[d.urn for d in defs]}"
 
 
-# TEST609: get_extension_mappings returns all registered extension→URN pairs.
-def test_609_get_extension_mappings():
+# TEST608: file_media_for_extension answers the file media definitions that
+# list the extension, whatever its case
+@pytest.mark.asyncio
+async def test_608_file_media_for_extension_lists_the_declaring_definitions():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry.add_spec(StoredMediaDef(
+        urn="media:document;ext=pdf",
+        media_type="application/pdf",
+        title="PDF Document",
+        extensions=["pdf"],
+    ))
+    lower = [d.urn for d in await registry.file_media_for_extension("pdf")]
+    assert lower == ["media:document;ext=pdf"]
+    upper = [d.urn for d in await registry.file_media_for_extension("PDF")]
+    assert lower == upper
 
-    for urn_str, ext in [("media:document;ext=pdf", "pdf"), ("media:document;ext=epub", "epub")]:
-        spec = StoredMediaDef(
-            urn=urn_str,
-            media_type="application/octet-stream",
-            title="Test",
-            extensions=[ext],
-        )
-        normalized = normalize_media_urn(urn_str)
-        registry.cached_specs[normalized] = spec
-        registry._update_extension_index(spec)
 
-    mappings = registry.get_extension_mappings()
-    ext_names = [m[0] for m in mappings]
-    assert "pdf" in ext_names, "Should contain pdf"
-    assert "epub" in ext_names, "Should contain epub"
+# TEST609: a definition that lists an extension but carries no `ext=`
+# file-type tag is content, not a file type: it is never a file type of the
+# extension, even when it is cached
+@pytest.mark.asyncio
+async def test_609_content_types_that_list_an_extension_are_no_file_types():
+    registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
+    registry.add_spec(StoredMediaDef(
+        urn="media:download-result;enc=utf8;fmt=json;record",
+        media_type="application/json",
+        title="Model Download Result",
+        extensions=["json"],
+    ))
+    registry.add_spec(StoredMediaDef(
+        urn="media:enc=utf8;ext=json;fmt=json",
+        media_type="application/json",
+        title="JSON File",
+        extensions=["json"],
+    ))
+    urns = [d.urn for d in await registry.file_media_for_extension("json")]
+    assert urns == ["media:enc=utf8;ext=json;fmt=json"]
 
 
 # TEST610: get_cached_media_def answers NotFound for a media def the manifest

@@ -784,3 +784,73 @@ async def test_1993_clearing_empties_one_version_and_removes_the_old_shared_fold
     cleared = await FabricRegistry.clear_cache_of(RegistryConfig().with_anchor(anchor), 1)
     assert cleared == v1
     assert_cleared(v1)
+
+
+def _kept_manifest(cache_dir: Path):
+    """A manifest at 13 naming a file type and a content-only JSON record,
+    kept in ``cache_dir`` as a fetched manifest is."""
+    from capdag.fabric.registry import Manifest
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    manifest = Manifest.empty(13)
+    manifest.media["media:enc=utf8;ext=csv;fmt=csv;list;record"] = 2
+    manifest.media["media:download-result;enc=utf8;fmt=json;record"] = 1
+    file = cache_dir / cache.MANIFEST_FILE
+    file.write_text(json.dumps(manifest.to_dict()))
+    return manifest, file
+
+
+# TEST7186: the file types a manifest names are worked out once and kept
+# beside it, in its version's folder; read back while that manifest file is
+# unchanged, its media URNs are not parsed again; a manifest file that changed
+# (fetched again) is read afresh; a manifest made in memory, with no file,
+# leaves nothing behind
+def test_7186_file_types_are_kept_beside_the_manifest_they_were_read_from(tmp_path):
+    import dataclasses
+
+    from capdag.fabric.registry import FileTypesError, file_types_of
+
+    cache_dir = cache.version_dir(tmp_path / "kept", 13)
+    manifest, manifest_file = _kept_manifest(cache_dir)
+    index_file = cache_dir / cache.FILE_TYPES_FILE
+    csv = [("media:enc=utf8;ext=csv;fmt=csv;list;record", 2)]
+
+    assert file_types_of(cache_dir, manifest_file, manifest) == csv
+    assert index_file.is_file(), "the file types are kept beside the manifest"
+
+    # The same manifest file, with an entry that is no media URN in the
+    # manifest held in memory: the kept answer is given, so no URN of the
+    # manifest was parsed.
+    unparsable = dataclasses.replace(manifest, media=dict(manifest.media))
+    unparsable.media["not a media urn"] = 1
+    assert file_types_of(cache_dir, manifest_file, unparsable) == csv
+
+    # The manifest file changed: the kept file types are not its own.
+    manifest_file.write_text(json.dumps(unparsable.to_dict()))
+    with pytest.raises(FileTypesError) as exc_info:
+        file_types_of(cache_dir, manifest_file, unparsable)
+    assert "'not a media urn'" in str(exc_info.value), str(exc_info.value)
+
+    memory_dir = cache.version_dir(tmp_path / "memory", 13)
+    memory_dir.mkdir(parents=True)
+    assert file_types_of(memory_dir, None, manifest) == csv
+    assert not (memory_dir / cache.FILE_TYPES_FILE).exists(), (
+        "nothing is kept for a manifest with no file"
+    )
+
+
+# TEST7187: kept file types that cannot be read are an error naming their
+# file, never worked out again in silence
+def test_7187_corrupt_kept_file_types_are_an_error_naming_the_file(tmp_path):
+    from capdag.fabric.registry import file_types_of
+
+    cache_dir = cache.version_dir(tmp_path, 13)
+    manifest, manifest_file = _kept_manifest(cache_dir)
+    index_file = cache_dir / cache.FILE_TYPES_FILE
+    index_file.write_text('{"manifest_sha256": "ab')
+    with pytest.raises(CacheError) as exc_info:
+        file_types_of(cache_dir, manifest_file, manifest)
+    message = str(exc_info.value)
+    assert str(index_file) in message, f"names the file: {message}"
+    assert "corrupt" in message, message
+    assert index_file.is_file(), "the file is left for whoever reads the error"

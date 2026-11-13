@@ -161,7 +161,7 @@ from capdag.fabric.registry import (
     CacheError,
     NetworkBlockedError,
     ValidationError,
-    ExtensionNotFoundError,
+    FileTypesError,
     normalize_cap_urn,
     normalize_media_urn,
 )
@@ -470,7 +470,7 @@ __all__ = [
     "CacheError",
     "NetworkBlockedError",
     "ValidationError",
-    "ExtensionNotFoundError",
+    "FileTypesError",
     "normalize_cap_urn",
     "normalize_media_urn",
     # Media Def

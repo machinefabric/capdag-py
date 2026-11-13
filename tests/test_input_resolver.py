@@ -9,23 +9,23 @@ import pytest
 
 from capdag.input_resolver import (
     ContentStructure,
+    Detection,
     EmptyInputError,
-    InspectionFailedError,
     InputItem,
     InvalidGlobError,
+    NoAdapters,
+    NoInvoker,
     NotFoundError,
-    detect_file_confirmed,
-    detect_file_with_fabric_registry,
+    ResolvedInputSet,
     resolve_directory,
-    resolve_file,
     resolve_glob,
-    resolve_inputs_confirmed,
     resolve_items,
     resolve_paths,
     should_exclude,
     should_exclude_dir,
 )
 from capdag.input_resolver.adapters.registry import MediaAdapterRegistry
+from capdag.input_resolver.path_resolver import resolve_file
 from capdag.input_resolver.value_adapter import ValueAdapter
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 from capdag.media.registry import FabricRegistry
@@ -218,57 +218,66 @@ def test_1029_normal_files_not_excluded():
     assert not should_exclude(Path("/path/README.md"))
 
 
+async def _resolve(paths: list[str], registry: FabricRegistry) -> ResolvedInputSet:
+    """Resolve ``paths`` as a host with no cartridge to ask does."""
+    detection = Detection(
+        registry=registry,
+        adapters=NoAdapters(),
+        invoker=NoInvoker(),
+        value_adapters=ValueAdapterRegistry(),
+    )
+    return await resolve_paths(paths, detection)
+
+
 # TEST977: OS files excluded in resolve_paths
-def test_977_os_files_excluded_integration(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_977_os_files_excluded_integration(tmp_path: Path):
     (tmp_path / ".DS_Store").write_text("")
     (tmp_path / "real.txt").write_text("content")
-    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
+    result = await _resolve([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert "real.txt" in str(result.files[0].path)
 
 
 # TEST1090: 1 file → is_sequence=false
-def test_1090_single_file_scalar(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1090_single_file_scalar(tmp_path: Path):
     (tmp_path / "only.txt").write_text("hello")
-    result = resolve_paths([str(tmp_path / "only.txt")], _create_test_media_registry(tmp_path))
+    result = await _resolve([str(tmp_path / "only.txt")], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert not result.is_sequence
 
 
 # TEST1092: 2 files → is_sequence=true
-def test_1092_two_files(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1092_two_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("a")
     (tmp_path / "b.txt").write_text("b")
-    result = resolve_paths([str(tmp_path / "a.txt"), str(tmp_path / "b.txt")], _create_test_media_registry(tmp_path))
+    result = await _resolve(
+        [str(tmp_path / "a.txt"), str(tmp_path / "b.txt")], _create_test_media_registry(tmp_path)
+    )
     assert len(result.files) == 2
     assert result.is_sequence
 
 
 # TEST1093: 1 dir with 1 file → is_sequence=false
-def test_1093_dir_single_file(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1093_dir_single_file(tmp_path: Path):
     (tmp_path / "only.pdf").write_text("%PDF-1.4")
-    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
+    result = await _resolve([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 1
     assert not result.is_sequence
 
 
 # TEST1094: 1 dir with 3 files → is_sequence=true
-def test_1094_dir_multiple_files(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1094_dir_multiple_files(tmp_path: Path):
     (tmp_path / "a.txt").write_text("hello")
     (tmp_path / "b.txt").write_text("world")
     (tmp_path / "c.txt").write_text("test")
-    result = resolve_paths([str(tmp_path)], _create_test_media_registry(tmp_path))
+    result = await _resolve([str(tmp_path)], _create_test_media_registry(tmp_path))
     assert len(result.files) == 3
     assert result.is_sequence
-
-
-# TEST1098: Extension-based detection picks up pdf tag for .pdf files
-def test_1098_extension_based_pdf(tmp_path: Path):
-    path = tmp_path / "doc.pdf"
-    path.write_text("%PDF-1.4")
-    resolved = detect_file_with_fabric_registry(path, _create_test_media_registry(tmp_path))
-    urn = MediaUrn.from_string(resolved.media_urn)
-    assert urn.has_tag("ext", "pdf")
 
 
 # TEST1288: structure_from_marker_tags correctly maps tag combinations to ContentStructure
@@ -286,10 +295,10 @@ def test_1288_structure_from_marker_tags():
 
 
 def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
-    """Build a `FabricRegistry` pre-seeded with the media defs the
-    input-resolver tests reference. The registry hydrates extension
-    lookups from spec arrival — there is no compiled-in fallback
-    table — so tests must seed every spec they exercise.
+    """Build a `FabricRegistry` whose manifest names, and whose cache holds,
+    the file media types the input-resolver tests reference (`pdf`, `txt`,
+    `json`): with every file type cached, a file's type is told without the
+    network.
     """
     from capdag.fabric.registry import StoredMediaDef
 
@@ -302,7 +311,7 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
         extensions=["pdf"],
     ))
     registry.add_spec(StoredMediaDef(
-        urn="media:enc=utf8;fmt=json;record",
+        urn="media:enc=utf8;ext=json;fmt=json;record",
         media_type="application/json",
         title="JSON",
         extensions=["json"],
@@ -313,27 +322,7 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
         title="Text",
         extensions=["txt"],
     ))
-    # `media:model-spec` is a value-type URN with no file extension.
-    # Discrimination tests pass the bare URN explicitly as a
-    # candidate. The validation pattern matches the canonical
-    # `scheme:rest` shape so plain prose is filtered out.
-    registry.add_spec(StoredMediaDef(
-        urn="media:enc=utf8;model-spec",
-        media_type="text/plain",
-        title="Model spec",
-        validation={
-            "pattern": r"^[A-Za-z0-9._-]+:\S+$",
-        },
-    ))
     return registry
-
-
-class _MockInvoker:
-    def __init__(self, response):
-        self.response = response
-
-    async def invoke_adapter_selection(self, cartridge_id: str, file_path: Path):
-        return self.response
 
 
 class _SpecialAdapter(ValueAdapter):
@@ -417,70 +406,11 @@ def test_1230_value_adapter_refine_no_match_value():
     assert adapter.refine("media:test;enc=utf8", "ordinary-value") is None
 
 
-# TEST1235: Plain text without model-spec syntax eliminates model-spec TXT candidates.
-def test_1235_disc_1_plain_text_eliminates_model_specs(tmp_path: Path):
-    registry = _create_test_media_registry(tmp_path)
-    all_txt_urns = registry.media_urns_for_extension("txt")
-    from capdag.input_resolver.resolver import discriminate_candidates_by_validation
-
-    survivors = discriminate_candidates_by_validation(
-        b"Hello world\nThis is a plain text file\nNo colons here",
-        all_txt_urns,
-        registry,
-        "media:enc=utf8;ext=txt;list;plain-text",
-    )
-    for survivor in survivors:
-        assert "model-spec" not in survivor
-
-
-# TEST1236: Colon-delimited model spec text survives TXT candidate discrimination. TEST1236: Discrimination matches a candidate's validation pattern against the file content. media:model-spec is a value type with no associated file extension, so it does NOT appear among txt candidates. When passed in explicitly as a candidate, content that matches its `^(scheme):\S+$` regex must survive; content that doesn't (plain prose with whitespace) must be filtered out.
-def test_1236_disc_2_model_spec_validation_pattern_filters_content(tmp_path: Path):
-    registry = _create_test_media_registry(tmp_path)
-    from capdag.input_resolver.resolver import discriminate_candidates_by_validation
-
-    candidates = ["media:enc=utf8;model-spec"]
-
-    # Spec-shaped content survives the regex filter.
-    survivors = discriminate_candidates_by_validation(
-        b"hf:MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
-        candidates,
-        registry,
-        "media:enc=utf8",
-    )
-    assert "media:enc=utf8;model-spec" in survivors
-
-    # Plain prose with internal whitespace is rejected by the same regex.
-    survivors_prose = discriminate_candidates_by_validation(
-        b"this is not a model spec",
-        candidates,
-        registry,
-        "media:enc=utf8",
-    )
-    assert "media:enc=utf8;model-spec" not in survivors_prose
-
-
-# TEST1237: Empty candidates → empty result
-def test_1237_disc_5_empty_candidates(tmp_path: Path):
-    registry = _create_test_media_registry(tmp_path)
-    from capdag.input_resolver.resolver import discriminate_candidates_by_validation
-
-    assert discriminate_candidates_by_validation(b"anything", [], registry, "media:") == []
-
-
-# TEST1238: Unknown URN survives discrimination
-def test_1238_disc_6_unknown_urn_survives(tmp_path: Path):
-    registry = _create_test_media_registry(tmp_path)
-    from capdag.input_resolver.resolver import discriminate_candidates_by_validation
-
-    candidates = ["media:nonexistent;fake"]
-    assert discriminate_candidates_by_validation(b"anything", candidates, registry, "media:") == candidates
-
-
 # TEST1276: Registration of a cap group with non-conflicting adapters succeeds
 def test_1276_register_non_conflicting(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("text-formats", ["media:enc=utf8;fmt=json", "media:enc=utf8;fmt=yaml"], "txtcartridge")
-    assert registry.has_adapter_for_extension("json")
+    assert len(registry._registered_adapters) == 2
 
 
 # TEST1478: exact re-registration is idempotent — the SAME cartridge
@@ -516,12 +446,13 @@ def test_1277_reject_conforming_overlap(tmp_path: Path):
 
 
 # TEST1278: Registration rejects the entire group — no partial registration
-def test_1278_reject_entire_group(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1278_reject_entire_group(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json"], "cartridge-a")
     with pytest.raises(Exception):
         registry.register_cap_group("group-b", ["media:enc=utf8;fmt=yaml", "media:enc=utf8;fmt=json", "media:enc=utf8;fmt=csv"], "cartridge-b")
-    assert registry.find_adapters_for_extension("json") == [("cartridge-a", MediaUrn.from_string("media:enc=utf8;fmt=json"))]
+    assert await registry.find_adapters_for_extension("json") == [("cartridge-a", MediaUrn.from_string("media:enc=utf8;fmt=json"))]
 
 
 # TEST1279: Intra-group conflict (two adapters within same group overlap) is rejected
@@ -532,70 +463,20 @@ def test_1279_intra_group_conflict(tmp_path: Path):
 
 
 # TEST1280: find_adapters_for_extension returns correct cartridge IDs
-def test_1280_find_adapters_for_extension(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_1280_find_adapters_for_extension(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     registry.register_cap_group("group-a", ["media:enc=utf8;fmt=json"], "cartridge-a")
     registry.register_cap_group("group-b", ["media:enc=utf8;fmt=yaml"], "cartridge-b")
-    matches = registry.find_adapters_for_extension("json")
+    matches = await registry.find_adapters_for_extension("json")
     assert matches == [("cartridge-a", MediaUrn.from_string("media:enc=utf8;fmt=json"))]
 
 
 # TEST1281: has_adapter_for_extension returns false for unregistered extension
-def test_1281_no_adapter_for_unknown(tmp_path: Path):
-    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    assert not registry.has_adapter_for_extension("unknown")
-
-
-# TEST1285: detect_file_confirmed fails when no adapters are registered for the extension
 @pytest.mark.asyncio
-async def test_1285_confirmed_no_adapters_fails(tmp_path: Path):
-    path = tmp_path / "data.json"
-    path.write_text('{"key":"value"}')
+async def test_1281_no_adapter_for_unknown(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    with pytest.raises(InspectionFailedError, match="No content-inspection adapter"):
-        await detect_file_confirmed(path, registry, _MockInvoker(None))
-
-
-# TEST1286: detect_file_confirmed succeeds when adapter returns URNs
-@pytest.mark.asyncio
-async def test_1286_confirmed_adapter_returns_urns(tmp_path: Path):
-    path = tmp_path / "data.json"
-    path.write_text('{"key":"value"}')
-    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
-
-    resolved = await detect_file_confirmed(
-        path,
-        registry,
-        _MockInvoker(["media:enc=utf8;fmt=json;record"]),
-    )
-    assert "json" in resolved.media_urn
-    assert resolved.content_structure == ContentStructure.SCALAR_RECORD
-
-
-# TEST1287: detect_file_confirmed fails when all adapters return empty END (no match)
-@pytest.mark.asyncio
-async def test_1287_confirmed_all_adapters_no_match(tmp_path: Path):
-    path = tmp_path / "data.json"
-    path.write_text("not json")
-    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
-
-    with pytest.raises(InspectionFailedError, match="All registered adapters returned no match"):
-        await detect_file_confirmed(path, registry, _MockInvoker(None))
-
-
-# TEST6693: Resolve inputs confirmed wraps detect file confirmed
-@pytest.mark.asyncio
-async def test_6693_resolve_inputs_confirmed_wraps_detect_file_confirmed(tmp_path: Path):
-    path = tmp_path / "data.json"
-    path.write_text('{"key":"value"}')
-    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
-    registry.register_cap_group("test-group", ["media:enc=utf8;fmt=json"], "test-cartridge")
-
-    resolved = await resolve_inputs_confirmed([InputItem.file(path)], registry, _MockInvoker(["media:enc=utf8;fmt=json;record"]))
-    assert len(resolved.files) == 1
-    assert resolved.files[0].media_urn == "media:enc=utf8;fmt=json;record"
+    assert not await registry.has_adapter_for_extension("unknown")
 
 
 # =============================================================================
