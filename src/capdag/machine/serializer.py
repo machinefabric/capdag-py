@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, List
 
 from capdag.machine.constant import constant_text
-from capdag.machine.error import UncachedCapError, UncachedMediaDefError
+from capdag.machine.error import UncachedCapError, UncachedMediaDefError, definition_lookup
 from capdag.machine.graph import Machine, MachineEdge
 
 #: Each statement wrapped in ``[...]``: the canonical, single-line form used
@@ -214,16 +214,11 @@ def to_render_payload_json(graph: Machine, registry) -> str:
     plans = _serialization_plan(graph, None)
 
     def media_title(urn: str) -> str:
-        spec = registry.get_cached_media_def(urn)
-        if spec is None:
-            raise UncachedMediaDefError(urn)
+        spec = definition_lookup(registry.get_cached_media_def, urn, lambda: UncachedMediaDefError(urn))
         return spec.title
 
     def cap_definition(urn: str):
-        cap = registry.get_cached_cap(urn)
-        if cap is None:
-            raise UncachedCapError(urn)
-        return cap
+        return definition_lookup(registry.get_cached_cap, urn, lambda: UncachedCapError(urn))
 
     def listed(items: List[str]) -> str:
         return "[" + ",".join(items) + "]"

@@ -26,12 +26,13 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from capdag.fabric.registry import FabricRegistry
+from capdag.fabric.registry import FabricRegistry, FabricRegistryError, NotFoundError
 from capdag.planner.plan import EdgeType, ExecutionNodeType, MachinePlan
 from capdag.urn.media_urn import MediaUrn
 
 from capdag.orchestrator.types import (
     CapNotFoundError,
+    DefinitionUnavailableError,
     InvalidGraphError,
     ResolvedGraph,
     ResolvedStep,
@@ -59,10 +60,14 @@ _NODE_KIND_LABELS = {
 
 
 def _cached_cap(registry: FabricRegistry, cap_urn: str):
-    cap = registry.get_cached_cap(cap_urn)
-    if cap is None:
+    """The cap's definition: CapNotFoundError when the registry holds no such
+    cap, and DefinitionUnavailableError carrying what kept it otherwise."""
+    try:
+        return registry.get_cached_cap(cap_urn)
+    except NotFoundError:
         raise CapNotFoundError(cap_urn)
-    return cap
+    except FabricRegistryError as error:
+        raise DefinitionUnavailableError(cap_urn, error) from error
 
 
 def steps_to_resolved_graph(

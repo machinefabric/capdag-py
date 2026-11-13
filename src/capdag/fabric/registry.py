@@ -19,6 +19,7 @@ documentation of the dims it was built from (`get_cached_dim`).
 
 import hashlib
 import json
+from http import HTTPStatus
 import logging
 import os
 import re
@@ -84,7 +85,75 @@ class NetworkBlockedError(FabricRegistryError):
 
 
 class NotFoundError(FabricRegistryError):
-    """Cap or media def not found in registry."""
+    """The registry's answer is that it does not hold the definition: the
+    pinned manifest does not name it, or the registry answered 404 (or 410)
+    for it. Nothing else is reported as a missing definition."""
+
+
+#: Why a fetch from the registry brought back no body: the registry answered
+#: with a status that is neither a success nor an answer that the object is
+#: absent (404, 410).
+FETCH_CAUSE_STATUS = "status"
+#: The registry did not answer before the HTTP client's timeout.
+FETCH_CAUSE_TIMED_OUT = "timed_out"
+#: The request could not be made or its answer could not be read: the
+#: connection was refused or broke off.
+FETCH_CAUSE_TRANSPORT = "transport"
+
+
+@dataclass(frozen=True)
+class FetchCause:
+    """Why a fetch from the registry brought back no body: ``kind`` is one of
+    the ``FETCH_CAUSE_*`` values, with the HTTP ``status`` for a status and
+    the ``detail`` of what happened on the connection for a transport
+    failure."""
+
+    kind: str
+    status: Optional[int] = None
+    detail: Optional[str] = None
+
+
+class FetchFailedError(FabricRegistryError):
+    """A fetch from the registry brought back no body: the registry refused
+    it, or did not answer. The definition may well exist; what is known is
+    only that this fetch failed, and the failure says what was fetched, from
+    where, for which fabric manifest, and why."""
+
+    def __init__(self, what: str, url: str, manifest_version: int, cause: FetchCause):
+        self.what = what
+        self.url = url
+        self.manifest_version = manifest_version
+        self.cause = cause
+        super().__init__(self._describe())
+
+    def _describe(self) -> str:
+        what, url, version, cause = self.what, self.url, self.manifest_version, self.cause
+        if cause.kind == FETCH_CAUSE_STATUS:
+            try:
+                reason = " " + HTTPStatus(cause.status).phrase
+            except ValueError:
+                reason = ""
+            return (
+                f"the registry refused the fetch of {what} for fabric manifest v{version}: "
+                f"HTTP {cause.status}{reason} from {url}"
+            )
+        if cause.kind == FETCH_CAUSE_TIMED_OUT:
+            return (
+                f"the registry did not answer the fetch of {what} for fabric manifest "
+                f"v{version}: the request to {url} timed out"
+            )
+        if cause.kind == FETCH_CAUSE_TRANSPORT:
+            return (
+                f"the fetch of {what} for fabric manifest v{version} from {url} failed: "
+                f"{cause.detail}"
+            )
+        raise ValueError(f"unknown fetch cause kind {cause.kind!r}")
+
+
+class PendingError(FabricRegistryError):
+    """The pinned manifest names the definition, it is not in memory, and it
+    has not been fetched: it is not at hand yet. Only a synchronous lookup,
+    which never touches the network, says this."""
 
 
 class ParseError(FabricRegistryError):
@@ -734,6 +803,41 @@ def _retain_pinned(
 # =============================================================================
 
 
+async def _fetch_object(
+    client: Optional["httpx.AsyncClient"], url: str, what: str, manifest_version: int
+) -> bytes:
+    """The body of one registry object — ``what`` at ``url``, fetched for
+    fabric manifest ``manifest_version``.
+
+    A success is the body. 404 or 410 is the registry's answer that it does
+    not hold the object, and only that is a NotFoundError. Any other status,
+    and a fetch that got no answer, is a FetchFailedError saying the URL, the
+    status or what happened on the connection, and the manifest version: a
+    refused fetch is never reported as a missing definition."""
+    if not HTTPX_AVAILABLE or client is None:
+        raise HttpError(f"httpx not available - cannot fetch {what}")
+    try:
+        response = await client.get(url)
+        body = response.content
+    except httpx.TimeoutException:
+        raise FetchFailedError(what, url, manifest_version, FetchCause(FETCH_CAUSE_TIMED_OUT))
+    except httpx.HTTPError as e:
+        detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        raise FetchFailedError(
+            what, url, manifest_version, FetchCause(FETCH_CAUSE_TRANSPORT, detail=detail)
+        )
+    if response.is_success:
+        return body
+    if response.status_code in (404, 410):
+        raise NotFoundError(
+            f"the registry has no {what} for fabric manifest v{manifest_version} "
+            f"(HTTP {response.status_code} from {url})"
+        )
+    raise FetchFailedError(
+        what, url, manifest_version, FetchCause(FETCH_CAUSE_STATUS, status=response.status_code)
+    )
+
+
 class FabricRegistry:
     """Unified registry for cap definitions and media defs.
 
@@ -788,6 +892,11 @@ class FabricRegistry:
 
         self.cache_lock = threading.Lock()
         self._offline = False
+        #: What the last failed fetch of each definition came to, keyed by
+        #: (kind, name, defver), until a fetch of it succeeds. A synchronous
+        #: lookup says this rather than "not fetched yet" when the registry
+        #: already answered.
+        self._fetch_failures: Dict[Tuple[str, str, int], FabricRegistryError] = {}
 
     # -------------------------------------------------------------------------
     # Constructors
@@ -906,18 +1015,8 @@ class FabricRegistry:
             except (ValueError, KeyError):
                 cache_file.unlink(missing_ok=True)
 
-        if not HTTPX_AVAILABLE or client is None:
-            raise HttpError("httpx not available - cannot fetch manifest")
         url = locations.manifest(version)
-        try:
-            response = await client.get(url)
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch manifest v{version} at {url}: {e}")
-        if not response.is_success:
-            raise NotFoundError(
-                f"Manifest v{version} not found in registry (HTTP {response.status_code}) at {url}"
-            )
-        body = response.text
+        body = (await _fetch_object(client, url, f"manifest v{version}", version)).decode("utf-8")
         try:
             manifest = Manifest.from_dict(json.loads(body))
         except (ValueError, KeyError) as e:
@@ -1152,16 +1251,9 @@ class FabricRegistry:
         url, _ = _definition_url_and_cache_path(
             self.cache_dir, self.locations, "caps", normalized_urn, defver
         )
-
-        try:
-            response = await self.client.get(url)
-            if not response.is_success:
-                raise NotFoundError(
-                    f"Cap '{urn}' not found in registry (HTTP {response.status_code})"
-                )
-            body = response.content
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch cap from registry: {e}")
+        body = await _fetch_object(
+            self.client, url, f"cap '{normalized_urn}' (defver {defver})", self.manifest_version
+        )
         return checked_cap_definition(body, normalized_urn)
 
     async def _fetch_media_def_from_registry(self, urn: str, defver: int) -> StoredMediaDef:
@@ -1177,16 +1269,11 @@ class FabricRegistry:
         url, _ = _definition_url_and_cache_path(
             self.cache_dir, self.locations, "media", normalized_urn, defver
         )
-
+        body = await _fetch_object(
+            self.client, url, f"media def '{normalized_urn}' (defver {defver})", self.manifest_version
+        )
         try:
-            response = await self.client.get(url)
-            if not response.is_success:
-                raise NotFoundError(
-                    f"Media def '{urn}' not found in registry (HTTP {response.status_code})"
-                )
-            return StoredMediaDef.from_dict(response.json())
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch media def from registry: {e}")
+            return StoredMediaDef.from_dict(json.loads(body))
         except (ValueError, KeyError, TypeError) as e:
             raise ParseError(f"Failed to parse registry response for media '{urn}': {e}")
 
@@ -1201,16 +1288,11 @@ class FabricRegistry:
         url, _ = _definition_url_and_cache_path(
             self.cache_dir, self.locations, "aliases", normalized_name, defver
         )
+        body = await _fetch_object(
+            self.client, url, f"alias '{normalized_name}' (defver {defver})", self.manifest_version
+        )
         try:
-            response = await self.client.get(url)
-            if not response.is_success:
-                raise NotFoundError(
-                    f"alias '{normalized_name}' not found in registry "
-                    f"(HTTP {response.status_code}) at {url}"
-                )
-            alias = StoredAlias.from_dict(response.json())
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch alias '{normalized_name}': {e}")
+            alias = StoredAlias.from_dict(json.loads(body))
         except (json.JSONDecodeError, KeyError) as e:
             raise ParseError(f"Failed to parse alias '{normalized_name}': {e}")
         # The fetched body must match what was requested, and the target must
@@ -1245,15 +1327,10 @@ class FabricRegistry:
         if not HTTPX_AVAILABLE or self.client is None:
             raise HttpError("httpx not available - cannot fetch from registry")
         url, _ = _definition_url_and_cache_path(self.cache_dir, self.locations, "dims", name, defver)
-        try:
-            response = await self.client.get(url)
-        except httpx.HTTPError as e:
-            raise HttpError(f"Failed to fetch dim '{name}': {e}")
-        if not response.is_success:
-            raise NotFoundError(
-                f"dim '{name}' not found in registry (HTTP {response.status_code}) at {url}"
-            )
-        dim = checked_dim(response.content, name, defver)
+        body = await _fetch_object(
+            self.client, url, f"dim '{name}' (defver {defver})", self.manifest_version
+        )
+        dim = checked_dim(body, name, defver)
         self._save_dim_to_cache(dim)
         with self.cache_lock:
             self.cached_dims[dim.name] = dim
@@ -1284,12 +1361,9 @@ class FabricRegistry:
                         f"{owner} names dim '{r.dim}', which is not in manifest "
                         f"v{self.manifest_version}"
                     )
-                try:
-                    dim = await self._fetch_one_dim(r.dim, defver)
-                except FabricRegistryError as e:
-                    raise NotFoundError(
-                        f"{owner} names dim '{r.dim}', which could not be fetched: {e}"
-                    )
+                # The dim's own failure, as it is: a refused fetch stays a
+                # refused fetch, and only the registry's 404 is a NotFoundError.
+                dim = await self._fetch_one_dim(r.dim, defver)
             if dim.value(r.value) is None:
                 raise ValidationError(
                     f"{owner} names value '{r.value}' of dim '{r.dim}', which the dim "
@@ -1424,6 +1498,37 @@ class FabricRegistry:
         """
         normalized_urn = normalize_cap_urn(urn)
         defver = self._cap_defver(normalized_urn)
+        return await self._noting(
+            ("cap", normalized_urn, defver), self._fetch_cap_and_footprint(urn, normalized_urn, defver)
+        )
+
+    async def _noting(self, key: Tuple[str, str, int], fetch) -> Any:
+        """Await ``fetch`` and keep what it came to for ``key``: a failure is
+        remembered for the synchronous lookups, and a success forgets the
+        failure before it."""
+        try:
+            result = await fetch
+        except FabricRegistryError as e:
+            with self.cache_lock:
+                self._fetch_failures[key] = e
+            raise
+        with self.cache_lock:
+            self._fetch_failures.pop(key, None)
+        return result
+
+    def _not_at_hand(self, key: Tuple[str, str, int], what: str, url: str) -> FabricRegistryError:
+        """Why a definition the manifest names is not in memory: what its last
+        fetch came to, or PendingError when it has not been fetched."""
+        with self.cache_lock:
+            last = self._fetch_failures.get(key)
+        if last is not None:
+            return last
+        return PendingError(
+            f"{what} is named by manifest v{self.manifest_version} and has not been "
+            f"fetched from {url}"
+        )
+
+    async def _fetch_cap_and_footprint(self, urn: str, normalized_urn: str, defver: int) -> Cap:
         cap = await self._fetch_cap_from_registry(urn, defver)
 
         referenced = self._collect_referenced_media_urns(cap)
@@ -1448,6 +1553,14 @@ class FabricRegistry:
         every dim it names is cached (see ``_ensure_dims_cached``)."""
         normalized_urn = normalize_media_urn(urn)
         defver = self._media_defver(normalized_urn)
+        return await self._noting(
+            ("media", normalized_urn, defver),
+            self._fetch_media_def_and_dims(urn, normalized_urn, defver),
+        )
+
+    async def _fetch_media_def_and_dims(
+        self, urn: str, normalized_urn: str, defver: int
+    ) -> StoredMediaDef:
         spec = await self._fetch_media_def_from_registry(urn, defver)
         await self._ensure_dims_cached(f"media def '{normalized_urn}'", spec.dims)
         self._save_media_def_to_cache(spec)
@@ -1476,6 +1589,9 @@ class FabricRegistry:
             cached = self.cached_caps.get(normalized_urn)
         if cached is not None:
             return cached
+        # The manifest answers first: a cap it does not name is absent,
+        # offline or not.
+        self._cap_defver(normalized_urn)
 
         if self._offline:
             raise NetworkBlockedError(
@@ -1491,25 +1607,36 @@ class FabricRegistry:
         with self.cache_lock:
             return list(self.cached_caps.values())
 
-    def get_cached_cap(self, urn: str) -> Optional[Cap]:
-        """Synchronous in-memory cache probe; never touches the network.
+    def get_cached_cap(self, urn: str) -> Cap:
+        """Synchronous in-memory lookup; never touches the network.
 
-        A malformed URN can never match a cache entry, so it degrades to
-        the same graceful "not found" as a cache miss: log a warning and
-        return None rather than raising on this latency-critical path."""
-        try:
-            normalized_urn = normalize_cap_urn(urn)
-        except ParseError as e:
-            _log.warning("get_cached_cap: %s", e)
-            return None
+        The cap, or raises why it is not at hand: NotFoundError when the
+        registry's answer is that it has no such cap (the pinned manifest does
+        not name it, or its fetch was answered 404); FetchFailedError when its
+        last fetch was refused or got no answer, with the URL, the status and
+        the manifest version; PendingError when it has not been fetched; and
+        ParseError when the URN does not parse."""
+        normalized_urn = normalize_cap_urn(urn)
         with self.cache_lock:
-            return self.cached_caps.get(normalized_urn)
+            cached = self.cached_caps.get(normalized_urn)
+        if cached is not None:
+            return cached
+        defver = self._cap_defver(normalized_urn)
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "caps", normalized_urn, defver
+        )
+        raise self._not_at_hand(
+            ("cap", normalized_urn, defver), f"cap '{normalized_urn}' (defver {defver})", url
+        )
 
     async def cap_exists(self, urn: str) -> bool:
+        """Whether the registry holds the cap (cached or online): False only
+        when its answer is that it has none. A fetch that was refused or got
+        no answer says nothing about whether the cap exists, and raises."""
         try:
             await self.get_cap(urn)
             return True
-        except (NotFoundError, HttpError, ParseError):
+        except (NotFoundError, ParseError):
             return False
 
     async def validate_cap(self, cap: Cap) -> None:
@@ -1552,6 +1679,9 @@ class FabricRegistry:
             cached = self.cached_specs.get(normalized_urn)
         if cached is not None:
             return cached
+        # The manifest answers first: a media def it does not name is absent,
+        # offline or not.
+        self._media_defver(normalized_urn)
 
         if self._offline:
             raise NetworkBlockedError(
@@ -1567,25 +1697,31 @@ class FabricRegistry:
         with self.cache_lock:
             return list(self.cached_specs.values())
 
-    def get_cached_media_def(self, urn: str) -> Optional[StoredMediaDef]:
-        """Synchronous in-memory cache probe; never touches the network.
-
-        A malformed URN can never match a cache entry, so it degrades to
-        the same graceful "not found" as a cache miss: log a warning and
-        return None rather than raising on this latency-critical path."""
-        try:
-            normalized_urn = normalize_media_urn(urn)
-        except ParseError as e:
-            _log.warning("get_cached_media_def: %s", e)
-            return None
+    def get_cached_media_def(self, urn: str) -> StoredMediaDef:
+        """Synchronous in-memory lookup; never touches the network: the media
+        def, or raises why it is not at hand, as ``get_cached_cap`` says."""
+        normalized_urn = normalize_media_urn(urn)
         with self.cache_lock:
-            return self.cached_specs.get(normalized_urn)
+            cached = self.cached_specs.get(normalized_urn)
+        if cached is not None:
+            return cached
+        defver = self._media_defver(normalized_urn)
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "media", normalized_urn, defver
+        )
+        raise self._not_at_hand(
+            ("media", normalized_urn, defver),
+            f"media def '{normalized_urn}' (defver {defver})",
+            url,
+        )
 
     async def media_def_exists(self, urn: str) -> bool:
+        """Whether the registry holds the media def (cached or online), as
+        ``cap_exists`` answers it."""
         try:
             await self.get_media_def(urn)
             return True
-        except (NotFoundError, HttpError, ParseError):
+        except (NotFoundError, ParseError):
             return False
 
     def media_urns_for_extension(self, extension: str) -> List[str]:
@@ -1625,12 +1761,16 @@ class FabricRegistry:
             cached = self.cached_aliases.get(normalized)
         if cached is not None:
             return cached
+        # The manifest answers first: an alias it does not name is absent,
+        # offline or not.
+        defver = self._alias_defver(normalized)
         if self._offline:
             raise NetworkBlockedError(
                 f"Network access blocked while offline: cannot fetch alias {name!r}"
             )
-        defver = self._alias_defver(normalized)
-        alias = await self._fetch_alias_from_registry(normalized, defver)
+        alias = await self._noting(
+            ("alias", normalized, defver), self._fetch_alias_from_registry(normalized, defver)
+        )
         self._save_alias_to_cache(alias)
         with self.cache_lock:
             self.cached_aliases[alias.name] = alias
@@ -1660,17 +1800,32 @@ class FabricRegistry:
         return alias.target
 
     def resolve_alias_cached(self, name: str) -> Optional[str]:
-        """Synchronous, in-memory-only alias resolution. Returns the target
-        URN if the alias is already cached, else None. Returns None (not an
-        error) for a malformed name so callers treat 'not a valid alias' and
-        'not cached' uniformly as 'no resolution'."""
+        """Synchronous, in-memory-only alias resolution.
+
+        The target URN when the alias is in memory. None when the registry
+        has no alias by this name: the pinned manifest does not name it, or
+        the name is not one an alias can have. An alias the manifest names
+        that is not in memory raises: what its last fetch came to (a refusal
+        is reported as itself), or PendingError when it has not been fetched
+        — it exists, so it is never reported as undefined."""
         try:
             normalized = normalize_alias_name(name)
         except ValueError:
             return None
         with self.cache_lock:
             alias = self.cached_aliases.get(normalized)
-        return alias.target if alias is not None else None
+        if alias is not None:
+            return alias.target
+        try:
+            defver = self._alias_defver(normalized)
+        except NotFoundError:
+            return None
+        url, _ = _definition_url_and_cache_path(
+            self.cache_dir, self.locations, "aliases", normalized, defver
+        )
+        raise self._not_at_hand(
+            ("alias", normalized, defver), f"alias '{normalized}' (defver {defver})", url
+        )
 
     # -------------------------------------------------------------------------
     # Public dim API

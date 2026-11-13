@@ -206,6 +206,34 @@ class UnknownCapError(MachineAbstractionError):
         self.cap_urn = cap_urn
 
 
+class DefinitionUnavailableError(MachineAbstractionError):
+    """A definition the machine needs — a cap, a media def, a cap alias — is
+    in the registry and could not be had from it: its fetch was refused or got
+    no answer, or it is not fetched yet. ``error`` says which, with the URL,
+    the status and the fabric manifest version where a fetch failed. Never
+    raised for a definition the registry does not hold."""
+
+    def __init__(self, urn: str, error: Exception):
+        super().__init__(f"the definition of '{urn}' could not be had from the registry: {error}")
+        self.urn = urn
+        self.error = error
+
+
+def definition_lookup(lookup, urn: str, absent):
+    """``lookup(urn)``, a synchronous registry lookup of a definition: its
+    value; ``absent()``, raised, when the registry's answer is that it holds
+    no such definition; and DefinitionUnavailableError carrying what kept it
+    otherwise."""
+    from capdag.fabric.registry import FabricRegistryError, NotFoundError
+
+    try:
+        return lookup(urn)
+    except NotFoundError:
+        raise absent()
+    except FabricRegistryError as error:
+        raise DefinitionUnavailableError(urn, error) from error
+
+
 class UnmatchedSourceInCapArgsError(MachineAbstractionError):
     def __init__(self, strand_index: int, cap_urn: str, source_urn: str):
         super().__init__(

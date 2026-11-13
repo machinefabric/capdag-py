@@ -23,6 +23,7 @@ from capdag.fabric.registry import (
     Manifest,
     MediaCacheEntry,
     NotFoundError,
+    PendingError,
     ParseError,
     FabricLocations,
     RegistryConfig,
@@ -244,13 +245,12 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
     assert registry.get_cached_dim("medium") is not None
     assert registry.get_cached_dim("language") is None, "a dim at another version is dropped"
     assert registry.get_cached_cap(kept_cap.urn_string()) is not None
-    assert registry.get_cached_cap(stale_cap.urn_string()) is None, (
-        "the cap naming the dropped dim is dropped with it"
-    )
+    # The manifest names both, so a dropped one is not at hand until fetched.
+    with pytest.raises(PendingError):
+        registry.get_cached_cap(stale_cap.urn_string())  # the cap naming the dropped dim is dropped with it
     assert registry.get_cached_media_def("media:x") is not None
-    assert registry.get_cached_media_def("media:y") is None, (
-        "a value the dim lacks drops the definition"
-    )
+    with pytest.raises(PendingError):
+        registry.get_cached_media_def("media:y")  # a value the dim lacks drops the definition
 
 
 # --- TEST1972: a definition needs every dim it names ------------------------
@@ -345,7 +345,9 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
         f"cap '{normalize_cap_urn(mumbles)}' names value 'fr' of dim 'language', "
         f"which the dim does not declare"
     )
-    assert registry.get_cached_cap(mumbles) is None, "a cap whose dim lacks its value is not cached"
+    # A cap whose dim lacks its value is not cached: its lookup says why.
+    with pytest.raises(ValidationError):
+        registry.get_cached_cap(mumbles)
 
     spoken = "media:enc=utf8;spoken"
     with pytest.raises(NotFoundError) as exc_info:
@@ -353,7 +355,8 @@ async def test_1972_a_definition_needs_every_dim_it_names(tmp_path):
     assert str(exc_info.value) == (
         f"media def '{normalize_media_urn(spoken)}' names dim 'tone', which is not in manifest v1"
     )
-    assert registry.get_cached_media_def(spoken) is None, (
-        "a media def naming a dim the manifest lacks is not cached"
-    )
+    # A media def naming a dim the manifest lacks is not cached: its lookup
+    # says why.
+    with pytest.raises(NotFoundError):
+        registry.get_cached_media_def(spoken)
     assert not _definition_url_and_cache_path(cache_dir, locations, "media", normalize_media_urn(spoken), 1)[1].exists()

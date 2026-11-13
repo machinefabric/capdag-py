@@ -29,6 +29,17 @@ class CapNotFoundError(ParseOrchestrationError):
         super().__init__(f"Cap URN '{cap_urn}' not found in registry")
 
 
+class DefinitionUnavailableError(ParseOrchestrationError):
+    """A definition the plan needs — a cap, a media def, a cap alias — is in
+    the registry and could not be had from it: its fetch was refused or got no
+    answer, or it is not fetched yet."""
+
+    def __init__(self, urn: str, error: Exception) -> None:
+        self.urn = urn
+        self.error = error
+        super().__init__(f"the definition of '{urn}' could not be had from the registry: {error}")
+
+
 class InvalidGraphError(ParseOrchestrationError):
     """The plan or graph is not one that can be run as asked."""
 

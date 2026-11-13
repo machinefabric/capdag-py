@@ -611,6 +611,16 @@ class UnresolvableMediaUrn(MediaDefError):
     pass
 
 
+class MediaDefUnavailable(MediaDefError):
+    """The registry holds the media def and it could not be had from it: its
+    fetch was refused or got no answer. ``error`` is the registry's account."""
+
+    def __init__(self, media_urn: str, error: Exception):
+        super().__init__(f"media URN '{media_urn}' could not be had from the registry: {error}")
+        self.media_urn = media_urn
+        self.error = error
+
+
 class DuplicateMediaUrn(MediaDefError):
     """Duplicate media URN in media_defs array"""
     pass
@@ -629,8 +639,11 @@ async def resolve_media_urn(
         registry: The FabricRegistry for cache and remote lookups.
 
     Raises:
-        UnresolvableMediaUrn: If the media URN cannot be resolved.
+        UnresolvableMediaUrn: If the registry holds no such media def.
+        MediaDefUnavailable: If its fetch was refused or got no answer.
     """
+    from capdag.fabric.registry import FabricRegistryError, NotFoundError
+
     try:
         stored_spec = await registry.get_media_def(media_urn)
         return ResolvedMediaDef(
@@ -650,6 +663,12 @@ async def resolve_media_urn(
             extensions=stored_spec.extensions,
             dims=list(stored_spec.dims),
         )
+    except NotFoundError as e:
+        raise UnresolvableMediaUrn(
+            f"cannot resolve media URN '{media_urn}' via registry: {e}"
+        )
+    except FabricRegistryError as e:
+        raise MediaDefUnavailable(media_urn, e) from e
     except Exception as e:
         raise UnresolvableMediaUrn(
             f"cannot resolve media URN '{media_urn}' via registry: {e}"
