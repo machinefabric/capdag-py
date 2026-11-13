@@ -9,23 +9,29 @@ scan-all tests prove discovery REACHED a cartridge (vs. rejecting it
 earlier with MISPLACED).
 """
 
-import os
 import stat
 import sys
 
 import pytest
 
 from capdag.bifaci.cartridge_discovery import (
+    Admission,
     AttachTerms,
+    DiscoveredCartridgeDirectory,
     DiscoveredCartridgeIncompatible,
     DiscoveryIdentity,
     discover_cartridges,
     newest_version_dir,
-    refusal,
+    Refusal,
+    admission,
 )
 from capdag.bifaci.bundle_manifest import BundleManifest, BundledCartridge, BundleProof
-from capdag.bifaci.cartridge_json import CartridgeInstallSource, CartridgeJson, hash_cartridge_directory
+from capdag.bifaci.cartridge_json import CartridgeInstallSource, CartridgeJson
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION, CartridgeChannel
+from capdag.bifaci.manifest import CapGroup
+from capdag.cap.definition import Cap
+from capdag.standard.caps import CAP_IDENTITY
+from capdag.urn.cap_urn import CapUrn
 from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
 from tests.charter_fixtures import (
     CARTRIDGES_ANCHOR,
@@ -165,7 +171,6 @@ def test_1907_the_newest_version_is_chosen_by_number_not_text(tmp_path):
 # where it came from: a registry install is installed again, a dev cartridge
 # rebuilt, and a bundled one means the build is wrong.
 def test_1908_a_manifest_refusal_names_both_manifests_and_the_remedy():
-    from pathlib import Path
 
     terms = AttachTerms(
         channel=CartridgeChannel.RELEASE,
@@ -185,12 +190,13 @@ def test_1908_a_manifest_refusal_names_both_manifests_and_the_remedy():
             fabric_manifest_version=manifest,
         )
 
-    version_dir = Path("imagecartridge") / "1.174.414"
-    assert refusal(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), version_dir, terms) is None
+    assert admission(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), terms) == Admission(
+        bundled=None
+    )
 
     def refused(installed_from, registry_url):
-        r = refusal(stamped(installed_from, registry_url, 12), version_dir, terms)
-        assert r is not None, "stamped for 12, refused by a host at 13"
+        r = admission(stamped(installed_from, registry_url, 12), terms)
+        assert isinstance(r, Refusal), "stamped for 12, refused by a host at 13"
         return r
 
     installed = refused(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR)
@@ -340,48 +346,114 @@ def test_1878_a_bundled_cartridge_is_refused_where_nothing_proves_it(tmp_path):
     )
 
 
-# TEST1928: a bundled cartridge the manifest records passes, and one it records
-# differently does not.
+def _recorded_cap_groups():
+    """The cap groups a build recorded for the fixture cartridge: one cap,
+    which discovery must hand back as recorded."""
+    identity = CapUrn.from_string(CAP_IDENTITY)
+    return [CapGroup(name="cart", caps=[Cap(identity, "Identity", ["identity"])])]
+
+
+def _recorded(sha256: str, fabric_manifest_version: int) -> BundleManifest:
+    """A manifest recording the fixture cartridge at ``sha256``, built for
+    fabric manifest version ``fabric_manifest_version``."""
+    return BundleManifest.create(
+        "dev",
+        [
+            BundledCartridge(
+                name="cart",
+                version="1.0.0",
+                channel="nightly",
+                sha256=sha256,
+                fabric_manifest_version=fabric_manifest_version,
+                cap_groups=_recorded_cap_groups(),
+            )
+        ],
+    )
+
+
+def _install_unstartable_bundled(root):
+    """Lay down the bundled fixture cartridge with an entry point that cannot
+    be started on any platform: marked executable, as an installed entry point
+    must be, and not a program. A discovery that started it would end at
+    HANDSHAKE_FAILED."""
+    d = root / "dev" / f"v{CARTRIDGE_REGISTRY_VERSION}" / "nightly" / "cart" / "1.0.0"
+    d.mkdir(parents=True)
+    (d / "cartridge.json").write_text(_bundled_cartridge_json(), encoding="utf-8")
+    entry = d / "cart"
+    entry.write_bytes(b"not a program")
+    entry.chmod(0o755)
+    return d
+
+
+# TEST1928: a bundled cartridge is admitted exactly when the manifest records
+# it, and refused, before anything runs, when it does not.
 #
 # The other half of TEST1878, and the one that proves the gate is a real check
 # rather than a refusal of everything: the same tree, the same cartridge, and
-# the only difference is what the build recorded about it. A gate that always
-# said no would pass TEST1878 alone.
+# the only difference is what the build recorded about it.
 def test_1928_a_bundled_cartridge_passes_exactly_when_the_manifest_records_it(tmp_path):
-    _install_fixture(
-        tmp_path, "dev", "nightly", "cart", "1.0.0", _bundled_cartridge_json(), "cart"
-    )
-    version_dir = os.path.join(
-        str(tmp_path), "dev", f"v{CARTRIDGE_REGISTRY_VERSION}", "nightly", "cart", "1.0.0"
-    )
-    recorded = hash_cartridge_directory(version_dir)
+    _install_unstartable_bundled(tmp_path)
 
-    def listed(sha256: str) -> DiscoveryIdentity:
-        return _bundled_identity(
-            BundleManifest.create(
-                "dev",
-                [
-                    BundledCartridge(
-                        name="cart", version="1.0.0", channel="nightly", sha256=sha256
-                    )
-                ],
-            )
-        )
-
-    # Recorded as it is on disk: past the gate. It still ends at the HELLO
-    # probe, because the fixture's entry point is not a cartridge — what
-    # matters is that the failure is no longer the integrity one.
-    out = discover_cartridges(tmp_path, listed(recorded))
+    out = discover_cartridges(tmp_path, _bundled_identity(_recorded("a" * 64, 1)))
     assert len(out) == 1
-    assert "bundled cartridge integrity" not in out[0].error.message, (
-        "a cartridge the manifest records must get past the integrity gate: "
-        f"{out[0].error.message}"
+    assert isinstance(out[0], DiscoveredCartridgeDirectory), (
+        f"a recorded bundled cartridge must be admitted: {out[0]!r}"
     )
 
-    # Recorded as something else — the cartridge was changed after the build
-    # recorded it.
-    out = discover_cartridges(tmp_path, listed("f" * 64))
+    # Recorded under another name: this build ships a cartridge it did not
+    # record.
+    other = BundleManifest.create(
+        "dev",
+        [
+            BundledCartridge(
+                name="other",
+                version="1.0.0",
+                channel="nightly",
+                sha256="a" * 64,
+                fabric_manifest_version=1,
+                cap_groups=_recorded_cap_groups(),
+            )
+        ],
+    )
+    out = discover_cartridges(tmp_path, _bundled_identity(other))
     _expect_incompatible(out, CartridgeAttachmentErrorKind.MISPLACED)
     assert "bundled cartridge integrity" in out[0].error.message, (
-        f"a cartridge that differs from the manifest must be refused: {out[0].error.message}"
+        f"a cartridge the manifest does not record must be refused: {out[0].error.message}"
     )
+
+
+# TEST1931: discovering a bundle neither starts nor hashes a cartridge: its
+# caps and its content hash are the ones the signed manifest records.
+#
+# The entry point cannot be started, so a discovery that probed it would report
+# HANDSHAKE_FAILED; and the recorded hash is not the directory's, so a
+# discovery that hashed it would refuse it. The hash is held to the directory
+# when a host starts the cartridge (TEST1962's half).
+def test_1931_bundled_discovery_reads_the_manifest_and_starts_nothing(tmp_path):
+    d = _install_unstartable_bundled(tmp_path)
+
+    out = discover_cartridges(tmp_path, _bundled_identity(_recorded("f" * 64, 1)))
+    assert len(out) == 1 and isinstance(out[0], DiscoveredCartridgeDirectory), (
+        f"expected the bundled cartridge admitted from its manifest, got {out!r}"
+    )
+    found = out[0]
+    assert found.cap_groups == [group.to_dict() for group in _recorded_cap_groups()], (
+        "the caps must be the recorded ones"
+    )
+    assert found.bundle_sha256 == "f" * 64
+    assert found.version_dir == d
+    assert found.entry_point == d / "cart"
+
+
+# TEST1932: a bundled cartridge whose build recorded another fabric manifest
+# version is refused as built for another fabric, without being started.
+#
+# Its cartridge.json says the host's version; the signed record says otherwise,
+# and the signed record is what discovery believes, since cartridge.json is
+# outside the hash.
+def test_1932_a_bundled_cartridge_built_for_another_fabric_is_refused_unstarted(tmp_path):
+    _install_unstartable_bundled(tmp_path)
+
+    out = discover_cartridges(tmp_path, _bundled_identity(_recorded("a" * 64, 2)))
+    _expect_incompatible(out, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH)
+    assert "was built for fabric manifest 2, as its build's signed bundle manifest records" in out[0].error.message, out[0].error.message

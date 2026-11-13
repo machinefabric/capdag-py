@@ -1352,6 +1352,7 @@ def test_1871_sync_roster_adds_and_removes_registered_dir_live(tmp_path):
                     }],
                     "adapter_urns": [],
                 }],
+                bundle_sha256=None,
             )
         ])
         result["after_add"] = read_notify_ids(r)
@@ -1409,6 +1410,7 @@ def test_7089_hello_failed_stays_in_inventory_with_error(tmp_path):
         None,
         "1.0.0",
         [],
+        None,
     )
 
     # Healthy (never spawned): advertised without an attachment error.
@@ -1541,6 +1543,105 @@ def _cap_groups_from_urns(urns):
     }]
 
 
+def _start_bundled(directory, recorded):
+    """Register a bundled cartridge whose entry point cannot be started, held
+    to ``recorded(directory)``, send one REQ for its cap, and answer the ERR
+    the host sent back and the cartridge's record afterwards. Mirrors the
+    reference test helper."""
+    from capdag.bifaci.cartridge_repo import CartridgeChannel
+
+    directory.mkdir()
+    (directory / "cartridge.json").write_text(
+        '{"name":"cart","version":"1.0.0","channel":"release","registry_url":null,'
+        '"entry":"bin","installed_at":"2026-01-01T00:00:00Z","installed_from":"bundle"}',
+        encoding="utf-8",
+    )
+    entry = directory / "bin"
+    entry.write_bytes(b"not an executable")
+    sha256 = recorded(directory)
+
+    cap = 'cap:in="media:void";test;out="media:void"'
+    host = _policed_host()
+    host.register_cartridge_dir(
+        str(entry),
+        str(directory),
+        "cart",
+        CartridgeChannel.RELEASE,
+        None,
+        "1.0.0",
+        _cap_groups_from_urns([cap]),
+        sha256,
+    )
+    # Registration takes the recorded hash as the cartridge's identity rather
+    # than hashing the directory.
+    assert host._cartridges[0].installed_cartridge_record().sha256 == sha256
+
+    hr, hw, pr, pw, hs, ps = make_conn()
+    answered = [None]
+
+    def engine():
+        w = FrameWriter(pw)
+        r = FrameReader(pr)
+        w.write(Frame.req(MessageId.new_uuid(), cap, b"", "text/plain"))
+        answered[0] = read_skipping_notify(r)
+        close_socks(ps)
+
+    t = threading.Thread(target=engine, daemon=True)
+    t.start()
+    host.run(hr, hw)
+    cleanup(hs, ps)
+    t.join(timeout=5)
+
+    frame = answered[0]
+    assert frame is not None and frame.frame_type == FrameType.ERR, (
+        f"the cartridge cannot run, one way or the other, so the REQ must be refused: {frame!r}"
+    )
+    advertised = host._build_installed_cartridge_identities()[0]
+    return (
+        frame.error_code(),
+        frame.error_message(),
+        host._cartridges[0].installed_cartridge_record(),
+        advertised,
+    )
+
+
+# TEST1962: a host holds a bundled cartridge to its recorded hash when it
+# starts it, and refuses a changed one by name, without starting it.
+#
+# Discovery no longer hashes a bundled cartridge (TEST1931), so this is the
+# check that catches a changed bundle. The entry point cannot be started: a
+# host that skipped the check would fail at the spawn instead, which is what
+# the unchanged case shows.
+def test_1962_a_changed_bundled_cartridge_is_refused_when_started(tmp_path):
+    from capdag.bifaci.cartridge_json import hash_cartridge_directory
+    from capdag.bifaci.relay_switch import CartridgeAttachmentErrorKind
+
+    code, said, record, advertised = _start_bundled(tmp_path / "changed", lambda _directory: "f" * 64)
+    assert code == "CARTRIDGE_REFUSED", f"a changed bundled cartridge is refused, not a failed spawn: {code}"
+    assert "the bundled cartridge cart 1.0.0 was changed after its build recorded it" in said, (
+        f"the refusal must name the cartridge and say its bundle changed: {said}"
+    )
+    assert str(tmp_path / "changed") in said, f"the refusal must say where: {said}"
+    error = record.attachment_error
+    assert error is not None, "the refusal is recorded against the cartridge"
+    assert error.kind == CartridgeAttachmentErrorKind.MISPLACED
+    assert "was changed after its build recorded it" in error.message, error.message
+    # What the host advertises carries the same reason, so whatever shows its
+    # inventory says why, not that a handshake failed.
+    assert advertised["attachment_error"]["kind"] == CartridgeAttachmentErrorKind.MISPLACED.value, advertised
+    assert "was changed after its build recorded it" in advertised["attachment_error"]["message"]
+    # The wire leaves an empty cap_groups out.
+    assert not advertised.get("cap_groups"), "a refused cartridge is not routable"
+
+    # Unchanged: the check passes and the host goes on to start it, which
+    # fails here only because the fixture is not a program.
+    code, said, record, _ = _start_bundled(tmp_path / "unchanged", hash_cartridge_directory)
+    assert code == "SPAWN_FAILED", f"an unchanged cartridge must pass the check and be started: {code}"
+    assert "was changed" not in said, f"an unchanged cartridge must pass the check: {said}"
+    assert "failed to start cartridge" in said, f"an unchanged cartridge must be started: {said}"
+    assert record.attachment_error is None
+
+
 def _retire_fixture(tmp_path):
     """A registered-dir cartridge, marked running, for roster-retire tests.
     Mirrors the reference test helper."""
@@ -1563,6 +1664,7 @@ def _retire_fixture(tmp_path):
         None,
         "1.0.0",
         _cap_groups_from_urns(['cap:in="media:void";out="media:void";retiring']),
+        None,
     )
     # Pretend it started: retirement only has to make a decision about a LIVE
     # process.
@@ -1633,6 +1735,7 @@ def test_1947_roster_flap_cancels_retirement_instead_of_respawning(tmp_path):
         registry_url=None,
         version="1.0.0",
         cap_groups=_cap_groups_from_urns(['cap:in="media:void";out="media:void";retiring']),
+        bundle_sha256=None,
     )
 
     # Busy, so the outage puts it into a drain rather than killing it.

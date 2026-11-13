@@ -66,6 +66,7 @@ from capdag.bifaci.relay_switch import (
 )
 from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
+from capdag.bifaci.bundle_manifest import BundleError, verify_content
 from capdag.bifaci.stats import DropCounters, HostProtocolStats, StragglerCounters
 from capdag.urn.cap_urn import CapUrn, CapUrnError
 
@@ -118,6 +119,14 @@ class ProcessExited(AsyncHostError):
 
 class Handshake(AsyncHostError):
     """Handshake failed"""
+    pass
+
+
+class CartridgeRefused(AsyncHostError):
+    """The host will not start this cartridge, and says why: a bundled
+    cartridge whose directory no longer matches its build's signed bundle
+    manifest. The request that would have started it is answered with this
+    reason, under CARTRIDGE_REFUSED; the host and its other cartridges go on."""
     pass
 
 
@@ -300,6 +309,10 @@ class RegisteredDirSpec:
     registry_url: Optional[str]
     version: str
     cap_groups: List[Any]
+    #: For a bundled cartridge, the directory hash its build's signed bundle
+    #: manifest records (``DiscoveredCartridgeDirectory.bundle_sha256``);
+    #: ``None`` for an installed or dev one.
+    bundle_sha256: Optional[str]
 
 
 # How long a retired cartridge may keep running to finish the requests it is
@@ -368,6 +381,11 @@ class _ManagedCartridge:
         # is part of a registered-dir roster sync. None for attached /
         # probe-based registrations.
         self.cartridge_dir: Optional[str] = None
+        # For a bundled cartridge, the directory hash its build's signed
+        # bundle manifest records. The directory is held to it each time the
+        # cartridge is started, and a cartridge that was changed is refused
+        # there. None for every other cartridge.
+        self.bundle_sha256: Optional[str] = None
         self.process: Optional[subprocess.Popen] = None
         self.writer: Optional[FrameWriter] = None
         self.writer_queue: Optional[queue.Queue] = None
@@ -461,6 +479,29 @@ class _ManagedCartridge:
         """The cartridge's resolvable install identity, or None for an
         attached/probe-based registration with no on-disk anchor."""
         return self.installed_identity
+
+    def record_attachment_error(self, kind: CartridgeAttachmentErrorKind, message: str) -> None:
+        """Mark the cartridge permanently failed and record why on its
+        install identity, so the failure is named rather than hidden.
+
+        A cartridge without an install identity has no channel to report the
+        failure under, and synthesizing one would collapse the
+        release/nightly distinction at the wire boundary — so that is a bug,
+        raised as one. Mirrors the reference
+        ``ManagedCartridge::record_attachment_error``.
+        """
+        if self.installed_identity is None:
+            raise RuntimeError(
+                "BUG: record_attachment_error fired on a cartridge without an "
+                f"InstalledCartridgeRecord (path '{self.path}'). Channels are part of "
+                "identity; we never synthesize one without channel info."
+            )
+        self.hello_failed = True
+        self.installed_identity.attachment_error = CartridgeAttachmentError(
+            kind=kind,
+            message=message,
+            detected_at_unix_seconds=int(time.time()),
+        )
 
     def is_registered_dir(self) -> bool:
         """True for a cartridge registered from a version directory (the
@@ -590,13 +631,17 @@ class CartridgeHost:
         registry_url: Optional[str],
         version: str,
         cap_groups: List[Any],
+        bundle_sha256: Optional[str],
     ) -> None:
         """Register a directory-based cartridge for on-demand spawning.
 
         The ``version_dir`` must contain a valid ``cartridge.json`` with
-        an entry point. Identity is computed from the directory tree hash.
-        ``channel`` and ``registry_url`` come from ``cartridge.json`` (the
-        host has already validated the charter rule); they propagate
+        an entry point. Identity is computed from the directory tree hash,
+        or, for a bundled cartridge, is ``bundle_sha256``: the hash its
+        build's signed bundle manifest records, which the directory is held
+        to each time the cartridge is started. ``channel`` and
+        ``registry_url`` come from ``cartridge.json`` (the host has already
+        validated the charter rule); they propagate
         through ``InstalledCartridgeRecord`` to the engine's RelayNotify
         so consumers preserve the (registry, channel) provenance
         end-to-end. A directory that is unhashable at registration time is
@@ -608,8 +653,15 @@ class CartridgeHost:
             cartridge_idx = len(self._cartridges)
             cartridge = _ManagedCartridge(path=entry_point, cap_groups=cap_groups)
             cartridge.cartridge_dir = version_dir
+            cartridge.bundle_sha256 = bundle_sha256
             try:
-                sha256 = hash_cartridge_directory(Path(version_dir))
+                # A bundled cartridge's identity is the hash its build
+                # recorded; its directory is held to it when the cartridge is
+                # started, not here.
+                if bundle_sha256 is not None:
+                    sha256 = bundle_sha256
+                else:
+                    sha256 = hash_cartridge_directory(Path(version_dir))
                 cartridge.installed_identity = InstalledCartridgeRecord(
                     registry_url=registry_url,
                     id=cartridge_id,
@@ -932,7 +984,14 @@ class CartridgeHost:
                         err_frame = Frame.err(frame.id, "SPAWN_FAILED", AttributionClass.ENVIRONMENT, "cartridge previously failed to start")
                         relay_writer.write(err_frame)
                         return
-                    err = self._spawn_cartridge_locked(cartridge_idx)
+                    try:
+                        err = self._spawn_cartridge_locked(cartridge_idx)
+                    except CartridgeRefused as refusal:
+                        # A bundled cartridge the host will not start is
+                        # refused by name, with why — Environment.
+                        err_frame = Frame.err(frame.id, "CARTRIDGE_REFUSED", AttributionClass.ENVIRONMENT, str(refusal))
+                        relay_writer.write(err_frame)
+                        return
                     if err is not None:
                         err_frame = Frame.err(frame.id, "SPAWN_FAILED", AttributionClass.ENVIRONMENT, str(err))
                         relay_writer.write(err_frame)
@@ -1198,6 +1257,28 @@ class CartridgeHost:
             cartridge.last_death_message = "cartridge has no path"
             return "cartridge has no path"
 
+        # A bundled cartridge is held to the hash its build recorded each time
+        # it is started: discovery took its caps from the signed manifest and
+        # read none of its bytes, so this is where a changed bundle is caught,
+        # just before the bytes run. A refusal is permanent for this host.
+        if cartridge.bundle_sha256 is not None and cartridge.cartridge_dir is not None:
+            record = cartridge.installed_cartridge_record()
+            if record is None:
+                raise RuntimeError(
+                    "BUG: a directory-registered cartridge always carries its identity "
+                    f"(path '{cartridge.path}')"
+                )
+            try:
+                verify_content(
+                    record.id, record.version, cartridge.cartridge_dir, cartridge.bundle_sha256
+                )
+            except BundleError as refusal:
+                message = str(refusal)
+                cartridge.record_attachment_error(
+                    CartridgeAttachmentErrorKind.MISPLACED, message
+                )
+                raise CartridgeRefused(message)
+
         generation = cartridge.generation + 1
 
         try:
@@ -1327,7 +1408,10 @@ class CartridgeHost:
                 protocol_drops_total=cartridge.protocol_drops_total,
             )
             if cartridge.hello_failed:
-                error = CartridgeAttachmentError(
+                # The reason recorded against the cartridge is the one
+                # advertised; only a cartridge with none recorded is reported
+                # as a failed handshake.
+                error = rec.attachment_error or CartridgeAttachmentError(
                     kind=CartridgeAttachmentErrorKind.HANDSHAKE_FAILED,
                     message=cartridge.last_death_message or (
                         "HELLO handshake failed (protocol version mismatch or "
@@ -1583,6 +1667,7 @@ class CartridgeHost:
                 spec.registry_url,
                 spec.version,
                 spec.cap_groups,
+                spec.bundle_sha256,
             )
 
         with self._lock:
