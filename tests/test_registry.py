@@ -497,7 +497,8 @@ def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
 
     registry._load_all_cached_caps()
     assert registry.get_cached_cap(kept.urn_string()) is not None, "the valid definition is loaded"
-    assert registry.get_cached_cap(stale.urn_string()) is None, "the one that breaks a rule is not"
+    with pytest.raises(NotFoundError):
+        registry.get_cached_cap(stale.urn_string())  # the one that breaks a rule is not loaded
     assert kept_file.is_file()
     assert not stale_file.exists(), "the stale entry's file is removed"
 

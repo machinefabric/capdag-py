@@ -17,7 +17,7 @@ from capdag.input_resolver.types import (
     ResolvedFile,
     ResolvedInputSet,
 )
-from capdag.media.registry import ExtensionNotFoundError, FabricRegistry
+from capdag.media.registry import ExtensionNotFoundError, FabricRegistry, FabricRegistryError
 from capdag.urn.media_urn import MediaUrn
 
 
@@ -36,8 +36,12 @@ def discriminate_candidates_by_validation(
     survivors: list[str] = []
 
     for urn_str in candidate_urns:
-        spec = fabric_registry.get_cached_media_def(urn_str)
-        if spec is None:
+        # A candidate is eliminated only by the rules its spec states; with no
+        # spec at hand (absent, refused or not fetched yet) there is nothing
+        # to eliminate it by, so it stays a candidate.
+        try:
+            spec = fabric_registry.get_cached_media_def(urn_str)
+        except FabricRegistryError:
             survivors.append(urn_str)
             continue
 

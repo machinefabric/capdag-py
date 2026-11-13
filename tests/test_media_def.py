@@ -22,6 +22,7 @@ from capdag.media.registry import (
     StoredMediaDef,
     normalize_media_urn,
     ExtensionNotFoundError,
+    NotFoundError,
 )
 
 
@@ -476,12 +477,14 @@ def test_609_get_extension_mappings():
     assert "epub" in ext_names, "Should contain epub"
 
 
-# TEST610: get_cached_spec returns None for unknown and Some for known
+# TEST610: get_cached_media_def answers NotFound for a media def the manifest
+# does not name, and the def for a known one
 def test_610_get_cached_spec():
     registry = FabricRegistry.new_for_test(Path(tempfile.mkdtemp()) / "media")
 
     # Unknown spec
-    assert registry.get_cached_media_def("media:nonexistent;xyzzy") is None
+    with pytest.raises(NotFoundError):
+        registry.get_cached_media_def("media:nonexistent;xyzzy")
 
     # Add a spec and verify we can retrieve it
     spec = StoredMediaDef(

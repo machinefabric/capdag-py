@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from capdag.machine.constant import constant_text
 from capdag.machine.error import (
+    definition_lookup,
     AmbiguousMachineNotationError,
     ArgBoundTwiceError,
     CapDoesNotDeclareInputError,
@@ -197,9 +198,9 @@ def _strand_output_name(registry, cap_urn: CapUrn, output_urn: MediaUrn, strand_
     strand records an output by its media URN, its identity; a wiring takes it
     by its name, a label that is unique per cap. The main output is not another
     output."""
-    definition = registry.get_cached_cap(cap_urn.to_string())
-    if definition is None:
-        raise UnknownCapError(cap_urn.to_string())
+    definition = definition_lookup(
+        registry.get_cached_cap, cap_urn.to_string(), lambda: UnknownCapError(cap_urn.to_string())
+    )
     main = definition.main_output()
 
     def is_main(output) -> bool:
@@ -286,9 +287,9 @@ def _resolve_wirings(
     wiring_outputs: List[List[EdgeOutput]] = []
     for wiring in wirings:
         cap_urn = wiring.cap_urn.to_string()
-        definition = registry.get_cached_cap(cap_urn)
-        if definition is None:
-            raise UnknownCapError(cap_urn)
+        definition = definition_lookup(
+            registry.get_cached_cap, cap_urn, lambda: UnknownCapError(cap_urn)
+        )
         definitions.append(definition)
         outputs: List[EdgeOutput] = []
         for target in wiring.targets:
@@ -544,13 +545,17 @@ def _check_constant(registry, cap_urn: str, arg, value: Any, strand_index: int) 
         )
 
     # Without the definition there is nothing to hold the constant to, and a
-    # constant nobody checked is not bound.
-    definition = registry.get_cached_media_def(arg.media_urn)
-    if definition is None:
-        raise refused(
+    # constant nobody checked is not bound. The constant is refused only when
+    # the registry holds no such definition; one that could not be fetched is
+    # reported as what kept it.
+    definition = definition_lookup(
+        registry.get_cached_media_def,
+        arg.media_urn,
+        lambda: refused(
             f"the media definition of '{arg.media_urn}' is not available, "
             "so the constant cannot be validated"
-        )
+        ),
+    )
     validation = definition.validation
     if validation is not None:
         if not isinstance(validation, MediaValidation):

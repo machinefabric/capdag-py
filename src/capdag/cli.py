@@ -36,7 +36,14 @@ from typing import List, Optional
 from capdag import dev
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION
-from capdag.fabric.registry import FabricRegistry, RegistryConfig
+from capdag.fabric.registry import (
+    FabricRegistry,
+    FabricRegistryError,
+    NotFoundError,
+    ParseError,
+    RegistryConfig,
+    ValidationError,
+)
 
 
 COMMANDS = ["info", "cache", "dev"]
@@ -162,9 +169,10 @@ async def cmd_dev_install(project_dir: Path, as_json: bool) -> int:
             for alias in c.get_aliases():
                 try:
                     await registry.get_alias(alias)
-                except Exception:
+                except NotFoundError:
                     # An alias the fabric does not define is the ordinary case
                     # for a dev cap; the check below finds no conflict for it.
+                    # A fetch the registry refused is not that, and is raised.
                     pass
     try:
         for group in manifest.cap_groups:
@@ -207,8 +215,12 @@ async def cmd_info(names: List[str], no_cache: bool, as_json: bool) -> int:
     for index, name in enumerate(names):
         try:
             definition = await registry.get_cap(name if ":" in name else await registry.resolve_alias(name))
-        except Exception as e:
+        except (NotFoundError, ValidationError, ParseError) as e:
             raise usage_error(f"there is no capability named '{name}'", f"find one with the reference CLI: capdag caps {name}", [str(e)])
+        except FabricRegistryError as e:
+            # The registry could not be asked: say so as it is, never as a
+            # capability that does not exist.
+            raise CliError(str(e), [], "run the command again; if the registry keeps refusing, report it")
         if as_json:
             # The definition as the fabric publishes it, its fields in their
             # declared order, as the reference CLI writes it.
@@ -299,6 +311,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_hash_dir(Path(args.dir))
         parser.print_help(sys.stderr)
         return 2
+    except FabricRegistryError as registry_error:
+        # The fabric could not be read — a refused fetch, one that got no
+        # answer: said as it is, with the URL, the status and the manifest
+        # version.
+        error = CliError(str(registry_error), [], "run the command again; if it keeps failing, report it")
+        if args.json:
+            print(json.dumps({"type": "error", "problem": error.problem, "context": error.context, "hint": error.hint, "exit": error.exit}))
+        print(error.render(), file=sys.stderr, end="")
+        return error.exit
     except CliError as error:
         if args.json:
             print(json.dumps({"type": "error", "problem": error.problem, "context": error.context, "hint": error.hint, "exit": error.exit}))

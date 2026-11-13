@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from capdag.machine.error import (
+    DefinitionUnavailableError,
+    definition_lookup,
     AliasNotACapError,
     AmbiguousMachineMembersError,
     CyclicMachineReferenceError,
@@ -69,6 +71,7 @@ from capdag.machine.error import (
     UntypedMachineInputError,
     UntypedMachineMemberError,
 )
+from capdag.fabric.registry import FabricRegistryError
 from capdag.machine.graph import BindingSource, Machine, NodeId
 from capdag.machine.include import (
     IncludedMachine,
@@ -317,7 +320,13 @@ def _parse_program(
         if name in alias_map or name in machines or name in seen_unresolved:
             continue
         seen_unresolved.add(name)
-        target = registry.resolve_alias_cached(name)
+        # No alias by this name in the registry → Phase 4's undefined-alias
+        # error. An alias the registry has and that could not be fetched is
+        # reported as what kept it, never as undefined.
+        try:
+            target = registry.resolve_alias_cached(name)
+        except FabricRegistryError as error:
+            raise DefinitionUnavailableError(name, error) from error
         if target is None:
             continue
         try:
@@ -681,9 +690,9 @@ def _type_nodes(
 
     def cap_of(wiring: _RawWiring):
         cap_urn = alias_map[wiring.cap_alias][0]
-        definition = registry.get_cached_cap(cap_urn.to_string())
-        if definition is None:
-            raise UnknownCapError(cap_urn.to_string())
+        definition = definition_lookup(
+            registry.get_cached_cap, cap_urn.to_string(), lambda: UnknownCapError(cap_urn.to_string())
+        )
         return cap_urn, definition
 
     def media(text: str) -> MediaUrn:

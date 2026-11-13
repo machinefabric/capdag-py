@@ -10,6 +10,7 @@ Mirrors the reference's orchestrator module. Provides:
 from capdag.orchestrator.types import (
     ParseOrchestrationError,
     CapNotFoundError,
+    DefinitionUnavailableError,
     InvalidGraphError,
     StepSource,
     StepInput,
@@ -46,6 +47,7 @@ __all__ = [
     # Error types
     "ParseOrchestrationError",
     "CapNotFoundError",
+    "DefinitionUnavailableError",
     "InvalidGraphError",
     # Data types
     "StepSource",
