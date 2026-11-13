@@ -36,6 +36,7 @@ from capdag.fabric.registry import (
     normalize_media_urn,
 )
 from capdag.bifaci.charter import FetchedCharter, store_charter
+from capdag.fabric import cache
 from capdag.urn.cap_urn import CapUrn
 
 
@@ -202,9 +203,11 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
     # it once leaves it; its slug names the cache folder.
     config = RegistryConfig().with_anchor("https://fabric.example.test")
     charter = publisher_layout_charter(config.anchor)
-    cache_dir = FabricRegistry._capdag_cache_root() / charter.slug
+    registry_dir = FabricRegistry._capdag_cache_root() / charter.slug
     charter_body = json.dumps(charter.to_dict()).encode("utf-8")
-    store_charter(FetchedCharter(charter=charter, body=charter_body, signature=b"sig"), cache_dir)
+    store_charter(FetchedCharter(charter=charter, body=charter_body, signature=b"sig"), registry_dir)
+    # A registry pinned at manifest 11 caches in that manifest's folder.
+    cache_dir = cache.version_dir(registry_dir, 11)
     locations = FabricLocations.from_charter(charter)
 
     def record_cap(op: str, cap_dims) -> Cap:
@@ -223,6 +226,7 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
         urn = normalize_cap_urn(cap.urn_string())
         disk_manifest.caps[urn] = 1
         cap_file = cache_dir / "caps" / hashlib.sha256(urn.encode()).hexdigest() / "1.json"
+        assert cap_file == cache.entry_path(cache_dir, "caps", urn, 1)
         cap_file.parent.mkdir(parents=True, exist_ok=True)
         cap_file.write_text(json.dumps(CacheEntry(cap, 0, 0).to_dict()))
     for spec in (
@@ -237,8 +241,7 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
         _, dim_file = _definition_url_and_cache_path(cache_dir, locations, "dims", d.name, d.version)
         dim_file.parent.mkdir(parents=True, exist_ok=True)
         dim_file.write_text(json.dumps(DimCacheEntry(d, 0, 0).to_dict()))
-    (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
-    (cache_dir / "manifests" / "11.json").write_text(json.dumps(disk_manifest.to_dict()))
+    (cache_dir / cache.MANIFEST_FILE).write_text(json.dumps(disk_manifest.to_dict()))
 
     registry = await FabricRegistry.with_config_and_manifest_version(config, 11)
     assert registry.get_cached_dim("medium") is not None

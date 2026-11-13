@@ -36,7 +36,7 @@ from typing import List, Optional
 from capdag import dev
 from capdag.bifaci.cartridge_json import hash_cartridge_directory
 from capdag.bifaci.cartridge_repo import CARTRIDGE_REGISTRY_VERSION
-from capdag.fabric.registry import FabricRegistry, RegistryConfig
+from capdag.fabric.registry import FabricRegistry, FabricRegistryError, RegistryConfig
 
 
 COMMANDS = ["info", "cache", "dev"]
@@ -74,6 +74,19 @@ def user_cartridge_dir() -> Path:
 
 async def _registry() -> FabricRegistry:
     return await FabricRegistry.with_config(RegistryConfig())
+
+
+async def _clear_fabric_cache() -> Path:
+    """Clear the fabric cache every other command reads — the fabric this
+    process is bound to, at the manifest version it is built for — without
+    opening a registry on it: a cache holding a corrupt entry is one a
+    registry refuses to open, and clearing is what that refusal says to do.
+    Answers the folder cleared."""
+    config = RegistryConfig()
+    try:
+        return await FabricRegistry.clear_cache_of(config, FabricRegistry._baked_manifest_version())
+    except FabricRegistryError as e:
+        raise CliError(f"the fabric cache of {config.anchor} could not be cleared", [str(e)])
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -202,7 +215,7 @@ async def cmd_dev_install(project_dir: Path, as_json: bool) -> int:
 
 async def cmd_info(names: List[str], no_cache: bool, as_json: bool) -> int:
     if no_cache:
-        (await _registry()).clear_cache()
+        await _clear_fabric_cache()
     registry = await _registry()
     for index, name in enumerate(names):
         try:
@@ -237,9 +250,7 @@ async def cmd_info(names: List[str], no_cache: bool, as_json: bool) -> int:
 
 
 async def cmd_cache(action: str, as_json: bool) -> int:
-    registry = await _registry()
-    directory = registry.cache_dir
-    registry.clear_cache()
+    directory = await _clear_fabric_cache()
     manifest = None
     if action == "refresh":
         # The manifest and everything it pins, fetched afresh into the now

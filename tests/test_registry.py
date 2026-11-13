@@ -30,6 +30,7 @@ from capdag.fabric.registry import (
     publisher_layout_charter,
 )
 from capdag.bifaci.charter import FetchedCharter, parse_charter, store_charter
+from capdag.fabric import cache
 
 
 def _layout_locations(anchor: str) -> FabricLocations:
@@ -475,9 +476,7 @@ def test_12714_a_served_definition_is_held_to_the_definition_rules():
 # keeps the rest, and the definition is fetched anew when next asked for.
 def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
     from capdag.cap.definition import CapOutput
-    from capdag.fabric.registry import CacheEntry, FabricRegistry
-
-    registry = FabricRegistry.new_for_test(tmp_path)
+    from capdag.fabric.registry import CacheEntry, Manifest, load_pinned_entries
 
     def cap_of(op: str) -> Cap:
         cap = Cap(CapUrn.from_string(f'cap:in="media:void";{op};out="media:record"'), op, [op])
@@ -489,17 +488,20 @@ def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
     # The same shape without the output its URN states (RULE21).
     stale = cap_of("stale")
 
-    kept_file = tmp_path / "caps" / "aa" / "3.json"
-    stale_file = tmp_path / "caps" / "bb" / "3.json"
-    for file, cap in ((kept_file, kept), (stale_file, stale)):
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(json.dumps(CacheEntry(cap, 0, 0).to_dict()), encoding="utf-8")
+    manifest = Manifest.empty(11)
+    files = []
+    for cap in (kept, stale):
+        key = normalize_cap_urn(cap.urn_string())
+        manifest.caps[key] = 3
+        file = cache.entry_path(tmp_path, "caps", key, 3)
+        cache.store_entry(file, CacheEntry(cap, 0, 0).to_dict(), "cap")
+        files.append(file)
 
-    registry._load_all_cached_caps()
-    assert registry.get_cached_cap(kept.urn_string()) is not None, "the valid definition is loaded"
-    assert registry.get_cached_cap(stale.urn_string()) is None, "the one that breaks a rule is not"
-    assert kept_file.is_file()
-    assert not stale_file.exists(), "the stale entry's file is removed"
+    loaded = load_pinned_entries(tmp_path, manifest).caps
+    assert len(loaded) == 1, f"only the valid definition is loaded: {list(loaded)}"
+    assert all(cap.title == "kept" for cap in loaded.values())
+    assert files[0].is_file()
+    assert not files[1].exists(), "the stale entry's file is removed"
 
 
 # TEST12816: fetching a cap requires the definition of every media URN a
@@ -538,3 +540,247 @@ def test_12816_a_caps_media_footprint_covers_every_output_and_accepted_type(tmp_
     cap.add_output(CapOutput("not a urn", "broken", "broken"))
     with pytest.raises(ParseError):
         registry._collect_referenced_media_urns(cap)
+
+
+# --- The disk cache shared by processes that run at once, and by capdag
+# releases pinned at different fabric manifests. ---------------------------
+
+_SHARED_URN = 'cap:in="media:void";shared-entry;out="media:record"'
+
+
+def _shared_variant(title: str) -> Cap:
+    """The cap ``_SHARED_URN`` at defver 3, titled ``title``, with a
+    documentation large enough that writing it is not one step for the file
+    system."""
+    from capdag.cap.definition import CapOutput
+
+    cap = Cap(CapUrn.from_string(_SHARED_URN), title, ["shared-entry"])
+    cap.version = 3
+    cap.add_output(CapOutput("media:record", "record", "The record"))
+    cap.documentation = f"{title}\n" * 2_000
+    return cap
+
+
+def _shared_pinned(version: int):
+    from capdag.fabric.registry import Manifest
+
+    manifest = Manifest.empty(version)
+    manifest.caps[normalize_cap_urn(_SHARED_URN)] = 3
+    return manifest
+
+
+def _shared_entry_file(cache_dir: Path) -> Path:
+    return cache.entry_path(cache_dir, "caps", normalize_cap_urn(_SHARED_URN), 3)
+
+
+def _store_shared(cache_dir: Path, cap: Cap) -> None:
+    from capdag.fabric.registry import CacheEntry
+
+    cache.store_entry(_shared_entry_file(cache_dir), CacheEntry(cap, 0, 0).to_dict(), "cap")
+
+
+def _stored_test_charter(registry_dir: Path, anchor: str):
+    """Store, in ``registry_dir``, the charter of a fabric at ``anchor``, as a
+    client that fetched it once leaves it."""
+    charter = publisher_layout_charter(anchor)
+    charter.slug = registry_dir.name
+    body = json.dumps(charter.to_dict()).encode()
+    store_charter(FetchedCharter(charter=parse_charter(body), body=body, signature=b"sig"), registry_dir)
+    return charter
+
+
+# TEST1990: many readers and writers on one cache entry at once: every read
+# finds no entry or one whole entry a writer wrote, never part of one and
+# never an error, and no temporary file is left behind. The readers read for as
+# long as any writer writes, so every write overlaps reads.
+def test_1990_concurrent_readers_and_writers_never_see_a_torn_entry(tmp_path):
+    import threading
+    from capdag.fabric.registry import load_pinned_entries
+
+    cache_dir = cache.version_dir(tmp_path, 11)
+    manifest = _shared_pinned(11)
+    variants = [_shared_variant(f"written by writer {n}") for n in range(4)]
+    written = {(v.title, v.documentation) for v in variants}
+    failures = []
+    failures_lock = threading.Lock()
+    start = threading.Barrier(8)
+    done = threading.Event()
+    reads = []
+
+    def write(cap: Cap) -> None:
+        start.wait()
+        for _ in range(400):
+            _store_shared(cache_dir, cap)
+
+    def read() -> None:
+        start.wait()
+        found = []
+        count = 0
+        while not done.is_set():
+            count += 1
+            try:
+                caps = load_pinned_entries(cache_dir, manifest).caps
+            except Exception as e:  # every error is a failure this test reports
+                found.append(f"{type(e).__name__}: {e}"[:300])
+                continue
+            for cap in caps.values():
+                if (cap.title, cap.documentation) not in written:
+                    found.append(f"read a cap no writer wrote: {cap.title[:80]}")
+        with failures_lock:
+            failures.extend(found)
+            reads.append(count)
+
+    writers = [threading.Thread(target=write, args=(v,)) for v in variants]
+    readers = [threading.Thread(target=read) for _ in range(4)]
+    for t in writers + readers:
+        t.start()
+    for t in writers:
+        t.join()
+    done.set()
+    for t in readers:
+        t.join()
+
+    assert sum(reads) > 0, "the readers read while the writers wrote"
+    assert not failures, f"{len(failures)} torn or failed reads, first: {failures[0]}"
+    assert len(load_pinned_entries(cache_dir, manifest).caps) == 1, "the entry is there at the end"
+    left = sorted(p.name for p in _shared_entry_file(cache_dir).parent.iterdir())
+    assert left == ["3.json"], f"no temporary file is left behind: {left}"
+
+
+# TEST1991: two fabric manifest versions share one registry folder: each keeps
+# its entries in a folder of its own, and reads only what was cached for it,
+# even where both manifests pin the same definition at the same defver.
+@pytest.mark.asyncio
+async def test_1991_two_manifest_versions_read_only_their_own_entries(tmp_path, monkeypatch):
+    from capdag.fabric.registry import load_pinned_entries
+
+    registry_dir = tmp_path / "capdag" / "example-fabric"
+    v10 = cache.version_dir(registry_dir, 10)
+    v13 = cache.version_dir(registry_dir, 13)
+    assert v10 != v13, "each manifest version has a folder of its own"
+
+    _store_shared(v10, _shared_variant("cached for manifest 10"))
+    assert load_pinned_entries(v13, _shared_pinned(13)).caps == {}, (
+        "manifest 13 does not read what was cached for manifest 10"
+    )
+    _store_shared(v13, _shared_variant("cached for manifest 13"))
+
+    def title(folder: Path, version: int) -> str:
+        return next(iter(load_pinned_entries(folder, _shared_pinned(version)).caps.values())).title
+
+    assert title(v10, 10) == "cached for manifest 10"
+    assert title(v13, 13) == "cached for manifest 13"
+
+    # Registries built for each manifest, from the stored charter and each
+    # version's cached manifest, without the network.
+    anchor = "https://registry.example/fabric"
+    _stored_test_charter(registry_dir, anchor)
+    for folder, version in ((v10, 10), (v13, 13)):
+        (folder / cache.MANIFEST_FILE).write_text(json.dumps(_shared_pinned(version).to_dict()))
+    monkeypatch.setattr(FabricRegistry, "_capdag_cache_root", staticmethod(lambda: tmp_path / "capdag"))
+    config = RegistryConfig().with_anchor(anchor)
+    a = await FabricRegistry.with_config_and_manifest_version(config, 10)
+    b = await FabricRegistry.with_config_and_manifest_version(config, 13)
+    assert a.cache_dir == v10 and b.cache_dir == v13, "registries at two manifests cache in two folders"
+    assert a.cache_dir.parent == b.cache_dir.parent, "under one registry folder"
+    assert a.get_cached_cap(_SHARED_URN).title == "cached for manifest 10"
+    assert b.get_cached_cap(_SHARED_URN).title == "cached for manifest 13"
+
+
+# TEST1992: an entry that is there and is not what its path names is reported
+# naming its file, and left where it is; it is never taken for a missing
+# entry. That covers a body that does not parse, one holding another
+# definition or defver, and a cached manifest that does not parse.
+@pytest.mark.asyncio
+async def test_1992_a_corrupt_entry_is_reported_naming_its_file(tmp_path):
+    from capdag.fabric.registry import CacheEntry, load_pinned_entries
+
+    cache_dir = cache.version_dir(tmp_path, 11)
+    manifest = _shared_pinned(11)
+    file = _shared_entry_file(cache_dir)
+    file.parent.mkdir(parents=True)
+
+    file.write_text('{"definition": {"urn": "cap:in=')
+    with pytest.raises(CacheError) as exc_info:
+        load_pinned_entries(cache_dir, manifest)
+    message = str(exc_info.value)
+    assert message.startswith(f"the cached cap {file} is corrupt: "), message
+    assert message.endswith("; remove the file, or run `capdag cache clear`"), message
+    assert file.is_file(), "the file is left for whoever reads the error"
+
+    other = _shared_variant("another defver")
+    other.version = 4
+    cache.store_entry(file, CacheEntry(other, 0, 0).to_dict(), "cap")
+    with pytest.raises(CacheError) as exc_info:
+        load_pinned_entries(cache_dir, manifest)
+    message = str(exc_info.value)
+    assert str(file) in message, message
+    assert f"at defver 4, where '{normalize_cap_urn(_SHARED_URN)}' at defver 3 belongs" in message
+    assert file.is_file()
+
+    manifest_file = cache_dir / cache.MANIFEST_FILE
+    manifest_file.write_text('{"version": 11, "prev')
+    # No client: a manifest taken for missing would be fetched, and fail
+    # otherwise than this.
+    with pytest.raises(CacheError) as exc_info:
+        await FabricRegistry._load_or_fetch_manifest(
+            cache_dir, None, _layout_locations("http://127.0.0.1:9"), 11
+        )
+    assert str(exc_info.value).startswith(f"the cached manifest {manifest_file} is corrupt: ")
+    assert manifest_file.is_file()
+
+
+# TEST1993: clearing a manifest version's cache empties its folder and removes
+# the folders the shared layout before it kept in the registry's folder; other
+# manifest versions' folders and the stored charter stay.
+@pytest.mark.asyncio
+async def test_1993_clearing_empties_one_version_and_removes_the_old_shared_folders(
+    tmp_path, monkeypatch
+):
+    from capdag.fabric.registry import load_pinned_entries
+
+    registry_dir = tmp_path / "capdag" / "example-fabric"
+
+    def populate() -> Path:
+        v1 = cache.version_dir(registry_dir, 1)
+        _store_shared(v1, _shared_variant("one"))
+        _store_shared(cache.version_dir(registry_dir, 10), _shared_variant("ten"))
+        (v1 / cache.MANIFEST_FILE).write_text("{}")
+        (v1 / ".manifest.json.1-0.tmp").write_text("half")
+        for legacy in cache.LEGACY_FOLDERS:
+            (registry_dir / legacy / "ab").mkdir(parents=True, exist_ok=True)
+            (registry_dir / legacy / "ab" / "1.json").write_text("{}")
+        return v1
+
+    def assert_cleared(v1: Path) -> None:
+        for kind in cache.KIND_FOLDERS:
+            assert (v1 / kind).is_dir(), f"{kind} stays"
+            assert list((v1 / kind).iterdir()) == [], f"{kind} is empty"
+        assert sorted(p.name for p in v1.iterdir()) == sorted(cache.KIND_FOLDERS), (
+            "only the kinds' folders are left"
+        )
+        for legacy in cache.LEGACY_FOLDERS:
+            assert not (registry_dir / legacy).exists(), f"the old shared {legacy} folder is removed"
+        assert len(load_pinned_entries(cache.version_dir(registry_dir, 10), _shared_pinned(10)).caps) == 1, (
+            "manifest 10's cache stays"
+        )
+        assert (registry_dir / "charter.json").is_file(), "the charter stays"
+
+    anchor = "https://registry.example/fabric"
+    _stored_test_charter(registry_dir, anchor)
+
+    # Through a registry pinned at manifest 1.
+    v1 = populate()
+    registry = FabricRegistry.new_for_test(registry_dir)
+    assert registry.cache_dir == v1
+    registry.clear_cache()
+    assert_cleared(v1)
+
+    # Without a registry: a cache holding a corrupt entry, which a registry
+    # refuses to open, is cleared all the same.
+    v1 = populate()
+    _shared_entry_file(v1).write_text("{")
+    monkeypatch.setattr(FabricRegistry, "_capdag_cache_root", staticmethod(lambda: tmp_path / "capdag"))
+    cleared = await FabricRegistry.clear_cache_of(RegistryConfig().with_anchor(anchor), 1)
+    assert cleared == v1
+    assert_cleared(v1)

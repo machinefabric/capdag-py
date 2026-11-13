@@ -2,9 +2,14 @@
 
 Replaces the previous split between `cap.registry.FabricRegistry` (cap
 definitions) and `media.registry.FabricRegistry` (media defs). Holds
-one HTTP client, one disk cache root with `caps/`, `media/`, `aliases/`
-and `dims/` subdirectories, an in-memory dict per domain, and the
-extension index.
+one HTTP client, one disk cache folder, an in-memory dict per domain, and
+the extension index.
+
+On disk, under the folder of the manifest version the registry is pinned at
+(``<os cache>/capdag/<charter slug>/v<N>/``), each definition is at
+``<kind>/<sha256>/<defver>.json``, beside ``manifest.json``. Entries are
+replaced whole and a corrupt one is an error naming its file: see
+:mod:`capdag.fabric.cache`.
 
 Atomic cap fetch: a cap is only cached after every media URN it
 references has also been successfully fetched. If any referenced media
@@ -17,11 +22,13 @@ names. So a reader holding a cached definition can always read the
 documentation of the dims it was built from (`get_cached_dim`).
 """
 
-import hashlib
+import errno
 import json
 import logging
 import os
 import re
+import shutil
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -46,6 +53,7 @@ from capdag.bifaci.charter import (
 )
 from capdag.cap.definition import Cap
 from capdag.cap.validation import ValidationError as CapDefinitionError, validate_cap_definition
+from capdag.fabric import cache
 from capdag.fabric.dim import (
     DimError,
     DimRef,
@@ -619,10 +627,9 @@ def _definition_url_and_cache_path(
     the fetch path and the on-disk cache-path resolver so the two never drift
     apart. ``key`` is what the kind hashes: the normalized URN for caps and
     media, the name for aliases and dims."""
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return (
-        locations.definition(kind, digest, defver),
-        cache_dir / kind / digest / f"{defver}.json",
+        locations.definition(kind, cache.key_hash(key), defver),
+        cache.entry_path(cache_dir, kind, key, defver),
     )
 
 
@@ -729,6 +736,256 @@ def _retain_pinned(
     keep_only(specs, lambda _urn, spec: _dims_resolve_in(spec.dims, dims))
 
 
+def _validate_fetched_alias(alias: "StoredAlias", expected_name: str, expected_defver: int) -> None:
+    """An alias body is the alias ``expected_name`` at ``expected_defver``,
+    and its target is a cap or media URN. A body that names another alias or
+    version is a ParseError; a target that is neither kind of URN is a
+    ValidationError."""
+    if alias.name != expected_name:
+        raise ParseError(
+            f"alias object name '{alias.name}' does not match requested name "
+            f"'{expected_name}'"
+        )
+    if alias.version != expected_defver:
+        raise ParseError(
+            f"alias '{alias.name}' object reports version {alias.version} "
+            f"but manifest pins defver {expected_defver}"
+        )
+    if classify_alias_target(alias.target) is None:
+        raise ValidationError(
+            f"alias '{alias.name}' target '{alias.target}' is neither a cap nor a media URN"
+        )
+
+
+# =============================================================================
+# Disk cache: clearing
+# =============================================================================
+
+
+def clear_cache_folder(version_folder: Path) -> None:
+    """Empty the cache folder of one manifest version, ``version_folder``, and
+    remove the folders the layout before per-version folders kept beside it.
+
+    The cache is SHARED, and the processes that clear it run at the same time:
+    a test run starts many cartridge builds within milliseconds of each other
+    and every one of them refreshes this folder. Removing the tree and putting
+    it back is not safe between peers — one process deleting an ancestor while
+    another is creating into it is how a build fails with ``No such file or
+    directory`` on a path it had just made.
+
+    So a kind's folder is never removed, only its contents, and every step
+    tolerates a peer having done the same thing first. The end state is the
+    same — an empty cache — and no peer is ever left with the tree missing
+    underneath it. The manifest, and any temporary file a killed writer left,
+    are removed from the version's folder; other versions' folders and the
+    stored charter are left as they are."""
+    for kind in cache.KIND_FOLDERS:
+        directory = version_folder / kind
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise CacheError(f"Failed to create cache directory {directory}: {e}") from e
+        _remove_contents(directory)
+    # What is left at the top of the version's folder: the manifest, and
+    # temporary files. The kinds' folders themselves stay.
+    try:
+        top = list(version_folder.iterdir())
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        raise CacheError(f"Failed to read cache directory {version_folder}: {e}") from e
+    for path in top:
+        if not path.is_dir():
+            _remove_shared(path)
+    registry_folder = version_folder.parent
+    for legacy in cache.LEGACY_FOLDERS:
+        path = registry_folder / legacy
+        if path.is_dir():
+            _remove_shared(path)
+
+
+def _remove_contents(directory: Path) -> None:
+    """Remove everything in ``directory``, which peers are clearing and
+    filling at the same time (:func:`_remove_shared`)."""
+    try:
+        entries = list(directory.iterdir())
+    # A peer removed it between the create and the read. It is empty by any
+    # reading, which is what was wanted.
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        raise CacheError(f"Failed to read cache directory {directory}: {e}") from e
+    for entry in entries:
+        _remove_shared(entry)
+
+
+def _remove_shared(path: Path) -> None:
+    """Remove one file or folder of the shared cache, which a peer may be
+    removing or refilling at the same moment."""
+    try:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    # Already gone: a peer clearing the same cache got there first, which is
+    # the outcome either way.
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        # Refilled underneath us, or deleted by a peer at this moment: neither
+        # is a failure of this clear. The entries now there were put there by
+        # a peer that has just refreshed them, so they are exactly what a
+        # refresh was for.
+        if _is_busy(e) or _deleted_by_a_peer(path, e):
+            return
+        raise CacheError(f"Failed to remove {path}: {e}") from e
+
+
+def _is_busy(error: OSError) -> bool:
+    """Whether an error means "somebody else is using this right now".
+
+    One process removing a directory another is writing into is answered
+    differently by each platform — ``ENOTEMPTY`` or ``EBUSY`` on Unix,
+    ``ERROR_DIR_NOT_EMPTY`` (145) or ``ERROR_SHARING_VIOLATION`` (32) on
+    Windows — and none says the clear failed."""
+    if error.errno in (errno.ENOTEMPTY, errno.EBUSY):
+        return True
+    return getattr(error, "winerror", None) in (145, 32)
+
+
+def _deleted_by_a_peer(path: Path, error: OSError) -> bool:
+    """Whether a removal refused with "access denied" was a PEER deleting the
+    same entry.
+
+    Windows answers every open of a file that is being deleted — a second
+    delete included — with access denied until the deleting process's last
+    handle closes; Unix reports the same race as "not found". Access denied
+    is also what a genuine permission problem says, so the entry is asked for
+    afterwards: gone within a short bound means a peer took it, still there
+    means it really cannot be removed and that is reported."""
+    if sys.platform != "win32" or not isinstance(error, PermissionError):
+        return False
+    for _ in range(50):
+        if not os.path.lexists(path):
+            return True
+        time.sleep(0.01)
+    return False
+
+
+# =============================================================================
+# Disk cache: loading
+# =============================================================================
+
+
+@dataclass
+class PinnedEntries:
+    """The definitions a manifest version's cache folder holds at the versions
+    its manifest pins, keyed as the registry keys them in memory."""
+
+    caps: Dict[str, Cap] = field(default_factory=dict)
+    media: Dict[str, "StoredMediaDef"] = field(default_factory=dict)
+    aliases: Dict[str, "StoredAlias"] = field(default_factory=dict)
+    dims: Dict[str, StoredDim] = field(default_factory=dict)
+
+
+def _identity_mismatch(found: str, found_defver: int, key: str, defver: int) -> str:
+    return (
+        f"it holds '{found}' at defver {found_defver}, "
+        f"where '{key}' at defver {defver} belongs"
+    )
+
+
+def load_pinned_entries(cache_dir: Path, manifest: "Manifest") -> PinnedEntries:
+    """Read, from the cache folder ``cache_dir`` of manifest ``manifest``,
+    every definition the manifest pins that is cached: each from the one file
+    its key and pinned defver name, so nothing at another defver, and nothing
+    another manifest version cached, is ever read.
+
+    An entry that is not there is not cached. One that is there and cannot be
+    read, does not parse, or is not the definition and defver its path names
+    is corrupt, and a CacheError naming the file. Two rules drop an entry and
+    leave it to be fetched anew, naming its file in the log:
+
+    - a defver-0 cap or media def older than its time to live (defver 0 is
+      the flat, mutable regime);
+    - a cap or dim that breaks the definition rules was written by a capdag
+      with other rules (``capdag/docs/10-validation-rules.md``)."""
+    entries = PinnedEntries()
+    for urn, defver in manifest.caps.items():
+        path = cache.entry_path(cache_dir, "caps", urn, defver)
+        cap_entry = cache.read_entry(path, "cap", CacheEntry.from_dict)
+        if cap_entry is None:
+            continue
+        try:
+            cached_urn = normalize_cap_urn(cap_entry.definition.urn_string())
+        except ParseError as e:
+            raise cache.corrupt(path, "cap", str(e)) from e
+        if cached_urn != urn or cap_entry.definition.version != defver:
+            raise cache.corrupt(
+                path,
+                "cap",
+                _identity_mismatch(cached_urn, cap_entry.definition.version, urn, defver),
+            )
+        if defver == 0 and cap_entry.is_expired():
+            _log.info("the cached cap %s is past its time to live", path)
+            continue
+        try:
+            validate_cap_definition(cap_entry.definition)
+        except CapDefinitionError as e:
+            _log.warning("dropping the cached cap %s: %s", path, e)
+            path.unlink(missing_ok=True)
+            continue
+        entries.caps[cached_urn] = cap_entry.definition
+    for urn, defver in manifest.media.items():
+        path = cache.entry_path(cache_dir, "media", urn, defver)
+        media_entry = cache.read_entry(path, "media def", MediaCacheEntry.from_dict)
+        if media_entry is None:
+            continue
+        try:
+            cached_urn = normalize_media_urn(media_entry.spec.urn)
+        except ParseError as e:
+            raise cache.corrupt(path, "media def", str(e)) from e
+        if cached_urn != urn or media_entry.spec.version != defver:
+            raise cache.corrupt(
+                path,
+                "media def",
+                _identity_mismatch(cached_urn, media_entry.spec.version, urn, defver),
+            )
+        if defver == 0 and media_entry.is_expired():
+            _log.info("the cached media def %s is past its time to live", path)
+            continue
+        entries.media[cached_urn] = media_entry.spec
+    for name, defver in manifest.aliases.items():
+        path = cache.entry_path(cache_dir, "aliases", name, defver)
+        alias_entry = cache.read_entry(path, "alias", AliasCacheEntry.from_dict)
+        if alias_entry is None:
+            continue
+        try:
+            _validate_fetched_alias(alias_entry.alias, name, defver)
+        except FabricRegistryError as e:
+            raise cache.corrupt(path, "alias", str(e)) from e
+        entries.aliases[alias_entry.alias.name] = alias_entry.alias
+    for name, defver in manifest.dims.items():
+        path = cache.entry_path(cache_dir, "dims", name, defver)
+        dim_entry = cache.read_entry(path, "dim", DimCacheEntry.from_dict)
+        if dim_entry is None:
+            continue
+        if dim_entry.dim.name != name or dim_entry.dim.version != defver:
+            raise cache.corrupt(
+                path,
+                "dim",
+                _identity_mismatch(dim_entry.dim.name, dim_entry.dim.version, name, defver),
+            )
+        try:
+            dim_entry.dim.validate()
+        except DimError as e:
+            _log.warning("dropping the cached dim %s: %s", path, e)
+            path.unlink(missing_ok=True)
+            continue
+        entries.dims[dim_entry.dim.name] = dim_entry.dim
+    return entries
+
+
 # =============================================================================
 # Unified registry
 # =============================================================================
@@ -737,10 +994,9 @@ def _retain_pinned(
 class FabricRegistry:
     """Unified registry for cap definitions and media defs.
 
-    Holds two in-memory caches (cached_caps, cached_specs) plus an
-    extension index. The disk layout uses one root with `caps/` and
-    `media/` subdirectories so the two domains stay distinguishable
-    on-disk while sharing one HTTP client and one cache root.
+    Holds an in-memory cache per domain plus an extension index. On disk it
+    keeps the cache folder of the manifest version it is pinned at
+    (:mod:`capdag.fabric.cache`).
 
     Atomic cap fetch: `get_cap` only caches a cap after every media
     URN it references has also been successfully fetched. If any
@@ -762,14 +1018,14 @@ class FabricRegistry:
                 "httpx is required for registry operations. Install with: pip install httpx"
             )
 
+        #: The cache folder of the manifest version this registry is pinned
+        #: at, ``<os cache>/capdag/<charter slug>/v<N>``. Definitions live at
+        #: ``<kind>/<sha>/<defver>.json`` and the manifest at
+        #: ``manifest.json`` (:mod:`capdag.fabric.cache`).
         self.cache_dir = cache_dir
-        self.caps_cache_dir = cache_dir / "caps"
-        self.media_cache_dir = cache_dir / "media"
-        self.aliases_cache_dir = cache_dir / "aliases"
-        self.dims_cache_dir = cache_dir / "dims"
         self.config = config
-        #: The registry's charter: its slug names ``cache_dir``, and its
-        #: locations are where every object is fetched from.
+        #: The registry's charter: its slug names the registry's folder, and
+        #: its locations are where every object is fetched from.
         self.charter = charter
         self.locations = FabricLocations.from_charter(charter)
         self.client = client
@@ -836,8 +1092,9 @@ class FabricRegistry:
 
         The registry's charter is resolved first — the one stored in the cache
         when one is stored for this anchor, else fetched from the anchor — and
-        everything after it is read from the charter: the cache folder is its
-        slug, and the manifest is fetched from its location. The constructor
+        everything after it is read from the charter: the registry's folder is
+        its slug, the cache is that folder's ``v<manifest_version>``, and the
+        manifest is fetched from its location. The constructor
         blocks on the network when either is not cached. A version below 1
         names no manifest and is refused.
         """
@@ -850,26 +1107,27 @@ class FabricRegistry:
         capdag_cache = cls._capdag_cache_root()
         charter = await _resolve_charter(client, capdag_cache, config.anchor)
         locations = FabricLocations.from_charter(charter)
-        cache_dir = capdag_cache / charter.slug
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        (cache_dir / "caps").mkdir(parents=True, exist_ok=True)
-        (cache_dir / "media").mkdir(parents=True, exist_ok=True)
-        (cache_dir / "aliases").mkdir(parents=True, exist_ok=True)
-        (cache_dir / "dims").mkdir(parents=True, exist_ok=True)
-        (cache_dir / "manifests").mkdir(parents=True, exist_ok=True)
+        cache_dir = cache.version_dir(capdag_cache / charter.slug, manifest_version)
+        for kind in cache.KIND_FOLDERS:
+            directory = cache_dir / kind
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                raise CacheError(f"Failed to create cache directory {directory}: {e}") from e
 
         manifest = await cls._load_or_fetch_manifest(
-            cache_dir / "manifests", client, locations, manifest_version
+            cache_dir, client, locations, manifest_version
         )
 
         registry = cls(cache_dir, config, charter, client, manifest_version, manifest)
-        registry._load_all_cached_caps()
-        registry._load_all_cached_specs()
-        registry._load_all_cached_aliases()
-        registry._load_all_cached_dims()
-        # Keep only what the pinned manifest names, and only definitions whose
-        # dims survive with them.
+        # Only what the manifest pins is read; keep, of that, only definitions
+        # whose dims survive with them.
+        pinned = load_pinned_entries(cache_dir, manifest)
         with registry.cache_lock:
+            registry.cached_caps = pinned.caps
+            registry.cached_specs = pinned.media
+            registry.cached_aliases = pinned.aliases
+            registry.cached_dims = pinned.dims
             _retain_pinned(
                 manifest,
                 manifest_version,
@@ -886,25 +1144,25 @@ class FabricRegistry:
 
     @staticmethod
     async def _load_or_fetch_manifest(
-        manifests_dir: Path,
+        cache_dir: Path,
         client: Optional["httpx.AsyncClient"],
         locations: FabricLocations,
         version: int,
     ) -> Manifest:
-        cache_file = manifests_dir / f"{version}.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                m = Manifest.from_dict(data)
-                if m.version != version:
-                    raise ParseError(
-                        f"Cached manifest at {cache_file} reports version {m.version} "
-                        f"but file is {version}.json"
-                    )
-                return m
-            except (ValueError, KeyError):
-                cache_file.unlink(missing_ok=True)
+        """Manifest bootstrap, in the cache folder ``cache_dir`` of manifest
+        ``version``. Tries the cached manifest first; falls back to a network
+        GET. A cached manifest that does not parse, or is another version's,
+        is corrupt: a CacheError naming its file, never refetched over."""
+        cache_file = cache_dir / cache.MANIFEST_FILE
+        m = cache.read_entry(cache_file, "manifest", Manifest.from_dict)
+        if m is not None:
+            if m.version != version:
+                raise cache.corrupt(
+                    cache_file,
+                    "manifest",
+                    f"it is manifest {m.version}, in the folder of manifest {version}",
+                )
+            return m
 
         if not HTTPX_AVAILABLE or client is None:
             raise HttpError("httpx not available - cannot fetch manifest")
@@ -926,11 +1184,7 @@ class FabricRegistry:
             raise ParseError(
                 f"Manifest fetched as v{version} reports version {manifest.version}"
             )
-        try:
-            with open(cache_file, "w") as f:
-                f.write(body)
-        except Exception as e:
-            raise CacheError(f"Failed to write manifest cache to {cache_file}: {e}")
+        cache.write_atomically(cache_file, body.encode("utf-8"))
         return manifest
 
     @staticmethod
@@ -947,118 +1201,6 @@ class FabricRegistry:
         else:
             cache_base = Path.home() / ".cache"
         return cache_base / "capdag"
-
-    # -------------------------------------------------------------------------
-    # Disk-cache loaders
-    # -------------------------------------------------------------------------
-
-    def _load_all_cached_caps(self) -> None:
-        """Walk the cap cache dir recursively (caps/<sha>/<defver>.json). TTL
-        applies only to entries of version 0 — versioned entries are
-        immutable."""
-        if not self.caps_cache_dir.exists():
-            return
-        for cache_file in self.caps_cache_dir.rglob("*.json"):
-            try:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                entry = CacheEntry.from_dict(data)
-                if entry.definition.version == 0 and entry.is_expired():
-                    cache_file.unlink(missing_ok=True)
-                    continue
-                # The cache holds only checked definitions, so one that
-                # breaks a rule was written under other rules: its file is
-                # dropped, and the definition is fetched anew when next
-                # asked for.
-                try:
-                    validate_cap_definition(entry.definition)
-                except CapDefinitionError as e:
-                    _log.warning("Dropping cap cache file %s: %s", cache_file, e)
-                    cache_file.unlink(missing_ok=True)
-                    continue
-                try:
-                    normalized_urn = normalize_cap_urn(entry.definition.urn_string())
-                except ParseError as e:
-                    # Hydration with a malformed URN is a graceful no-op: log
-                    # and skip this entry. Never cache under a raw key.
-                    _log.warning(
-                        "Skipping cap cache file %s: %s", cache_file, e
-                    )
-                    continue
-                with self.cache_lock:
-                    self.cached_caps[normalized_urn] = entry.definition
-            except Exception as e:
-                print(f"[WARN] Failed to load cap cache file {cache_file}: {e}")
-                cache_file.unlink(missing_ok=True)
-
-    def _load_all_cached_specs(self) -> None:
-        if not self.media_cache_dir.exists():
-            return
-        for cache_file in self.media_cache_dir.rglob("*.json"):
-            try:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                entry = MediaCacheEntry.from_dict(data)
-                if entry.spec.version == 0 and entry.is_expired():
-                    cache_file.unlink(missing_ok=True)
-                    continue
-                try:
-                    normalized_urn = normalize_media_urn(entry.spec.urn)
-                except ParseError as e:
-                    # Hydration with a malformed URN is a graceful no-op: log
-                    # and skip this entry. Never cache under a raw key.
-                    _log.warning(
-                        "Skipping media cache file %s: %s", cache_file, e
-                    )
-                    continue
-                with self.cache_lock:
-                    self.cached_specs[normalized_urn] = entry.spec
-                    self._update_extension_index(entry.spec)
-            except Exception as e:
-                print(f"[WARN] Failed to load media cache file {cache_file}: {e}")
-                cache_file.unlink(missing_ok=True)
-
-    def _load_all_cached_aliases(self) -> None:
-        """Walk the alias cache dir (aliases/<sha>/<defver>.json). Aliases are
-        versioned-only — no v0 flat path, no TTL expiry."""
-        if not self.aliases_cache_dir.exists():
-            return
-        for cache_file in self.aliases_cache_dir.rglob("*.json"):
-            try:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                entry = AliasCacheEntry.from_dict(data)
-                with self.cache_lock:
-                    self.cached_aliases[entry.alias.name] = entry.alias
-            except Exception as e:
-                print(f"[WARN] Failed to load alias cache file {cache_file}: {e}")
-                cache_file.unlink(missing_ok=True)
-
-    def _load_all_cached_dims(self) -> None:
-        """Walk the dim cache dir (dims/<sha>/<defver>.json) and load every
-        cached StoredDim keyed by its name. Dims are versioned-only — no v0
-        flat path, no TTL expiry (a published defver is immutable). A cached
-        body this library cannot hold is dropped like an unparseable one, and
-        fetched anew."""
-        if not self.dims_cache_dir.exists():
-            return
-        for cache_file in self.dims_cache_dir.rglob("*.json"):
-            try:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                entry = DimCacheEntry.from_dict(data)
-            except Exception as e:
-                _log.warning("Failed to parse dim cache file %s: %s", cache_file, e)
-                cache_file.unlink(missing_ok=True)
-                continue
-            try:
-                entry.dim.validate()
-            except DimError as e:
-                _log.warning("Dropping dim cache file %s: %s", cache_file, e)
-                cache_file.unlink(missing_ok=True)
-                continue
-            with self.cache_lock:
-                self.cached_dims[entry.dim.name] = entry.dim
 
     # -------------------------------------------------------------------------
     # Disk-cache writers
@@ -1084,45 +1226,25 @@ class FabricRegistry:
 
     def _save_cap_to_cache(self, cap: Cap) -> None:
         cache_file = self._cap_cache_file_path(cap.urn_string(), cap.version)
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = CacheEntry(definition=cap, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
-        try:
-            with open(cache_file, "w") as f:
-                json.dump(entry.to_dict(), f, indent=2)
-        except Exception as e:
-            raise CacheError(f"Failed to write cap cache file: {e}")
+        cache.store_entry(cache_file, entry.to_dict(), "cap")
 
     def _save_media_def_to_cache(self, spec: StoredMediaDef) -> None:
         cache_file = self._media_cache_file_path(spec.urn, spec.version)
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = MediaCacheEntry(spec=spec, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
-        try:
-            with open(cache_file, "w") as f:
-                json.dump(entry.to_dict(), f, indent=2)
-        except Exception as e:
-            raise CacheError(f"Failed to write media def cache file: {e}")
+        cache.store_entry(cache_file, entry.to_dict(), "media def")
 
     def _save_alias_to_cache(self, alias: StoredAlias) -> None:
         cache_file = self._alias_cache_file_path(alias.name, alias.version)
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = AliasCacheEntry(alias=alias, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
-        try:
-            with open(cache_file, "w") as f:
-                json.dump(entry.to_dict(), f, indent=2)
-        except Exception as e:
-            raise CacheError(f"Failed to write alias cache file: {e}")
+        cache.store_entry(cache_file, entry.to_dict(), "alias")
 
     def _save_dim_to_cache(self, dim: StoredDim) -> None:
         _, cache_file = _definition_url_and_cache_path(
             self.cache_dir, self.locations, "dims", dim.name, dim.version
         )
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
         entry = DimCacheEntry(dim=dim, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
-        try:
-            with open(cache_file, "w") as f:
-                json.dump(entry.to_dict(), f, indent=2)
-        except Exception as e:
-            raise CacheError(f"Failed to write dim cache file {cache_file}: {e}")
+        cache.store_entry(cache_file, entry.to_dict(), "dim")
 
     # -------------------------------------------------------------------------
     # Extension index
@@ -1215,20 +1337,7 @@ class FabricRegistry:
             raise ParseError(f"Failed to parse alias '{normalized_name}': {e}")
         # The fetched body must match what was requested, and the target must
         # classify as a cap or media URN — a mismatched object is a hard error.
-        if alias.name != normalized_name:
-            raise ParseError(
-                f"alias object name '{alias.name}' does not match requested name "
-                f"'{normalized_name}'"
-            )
-        if alias.version != defver:
-            raise ParseError(
-                f"alias '{alias.name}' object reports version {alias.version} "
-                f"but manifest pins defver {defver}"
-            )
-        if classify_alias_target(alias.target) is None:
-            raise ValidationError(
-                f"alias '{alias.name}' target '{alias.target}' is neither a cap nor a media URN"
-            )
+        _validate_fetched_alias(alias, normalized_name, defver)
         return alias
 
     async def _fetch_one_dim(self, name: str, defver: int) -> StoredDim:
@@ -1705,25 +1814,35 @@ class FabricRegistry:
         self._offline = offline
 
     def clear_cache(self) -> None:
-        """Clear in-memory and on-disk caches for caps, media defs, aliases
-        and dims."""
-        import shutil
-
+        """Invalidate every cache of this registry's manifest version: the
+        in-memory maps and its whole folder on disk, INCLUDING the manifest.
+        After this a freshly constructed registry re-fetches the manifest and
+        every body from the network. The folders of the layout before
+        per-version folders are removed with it (:func:`clear_cache_folder`)."""
         with self.cache_lock:
             self.cached_caps.clear()
             self.cached_specs.clear()
             self.cached_aliases.clear()
             self.cached_dims.clear()
             self.extension_index.clear()
+        clear_cache_folder(self.cache_dir)
 
-        if self.cache_dir.exists():
-            try:
-                shutil.rmtree(self.cache_dir)
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
-                for sub in ("caps", "media", "aliases", "dims", "manifests"):
-                    (self.cache_dir / sub).mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                raise CacheError(f"Failed to clear cache directory: {e}")
+    @classmethod
+    async def clear_cache_of(cls, config: RegistryConfig, manifest_version: int) -> Path:
+        """Clear the disk cache of manifest ``manifest_version`` of the
+        registry ``config`` names, without opening a registry on it — so a
+        cache holding a corrupt entry, which a registry refuses to open, can
+        still be cleared. The registry's charter is the stored one, else
+        fetched, as a registry finds it. Answers the folder cleared."""
+        capdag_cache = cls._capdag_cache_root()
+        if HTTPX_AVAILABLE:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                charter = await _resolve_charter(client, capdag_cache, config.anchor)
+        else:
+            charter = await _resolve_charter(None, capdag_cache, config.anchor)
+        cache_dir = cache.version_dir(capdag_cache / charter.slug, manifest_version)
+        clear_cache_folder(cache_dir)
+        return cache_dir
 
     # -------------------------------------------------------------------------
     # Identity cap (mandatory)
@@ -1762,18 +1881,16 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     @classmethod
-    def new_for_test(cls, cache_dir: Optional[Path] = None) -> "FabricRegistry":
-        """Build an empty registry for tests.
+    def new_for_test(cls, registry_dir: Optional[Path] = None) -> "FabricRegistry":
+        """Build an empty registry for tests, pinned at manifest 1, caching
+        in ``v1`` of ``registry_dir`` (a fresh temporary folder when none is
+        given).
 
         The mandatory identity cap is auto-installed so the resolver's
         source-to-cap-arg matching can route through identity in any
         notation, matching the production invariant.
         """
-        if cache_dir is None:
-            from tempfile import mkdtemp
-
-            cache_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = cls._test_cache_dir(registry_dir, 1)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
         # Pin at v1 with an empty manifest so test helpers flow caps/media/
         # aliases into the manifest at their declared version (mirrors Rust).
@@ -1784,15 +1901,25 @@ class FabricRegistry:
         registry.ensure_identity_cap()
         return registry
 
-    @classmethod
-    def new_for_test_with_config(
-        cls, config: RegistryConfig, cache_dir: Optional[Path] = None
-    ) -> "FabricRegistry":
-        if cache_dir is None:
+    @staticmethod
+    def _test_cache_dir(registry_dir: Optional[Path], manifest_version: int) -> Path:
+        """The cache folder of manifest ``manifest_version`` under the test
+        registry folder ``registry_dir``, made with its kinds' folders."""
+        if registry_dir is None:
             from tempfile import mkdtemp
 
-            cache_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
-        cache_dir.mkdir(parents=True, exist_ok=True)
+            registry_dir = Path(mkdtemp(prefix="capdag-fabric-test-"))
+        cache_dir = cache.version_dir(registry_dir, manifest_version)
+        for kind in cache.KIND_FOLDERS:
+            (cache_dir / kind).mkdir(parents=True, exist_ok=True)
+        return cache_dir
+
+    @classmethod
+    def new_for_test_with_config(
+        cls, config: RegistryConfig, registry_dir: Optional[Path] = None
+    ) -> "FabricRegistry":
+        """:meth:`new_for_test` with ``config``."""
+        cache_dir = cls._test_cache_dir(registry_dir, 1)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
         registry = cls(
             cache_dir, config, publisher_layout_charter(config.anchor), client, 1, Manifest.empty(1)
