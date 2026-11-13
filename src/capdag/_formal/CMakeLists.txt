@@ -20,6 +20,7 @@ add_library(capdagFormal_lean SHARED
   program/modules/CapDAG-Bifaci-Pools.c
   program/modules/CapDAG-Bifaci-Request.c
   program/modules/CapDAG-Cap.c
+  program/modules/CapDAG-Detect.c
   program/modules/CapDAG-Exec.c
   program/modules/CapDAG-Query.c
   program/modules/CapDAG-Ranking.c
