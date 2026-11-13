@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Sequence
 
-from capdag.media.registry import ExtensionNotFoundError, FabricRegistry
-from capdag.urn.media_urn import MediaUrn
+from tagged_urn import TaggedUrnError
+
+from capdag.fabric.registry import FabricRegistry, ParseError
+from capdag.urn.media_urn import MediaUrn, MediaUrnError
 
 _log = logging.getLogger(__name__)
 
@@ -132,15 +135,30 @@ class MediaAdapterRegistry:
                 )
             )
 
-    def find_adapters_for_extension(self, ext: str) -> list[tuple[str, MediaUrn]]:
-        try:
-            candidate_strings = self._fabric_registry.media_urns_for_extension(ext)
-        except ExtensionNotFoundError:
-            return []
-        if not candidate_strings:
-            return []
+    async def _extension_candidates(self, ext: str) -> list[MediaUrn]:
+        """The file media types the fabric declares for an extension, parsed.
+        A definition whose URN does not parse is a ParseError naming it."""
+        defs = await self._fabric_registry.file_media_for_extension(ext)
+        candidates: list[MediaUrn] = []
+        for d in defs:
+            try:
+                candidates.append(MediaUrn.from_string(d.urn))
+            except (TaggedUrnError, MediaUrnError) as e:
+                raise ParseError(
+                    f"the fabric's media definition '{d.urn}' has no valid URN: {e}"
+                ) from e
+        return candidates
 
-        candidates = [MediaUrn.from_string(candidate) for candidate in candidate_strings]
+    async def find_adapters_for_extension(self, ext: str) -> list[tuple[str, MediaUrn]]:
+        """The adapters that cover a file media type the fabric declares for
+        ``ext``, one per cartridge, as ``(cartridge_id, adapter_media_urn)``
+        pairs. The fabric's file types that cannot be loaded raise the
+        registry's error."""
+        return self.adapters_for_candidates(await self._extension_candidates(ext))
+
+    def adapters_for_candidates(self, candidates: Sequence[MediaUrn]) -> list[tuple[str, MediaUrn]]:
+        """The registered adapters some of these candidates conform to, one
+        per cartridge, as ``(cartridge_id, adapter_media_urn)`` pairs."""
         results: list[tuple[str, MediaUrn]] = []
         seen_cartridges: set[str] = set()
         for registered in self._registered_adapters:
@@ -150,5 +168,17 @@ class MediaAdapterRegistry:
                 results.append((registered.cartridge_id, registered.media_urn))
         return results
 
-    def has_adapter_for_extension(self, ext: str) -> bool:
-        return bool(self.find_adapters_for_extension(ext))
+    def adapters_for(self, candidates: Sequence[MediaUrn]) -> list[tuple[str, MediaUrn]]:
+        """The host's adapters as detection consults them
+        (:class:`~capdag.input_resolver.detection.AdapterSource`)."""
+        return self.adapters_for_candidates(candidates)
+
+    async def has_adapter_for_extension(self, ext: str) -> bool:
+        """Whether any registered adapter covers a file media type the fabric
+        declares for ``ext``."""
+        candidates = await self._extension_candidates(ext)
+        return any(
+            candidate.conforms_to(registered.media_urn)
+            for registered in self._registered_adapters
+            for candidate in candidates
+        )

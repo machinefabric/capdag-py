@@ -62,6 +62,34 @@ class SymlinkCycleError(InputResolverError):
         super().__init__(f"Symlink cycle detected at: {self.path}")
 
 
+class NoExtensionError(InputResolverError):
+    """The file has no extension to tell its type from."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        super().__init__(f"{self.path} has no extension to tell its type from")
+
+
+class UnknownExtensionError(InputResolverError):
+    """The fabric declares no file media type for the file's extension."""
+
+    def __init__(self, path: Path, extension: str):
+        self.path = Path(path)
+        self.extension = extension
+        super().__init__(
+            f"the fabric declares no file type for the extension .{extension} of {self.path}"
+        )
+
+
+class FabricUnavailableError(InputResolverError):
+    """The fabric's file media types could not be loaded."""
+
+    def __init__(self, path: Path, reason: str):
+        self.path = Path(path)
+        self.reason = reason
+        super().__init__(f"the type of {self.path} cannot be told: {reason}")
+
+
 @dataclass(frozen=True)
 class InputItem:
     kind: str

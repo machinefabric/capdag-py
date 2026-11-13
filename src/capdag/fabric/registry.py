@@ -3,7 +3,9 @@
 Replaces the previous split between `cap.registry.FabricRegistry` (cap
 definitions) and `media.registry.FabricRegistry` (media defs). Holds
 one HTTP client, one disk cache folder, an in-memory dict per domain, and
-the extension index.
+the fabric's file types: which media definitions a file extension names
+(:meth:`FabricRegistry.file_media_for_extension`), loaded from the whole
+pinned manifest when a file's type is first asked.
 
 On disk, under the folder of the manifest version the registry is pinned at
 (``<os cache>/capdag/<charter slug>/v<N>/``), each definition is at
@@ -22,7 +24,9 @@ names. So a reader holding a cached definition can always read the
 documentation of the dims it was built from (`get_cached_dim`).
 """
 
+import asyncio
 import errno
+import hashlib
 import json
 from http import HTTPStatus
 import logging
@@ -200,8 +204,10 @@ def checked_cap_definition(body: bytes, cap_urn: str) -> Cap:
     return cap
 
 
-class ExtensionNotFoundError(FabricRegistryError):
-    """Extension not found in registry."""
+class FileTypesError(FabricRegistryError):
+    """The fabric's file media types could not be told: a manifest entry
+    that is no media URN, or file media definitions that could not all be
+    loaded. The message names each."""
 
 
 # =============================================================================
@@ -1056,6 +1062,111 @@ def load_pinned_entries(cache_dir: Path, manifest: "Manifest") -> PinnedEntries:
 
 
 # =============================================================================
+# File types
+# =============================================================================
+
+
+#: How many file media definitions are fetched at once when the file media
+#: index loads on a cold cache.
+FILE_MEDIA_FETCHES_AT_ONCE = 16
+
+
+def derive_file_types(manifest: Manifest) -> List[Tuple[str, int]]:
+    """The media definitions of ``manifest`` that are file types: those whose
+    URN carries the ``ext=`` file-type tag, each with its pinned defver, in
+    URN order. A manifest entry that is no media URN is a FileTypesError
+    naming the manifest version and the entry."""
+    file_types: List[Tuple[str, int]] = []
+    for urn, defver in manifest.media.items():
+        try:
+            parsed = MediaUrn.from_string(urn)
+        except Exception as e:
+            raise FileTypesError(
+                f"manifest v{manifest.version} names '{urn}' as a media definition, "
+                f"and it is no media URN: {e}"
+            ) from e
+        if parsed.get_tag("ext") is not None:
+            file_types.append((urn, defver))
+    file_types.sort()
+    return file_types
+
+
+@dataclass(frozen=True)
+class KeptFileTypes:
+    """The file types a manifest names, as they are kept beside it
+    (:data:`cache.FILE_TYPES_FILE`): worked out from the manifest file whose
+    bytes hash to ``manifest_sha256``. On disk ``file_types`` is a list of
+    ``[URN, defver]`` pairs."""
+
+    manifest_sha256: str
+    file_types: List[Tuple[str, int]]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "manifest_sha256": self.manifest_sha256,
+            "file_types": [[urn, defver] for urn, defver in self.file_types],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "KeptFileTypes":
+        if not isinstance(data, dict):
+            raise ValueError(f"kept file types are not an object: {data!r}")
+        manifest_sha256 = data["manifest_sha256"]
+        if not isinstance(manifest_sha256, str):
+            raise ValueError(f"field `manifest_sha256` is not a string: {manifest_sha256!r}")
+        pairs = data["file_types"]
+        if not isinstance(pairs, list):
+            raise ValueError(f"field `file_types` is not an array: {pairs!r}")
+        file_types: List[Tuple[str, int]] = []
+        for pair in pairs:
+            if (
+                not isinstance(pair, list)
+                or len(pair) != 2
+                or not isinstance(pair[0], str)
+                or not isinstance(pair[1], int)
+                or isinstance(pair[1], bool)
+                or pair[1] < 0
+            ):
+                raise ValueError(f"field `file_types` holds {pair!r}, which is no [URN, defver] pair")
+            file_types.append((pair[0], pair[1]))
+        return cls(manifest_sha256=manifest_sha256, file_types=file_types)
+
+
+def file_types_of(
+    cache_dir: Path, manifest_file: Optional[Path], manifest: Manifest
+) -> List[Tuple[str, int]]:
+    """The file types of ``manifest``, in the cache folder ``cache_dir`` of
+    its version. ``manifest_file`` is the cached manifest file ``manifest``
+    was read from, ``None`` for a manifest made in memory.
+
+    Working them out parses every media URN the manifest names (32,890 in
+    manifest 13), which a command that reads a file would otherwise pay on
+    every run. So they are kept beside the manifest file, with the hash of
+    its bytes, and read back while that file is unchanged; a manifest fetched
+    again has other bytes and its file types are worked out afresh. Kept file
+    types that cannot be read are a CacheError naming their file. A manifest
+    with no file keeps nothing."""
+    if manifest_file is None:
+        return derive_file_types(manifest)
+    try:
+        data = manifest_file.read_bytes()
+    except OSError as e:
+        raise CacheError(f"the cached manifest {manifest_file} cannot be read: {e}") from e
+    manifest_sha256 = hashlib.sha256(data).hexdigest()
+    kept_file = cache_dir / cache.FILE_TYPES_FILE
+    kept = cache.read_entry(kept_file, "file types", KeptFileTypes.from_dict)
+    if kept is not None and kept.manifest_sha256 == manifest_sha256:
+        return list(kept.file_types)
+    file_types = derive_file_types(manifest)
+    cache.store_entry(
+        kept_file,
+        KeptFileTypes(manifest_sha256=manifest_sha256, file_types=file_types).to_dict(),
+        "file types",
+    )
+    return file_types
+
+
+# =============================================================================
 # Unified registry
 # =============================================================================
 
@@ -1098,9 +1209,10 @@ async def _fetch_object(
 class FabricRegistry:
     """Unified registry for cap definitions and media defs.
 
-    Holds an in-memory cache per domain plus an extension index. On disk it
-    keeps the cache folder of the manifest version it is pinned at
-    (:mod:`capdag.fabric.cache`).
+    Holds an in-memory cache per domain, and the index of the fabric's file
+    types by extension once a file's type has been asked
+    (:meth:`file_media_for_extension`). On disk it keeps the cache folder of
+    the manifest version it is pinned at (:mod:`capdag.fabric.cache`).
 
     Atomic cap fetch: `get_cap` only caches a cap after every media
     URN it references has also been successfully fetched. If any
@@ -1116,6 +1228,7 @@ class FabricRegistry:
         client: Optional["httpx.AsyncClient"] = None,
         manifest_version: int = 1,
         manifest: Optional[Manifest] = None,
+        manifest_file: Optional[Path] = None,
     ):
         if not HTTPX_AVAILABLE and client is None:
             raise ImportError(
@@ -1139,12 +1252,22 @@ class FabricRegistry:
         self.cached_aliases: Dict[str, StoredAlias] = {}
         # Dim name -> StoredDim, filtered to the pinned manifest's defvers.
         self.cached_dims: Dict[str, StoredDim] = {}
-        self.extension_index: Dict[str, List[str]] = {}
+        #: Lower-case extension -> the file media definitions that list it,
+        #: in URN order; loaded from the whole manifest when a file's type
+        #: is first asked (:meth:`file_media_for_extension`).
+        self._file_media: Optional[Dict[str, List[StoredMediaDef]]] = None
+        #: Held while the file media index loads, so it loads once.
+        self._file_media_loading = asyncio.Lock()
 
         # Manifest pin, >= 1: every URN lookup resolves to a (urn, defver)
         # pair via the manifest before fetching.
         self.manifest_version = manifest_version
         self.manifest = manifest if manifest is not None else Manifest.empty(manifest_version)
+        #: The cached manifest file ``manifest`` was read from: the file
+        #: types it names are kept beside it (:func:`file_types_of`). ``None``
+        #: for a manifest made in memory, and once a test helper has changed
+        #: ``manifest``'s media.
+        self.manifest_file = manifest_file
 
         self.cache_lock = threading.Lock()
         self._offline = False
@@ -1228,7 +1351,15 @@ class FabricRegistry:
             cache_dir, client, locations, manifest_version
         )
 
-        registry = cls(cache_dir, config, charter, client, manifest_version, manifest)
+        registry = cls(
+            cache_dir,
+            config,
+            charter,
+            client,
+            manifest_version,
+            manifest,
+            manifest_file=cache_dir / cache.MANIFEST_FILE,
+        )
         # Only what the manifest pins is read; keep, of that, only definitions
         # whose dims survive with them.
         pinned = load_pinned_entries(cache_dir, manifest)
@@ -1245,9 +1376,6 @@ class FabricRegistry:
                 registry.cached_aliases,
                 registry.cached_dims,
             )
-            registry.extension_index = {}
-            for spec in registry.cached_specs.values():
-                registry._update_extension_index(spec)
         registry.ensure_identity_cap()
         return registry
 
@@ -1344,17 +1472,6 @@ class FabricRegistry:
         )
         entry = DimCacheEntry(dim=dim, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
         cache.store_entry(cache_file, entry.to_dict(), "dim")
-
-    # -------------------------------------------------------------------------
-    # Extension index
-    # -------------------------------------------------------------------------
-
-    def _update_extension_index(self, spec: StoredMediaDef) -> None:
-        for ext in spec.extensions:
-            ext_lower = ext.lower()
-            urns = self.extension_index.setdefault(ext_lower, [])
-            if spec.urn not in urns:
-                urns.append(spec.urn)
 
     # -------------------------------------------------------------------------
     # HTTP fetch
@@ -1675,7 +1792,6 @@ class FabricRegistry:
         self._save_media_def_to_cache(spec)
         with self.cache_lock:
             self.cached_specs[normalize_media_urn(spec.urn)] = spec
-            self._update_extension_index(spec)
         return spec
 
     # -------------------------------------------------------------------------
@@ -1833,27 +1949,86 @@ class FabricRegistry:
         except (NotFoundError, ParseError):
             return False
 
-    def media_urns_for_extension(self, extension: str) -> List[str]:
-        """Look up media URNs registered for a file extension.
+    async def file_media_for_extension(self, extension: str) -> List[StoredMediaDef]:
+        """The file media types a file with this extension can be: every
+        definition in the pinned manifest whose URN carries the ``ext=``
+        file-type tag and whose ``extensions`` list the extension (any case),
+        in URN order. Empty when the fabric declares no file type for it.
 
-        Raises ExtensionNotFoundError if no spec is registered. The
-        registry hydrates lazily through `get_media_def` and through
-        the atomic cap fetch — extensions only become known once the
-        owning specs have landed in cache.
-        """
-        ext_lower = extension.lower()
+        The first call loads every file media definition the manifest names
+        (those not cached yet are fetched at once, 16 at a time, and kept in
+        this manifest version's cache); later calls answer from memory. A
+        definition that cannot be had fails the call with a FileTypesError
+        naming each one and why: an answer from part of the fabric's file
+        types would be a wrong answer."""
+        index = await self._file_media_index()
+        return list(index.get(extension.lower(), []))
+
+    async def _file_media_index(self) -> Dict[str, List[StoredMediaDef]]:
         with self.cache_lock:
-            urns = self.extension_index.get(ext_lower)
-        if urns is None:
-            raise ExtensionNotFoundError(
-                f"No media def registered for extension '{extension}'. "
-                f"Ensure the media def is defined in capfab/src/media/ with an 'extension' field."
+            loaded = self._file_media
+        if loaded is not None:
+            return loaded
+        async with self._file_media_loading:
+            with self.cache_lock:
+                loaded = self._file_media
+                if loaded is not None:
+                    return loaded
+                file_types = file_types_of(self.cache_dir, self.manifest_file, self.manifest)
+                defs: List[StoredMediaDef] = []
+                missing: List[Tuple[str, int]] = []
+                for urn, defver in file_types:
+                    cached = self.cached_specs.get(urn)
+                    if cached is not None:
+                        defs.append(cached)
+                    else:
+                        missing.append((urn, defver))
+
+            gate = asyncio.Semaphore(FILE_MEDIA_FETCHES_AT_ONCE)
+
+            async def fetch(urn: str, defver: int) -> StoredMediaDef:
+                async with gate:
+                    if self._offline:
+                        raise NetworkBlockedError(
+                            f"Network access blocked while offline: cannot fetch media def {urn!r}"
+                        )
+                    return await self._noting(
+                        ("media", urn, defver), self._fetch_media_def_and_dims(urn, urn, defver)
+                    )
+
+            results = await asyncio.gather(
+                *(fetch(urn, defver) for urn, defver in missing), return_exceptions=True
             )
-        return list(urns)
+            failures: List[str] = []
+            for (urn, _), result in zip(missing, results):
+                if isinstance(result, FabricRegistryError):
+                    failures.append(f"{urn}: {result}")
+                elif isinstance(result, BaseException):
+                    # Anything but a registry's answer is a defect, raised as
+                    # it is.
+                    raise result
+                else:
+                    defs.append(result)
+            if failures:
+                failures.sort()
+                raise FileTypesError(
+                    f"{len(failures)} of the {len(failures) + len(defs)} file media types of "
+                    f"manifest v{self.manifest_version} could not be loaded, so no file's type "
+                    f"can be told from its extension: {'; '.join(failures)}"
+                )
 
-    def get_extension_mappings(self) -> List[tuple]:
-        with self.cache_lock:
-            return [(k, list(v)) for k, v in self.extension_index.items()]
+            index: Dict[str, List[StoredMediaDef]] = {}
+            for spec in defs:
+                for ext in spec.extensions:
+                    index.setdefault(ext.lower(), []).append(spec)
+            for ext, specs in index.items():
+                by_urn: Dict[str, StoredMediaDef] = {}
+                for spec in specs:
+                    by_urn.setdefault(spec.urn, spec)
+                index[ext] = [by_urn[urn] for urn in sorted(by_urn)]
+            with self.cache_lock:
+                self._file_media = index
+            return index
 
     # -------------------------------------------------------------------------
     # Public alias API
@@ -1979,7 +2154,7 @@ class FabricRegistry:
             self.cached_specs.clear()
             self.cached_aliases.clear()
             self.cached_dims.clear()
-            self.extension_index.clear()
+            self._file_media = None
         clear_cache_folder(self.cache_dir)
 
     @classmethod
@@ -2074,10 +2249,28 @@ class FabricRegistry:
         cls, config: RegistryConfig, registry_dir: Optional[Path] = None
     ) -> "FabricRegistry":
         """:meth:`new_for_test` with ``config``."""
-        cache_dir = cls._test_cache_dir(registry_dir, 1)
+        return cls.new_for_test_with_config_and_version(config, 1, registry_dir)
+
+    @classmethod
+    def new_for_test_with_config_and_version(
+        cls,
+        config: RegistryConfig,
+        manifest_version: int,
+        registry_dir: Optional[Path] = None,
+    ) -> "FabricRegistry":
+        """A test registry with ``config``, pinned at ``manifest_version``
+        with an empty manifest made in memory, caching in ``v<N>`` of
+        ``registry_dir`` (a fresh temporary folder when none is given). It
+        fetches from the publisher's layout at ``config``'s anchor."""
+        cache_dir = cls._test_cache_dir(registry_dir, manifest_version)
         client = httpx.AsyncClient(timeout=10.0) if HTTPX_AVAILABLE else None
         registry = cls(
-            cache_dir, config, publisher_layout_charter(config.anchor), client, 1, Manifest.empty(1)
+            cache_dir,
+            config,
+            publisher_layout_charter(config.anchor),
+            client,
+            manifest_version,
+            Manifest.empty(manifest_version),
         )
         registry.ensure_identity_cap()
         return registry
@@ -2103,11 +2296,21 @@ class FabricRegistry:
                 if self.manifest_version >= 1:
                     self.manifest.caps[normalized] = cap.version
 
+    def list_media_in_manifest_for_test(self, urn: str, defver: int) -> None:
+        """Name a media definition in the manifest without caching it: a test
+        registry then fetches it from the registry's location when it is
+        first needed (test helper)."""
+        normalized = normalize_media_urn(urn)
+        with self.cache_lock:
+            self.manifest.media[normalized] = defver
+            # The manifest is no longer the file it was read from.
+            self.manifest_file = None
+
     def add_spec(self, spec: StoredMediaDef) -> None:
         """Insert a media def directly into the in-memory cache (test helper).
 
-        Updates the extension index and records the spec in the manifest.
-        A spec whose version is 0 is stamped to the pinned manifest version.
+        Records the spec in the manifest. A spec whose version is 0 is
+        stamped to the pinned manifest version.
         """
         with self.cache_lock:
             if spec.version == 0 and self.manifest_version >= 1:
@@ -2120,9 +2323,10 @@ class FabricRegistry:
                 _log.warning("add_spec: skipping media def: %s", e)
                 return
             self.cached_specs[normalized] = spec
-            self._update_extension_index(spec)
             if self.manifest_version >= 1:
                 self.manifest.media[normalized] = spec.version
+                # The manifest is no longer the file it was read from.
+                self.manifest_file = None
 
     def display_alias_for_urn(self, urn: str) -> Optional[str]:
         """Reverse-resolve a cap or media URN to its display alias name.

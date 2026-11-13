@@ -8,9 +8,9 @@ the unified type and the media-related symbols under the historical
 
 from capdag.fabric.registry import (
     CACHE_DURATION_HOURS,
-    ExtensionNotFoundError,
     FabricRegistry,
     FabricRegistryError,
+    FileTypesError,
     HttpError,
     MediaCacheEntry,
     NotFoundError,
@@ -23,9 +23,9 @@ from capdag.fabric.registry import (
 
 __all__ = [
     "CACHE_DURATION_HOURS",
-    "ExtensionNotFoundError",
     "FabricRegistry",
     "FabricRegistryError",
+    "FileTypesError",
     "HttpError",
     "MediaCacheEntry",
     "NotFoundError",

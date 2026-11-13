@@ -1,120 +1,82 @@
-"""Input resolver combining path expansion with extension-based media detection."""
+"""Resolving a run's inputs — files, directories and globs — to the files
+they name and what each of them is.
+
+What a file is comes from the one detection every host runs
+(:func:`~capdag.input_resolver.detection.detect_file_media`); this module adds
+only the path resolution around it and the shape of the result.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-import re
 
+from capdag.fabric.registry import FabricRegistry
 from capdag.input_resolver.adapter import CartridgeAdapterInvoker
-from capdag.input_resolver.adapters.registry import MediaAdapterRegistry
-
+from capdag.input_resolver.detection import AdapterSource, detect_file_media
 from capdag.input_resolver.path_resolver import resolve_items
 from capdag.input_resolver.types import (
     ContentStructure,
-    InspectionFailedError,
     InputItem,
     NoFilesResolvedError,
     ResolvedFile,
     ResolvedInputSet,
 )
-from capdag.media.registry import ExtensionNotFoundError, FabricRegistry, FabricRegistryError
+from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 from capdag.urn.media_urn import MediaUrn
 
 
-def discriminate_candidates_by_validation(
-    content: bytes,
-    candidate_urns: list[str],
-    fabric_registry: FabricRegistry,
-    baseline_urn: str,
-) -> list[str]:
-    """Filter candidate URNs using validation rules and baseline specificity."""
-    if not candidate_urns:
-        return []
+@dataclass(frozen=True)
+class Detection:
+    """How a host detects its inputs: its fabric, the cartridges it can ask,
+    and its value adapters."""
 
-    baseline = MediaUrn.from_string(baseline_urn)
-    content_str = content.decode("utf-8", errors="ignore")
-    survivors: list[str] = []
-
-    for urn_str in candidate_urns:
-        # A candidate is eliminated only by the rules its spec states; with no
-        # spec at hand (absent, refused or not fetched yet) there is nothing
-        # to eliminate it by, so it stays a candidate.
-        try:
-            spec = fabric_registry.get_cached_media_def(urn_str)
-        except FabricRegistryError:
-            survivors.append(urn_str)
-            continue
-
-        validation = spec.validation or {}
-        pattern = validation.get("pattern")
-        if pattern:
-            if re.fullmatch(pattern, content_str, flags=re.DOTALL) is not None:
-                survivors.append(urn_str)
-            continue
-
-        candidate = MediaUrn.from_string(urn_str)
-        if not candidate.conforms_to(baseline):
-            survivors.append(urn_str)
-
-    return survivors
+    registry: FabricRegistry
+    adapters: AdapterSource
+    invoker: CartridgeAdapterInvoker
+    value_adapters: ValueAdapterRegistry
 
 
-def resolve_input(item: InputItem, fabric_registry: FabricRegistry) -> ResolvedInputSet:
-    return resolve_inputs([item], fabric_registry)
+async def resolve_file(path: Path, detection: Detection) -> ResolvedFile:
+    """What one file is, as a run's input: the media a host that cannot ask
+    takes (:func:`~capdag.input_resolver.detection.primary_media`)."""
+    found = await detect_file_media(
+        Path(path),
+        detection.registry,
+        detection.adapters,
+        detection.invoker,
+        detection.value_adapters,
+    )
+    media_urn = found.primary()
+    return ResolvedFile(
+        path=found.path,
+        media_urn=media_urn,
+        size_bytes=found.size_bytes,
+        content_structure=structure_from_marker_tags(MediaUrn.from_string(media_urn)),
+    )
 
 
-def resolve_inputs(
-    items: list[InputItem],
-    fabric_registry: FabricRegistry,
-) -> ResolvedInputSet:
+async def resolve_input(item: InputItem, detection: Detection) -> ResolvedInputSet:
+    """Resolve one input item."""
+    return await resolve_inputs([item], detection)
+
+
+async def resolve_inputs(items: list[InputItem], detection: Detection) -> ResolvedInputSet:
+    """Resolve input items to the files they name and what each is."""
     paths = resolve_items(items)
-    files = [detect_file_with_fabric_registry(path, fabric_registry) for path in paths]
+    files = [await resolve_file(path, detection) for path in paths]
     if not files:
         raise NoFilesResolvedError()
     return ResolvedInputSet.new(files)
 
 
-def resolve_paths(
-    paths: list[str],
-    fabric_registry: FabricRegistry,
-) -> ResolvedInputSet:
-    return resolve_inputs(
-        [InputItem.from_string(path) for path in paths],
-        fabric_registry,
-    )
-
-
-def detect_file_with_fabric_registry(path: Path, fabric_registry: FabricRegistry) -> ResolvedFile:
-    stat = path.stat()
-    ext = path.suffix[1:].lower() if path.suffix.startswith(".") else None
-
-    media_urn = "media:"
-    content_structure = ContentStructure.SCALAR_OPAQUE
-    if ext:
-        try:
-            urns = fabric_registry.media_urns_for_extension(ext)
-        except ExtensionNotFoundError:
-            urns = []
-        best: MediaUrn | None = None
-        best_str: str | None = None
-        for urn_str in urns:
-            urn = MediaUrn.from_string(urn_str)
-            if best is None or urn.specificity() > best.specificity():
-                best = urn
-                best_str = urn_str
-        if best is not None and best_str is not None:
-            media_urn = best_str
-            content_structure = structure_from_marker_tags(best)
-
-    return ResolvedFile(
-        path=path,
-        media_urn=media_urn,
-        size_bytes=stat.st_size,
-        content_structure=content_structure,
-    )
+async def resolve_paths(paths: list[str], detection: Detection) -> ResolvedInputSet:
+    """Resolve string paths (a file, a directory or a glob each)."""
+    return await resolve_inputs([InputItem.from_string(path) for path in paths], detection)
 
 
 def structure_from_marker_tags(urn: MediaUrn) -> str:
+    """The content structure a media URN's marker tags say."""
     has_list = urn.has_marker_tag("list")
     has_record = urn.has_marker_tag("record")
     if has_list and has_record:
@@ -124,78 +86,3 @@ def structure_from_marker_tags(urn: MediaUrn) -> str:
     if has_record:
         return ContentStructure.SCALAR_RECORD
     return ContentStructure.SCALAR_OPAQUE
-
-
-async def detect_file_confirmed(
-    path: Path,
-    adapter_registry: MediaAdapterRegistry,
-    invoker: CartridgeAdapterInvoker,
-) -> ResolvedFile:
-    stat = path.stat()
-    ext = path.suffix[1:].lower() if path.suffix.startswith(".") else ""
-    adapters = adapter_registry.find_adapters_for_extension(ext)
-    if not adapters:
-        raise InspectionFailedError(
-            path,
-            "No content-inspection adapter registered for extension "
-            f"'.{ext}'. A cartridge must register an adapter for this file type.",
-        )
-
-    returned: list[tuple[MediaUrn, str, str]] = []
-    for cartridge_id, _adapter_urn in adapters:
-        response = await invoker.invoke_adapter_selection(cartridge_id, path)
-        if response:
-            for urn_str in response:
-                urn = MediaUrn.from_string(urn_str)
-                returned.append((urn, urn_str, cartridge_id))
-
-    if not returned:
-        consulted = [cartridge_id for cartridge_id, _ in adapters]
-        raise InspectionFailedError(
-            path,
-            "All registered adapters returned no match "
-            f"(extension '.{ext}'). Adapters consulted: {consulted}. "
-            "The file content does not match any registered media type.",
-        )
-
-    best_specificity = max(urn.specificity() for urn, _, _ in returned)
-    ties = [entry for entry in returned if entry[0].specificity() == best_specificity]
-    undominated: list[tuple[MediaUrn, str, str]] = []
-    for candidate in ties:
-        dominated = any(
-            candidate is not other and candidate[0].conforms_to(other[0])
-            for other in ties
-        )
-        if not dominated:
-            undominated.append(candidate)
-
-    if len(undominated) > 1:
-        tie_descs = [f"'{urn_str}' (from cartridge '{cid}')" for _, urn_str, cid in undominated]
-        raise InspectionFailedError(
-            path,
-            "Ambiguous adapter selection: multiple adapters returned URNs at the same "
-            "specificity level with no conformance relationship: "
-            + ", ".join(tie_descs)
-            + ". This indicates a registration conflict that should have been caught at "
-            "cap group registration time.",
-        )
-
-    selected_urn, selected_urn_str, _ = max(returned, key=lambda entry: entry[0].specificity())
-    return ResolvedFile(
-        path=path,
-        media_urn=selected_urn_str,
-        size_bytes=stat.st_size,
-        content_structure=structure_from_marker_tags(selected_urn),
-    )
-
-
-async def resolve_inputs_confirmed(
-    items: list[InputItem],
-    adapter_registry: MediaAdapterRegistry,
-    invoker: CartridgeAdapterInvoker,
-) -> ResolvedInputSet:
-    paths = resolve_items(items)
-    files = [await detect_file_confirmed(path, adapter_registry, invoker) for path in paths]
-    if not files:
-        raise NoFilesResolvedError()
-    return ResolvedInputSet.new(files)
