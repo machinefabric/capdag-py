@@ -2,13 +2,14 @@
 # see ../lungo.toml) with CMake, on lungo-py — at exactly the lungo release that generated it. The
 # model's URNs are tagged-urn's, so tagged-urn is pinned exactly too: its model must have the layout
 # this program was generated against, which the module checks when it is imported.
-{%- if env.MFR_LOCAL_LIBS %}
-# MFR_LOCAL_LIBS: lungo-py and tagged-urn at the working copies' versions. lungo-py's wheel is in
+{%- if env.MFR_LIBS == "working" %}
+# MFR_LIBS "working": lungo-py and tagged-urn at the working copies' versions. lungo-py's wheel is in
 # lungo's local distribution (pip --find-links <build root>/lungo/distribution/wheels); tagged-urn is
 # the working copy, installed with this package. Re-render without it before committing or releasing.
+{%- elif env.MFR_LIBS == "channel" %}
 {%- endif %}
 [build-system]
-requires = ["scikit-build-core>=0.10", "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo_rs.version }}{% else %}{{ projects.lungo_py.latest_remote_version }}{% endif %}"]
+requires = ["scikit-build-core>=0.10", "lungo-py=={% if env.MFR_LIBS == "working" %}{{ projects.lungo_rs.version }}{% elif env.MFR_LIBS == "channel" %}{{ projects.lungo_rs.version }}{% else %}{{ projects.lungo_py.latest_remote_version }}{% endif %}"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -21,8 +22,8 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
 	"opsx-py>=1.21.119",
-    "lungo-py=={% if env.MFR_LOCAL_LIBS %}{{ projects.lungo_rs.version }}{% else %}{{ projects.lungo_py.latest_remote_version }}{% endif %}",
-    "tagged-urn=={% if env.MFR_LOCAL_LIBS %}{{ projects.tagged_urn_py.version }}{% else %}{{ projects.tagged_urn_py.latest_remote_version }}{% endif %}",
+    "lungo-py=={% if env.MFR_LIBS == "working" %}{{ projects.lungo_rs.version }}{% elif env.MFR_LIBS == "channel" %}{{ projects.lungo_rs.version }}{% else %}{{ projects.lungo_py.latest_remote_version }}{% endif %}",
+    "tagged-urn=={% if env.MFR_LIBS == "working" %}{{ projects.tagged_urn_py.version }}{% elif env.MFR_LIBS == "channel" %}{{ projects.tagged_urn_py.version }}{% else %}{{ projects.tagged_urn_py.latest_remote_version }}{% endif %}",
     "cbor2>=5.4.0",
 	"python-pest>=0.1.1",
     # The fabric registry is an HTTP client; the CLI has no offline-only mode.
