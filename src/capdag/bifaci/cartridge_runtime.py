@@ -102,6 +102,12 @@ class RuntimeError(Exception):
         the failure carries no attribution."""
         return None
 
+    def failure_hint(self) -> Optional[str]:
+        """What a person does next, when the emit source said — or, for a
+        peer's error forwarded unchanged, when the peer's ERR said. None
+        everywhere else — never a guess."""
+        return None
+
     def failure_reason(self) -> str:
         """The LEAF human reason — the origin's own message for classified
         failures, the exception text otherwise."""
@@ -137,16 +143,19 @@ class ClassifiedError(RuntimeError):
     instead of folding the code into message text; the ERR frame carries the
     declared fields to the engine (docs/failure-taxonomy.md). Untyped
     failures stay `HandlerError` and classify as INTERNAL at the frame
-    boundary. (matches Rust RuntimeError::Classified)
+    boundary. `hint` is what a person does next — the command that brings
+    what is missing — when the emit source can say; it rides the ERR frame's
+    hint. (matches Rust RuntimeError::Classified)
     """
 
     def __init__(self, code: str, attribution_class: AttributionClass, message: str,
-                 arg_urn: Optional[str] = None):
+                 arg_urn: Optional[str] = None, hint: Optional[str] = None):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.declared_class = attribution_class
         self.message = message
         self.arg_urn = arg_urn
+        self.hint = hint
 
     def attribution_class(self) -> AttributionClass:
         return self.declared_class
@@ -156,6 +165,9 @@ class ClassifiedError(RuntimeError):
 
     def failure_arg_urn(self) -> Optional[str]:
         return self.arg_urn
+
+    def failure_hint(self) -> Optional[str]:
+        return self.hint
 
     def failure_reason(self) -> str:
         return self.message
@@ -695,16 +707,19 @@ class RemoteError(StreamError):
     failure class the peer's frame declared (docs/failure-taxonomy.md), its
     message — never folded into prose — and the media URN of the argument
     the peer's frame attributed the failure to (None when the frame carried
-    no attribution). (matches Rust StreamError::RemoteError)
+    no attribution), and its hint (None when it gave none). A handler that
+    cannot go on without the peer's answer raises this error as it came, so
+    its own ERR is the peer's. (matches Rust StreamError::RemoteError)
     """
 
     def __init__(self, code: str, attribution_class: AttributionClass, message: str,
-                 arg_urn: Optional[str] = None):
+                 arg_urn: Optional[str] = None, hint: Optional[str] = None):
         super().__init__(f"Remote error [{code}]: {message}")
         self.code = code
         self.declared_class = attribution_class
         self.message = message
         self.arg_urn = arg_urn
+        self.hint = hint
 
     def attribution_class(self) -> AttributionClass:
         return self.declared_class
@@ -714,6 +729,9 @@ class RemoteError(StreamError):
 
     def failure_arg_urn(self) -> Optional[str]:
         return self.arg_urn
+
+    def failure_hint(self) -> Optional[str]:
+        return self.hint
 
     def failure_reason(self) -> str:
         return self.message
@@ -760,17 +778,27 @@ def derive_response_media(cap_urn: str) -> str:
 
 def _classify_handler_error(e: Exception) -> tuple:
     """Resolve the identity a failed handler's terminal ERR frame declares
-    (docs/failure-taxonomy.md): the code, class, and argument attribution
+    (docs/failure-taxonomy.md): the code, class, argument attribution and hint
     from the emit source when the exception is classified (a
     `ClassifiedError`, or a peer's `RemoteError` propagated as-is),
-    HANDLER_ERROR/INTERNAL without attribution when the handler never
-    declared one. Returns (code, attribution_class, message, arg_urn).
+    HANDLER_ERROR/INTERNAL without attribution or hint when the handler never
+    declared one. Returns (code, attribution_class, message, arg_urn, hint).
     (matches Rust RuntimeError's accessors at the frame-emit boundary)"""
     if isinstance(e, RuntimeError):
         code = e.failure_code()
         if code is not None:
-            return code, e.attribution_class(), e.failure_reason(), e.failure_arg_urn()
-    return "HANDLER_ERROR", AttributionClass.INTERNAL, str(e), None
+            return code, e.attribution_class(), e.failure_reason(), e.failure_arg_urn(), e.failure_hint()
+    return "HANDLER_ERROR", AttributionClass.INTERNAL, str(e), None, None
+
+
+def _handler_err_frame(request_id, e: Exception) -> Frame:
+    """The ERR frame a failed handler ends `request_id` with: its classified
+    identity and its hint. (matches Rust handler_err_frame)"""
+    code, attribution_class, message, arg_urn, hint = _classify_handler_error(e)
+    frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+    if hint is not None:
+        frame.with_hint(hint)
+    return frame
 
 
 class InputGrantEmitter:
@@ -2868,11 +2896,12 @@ def demux_multi_stream(
                     streams_queue.put(err)
                     break
                 arg_urn = frame.attribution_arg_urn()
-                err = RemoteError(code, attribution_class, message, arg_urn)
+                hint = frame.error_hint()
+                err = RemoteError(code, attribution_class, message, arg_urn, hint)
                 for tx in stream_channels.values():
                     tx.put(err)
                 _close_all_open_streams()
-                streams_queue.put(RemoteError(code, attribution_class, message, arg_urn))
+                streams_queue.put(RemoteError(code, attribution_class, message, arg_urn, hint))
                 break
 
             else:
@@ -3270,7 +3299,11 @@ def dispatch_op(
     produced by `demux_multi_stream()` — NOT a pre-buffered frame queue
     (protocol v4, L16).
 
-    Raises HandlerError on Op failure.
+    A failure the Op raised as a cartridge runtime error — a classified one,
+    or a peer's ``RemoteError`` raised as it came — crosses unchanged, so its
+    code, class, argument attribution and hint reach the ERR frame; any
+    other failure is the handler's own, a ``HandlerError``. (matches Rust
+    dispatch_op)
     """
     req = Request.with_outputs(input_package, outputs, peer, network)
     dry = DryContext()
@@ -3278,6 +3311,8 @@ def dispatch_op(
     wet.insert_ref(WET_KEY_REQUEST, req)
     try:
         asyncio.run(op.perform(dry, wet))
+    except RuntimeError:
+        raise
     except Exception as e:
         raise HandlerError(str(e))
     outputs.finish()
@@ -3484,7 +3519,10 @@ def demux_peer_response(
                     break
                 item_queue.put((
                     PeerResponseItem.data_err(
-                        RemoteError(code, attribution_class, message, frame.attribution_arg_urn())
+                        RemoteError(
+                            code, attribution_class, message,
+                            frame.attribution_arg_urn(), frame.error_hint(),
+                        )
                     ),
                     None,
                 ))
@@ -4333,7 +4371,7 @@ class CartridgeRuntime:
         except Exception as e:
             # CLI mode still owes the caller the real failure identity
             # (docs/failure-taxonomy.md).
-            code, attribution_class, message, arg_urn = _classify_handler_error(e)
+            code, attribution_class, message, arg_urn, hint = _classify_handler_error(e)
             error_json = {
                 "error": message,
                 "code": code,
@@ -4341,6 +4379,8 @@ class CartridgeRuntime:
             }
             if arg_urn is not None:
                 error_json["arg_urn"] = arg_urn
+            if hint is not None:
+                error_json["hint"] = hint
             print(json.dumps(error_json), file=sys.stderr)
             raise
 
@@ -4666,8 +4706,7 @@ class CartridgeRuntime:
                             f"[CartridgeRuntime] response media derivation FAILED: cap={cap_urn} error={derive_err}",
                             file=sys.stderr,
                         )
-                        code, attribution_class, message, arg_urn = _classify_handler_error(derive_err)
-                        err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+                        err_frame = _handler_err_frame(request_id, derive_err)
                         err_frame.routing_id = routing_id
                         if _terminal(request_id).for_handler():
                             try:
@@ -4741,13 +4780,7 @@ class CartridgeRuntime:
                                 sync_writer.write(emitter.end_frame())
 
                         except Exception as e:
-                            # The ERR frame carries the failure's DECLARED
-                            # identity (docs/failure-taxonomy.md): the code,
-                            # class, and argument attribution from the emit
-                            # source when classified, HANDLER_ERROR/INTERNAL
-                            # when the handler never declared one.
-                            code, attribution_class, message, arg_urn = _classify_handler_error(e)
-                            err_frame = Frame.err(request_id, code, attribution_class, message, arg_urn)
+                            err_frame = _handler_err_frame(request_id, e)
                             err_frame.routing_id = routing_id  # Propagate XID
                             if terminal.for_handler():
                                 try:

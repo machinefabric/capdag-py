@@ -54,6 +54,8 @@ from capdag.bifaci.cartridge_runtime import (
     demux_peer_response,
     StreamAbandoned,
     TerminalClaim,
+    RemoteError,
+    _handler_err_frame,
 )
 from ops import Op, OpMetadata, DryContext, WetContext, ExecutionFailedError
 from capdag.cap.caller import CapArgumentValue
@@ -186,6 +188,49 @@ def cli_extract_all_iterations(runtime, cap, cli_args):
     raw_payload = runtime.build_payload_from_cli(cap, cli_args)
     iterations = build_cli_foreach_iterations(raw_payload, cap)
     return [extract_effective_payload(it, "application/cbor", cap, True) for it in iterations]
+
+
+# TEST7189: a handler that cannot go on without its peer's answer, and raises
+# the peer's error as it came, ends its request with the peer's ERR — its
+# code, class, message and hint — not a HANDLER_ERROR of its own. A peer
+# refused for a cartridge that is not installed thus names the command that
+# installs it. (mirrors Rust TEST7189)
+def test_7189_a_forwarded_peer_error_ends_the_request_as_the_peers_err():
+    from capdag.bifaci.frame import AttributionClass
+
+    refused = RemoteError(
+        "CARTRIDGE_INSTALL_FAILED", AttributionClass.ENVIRONMENT,
+        "ggufcartridge provides the inference cap and is not installed, and installing it failed",
+        None, "capdag cartridge install ggufcartridge",
+    )
+
+    class ForwardingOp(Op):
+        async def perform(self, dry, wet):
+            req = wet.get_required(WET_KEY_REQUEST)
+            _ = req.take_input()
+            raise refused
+        def metadata(self): return OpMetadata.builder("ForwardingOp").build()
+
+    with pytest.raises(RemoteError) as raised:
+        invoke_op(ForwardingOp, make_test_frames("media:", b"page"), CliStreamEmitter())
+    assert raised.value is refused, "the peer's error crosses the op boundary unchanged"
+
+    frame = _handler_err_frame(MessageId(7), raised.value)
+    assert frame.error_code() == "CARTRIDGE_INSTALL_FAILED"
+    assert frame.attribution_class() is AttributionClass.ENVIRONMENT
+    assert frame.error_message() == refused.message
+    assert frame.error_hint() == "capdag cartridge install ggufcartridge"
+
+    class FailingOp(Op):
+        async def perform(self, dry, wet):
+            raise ValueError("something broke")
+        def metadata(self): return OpMetadata.builder("FailingOp").build()
+
+    with pytest.raises(HandlerError) as own:
+        invoke_op(FailingOp, make_test_frames("media:", b"page"), CliStreamEmitter())
+    plain = _handler_err_frame(MessageId(8), own.value)
+    assert plain.error_code() == "HANDLER_ERROR"
+    assert plain.error_hint() is None
 
 
 # TEST248: Test register_op and find_handler by exact cap URN

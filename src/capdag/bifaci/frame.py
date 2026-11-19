@@ -939,6 +939,21 @@ class Frame:
         frame.meta = meta
         return frame
 
+    def with_hint(self, hint: str) -> "Frame":
+        """The same ERR frame with the emitter's `hint`: the next thing a
+        person does about the failure, such as the command that installs what
+        is missing. A hint is advice, not identity: it changes neither the code
+        nor the class. The key is ABSENT when the emitter has none, never an
+        empty string. (matches Rust Frame::with_hint)"""
+        if self.frame_type != FrameType.ERR:
+            raise ValueError("only an ERR frame carries a hint")
+        if not isinstance(hint, str) or not hint.strip():
+            raise ValueError("ERR hint must be non-empty when present")
+        if self.meta is None:
+            self.meta = {}
+        self.meta["hint"] = hint
+        return self
+
     @classmethod
     def heartbeat(cls, id: MessageId) -> "Frame":
         """Create a HEARTBEAT frame for health monitoring
@@ -1196,6 +1211,22 @@ class Frame:
         if not urn.strip():
             raise ValueError("diagnostic arg_urn must not be empty")
         return urn
+
+    def error_hint(self) -> Optional[str]:
+        """The emitter's hint on an ERR frame: what a person does next. None
+        when the emitter gave none; a hint that is not text, or is empty, is a
+        protocol violation by the emitter, never read as no hint.
+        (matches Rust Frame::error_hint)"""
+        if self.frame_type != FrameType.ERR:
+            raise ValueError(f"{self.frame_type.name} frames do not carry a hint")
+        if self.meta is None or "hint" not in self.meta:
+            return None
+        hint = self.meta.get("hint")
+        if not isinstance(hint, str):
+            raise ValueError("ERR hint must be text when present")
+        if not hint.strip():
+            raise ValueError("ERR hint must not be empty")
+        return hint
 
     def error_message(self) -> Optional[str]:
         """Get error message if this is an ERR frame"""

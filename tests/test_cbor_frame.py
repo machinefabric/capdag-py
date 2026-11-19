@@ -1807,6 +1807,40 @@ def test_7105_err_frame_arg_urn_roundtrip():
     assert decoded.error_message() == "prompt exceeds context window"
 
 
+# TEST7188: an ERR frame's hint — what a person does next — crosses the wire
+# codec verbatim beside code, class and message; an ERR without one carries no
+# `hint` key; a hint that is empty or not text is the emitter's protocol
+# violation, never read as no hint. (mirrors Rust TEST7188)
+def test_7188_err_frame_hint_roundtrip():
+    import pytest
+    from capdag.bifaci.frame import AttributionClass
+
+    frame = Frame.err(
+        MessageId.random(), "CARTRIDGE_INSTALL_FAILED", AttributionClass.ENVIRONMENT,
+        "ggufcartridge is not installed, and installing it failed",
+    ).with_hint("capdag cartridge install ggufcartridge")
+    decoded = decode_frame(encode_frame(frame))
+    assert decoded.meta["hint"] == "capdag cartridge install ggufcartridge", \
+        "the wire meta map carries the hint key verbatim"
+    assert decoded.error_hint() == "capdag cartridge install ggufcartridge"
+    assert decoded.error_code() == "CARTRIDGE_INSTALL_FAILED"
+    assert decoded.attribution_class() is AttributionClass.ENVIRONMENT
+    assert decoded.error_message() == "ggufcartridge is not installed, and installing it failed"
+
+    plain = decode_frame(encode_frame(Frame.err(MessageId.random(), "X", AttributionClass.INTERNAL, "m")))
+    assert "hint" not in plain.meta, "no hint, no key"
+    assert plain.error_hint() is None
+
+    plain.meta["hint"] = " "
+    with pytest.raises(ValueError):
+        plain.error_hint()
+    plain.meta["hint"] = 1
+    with pytest.raises(ValueError):
+        plain.error_hint()
+    with pytest.raises(ValueError):
+        Frame.log(MessageId.random(), "warn", AttributionClass.INTERNAL, "m").error_hint()
+
+
 # TEST7117: non-progress LOG carries the same source attribution tuple as ERR,
 # including an optional argument URN, through the actual wire codec.
 def test_7117_log_frame_arg_urn_roundtrip():
