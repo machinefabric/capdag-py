@@ -55,6 +55,7 @@ from capdag.bifaci.io import (
     handshake,
     verify_identity,
     CborError,
+    UnexpectedEofError,
 )
 from capdag.bifaci.relay_switch import (
     InstalledCartridgeRecord,
@@ -270,6 +271,133 @@ def cbor_decode_response(response: CartridgeResponse) -> CartridgeResponse:
 
 
 # =========================================================================
+# How a cartridge died
+# =========================================================================
+
+# How long a cartridge whose output ended on its own is given to exit before
+# the host takes it to be still running. A crashing process closes its output
+# before it can be collected, so the end of the stream usually arrives first;
+# asked at once, a crash read as a process still running. Mirrors the
+# reference host's EXIT_WAIT_LIMIT.
+EXIT_WAIT_LIMIT = 5.0
+# How often the process is asked whether it has exited.
+REAP_POLL = 0.02
+# How long a dead cartridge's stderr is read for after its process ended. The
+# stream ends with the process, unless a process it started still holds it.
+STDERR_DRAIN_LIMIT = 0.5
+
+
+@dataclass(frozen=True)
+class _StreamEnd:
+    """How a cartridge's output stream ended, as its reader saw it."""
+    # "closed": between two frames. "broken": a read failed, or the stream
+    # ended part way through a frame. "malformed": the cartridge wrote
+    # something that is not a frame.
+    kind: str
+    error: str = ""
+
+    @staticmethod
+    def closed() -> "_StreamEnd":
+        return _StreamEnd("closed")
+
+    @staticmethod
+    def from_read_error(error: BaseException) -> "_StreamEnd":
+        # A failed read is raised as the base CborError ("Read failed: …");
+        # every subclass but UnexpectedEofError says the bytes were not a frame.
+        if isinstance(error, UnexpectedEofError) or type(error) is CborError:
+            return _StreamEnd("broken", str(error))
+        if isinstance(error, CborError):
+            return _StreamEnd("malformed", str(error))
+        # The stream object itself failed (closed under the reader, an OS error).
+        return _StreamEnd("broken", f"{type(error).__name__}: {error}")
+
+
+_WINDOWS_EXCEPTIONS = {
+    0x80000003: "STATUS_BREAKPOINT",
+    0xC0000005: "STATUS_ACCESS_VIOLATION",
+    0xC000001D: "STATUS_ILLEGAL_INSTRUCTION",
+    0xC0000094: "STATUS_INTEGER_DIVIDE_BY_ZERO",
+    0xC00000FD: "STATUS_STACK_OVERFLOW",
+    0xC0000374: "STATUS_HEAP_CORRUPTION",
+    0xC0000409: "STATUS_STACK_BUFFER_OVERRUN",
+    0xC0000417: "STATUS_INVALID_CRUNTIME_PARAMETER",
+    0xC0000420: "STATUS_ASSERTION_FAILURE",
+}
+_WINDOWS_STATUSES = {
+    0xC0000135: "STATUS_DLL_NOT_FOUND",
+    0xC0000139: "STATUS_ENTRYPOINT_NOT_FOUND",
+    0xC000013A: "STATUS_CONTROL_C_EXIT",
+    0xC0000142: "STATUS_DLL_INIT_FAILED",
+}
+
+
+def describe_windows_exit_code(code: int) -> str:
+    """A Windows process's exit code, in words: a crash names the exception it
+    ended with, a process the loader could not start the status that stopped
+    it, and anything else is the program's own exit code."""
+    code &= 0xFFFFFFFF
+    if code in _WINDOWS_EXCEPTIONS:
+        return f"exception 0x{code:08X} ({_WINDOWS_EXCEPTIONS[code]})"
+    if code in _WINDOWS_STATUSES:
+        return f"status 0x{code:08X} ({_WINDOWS_STATUSES[code]})"
+    if code >= 0x80000000:
+        return f"exit code {code - 0x100000000} (0x{code:08X})"
+    return f"exit code {code}"
+
+
+def describe_exit(returncode: int) -> str:
+    """How a process ended, from its ``returncode``: its exit code, the signal
+    that killed it, or on Windows the exception it ended with."""
+    if sys.platform == "win32":
+        return describe_windows_exit_code(returncode)
+    if returncode < 0:
+        import signal
+
+        number = -returncode
+        try:
+            return f"killed by signal {number} ({signal.Signals(number).name})"
+        except ValueError:
+            return f"killed by signal {number}"
+    return f"exit code {returncode}"
+
+
+def _death_report(cartridge: str, stream: _StreamEnd, process_end: tuple) -> str:
+    """What happened to a cartridge that died without the host ending it: how
+    its output ended and how its process did, in one sentence naming it.
+
+    ``process_end`` is ``("exited", returncode)``, ``("killed",)`` (still
+    running when the host gave up on it), ``("unknown", error)`` or
+    ``("no_process",)`` (an attached cartridge)."""
+    waited = int(EXIT_WAIT_LIMIT)
+    if process_end[0] == "killed":
+        if stream.kind == "closed":
+            return (
+                f"Cartridge {cartridge} closed its output and was still running "
+                f"{waited}s later, so it was killed."
+            )
+        if stream.kind == "broken":
+            return (
+                f"Cartridge {cartridge} stopped answering: reading its output failed: "
+                f"{stream.error}, and it was still running {waited}s later, so it was killed."
+            )
+        return f"Cartridge {cartridge} wrote output that is not a frame ({stream.error}), so it was killed."
+    if process_end[0] == "exited":
+        ended = f"Cartridge {cartridge} exited unexpectedly ({describe_exit(process_end[1])})"
+    elif process_end[0] == "no_process":
+        ended = f"Cartridge {cartridge} disconnected unexpectedly"
+    else:
+        ended = (
+            f"Cartridge {cartridge} stopped unexpectedly, and was killed because whether it "
+            f"had exited could not be read ({process_end[1]})"
+        )
+    if stream.kind == "closed":
+        return f"{ended}."
+    if stream.kind == "broken":
+        return f"{ended}: reading its output failed: {stream.error}."
+    return f"{ended}: its output is not a frame: {stream.error}."
+
+
+# =========================================================================
 # Internal types
 # =========================================================================
 
@@ -280,6 +408,8 @@ class _CartridgeEvent:
     generation: int
     frame: Optional[Frame]  # None = death
     is_death: bool
+    # How the cartridge's output ended, on a death.
+    stream_end: Optional[_StreamEnd] = None
 
 
 @dataclass
@@ -918,7 +1048,7 @@ class CartridgeHost:
                     continue
                 if event.is_death:
                     self._handle_cartridge_death(
-                        event.cartridge_idx, event.generation, relay_writer
+                        event.cartridge_idx, event.generation, event.stream_end, relay_writer
                     )
                 elif event.frame is not None:
                     self._handle_cartridge_frame(event.cartridge_idx, event.frame, relay_writer)
@@ -1131,9 +1261,14 @@ class CartridgeHost:
                 self._peer_requests.pop(id_key, None)
 
     def _handle_cartridge_death(
-        self, cartridge_idx: int, generation: int, relay_writer: FrameWriter
+        self,
+        cartridge_idx: int,
+        generation: int,
+        stream_end: _StreamEnd,
+        relay_writer: FrameWriter,
     ) -> None:
-        """Process a cartridge death event."""
+        """Process a cartridge death event: its reader saw its output end as
+        ``stream_end``."""
         with self._lock:
             if (
                 cartridge_idx < 0
@@ -1151,12 +1286,36 @@ class CartridgeHost:
                 cartridge.writer_queue.put(None)
                 cartridge.writer_queue = None
 
-            if cartridge.process is not None:
+            # How the process ended. A retired one is ended by the host; one
+            # whose output ended on its own is given time to exit, since a
+            # crash closes its output before it is collected; one that wrote
+            # something that is not a frame is ended now.
+            process = cartridge.process
+            cartridge.process = None
+            process_end: tuple
+            if process is None:
+                process_end = ("no_process",)
+            else:
+                wait = (
+                    EXIT_WAIT_LIMIT
+                    if not cartridge.retired and stream_end.kind in ("closed", "broken")
+                    else 0.0
+                )
                 try:
-                    cartridge.process.kill()
-                except Exception:
-                    pass
-                cartridge.process = None
+                    returncode = process.wait(timeout=wait)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    process_end = ("killed",)
+                except OSError as error:
+                    process.kill()
+                    process.wait()
+                    process_end = ("unknown", str(error))
+                else:
+                    process_end = ("exited", returncode)
+            if cartridge.stderr_thread is not None:
+                cartridge.stderr_thread.join(timeout=STDERR_DRAIN_LIMIT)
+                cartridge.stderr_thread = None
 
             # Send ERR for all pending requests routed to this cartridge
             failed_keys = []
@@ -1171,17 +1330,16 @@ class CartridgeHost:
             # operator a healthy process crashed. Both are Environment — the
             # cause is outside the engine either way.
             code = "CARTRIDGE_RETIRED" if cartridge.retired else "CARTRIDGE_DIED"
-            stderr_tail = cartridge.take_stderr_tail()
-            reason = (
-                f"cartridge {cartridge_idx} retired: it is no longer in the "
-                "host's desired roster"
-                if cartridge.retired
-                else (
-                    f"cartridge {cartridge_idx} died. stderr:\n{stderr_tail}"
-                    if stderr_tail
-                    else f"cartridge {cartridge_idx} died"
+            stderr_tail = cartridge.take_stderr_tail().rstrip()
+            if cartridge.retired:
+                reason = (
+                    f"cartridge {cartridge_idx} retired: it is no longer in the "
+                    "host's desired roster"
                 )
-            )
+            else:
+                reason = _death_report(cartridge.path, stream_end, process_end)
+                if stderr_tail:
+                    reason = f"{reason} stderr:\n{stderr_tail}"
             for i, key in enumerate(failed_keys):
                 # A dead cartridge process is a runtime-environment
                 # failure — Environment (docs/failure-taxonomy.md).
@@ -1231,17 +1389,18 @@ class CartridgeHost:
                 if frame is None:
                     self._event_queue.put(_CartridgeEvent(
                         cartridge_idx=cartridge_idx, generation=generation,
-                        frame=None, is_death=True
+                        frame=None, is_death=True, stream_end=_StreamEnd.closed()
                     ))
                     return
                 self._event_queue.put(_CartridgeEvent(
                     cartridge_idx=cartridge_idx, generation=generation,
                     frame=frame, is_death=False
                 ))
-            except Exception:
+            except Exception as error:
                 self._event_queue.put(_CartridgeEvent(
                     cartridge_idx=cartridge_idx, generation=generation,
-                    frame=None, is_death=True
+                    frame=None, is_death=True,
+                    stream_end=_StreamEnd.from_read_error(error),
                 ))
                 return
 
