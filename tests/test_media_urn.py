@@ -131,14 +131,12 @@ def test_067_is_text():
     assert MediaUrn.from_string(MEDIA_OBJECT).get_tag("enc") is None  # media:record
 
 
-# TEST68: Test is_void returns true when void flag or type=void tag is present
+# TEST68: is_void is true only for the void marker: media:void; not media:!void (must not be void), media:?void (unconstrained), a URN with no void tag, or media:
 def test_068_is_void():
-    void_urn = MediaUrn.from_string(MEDIA_VOID)
-    assert void_urn.is_void()
+    assert MediaUrn.from_string(MEDIA_VOID).is_void()
 
-    # String is not void
-    string_urn = MediaUrn.from_string(MEDIA_STRING)
-    assert not string_urn.is_void()
+    for s in ["media:!void", "media:?void", MEDIA_STRING, "media:"]:
+        assert not MediaUrn.from_string(s).is_void(), s
 
 
 # TEST71: Test to_string roundtrip ensures serialization and deserialization preserve URN structure
@@ -607,3 +605,14 @@ def test_1810_media_void_is_atomic():
     for s in bad_inputs:
         with pytest.raises(MediaUrnError, match="atomic"):
             MediaUrn.from_string(s)
+
+
+# TEST1811: atomicity belongs to the void marker alone. media:void;enc=utf8 is refused with VoidNotAtomic, naming enc; media:!void;enc=utf8 (must not be void) and media:?void;enc=utf8 (void left open) name void without the marker, so each parses as an ordinary media URN that is not void.
+def test_1811_void_atomicity_reads_the_marker():
+    with pytest.raises(MediaUrnError, match="atomic.*extra tag\\(s\\): enc\\."):
+        MediaUrn.from_string("media:void;enc=utf8")
+
+    for s in ["media:!void;enc=utf8", "media:?void;enc=utf8"]:
+        urn = MediaUrn.from_string(s)
+        assert not urn.is_void(), s
+        assert urn.get_tag("enc") == "utf8", s

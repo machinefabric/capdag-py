@@ -314,13 +314,14 @@ class MediaUrn:
         - The ``void`` marker tag is combined with any other tag.
           ``media:void`` is the type-theoretic unit ``()`` and admits
           no refinements; reasons or labels belong on cap-tags or
-          args, not as media URN tags.
+          args, not as media URN tags. Only the marker is atomic:
+          ``media:!void;…`` and ``media:?void;…`` do not say void.
         """
         if urn.get_prefix() != self.PREFIX:
             raise MediaUrnError(
                 f"Invalid prefix: expected '{self.PREFIX}', got '{urn.get_prefix()}'"
             )
-        if "void" in urn.tags and len(urn.tags) > 1:
+        if urn.tags.get("void") == "*" and len(urn.tags) > 1:
             extras = sorted(k for k in urn.tags if k != "void")
             raise MediaUrnError(
                 "media:void is atomic and cannot be refined; got extra tag(s): "
@@ -542,9 +543,12 @@ class MediaUrn:
         **unit type** in the type-theoretic reading. ``media:void`` is
         the nullary value; a cap with ``media:void`` on a side has no
         meaningful data on that side. NOT "invalid" or "absent".
+
+        True only for the ``void`` marker (``void``, stored as ``*``):
+        ``media:!void`` says the media must not be void, and
+        ``media:?void`` leaves it open.
         """
-        # Check for "void" marker tag
-        return "void" in self._urn.tags
+        return self.has_marker_tag("void")
 
     def is_top(self) -> bool:
         """True if this is the **top** media URN — the universal
