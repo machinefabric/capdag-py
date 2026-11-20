@@ -454,22 +454,24 @@ def test_024_directional_accepts():
     assert cap5.accepts(cap1)
 
 
-# TEST25: Test find_best_match returns most specific matching cap
+# TEST25: find_best_match chooses the serving cap closest to the request: an exact match over a refinement
 def test_025_find_best_match():
-    # Two patterns of differing specificity. The more general pattern
-    # (just `generate`) and the more specific pattern (with `ext=pdf`)
-    # both accept a request that has both tags.
-    caps = [
-        CapUrn.from_string(_test_urn("generate")),               # Generic
-        CapUrn.from_string(_test_urn("generate;ext=pdf")),       # Specific
-    ]
-    request = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    op = CapUrn.from_string(_test_urn("op"))
+    pdf = CapUrn.from_string(_test_urn("generate;ext=pdf"))
+    generate = CapUrn.from_string(_test_urn("generate"))
+    request = CapUrn.from_string(_test_urn("generate"))
 
-    # Both patterns accept; the second is the more specific candidate.
-    matching = [c for c in caps if c.accepts(request)]
-    assert len(matching) == 2
-    best = max(matching, key=lambda c: c.specificity())
-    assert best == caps[1]
+    # Both generate caps serve the request; the pdf one is more specific.
+    assert pdf.is_dispatchable(request)
+    assert generate.is_dispatchable(request)
+    assert pdf.specificity() > generate.specificity()
+
+    # The exact match wins over the more specific refinement, though it is
+    # registered after it.
+    assert CapMatcher.find_best_match([op, pdf, generate], request) is generate
+
+    # A refinement is chosen when nothing matches exactly.
+    assert CapMatcher.find_best_match([op, pdf], request) is pdf
 
 
 # TEST26: Test merge combines tags from both caps, subset keeps only specified tags
@@ -857,22 +859,65 @@ def test_568_dispatch_output_tag_order():
         "Candidate should dispatch request with same tags in different order"
 
 
-# TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
+# TEST563: CapMatcher::find_all_matches returns every serving cap in ranking order, closest to the request first
 def test_563_find_all_matches():
-    caps = [
-        CapUrn.from_string('cap:in="media:void";test;out="media:void"'),
-        CapUrn.from_string('cap:in="media:void";test;ext=pdf;out="media:void"'),
-        CapUrn.from_string('cap:in="media:void";different;out="media:void"'),
-    ]
+    pdf = CapUrn.from_string('cap:in="media:void";test;ext=pdf;out="media:void"')
+    exact = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
+    different = CapUrn.from_string('cap:in="media:void";different;out="media:void"')
 
     request = CapUrn.from_string('cap:in="media:void";test;out="media:void"')
-    matches = CapMatcher.find_all_matches(caps, request)
+    matches = CapMatcher.find_all_matches([pdf, exact, different], request)
 
-    # Should find 2 matches (test and test;ext=pdf), not different
+    # The two test caps serve the request; the different one does not. The
+    # exact match ranks before the more specific refinement.
     assert len(matches) == 2
-    # Sorted by specificity descending: ext=pdf first (more specific)
-    assert matches[0].specificity() >= matches[1].specificity()
-    assert matches[0].get_tag("ext") == "pdf"
+    assert matches[0] is exact
+    assert matches[1] is pdf
+
+
+# TEST477: CapMatcher keeps the first registered of candidates the ranking cannot tell apart
+def test_477_matcher_first_registered_of_equal_rank_wins():
+    zeta = CapUrn.from_string('cap:engine=zeta;in="media:document;ext=pdf";out="media:ext=png;image";thumbnail')
+    alpha = CapUrn.from_string('cap:engine=alpha;in="media:document;ext=pdf";out="media:ext=png;image";thumbnail')
+    request = CapUrn.from_string('cap:in="media:document;ext=pdf";out="media:ext=png;image";thumbnail')
+
+    # Both serve the request, and they rank alike.
+    assert zeta.is_dispatchable(request)
+    assert alpha.is_dispatchable(request)
+    assert zeta.specificity() == alpha.specificity()
+
+    for order in ([zeta, alpha], [alpha, zeta]):
+        assert CapMatcher.find_best_match(order, request) is order[0]
+        matches = CapMatcher.find_all_matches(order, request)
+        assert len(matches) == 2
+        assert matches[0] is order[0]
+        assert matches[1] is order[1]
+
+
+# TEST484: CapMatcher chooses among the caps that serve the request, never among those the request accepts as a pattern
+def test_484_matcher_ranks_serving_caps_not_accepted_ones():
+    request = CapUrn.from_string('cap:extract;in="media:document;ext=pdf";out=media:record')
+    # Takes any document, so it takes the pdf the request sends.
+    broader = CapUrn.from_string('cap:extract;in=media:document;out=media:record')
+    # Takes only a version-2 pdf, so not every pdf the request may send.
+    narrower = CapUrn.from_string('cap:extract;in="media:document;ext=pdf;v=2";out=media:record')
+
+    assert broader.is_dispatchable(request)
+    assert not narrower.is_dispatchable(request)
+    # Read as a pattern, the request fits the narrower cap and not the
+    # broader one, and the narrower one is the more specific.
+    assert request.accepts(narrower)
+    assert not request.accepts(broader)
+    assert narrower.specificity() > broader.specificity()
+
+    assert CapMatcher.find_best_match([broader, narrower], request) is broader
+    matches = CapMatcher.find_all_matches([broader, narrower], request)
+    assert len(matches) == 1
+    assert matches[0] is broader
+
+    # Nothing serves when only the narrower cap is registered.
+    assert CapMatcher.find_best_match([narrower], request) is None
+    assert CapMatcher.find_all_matches([narrower], request) == []
 
 
 # TEST564: CapMatcher::are_compatible detects bidirectional overlap

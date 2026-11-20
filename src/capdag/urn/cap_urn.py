@@ -542,6 +542,31 @@ class CapUrn:
         """
         return _formal.dispatch(self._formal, request._formal)
 
+    @staticmethod
+    def select(candidates: List["CapUrn"], request: "CapUrn") -> Optional[int]:
+        """The position in ``candidates`` of the cap the proved ranking chooses
+        to serve ``request`` (``CapDAG.Exec.select``): among the candidates
+        that serve it, the one whose ranking key is least, and of equal keys
+        the first. ``None`` when none serves it."""
+        chosen = _formal.select([c._formal for c in candidates], request._formal)
+        if chosen is None:
+            return None
+        # The model returns the cap it chose; it is the first candidate that
+        # serves the request with the chosen cap's key, since the model keeps
+        # the first of equal keys.
+        key = _formal.ranking_key(chosen, request._formal)
+        for index, candidate in enumerate(candidates):
+            if candidate.is_dispatchable(request) and candidate._ranking_key(request) == key:
+                return index
+        raise RuntimeError(
+            f"capdag: the model chose a cap to serve {request} that is none of the candidates"
+        )
+
+    def _ranking_key(self, request: "CapUrn") -> tuple:
+        """This candidate's key in the proved ranking for ``request``
+        (``CapDAG.Exec.rankingKey``): the smaller key ranks first."""
+        return _formal.ranking_key(self._formal, request._formal)
+
     def may_dispatch(self, request: "CapUrn") -> bool:
         """Whether this candidate COULD serve ``request``: not guaranteed, not
         excluded. For exploring what the fabric might do — never for routing a
@@ -817,32 +842,35 @@ class CapUrn:
 
 
 class CapMatcher:
-    """Cap matching and selection utilities"""
+    """Choosing among registered caps for a request, as the proved ranking does
+    (``CapDAG.Exec.select``): only the caps that serve the request
+    (:meth:`CapUrn.is_dispatchable`) are considered, the one whose specificity
+    is closest to the request's ranks first (an exact match, then the nearest
+    refinement, then the nearest fallback), and of caps that rank alike the
+    first registered comes first. ``caps`` is in registration order."""
 
     @staticmethod
     def find_best_match(caps: List[CapUrn], request: CapUrn) -> Optional[CapUrn]:
-        """Find the most specific cap that accepts a request"""
-        matches = [cap for cap in caps if request.accepts(cap)]
-        if not matches:
-            return None
-        return max(matches, key=lambda cap: cap.specificity())
+        """The cap the ranking chooses to serve ``request``
+        (:meth:`CapUrn.select`), or ``None`` when no cap serves it."""
+        index = CapUrn.select(caps, request)
+        return None if index is None else caps[index]
 
     @staticmethod
     def find_all_matches(caps: List[CapUrn], request: CapUrn) -> List[CapUrn]:
-        """Find all caps that match a request, sorted by specificity (most specific first)"""
-        matches = [cap for cap in caps if request.accepts(cap)]
-        # Sort by specificity (most specific first)
-        matches.sort(key=lambda cap: cap.specificity(), reverse=True)
-        return matches
+        """Every cap that serves ``request``, in ranking order: the one
+        :meth:`find_best_match` chooses first, and caps that rank alike in
+        registration order."""
+        ranked = [(cap._ranking_key(request), cap) for cap in caps if cap.is_dispatchable(request)]
+        # A stable sort, so caps of equal key keep their registration order.
+        ranked.sort(key=lambda entry: entry[0])
+        return [cap for _, cap in ranked]
 
     @staticmethod
     def are_compatible(caps1: List[CapUrn], caps2: List[CapUrn]) -> bool:
-        """Check if two cap sets overlap (any pair where one accepts the other)"""
-        return any(
-            c1.accepts(c2) or c2.accepts(c1)
-            for c1 in caps1
-            for c2 in caps2
-        )
+        """Whether two cap sets overlap: some cap of one is comparable with
+        some cap of the other (:meth:`CapUrn.is_comparable`)."""
+        return any(c1.is_comparable(c2) for c1 in caps1 for c2 in caps2)
 
 
 class CapUrnBuilder:
