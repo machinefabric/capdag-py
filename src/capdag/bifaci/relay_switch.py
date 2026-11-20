@@ -385,6 +385,123 @@ def _extract_parent_rid(meta: Optional[Dict[str, Any]]) -> Optional[MessageId]:
 # RELAY SWITCH
 # =============================================================================
 
+#: How long (seconds) an identity probe may go unanswered before its master is
+#: reported overdue. Starting the cartridge that answers identity is part of
+#: the round trip, and a cold start can outlast any fixed bound, so the window
+#: does not end the probe: past it the master is reported overdue, stays
+#: unverified, and the answer, whenever it comes, settles it. Mirrors the
+#: reference ``IDENTITY_PROBE_WINDOW``.
+IDENTITY_PROBE_WINDOW = 30.0
+
+
+@dataclass
+class _OpenIdentityProbe:
+    """An identity probe the switch has sent and whose answer it waits for.
+    Its answer arrives through the request table on ``answers``."""
+    master_idx: int
+    key: Tuple[MessageId, MessageId]
+    answers: "queue.Queue[Frame]"
+    nonce: bytes
+    #: The echo received so far.
+    echoed: bytearray
+    sent_at: float
+    window: float
+    #: Whether the master has been reported overdue.
+    overdue: bool
+
+
+@dataclass
+class _IdentityProbeJob:
+    """A job for the identity-probe driver: probe master ``master_idx``
+    through the switch (its advertised caps went from empty to non-empty),
+    or, with ``open_probe``, wait for the answer to a probe already sent —
+    ``add_master``'s, left unanswered when its window ended."""
+    master_idx: int
+    open_probe: Optional[_OpenIdentityProbe] = None
+
+
+class _ReaderDiversion:
+    """Where a master's reader puts what it reads until ``add_master`` has
+    committed the master's slot (``diverting``), instead of handling it.
+    ``add_master`` waits on its identity probe through this rather than
+    reading the socket itself, so the reader is the only reader of the socket
+    and the wait can end at its window without a read part-way through a
+    frame. Each read is ``(frame, error)``; ``(None, None)`` is EOF."""
+
+    def __init__(self, diverting: bool):
+        self.cond = threading.Condition()
+        self.diverting = diverting
+        self.pending: List[Tuple[Optional[Frame], Optional[Exception]]] = []
+
+    def pop(self, timeout: float) -> Optional[Tuple[Optional[Frame], Optional[Exception]]]:
+        """The oldest read not yet handled, waiting up to ``timeout``
+        seconds for one; None when none came."""
+        with self.cond:
+            if not self.pending:
+                self.cond.wait(timeout)
+            if not self.pending:
+                return None
+            return self.pending.pop(0)
+
+
+def _identity_probe_frames(rid: MessageId, xid: MessageId, nonce: bytes, stream_id: str) -> List[Frame]:
+    """An identity probe's REQ and body — STREAM_START, CHUNK(nonce),
+    STREAM_END, END — on the flow (xid, rid)."""
+    frames = [
+        Frame.req(rid, CAP_IDENTITY, b"", "application/cbor"),
+        Frame.stream_start(rid, stream_id, "media:"),
+        Frame.chunk(rid, stream_id, 0, nonce, 0, compute_checksum(nonce)),
+        Frame.stream_end(rid, stream_id, 1),
+        Frame.end(rid, None),
+    ]
+    for fr in frames:
+        fr.routing_id = xid
+    return frames
+
+
+def _identity_answer_step(frame: Frame, nonce: bytes, echoed: bytearray) -> Tuple[bool, Optional[str]]:
+    """What one frame of an identity probe's answer does to the probe: the
+    answer is STREAM_START, CHUNK(nonce)…, STREAM_END, END, or an ERR.
+    Returns ``(done, failure)``: not done while the answer is still coming;
+    done with no failure when it verified the probe."""
+    ft = frame.frame_type
+    if ft in (FrameType.STREAM_START, FrameType.STREAM_END):
+        return False, None
+    if ft == FrameType.CHUNK:
+        if frame.payload is not None:
+            echoed.extend(frame.payload)
+        return False, None
+    if ft == FrameType.END:
+        if bytes(echoed) != nonce:
+            return True, f"identity payload mismatch (expected {len(nonce)} bytes, got {len(echoed)})"
+        return True, None
+    if ft == FrameType.ERR:
+        code = frame.error_code()
+        if not code:
+            return True, "identity failed: ERR frame missing required text code"
+        msg = frame.error_message()
+        if not msg:
+            return True, "identity failed: ERR frame missing required text message"
+        return True, f"identity failed: [{code}] {msg}"
+    if ft in (FrameType.LOG, FrameType.CREDIT, FrameType.HEARTBEAT):
+        # Control/side-channel frames are legal ANYWHERE during the probe
+        # (spec 12.4: LOG interleaves without affecting data flow;
+        # CREDIT/HEARTBEAT are the control plane the writer gate itself
+        # exempts, L4). A cartridge crediting its probe input as it
+        # consumes (L10) must not fail identity verification.
+        return False, None
+    return True, f"identity: unexpected frame type {ft}"
+
+
+def _identity_probe_overdue_message(master_idx: int, window: float) -> str:
+    """What a master still waiting on its identity probe reports."""
+    return (
+        f"master {master_idx}: identity probe unanswered after {window:g}s — the master stays "
+        f"unverified until the host answers it (the cartridge answering identity is still "
+        f"starting, or the probe or its answer was lost on the way)"
+    )
+
+
 class RelaySwitch:
     """Cap-aware routing multiplexer for multiple RelayMasters.
 
@@ -476,14 +593,17 @@ class RelaySwitch:
         self._routable_caps_bytes: bytes = json.dumps([]).encode("utf-8")
         self._capabilities_watch = _CapabilityWatch(self._routable_caps_bytes)
 
-        # Deferred runtime identity-probe machinery. When a master transitions
-        # from empty caps to non-empty caps via a RelayNotify update, its
-        # index is queued here and the probe driver thread re-verifies its
-        # identity end-to-end before the new caps become routable. Echo frames
-        # route back through ``_external_response_channels`` keyed by the
-        # probe's request id.
-        self._external_response_channels: Dict[str, "queue.Queue[Frame]"] = {}
-        self._pending_identity_probes: "queue.Queue[Optional[int]]" = queue.Queue()
+        # Deferred identity-probe machinery. When a master transitions from
+        # empty caps to non-empty caps via a RelayNotify update, a job for it
+        # is queued here and the probe driver re-verifies its identity
+        # end-to-end before the new caps become routable; so is the wait for
+        # the answer to an ``add_master`` probe left unanswered at the end of
+        # its window. Answers route back through the request table, like
+        # any request's.
+        self._pending_identity_probes: "queue.Queue[Optional[_IdentityProbeJob]]" = queue.Queue()
+        #: How long an identity probe may go unanswered before its master is
+        #: reported overdue (``IDENTITY_PROBE_WINDOW``). Guarded by ``_lock``.
+        self._identity_probe_window: float = IDENTITY_PROBE_WINDOW
         self._xid_counter: int = 0
         # Background-pump bookkeeping (the pump drains master frames and routes
         # probe echoes; started on demand via ``start_background_pump``).
@@ -543,7 +663,7 @@ class RelaySwitch:
             # transition (the deferred identity probe would never fire).
             reader_thread = threading.Thread(
                 target=self._reader_loop,
-                args=(master_idx, reader),
+                args=(master_idx, reader, _ReaderDiversion(diverting=False)),
                 daemon=True
             )
 
@@ -680,32 +800,121 @@ class RelaySwitch:
             # slot joining the list it broadcasts to.
             writer.write(Frame.policy(self._policy))
 
+            # The master's reader starts now and is the only reader of its
+            # socket from here on. Until the slot is committed below, the
+            # reader hands what it reads to this call instead of handling it:
+            # to the identity probe while it waits, and in any case so a
+            # capless master's immediate empty→non-empty RelayNotify is not
+            # handled before the slot exists (the deferred probe would never
+            # fire).
+            diversion = _ReaderDiversion(diverting=True)
+            reader_thread = threading.Thread(
+                target=self._reader_loop,
+                args=(master_idx, reader, diversion),
+                daemon=True,
+            )
+            reader_thread.start()
+
             # End-to-end identity verification — probe only when the host
             # advertises caps. Unlike the constructor, a probe FAILURE here
             # does NOT abort registration: the master joins UNHEALTHY with
             # ``last_error`` populated, so its installed_cartridges remain
             # visible in the inventory aggregate while its caps are held back
             # from routing. Mirrors the reference ``add_master``.
+            #
+            # Starting the cartridge that answers identity is part of the
+            # round trip, and its cold start has no fixed bound, so the wait
+            # here is bounded by the probe window and the master joins when it
+            # ends, answered or not. A probe unanswered at the end of its
+            # window is not a failure: the master joins unverified and
+            # reported overdue, the probe stays open, and its answer, whenever
+            # it comes, verifies the master (the probe driver waits for it).
+            with self._lock:
+                window = self._identity_probe_window
             identity_failure: Optional[str] = None
+            open_probe: Optional[_OpenIdentityProbe] = None
             if caps:
+                rid = MessageId.new_uuid()
+                xid = self._next_xid()
+                nonce = identity_nonce()
+                sent_at = time.monotonic()
+                failure: Optional[str] = None
                 try:
-                    verify_identity(reader, writer)
+                    for fr in _identity_probe_frames(rid, xid, nonce, "identity-verify"):
+                        writer.write(fr)
                 except Exception as e:
-                    identity_failure = f"identity verification failed: {e}"
+                    failure = f"identity send failed: {e}"
+                echoed = bytearray()
+                answered = failure is not None
+                while not answered:
+                    remaining = window - (time.monotonic() - sent_at)
+                    if remaining <= 0:
+                        break
+                    read = diversion.pop(remaining)
+                    if read is None:
+                        continue
+                    frame, error = read
+                    if error is not None:
+                        failure = f"identity read failed: {error}"
+                        break
+                    if frame is None:
+                        failure = "closed during identity verification"
+                        break
+                    if frame.frame_type == FrameType.RELAY_NOTIFY:
+                        updated_manifest = frame.relay_notify_manifest()
+                        if updated_manifest is not None:
+                            try:
+                                caps, installed_cartridges, host_protocol_stats = (
+                                    _parse_relay_notify_payload(updated_manifest)
+                                )
+                            except Exception as e:
+                                failure = f"RelayNotify reparse failed: {e}"
+                                break
+                            manifest = updated_manifest
+                        updated_limits = frame.relay_notify_limits()
+                        if updated_limits is not None:
+                            limits = updated_limits
+                        continue
+                    answered, failure = _identity_answer_step(frame, nonce, echoed)
+                elapsed_ms = int((time.monotonic() - sent_at) * 1000)
+                if failure is not None:
+                    identity_failure = f"identity verification failed: {failure} (after {elapsed_ms} ms)"
+                elif not answered:
+                    identity_failure = _identity_probe_overdue_message(master_idx, window)
+                    open_probe = _OpenIdentityProbe(
+                        master_idx=master_idx,
+                        key=(xid, rid),
+                        answers=queue.Queue(),
+                        nonce=nonce,
+                        echoed=echoed,
+                        sent_at=sent_at,
+                        window=window,
+                        overdue=True,
+                    )
             healthy_at_register = identity_failure is None
-
-            # Build the reader thread bound to master_idx but DO NOT start it
-            # until the slot is committed below — otherwise a capless master's
-            # immediate empty→non-empty RelayNotify could be observed before
-            # the slot exists and the deferred probe would never fire.
-            reader_thread = threading.Thread(
-                target=self._reader_loop,
-                args=(master_idx, reader),
-                daemon=True,
-            )
 
             # Commit the connection state into the slot.
             with self._lock:
+                # An unanswered probe's answer will come through the frame
+                # loop: its request is registered before the reader stops
+                # handing reads to this call, so no part of the answer finds
+                # the table without it.
+                open_probe_key = None
+                if open_probe is not None:
+                    state = RequestState(
+                        routing=RoutingEntry(source_master_idx=None, destination_master_idx=master_idx),
+                        origin=None,
+                        external_channel=open_probe.answers.put,
+                        is_peer=False,
+                        initial_credit=limits.initial_credit,
+                    ).with_cap_urn(CAP_IDENTITY)
+                    try:
+                        self._requests.register(open_probe.key, state)
+                    except RequestStateError as e:
+                        raise ProtocolError(
+                            f"add_master: registering master {master_idx}'s open identity probe failed: {e}"
+                        ) from e
+                    open_probe_key = open_probe.key
                 if existing_idx is None:
                     # Append. The captured ``master_idx`` MUST equal
                     # the new length; if not, a concurrent appender
@@ -728,6 +937,7 @@ class RelaySwitch:
                         reader_handle=reader_thread,
                         last_error=identity_failure,
                         host_protocol_stats=host_protocol_stats,
+                        identity_probe=open_probe_key,
                     ))
                 else:
                     slot = self._masters[master_idx]
@@ -746,20 +956,33 @@ class RelaySwitch:
                     slot.limits = limits
                     slot.caps = caps
                     slot.installed_cartridges = installed_cartridges
-                    self._configure_master_admission_locked(idx, installed_cartridges)
                     slot.healthy = healthy_at_register
                     slot.detached = False
                     slot.reader_handle = reader_thread
                     slot.last_error = identity_failure
                     slot.host_protocol_stats = host_protocol_stats
+                    slot.identity_probe = open_probe_key
+                # Admission from the master's inventory, whichever branch
+                # attached it.
+                self._configure_master_admission_locked(master_idx, installed_cartridges)
 
                 self._rebuild_cap_table()
                 self._rebuild_installed_cartridges()
                 self._rebuild_capabilities()
                 self._rebuild_limits()
 
-            # Slot is committed — now it is safe to start reading.
-            reader_thread.start()
+            # The slot is in place: the reader handles its reads from now on,
+            # after what this call left unread — under the diversion's lock,
+            # so no later read overtakes them.
+            with diversion.cond:
+                diversion.diverting = False
+                pending, diversion.pending = diversion.pending, []
+                for frame, error in pending:
+                    self._on_master_read(master_idx, frame, error)
+
+            if open_probe is not None:
+                # The probe driver waits for the answer.
+                self._pending_identity_probes.put(_IdentityProbeJob(master_idx, open_probe))
 
             return master_idx
 
@@ -814,73 +1037,93 @@ class RelaySwitch:
                     return False
             return True
 
-    def _reader_loop(self, master_idx: int, reader: FrameReader):
-        """Reader thread loop for a master"""
+    def _reader_loop(self, master_idx: int, reader: FrameReader, diversion: _ReaderDiversion):
+        """Reader thread loop for a master: every read goes to
+        ``add_master`` while the diversion holds it, then is handled."""
         while True:
             try:
                 frame = reader.read()
-                if frame is None:
-                    # EOF
-                    self._frame_queue.put(MasterFrame(master_idx, None, None))
-                    return
-
-                # Handle RelayNotify here (update cap tables) but ALSO forward
-                # it to the engine for visibility — parity with the reference,
-                # whose RelayNotify branch returns the frame through to the
-                # engine after updating internal state.
-                if frame.frame_type == FrameType.RELAY_NOTIFY:
-                    manifest = frame.relay_notify_manifest()
-                    limits = frame.relay_notify_limits()
-                    if manifest is not None and limits is not None:
-                        caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
-                        probe_required = False
-                        with self._lock:
-                            if 0 <= master_idx < len(self._masters):
-                                master = self._masters[master_idx]
-                                # Detect the empty → non-empty transition. The
-                                # initial RelayNotify (during connect) skipped
-                                # the identity probe when caps were empty; if
-                                # the host now advertises a real handler chain
-                                # we must probe it end-to-end before letting the
-                                # new caps become routable. The master is held
-                                # unhealthy until the probe driver confirms
-                                # identity.
-                                prior_caps_empty = len(master.caps) == 0
-                                probe_required = prior_caps_empty and len(caps) > 0
-                                master.manifest = manifest
-                                master.limits = limits
-                                master.caps = caps
-                                master.installed_cartridges = installed_cartridges
-                                # Refresh admission from the fresh inventory: a
-                                # cartridge that left it goes unavailable
-                                # (starting its grace window), one that returned
-                                # is configured again, releasing anything queued.
-                                self._configure_master_admission_locked(
-                                    master_idx, installed_cartridges
-                                )
-                                master.host_protocol_stats = host_protocol_stats
-                                if probe_required:
-                                    master.healthy = False
-                                    master.last_error = (
-                                        "runtime identity probe pending — "
-                                        "caps held back from routing"
-                                    )
-                                self._rebuild_cap_table()
-                                self._rebuild_installed_cartridges()
-                                self._rebuild_capabilities()
-                                self._rebuild_limits()
-                        if probe_required:
-                            # Hand off to the probe driver. The queue is
-                            # unbounded so this never blocks the reader.
-                            self._pending_identity_probes.put(master_idx)
-                    # Pass through to engine for visibility.
-                    self._frame_queue.put(MasterFrame(master_idx, frame, None))
-                    continue
-
-                self._frame_queue.put(MasterFrame(master_idx, frame, None))
+                error = None
             except Exception as e:
-                self._frame_queue.put(MasterFrame(master_idx, None, e))
+                frame, error = None, e
+            with diversion.cond:
+                diverted = diversion.diverting
+                if diverted:
+                    diversion.pending.append((frame, error))
+                    diversion.cond.notify_all()
+            if diverted:
+                if frame is None:
+                    return
+            elif not self._on_master_read(master_idx, frame, error):
                 return
+
+    def _on_master_read(self, master_idx: int, frame: Optional[Frame], error: Optional[Exception]) -> bool:
+        """Handle one read of a master's socket: a frame, EOF (``frame`` and
+        ``error`` both None), or the error that ended the connection.
+        Returns whether the connection goes on."""
+        if error is not None:
+            self._frame_queue.put(MasterFrame(master_idx, None, error))
+            return False
+        if frame is None:
+            # EOF
+            self._frame_queue.put(MasterFrame(master_idx, None, None))
+            return False
+        if frame.frame_type != FrameType.RELAY_NOTIFY:
+            self._frame_queue.put(MasterFrame(master_idx, frame, None))
+            return True
+        # Handle RelayNotify here (update cap tables) but ALSO forward it to
+        # the engine for visibility — parity with the reference, whose
+        # RelayNotify branch returns the frame through to the engine after
+        # updating internal state.
+        manifest = frame.relay_notify_manifest()
+        limits = frame.relay_notify_limits()
+        if manifest is not None and limits is not None:
+            try:
+                caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
+            except Exception as e:
+                # A RelayNotify that does not parse ends the connection.
+                self._frame_queue.put(MasterFrame(master_idx, None, e))
+                return False
+            probe_required = False
+            with self._lock:
+                if 0 <= master_idx < len(self._masters):
+                    master = self._masters[master_idx]
+                    # Detect the empty → non-empty transition. The initial
+                    # RelayNotify (during connect) skipped the identity probe
+                    # when caps were empty; if the host now advertises a real
+                    # handler chain we must probe it end-to-end before
+                    # letting the new caps become routable. The master is
+                    # held unhealthy until the probe driver confirms
+                    # identity.
+                    prior_caps_empty = len(master.caps) == 0
+                    probe_required = prior_caps_empty and len(caps) > 0
+                    master.manifest = manifest
+                    master.limits = limits
+                    master.caps = caps
+                    master.installed_cartridges = installed_cartridges
+                    # Refresh admission from the fresh inventory: a cartridge
+                    # that left it goes unavailable (starting its grace
+                    # window), one that returned is configured again,
+                    # releasing anything queued.
+                    self._configure_master_admission_locked(master_idx, installed_cartridges)
+                    master.host_protocol_stats = host_protocol_stats
+                    if probe_required:
+                        master.healthy = False
+                        master.last_error = (
+                            "runtime identity probe pending — "
+                            "caps held back from routing"
+                        )
+                    self._rebuild_cap_table()
+                    self._rebuild_installed_cartridges()
+                    self._rebuild_capabilities()
+                    self._rebuild_limits()
+            if probe_required:
+                # Hand off to the probe driver. The queue is unbounded so
+                # this never blocks the reader.
+                self._pending_identity_probes.put(_IdentityProbeJob(master_idx))
+        # Pass through to engine for visibility.
+        self._frame_queue.put(MasterFrame(master_idx, frame, None))
+        return True
 
     def capabilities(self) -> bytes:
         """Get aggregate capabilities (union of all masters)"""
@@ -1412,131 +1655,149 @@ class RelaySwitch:
             return self._next_xid_locked()
 
     def _probe_driver_loop(self) -> None:
-        """Serially probe each master that transitioned empty→non-empty caps.
-
-        On success the master flips healthy and its caps become routable; on
-        failure it stays unhealthy with ``last_error`` stamped. Mirrors the
-        reference ``spawn_identity_probe_driver``.
+        """Run each identity-probe job in a thread of its own: a probe of a
+        master that transitioned empty→non-empty caps, or the wait for the
+        answer to an ``add_master`` probe left unanswered at the end of its
+        window. An answer flips the master healthy and its caps become
+        routable; a failure keeps it unhealthy with ``last_error`` stamped. A
+        probe unanswered after its window is reported overdue and stays
+        open, so a probe waiting on a slow host never holds back another
+        master's. Mirrors the reference ``spawn_identity_probe_driver``.
         """
         while True:
-            master_idx = self._pending_identity_probes.get()
-            if master_idx is None:
+            job = self._pending_identity_probes.get()
+            if job is None:
                 return  # shutdown sentinel
-            detail = self._run_identity_probe_via_relay(master_idx)
-            with self._lock:
-                if 0 <= master_idx < len(self._masters):
-                    master = self._masters[master_idx]
-                    if detail is None:
-                        # Probe passed — flip healthy; its caps become routable.
-                        master.healthy = True
-                        master.last_error = None
-                    else:
-                        # Probe failed — keep unhealthy and stamp last_error.
-                        master.healthy = False
-                        master.last_error = detail
-                self._rebuild_cap_table()
-                self._rebuild_capabilities()
+            threading.Thread(target=self._drive_identity_probe, args=(job,), daemon=True).start()
 
-    def _run_identity_probe_via_relay(self, master_idx: int) -> Optional[str]:
-        """Run an end-to-end identity probe against a master via the relay.
+    def _drive_identity_probe(self, job: _IdentityProbeJob) -> None:
+        probe = job.open_probe
+        if probe is None:
+            probe, key, failure = self._open_identity_probe(job.master_idx)
+            if probe is None:
+                self._settle_identity_probe(job.master_idx, key, failure)
+                return
+        self._await_identity_answer(probe)
 
-        Sends CAP_IDENTITY REQ + STREAM_START + CHUNK(nonce) + STREAM_END +
-        END on a fresh flow and awaits the echo, routed back through an
-        external response channel keyed by the request id. Returns ``None`` on
-        success, or a typed error string on failure (for ``last_error``).
-        Mirrors the reference ``run_identity_probe_via_relay``.
-        """
-        RUNTIME_PROBE_TIMEOUT = 10.0
-
-        rid = MessageId.new_uuid()
-        rid_key = rid.to_string()
-        nonce = identity_nonce()
-        stream_id = "identity-verify-runtime"
-        resp_q: "queue.Queue[Frame]" = queue.Queue()
-
-        # Register the response channel and snapshot the writer under the lock.
-        xid = self._next_xid()
+    def _set_identity_probe_window(self, window: float) -> None:
+        """Shorten the identity probe window, so a test can watch a probe
+        outlast it."""
         with self._lock:
+            self._identity_probe_window = window
+
+    def _open_identity_probe(
+        self, master_idx: int
+    ) -> Tuple[Optional[_OpenIdentityProbe], Tuple[MessageId, MessageId], Optional[str]]:
+        """Send an end-to-end identity probe to a master via the relay: a
+        CAP_IDENTITY REQ + STREAM_START + CHUNK(nonce) + STREAM_END + END on
+        a fresh flow, registered on the request table like any request, so
+        its answer routes back to the probe's channel. The probe becomes the
+        master's open probe before anything is sent. Returns
+        ``(probe, key, None)``, or ``(None, key, why)`` for a probe that
+        could not be sent, to be settled. Mirrors the reference
+        ``open_identity_probe``.
+        """
+        rid = MessageId.new_uuid()
+        nonce = identity_nonce()
+        answers: "queue.Queue[Frame]" = queue.Queue()
+        # Register, and serialize the writes under the lock so the five probe
+        # frames cannot interleave with an engine ``send_to_master`` writing
+        # to the same master socket.
+        with self._lock:
+            xid = self._next_xid_locked()
+            key = (xid, rid)
             if not (0 <= master_idx < len(self._masters)):
-                return "identity probe: master index out of range"
-            self._external_response_channels[rid_key] = resp_q
-            writer = self._masters[master_idx].socket_writer
-
-        try:
-            req = Frame.req(rid, CAP_IDENTITY, b"", "application/cbor")
-            req.routing_id = xid
-            ss = Frame.stream_start(rid, stream_id, "media:")
-            ss.routing_id = xid
-            chunk = Frame.chunk(rid, stream_id, 0, nonce, 0, compute_checksum(nonce))
-            chunk.routing_id = xid
-            se = Frame.stream_end(rid, stream_id, 1)
-            se.routing_id = xid
-            end = Frame.end(rid, None)
-            end.routing_id = xid
-
-            # Serialize the writes under the lock so the five probe frames
-            # cannot interleave with an engine ``send_to_master`` writing to
-            # the same master socket. The lock is released before the blocking
-            # echo wait below.
+                return None, key, f"master {master_idx}: identity probe for a master that does not exist"
+            self._masters[master_idx].identity_probe = key
+            state = RequestState(
+                routing=RoutingEntry(source_master_idx=None, destination_master_idx=master_idx),
+                origin=None,
+                external_channel=answers.put,
+                is_peer=False,
+                initial_credit=self._master_initial_credit_locked(master_idx),
+            ).with_cap_urn(CAP_IDENTITY)
             try:
-                with self._lock:
-                    for fr in (req, ss, chunk, se, end):
-                        writer.write(fr)
+                self._requests.register(key, state)
+            except RequestStateError as e:
+                return None, key, f"master {master_idx}: identity probe registration failed: {e}"
+            sent_at = time.monotonic()
+            writer = self._masters[master_idx].socket_writer
+            try:
+                for fr in _identity_probe_frames(rid, xid, nonce, "identity-verify-runtime"):
+                    writer.write(fr)
             except Exception as e:
-                return f"identity probe send failed: {e}"
+                return None, key, f"master {master_idx}: identity probe send failed: {e}"
+            window = self._identity_probe_window
+        return _OpenIdentityProbe(
+            master_idx=master_idx,
+            key=key,
+            answers=answers,
+            nonce=nonce,
+            echoed=bytearray(),
+            sent_at=sent_at,
+            window=window,
+            overdue=False,
+        ), key, None
 
-            # Drain the echo: STREAM_START → CHUNK(nonce) → STREAM_END → END.
-            deadline = time.monotonic() + RUNTIME_PROBE_TIMEOUT
-            accumulated = bytearray()
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return (
-                        f"runtime identity probe timed out after "
-                        f"{RUNTIME_PROBE_TIMEOUT}s"
-                    )
+    def _await_identity_answer(self, probe: _OpenIdentityProbe) -> None:
+        """Wait for an open identity probe's answer and settle its master
+        with it. Past the probe's window the master is reported overdue and
+        the wait goes on: the answer, whenever it comes, settles the master.
+        The wait ends without an answer only when the switch ends the probe's
+        request (its master's connection died: an ERR). Mirrors the reference
+        ``await_identity_answer``.
+        """
+        while True:
+            if probe.overdue:
+                frame = probe.answers.get()
+            else:
+                remaining = probe.window - (time.monotonic() - probe.sent_at)
                 try:
-                    frame = resp_q.get(timeout=remaining)
+                    frame = probe.answers.get(timeout=max(remaining, 0.0))
                 except queue.Empty:
-                    return (
-                        f"runtime identity probe timed out after "
-                        f"{RUNTIME_PROBE_TIMEOUT}s"
-                    )
-                if frame.frame_type == FrameType.STREAM_START:
+                    probe.overdue = True
+                    self._report_identity_probe_overdue(probe)
                     continue
-                if frame.frame_type == FrameType.CHUNK:
-                    if frame.payload is not None:
-                        accumulated.extend(frame.payload)
-                    continue
-                if frame.frame_type == FrameType.STREAM_END:
-                    continue
-                if frame.frame_type == FrameType.END:
-                    if bytes(accumulated) != nonce:
-                        return (
-                            f"identity probe payload mismatch "
-                            f"(expected {len(nonce)} bytes, got {len(accumulated)})"
-                        )
-                    return None
-                if frame.frame_type == FrameType.ERR:
-                    code = frame.error_code() or "UNKNOWN"
-                    msg = frame.error_message() or "no message"
-                    return f"identity probe failed: [{code}] {msg}"
-                if frame.frame_type in (
-                    FrameType.LOG,
-                    FrameType.CREDIT,
-                    FrameType.HEARTBEAT,
-                ):
-                    # Control/side-channel frames are legal ANYWHERE during
-                    # the probe (spec 12.4: LOG interleaves without affecting
-                    # data flow; CREDIT/HEARTBEAT are the control plane the
-                    # writer gate itself exempts, L4). A v4 cartridge
-                    # crediting its probe input as it consumes (L10) must
-                    # not fail identity verification.
-                    continue
-                return f"identity probe: unexpected frame type {frame.frame_type}"
-        finally:
-            with self._lock:
-                self._external_response_channels.pop(rid_key, None)
+            done, failure = _identity_answer_step(frame, probe.nonce, probe.echoed)
+            if done:
+                break
+        if failure is not None:
+            failure = f"master {probe.master_idx}: {failure}"
+        self._settle_identity_probe(probe.master_idx, probe.key, failure)
+
+    def _report_identity_probe_overdue(self, probe: _OpenIdentityProbe) -> None:
+        """Report a master whose open identity probe outlasted its window."""
+        with self._lock:
+            if not (0 <= probe.master_idx < len(self._masters)):
+                return
+            master = self._masters[probe.master_idx]
+            if master.identity_probe != probe.key:
+                return
+            master.last_error = _identity_probe_overdue_message(probe.master_idx, probe.window)
+
+    def _settle_identity_probe(
+        self, master_idx: int, key: Tuple[MessageId, MessageId], failure: Optional[str]
+    ) -> None:
+        """Settle a master with its identity probe's outcome (no failure:
+        verified, its caps become routable; a failure: it stays unhealthy
+        with why). A probe that is no longer the master's open one (the
+        master reattached, or was probed again) settles nothing. Mirrors the
+        reference ``settle_identity_probe``.
+        """
+        with self._lock:
+            # The request ends here whichever way the probe did; one its
+            # answer or a master death already ended is gone.
+            self._requests.terminate(key, TerminalKind.END if failure is None else TerminalKind.ERR)
+            if not (0 <= master_idx < len(self._masters)):
+                return
+            master = self._masters[master_idx]
+            if master.identity_probe != key:
+                return
+            master.identity_probe = None
+            master.healthy = failure is None
+            master.last_error = failure
+            self._rebuild_cap_table()
+            self._rebuild_capabilities()
 
     def _find_master_for_cap(self, cap_urn: str, preferred_cap: Optional[str] = None) -> Optional[int]:
         """Find master index that can handle a capability.
@@ -1654,17 +1915,6 @@ class RelaySwitch:
             elif frame.frame_type in (FrameType.STREAM_START, FrameType.CHUNK,
                                      FrameType.STREAM_END, FrameType.END,
                                      FrameType.ERR, FrameType.LOG, FrameType.CREDIT):
-                rid_key = frame.id.to_string()
-
-                # Deferred-identity-probe echo: route to the registered
-                # external response channel keyed by the probe's request id.
-                # The probe driver owns channel cleanup (it removes the entry
-                # in its finally), so we only deliver here.
-                ext_q = self._external_response_channels.get(rid_key)
-                if ext_q is not None:
-                    ext_q.put(frame)
-                    return None
-
                 if frame.routing_id is not None:
                     # ========================================
                     # HAS XID = RESPONSE (route back to origin)
@@ -1798,7 +2048,12 @@ class RelaySwitch:
             # reconnect to it.
             self._masters[master_idx].detached = True
             if not self._masters[master_idx].healthy:
-                return  # Already handled
+                # Already unhealthy: its death was handled before, or it
+                # never became routable (its identity probe is open or
+                # failed). No route leads here, but a request to it — its
+                # open identity probe — still ends: nobody is left to answer.
+                self._fail_requests_to_master_locked(master_idx)
+                return
 
             self._masters[master_idx].healthy = False
             # Every slot behind this master goes unavailable. Queued work is
@@ -1806,41 +2061,7 @@ class RelaySwitch:
             # master reconnects.
             self._admission.disable_master(master_idx)
 
-            # Find all pending requests routed to this master.
-            dead_keys = self._requests.keys_where(
-                lambda s: s.routing.destination_master_idx == master_idx
-            )
-
-            # Terminate each pending request (MasterDied) and deliver a
-            # synthetic ERR to whoever was waiting on it. terminate()
-            # atomically removes ALL state for the key (L7) and hands back
-            # the origin + channel needed for delivery.
-            for key in dead_keys:
-                state = self._requests.terminate(key, TerminalKind.MASTER_DIED)
-                if state is None:
-                    continue  # raced another terminal — already fully cleaned
-
-                xid, rid = key
-                # A dead relay master is a runtime-environment failure —
-                # Environment (docs/failure-taxonomy.md).
-                err_frame = Frame.err(rid, "MASTER_DIED", AttributionClass.ENVIRONMENT, f"Relay master {master_idx} connection closed")
-                err_frame.routing_id = xid
-
-                if state.origin is None:
-                    # Send result discarded, not drop-counted — matches
-                    # `cancel_request` and the reference's `let _ = tx.send(...)`.
-                    if state.external_channel is not None:
-                        try:
-                            state.external_channel(err_frame)
-                        except Exception:
-                            pass
-                else:
-                    src_idx = state.origin
-                    if 0 <= src_idx < len(self._masters) and self._masters[src_idx].healthy:
-                        try:
-                            self._masters[src_idx].socket_writer.write(err_frame)
-                        except Exception:
-                            pass
+            self._fail_requests_to_master_locked(master_idx)
 
             # Rebuild cap table without dead master.
             # `_rebuild_installed_cartridges` must run before
@@ -1850,6 +2071,45 @@ class RelaySwitch:
             self._rebuild_installed_cartridges()
             self._rebuild_capabilities()
             self._rebuild_limits()
+
+    def _fail_requests_to_master_locked(self, master_idx: int) -> None:
+        """End every request routed to a master whose connection died, each
+        with a MASTER_DIED ERR to whoever waits on it. Caller holds
+        ``self._lock``."""
+        dead_keys = self._requests.keys_where(
+            lambda s: s.routing.destination_master_idx == master_idx
+        )
+
+        # Terminate each pending request (MasterDied) and deliver a
+        # synthetic ERR to whoever was waiting on it. terminate()
+        # atomically removes ALL state for the key (L7) and hands back
+        # the origin + channel needed for delivery.
+        for key in dead_keys:
+            state = self._requests.terminate(key, TerminalKind.MASTER_DIED)
+            if state is None:
+                continue  # raced another terminal — already fully cleaned
+
+            xid, rid = key
+            # A dead relay master is a runtime-environment failure —
+            # Environment (docs/failure-taxonomy.md).
+            err_frame = Frame.err(rid, "MASTER_DIED", AttributionClass.ENVIRONMENT, f"Relay master {master_idx} connection closed")
+            err_frame.routing_id = xid
+
+            if state.origin is None:
+                # Send result discarded, not drop-counted — matches
+                # `cancel_request` and the reference's `let _ = tx.send(...)`.
+                if state.external_channel is not None:
+                    try:
+                        state.external_channel(err_frame)
+                    except Exception:
+                        pass
+            else:
+                src_idx = state.origin
+                if 0 <= src_idx < len(self._masters) and self._masters[src_idx].healthy:
+                    try:
+                        self._masters[src_idx].socket_writer.write(err_frame)
+                    except Exception:
+                        pass
 
     def _rebuild_cap_table(self):
         """Rebuild capability routing table from all healthy masters"""
@@ -2074,6 +2334,10 @@ class _MasterConnection:
     #: parsed-and-discarded) so ``protocol_stats().hosts`` can name the host
     #: behind a drop. Mirrors the reference ``MasterConnection.host_protocol_stats``.
     host_protocol_stats: Optional[HostProtocolStats] = None
+    #: The identity probe this master's health waits on, while one is open.
+    #: Only its answer settles the master; the answer of a probe it replaced
+    #: (a reattach, a later probe) is ignored. Guarded by the switch's lock.
+    identity_probe: Optional[Tuple[MessageId, MessageId]] = None
 
 
 # =============================================================================
