@@ -512,31 +512,31 @@ class MediaUrn:
         """Check if this represents image data.
         Returns true if the "image" marker tag is present.
         """
-        return self._urn.get_tag("image") is not None
+        return self.has_marker_tag("image")
 
     def is_audio(self) -> bool:
         """Check if this represents audio data.
         Returns true if the "audio" marker tag is present.
         """
-        return self._urn.get_tag("audio") is not None
+        return self.has_marker_tag("audio")
 
     def is_video(self) -> bool:
         """Check if this represents video data.
         Returns true if the "video" marker tag is present.
         """
-        return self._urn.get_tag("video") is not None
+        return self.has_marker_tag("video")
 
     def is_numeric(self) -> bool:
         """Check if this represents numeric data.
         Returns true if the "numeric" marker tag is present.
         """
-        return self._urn.get_tag("numeric") is not None
+        return self.has_marker_tag("numeric")
 
     def is_bool(self) -> bool:
         """Check if this represents boolean data.
         Returns true if the "bool" marker tag is present.
         """
-        return self._urn.get_tag("bool") is not None
+        return self.has_marker_tag("bool")
 
     def is_void(self) -> bool:
         """Check if this represents a void (no data) type — the

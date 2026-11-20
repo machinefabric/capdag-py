@@ -2,7 +2,7 @@
 
 Generated from the test catalogue. Edit the tests, not this file.
 
-1377 tests: 1365 numbered, 12 unnumbered.
+1378 tests: 1366 numbered, 12 unnumbered.
 
 ## Numbered
 
@@ -981,6 +981,7 @@ Generated from the test catalogue. Edit the tests, not this file.
 | TEST1805 | capdag/capdag-py | python | `test_1805_kind_invariant_under_canonical_spellings` | tests/test_cap_urn.py:1732 | TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling. |
 | TEST1810 | capdag/capdag-py | python | `test_1810_media_void_is_atomic` | tests/test_media_urn.py:589 | TEST1810: media:void is atomic — refinements are parse errors. Mirrored across every language port (Rust, Go, Python, Swift/ObjC, JS) under the SAME number. Any divergence is a wire-level inconsistency — the unit type's atomicity is part of the protocol's deepest layer, not a per-port detail. The bare `media:void` parses successfully; any combination with another tag (marker or key=value) MUST fail with VoidNotAtomic. This forecloses a fake taxonomy of unit values; reasons or labels for *why* void is used belong on the cap URN's non-directional tags or in cap args. |
 | TEST1811 | capdag/capdag-py | python | `test_1811_void_atomicity_reads_the_marker` | tests/test_media_urn.py:611 | TEST1811: atomicity belongs to the void marker alone. media:void;enc=utf8 is refused with VoidNotAtomic, naming enc; media:!void;enc=utf8 (must not be void) and media:?void;enc=utf8 (void left open) name void without the marker, so each parses as an ordinary media URN that is not void. |
+| TEST1812 | capdag/capdag-py | python | `test_1812_marker_predicates_read_the_marker` | tests/test_media_urn.py:622 | TEST1812: every marker predicate reads its marker, never the key's presence. For each marker x, the predicate is true for media:x and false for media:!x (must not have x) and media:?x (x left open); the negated predicates (is_scalar, is_opaque) are the reverse. |
 | TEST1820 | capdag/capdag-py | python | `test_1820_specificity_question_is_zero` | tests/test_cap_urn.py:1774 | TEST1820: A `?`-valued cap-tag scores 0. Same as missing. |
 | TEST1821 | capdag/capdag-py | python | `test_1821_specificity_must_not_have_is_five` | tests/test_cap_urn.py:1785 | TEST1821: A `!`-valued cap-tag scores 5 (top of negative chain). |
 | TEST1822 | capdag/capdag-py | python | `test_1822_specificity_must_have_any_is_two` | tests/test_cap_urn.py:1791 | TEST1822: A `*`-valued cap-tag (including bare markers) scores 2. |

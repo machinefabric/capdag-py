@@ -616,3 +616,28 @@ def test_1811_void_atomicity_reads_the_marker():
         urn = MediaUrn.from_string(s)
         assert not urn.is_void(), s
         assert urn.get_tag("enc") == "utf8", s
+
+
+# TEST1812: every marker predicate reads its marker, never the key's presence. For each marker x, the predicate is true for media:x and false for media:!x (must not have x) and media:?x (x left open); the negated predicates (is_scalar, is_opaque) are the reverse.
+def test_1812_marker_predicates_read_the_marker():
+    predicates = [
+        ("list", MediaUrn.is_list),
+        ("record", MediaUrn.is_record),
+        ("image", MediaUrn.is_image),
+        ("audio", MediaUrn.is_audio),
+        ("video", MediaUrn.is_video),
+        ("numeric", MediaUrn.is_numeric),
+        ("bool", MediaUrn.is_bool),
+        ("void", MediaUrn.is_void),
+        ("file-path", MediaUrn.is_file_path),
+        ("live", MediaUrn.is_live_feed),
+    ]
+    for marker, predicate in predicates:
+        assert predicate(MediaUrn.from_string(f"media:{marker}")), f"media:{marker}"
+        assert not predicate(MediaUrn.from_string(f"media:!{marker}")), f"media:!{marker}"
+        assert not predicate(MediaUrn.from_string(f"media:?{marker}")), f"media:?{marker}"
+
+    for marker, predicate in [("list", MediaUrn.is_scalar), ("record", MediaUrn.is_opaque)]:
+        assert not predicate(MediaUrn.from_string(f"media:{marker}")), f"media:{marker}"
+        assert predicate(MediaUrn.from_string(f"media:!{marker}")), f"media:!{marker}"
+        assert predicate(MediaUrn.from_string(f"media:?{marker}")), f"media:?{marker}"
