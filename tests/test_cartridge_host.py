@@ -9,6 +9,7 @@ Socket lifecycle rules:
 - For death simulation: cartridge closes only its own write end (cartridge_socks)
 """
 
+import errno
 import json
 import io
 import os
@@ -1762,20 +1763,21 @@ def test_1947_roster_flap_cancels_retirement_instead_of_respawning(tmp_path):
     assert cartridge.running
 
 
-# TEST7193: a frame the host cannot write to its relay ends its session with
-# the failure named. The write used to be swallowed while the host went on
-# reading the relay, so the engine waited for answers the host could no longer
-# give. Here the relay's read side stays open and sends nothing; the host's
-# first frame — its initial RelayNotify — cannot be written. Mirrors the
-# reference TEST7193.
-def test_7193_failed_relay_write_ends_the_host_session():
-    relay_read_fd, engine_write_fd = os.pipe()
-    engine_read_fd, relay_write_fd = os.pipe()
-    os.close(engine_read_fd)
-    relay_read = os.fdopen(relay_read_fd, "rb")
-    relay_write = os.fdopen(relay_write_fd, "wb")
+class _FaultingRelayWrite:
+    """A relay transport whose every write fails while the relay is still
+    there: not a hang-up, a fault."""
 
-    host = CartridgeHost()
+    def write(self, data):
+        raise OSError(errno.EIO, "the relay transport faulted")
+
+    def flush(self):
+        pass
+
+
+def _run_host_until_it_ends(host, relay_read, relay_write):
+    """Run ``host`` on the relay and return how its session ended: [None]
+    for a clean end, [error] for a failed one, [] when it had not ended
+    within five seconds."""
     outcome = []
 
     def run():
@@ -1788,9 +1790,45 @@ def test_7193_failed_relay_write_ends_the_host_session():
     runner = threading.Thread(target=run, daemon=True)
     runner.start()
     runner.join(timeout=5)
+    return outcome
+
+
+# TEST7193: a frame the host cannot write to its relay ends its session with
+# the failure named. The write used to be swallowed while the host went on
+# reading the relay, so the engine waited for answers the host could no longer
+# give. Here the relay's read side stays open and sends nothing, and its write
+# side faults: the host's first frame — its initial RelayNotify — cannot be
+# written. Mirrors the reference TEST7193.
+def test_7193_failed_relay_write_ends_the_host_session():
+    relay_read_fd, engine_write_fd = os.pipe()
+    relay_read = os.fdopen(relay_read_fd, "rb")
+
+    outcome = _run_host_until_it_ends(CartridgeHost(), relay_read, _FaultingRelayWrite())
     os.close(engine_write_fd)
 
     assert outcome, "a host whose relay cannot take its frames ends its session"
-    assert outcome[0] is not None and "relay write failed" in str(outcome[0]), (
+    assert outcome[0] is not None and "relay write failed" in str(outcome[0]) \
+        and "the relay transport faulted" in str(outcome[0]), (
         f"the session ends naming the failed write, got {outcome[0]!r}"
+    )
+
+
+# TEST7194: a write that fails because the engine hung up is the relay
+# closing, as when its read side ends: the session ends cleanly, not with a
+# failed write. Here the engine has closed its reading end and the relay's
+# read side stays open, so only the write can say the engine is gone. Mirrors
+# the reference TEST7194.
+def test_7194_relay_write_to_a_hung_up_engine_ends_the_session_cleanly():
+    relay_read_fd, engine_write_fd = os.pipe()
+    engine_read_fd, relay_write_fd = os.pipe()
+    os.close(engine_read_fd)
+    relay_read = os.fdopen(relay_read_fd, "rb")
+    relay_write = os.fdopen(relay_write_fd, "wb")
+
+    outcome = _run_host_until_it_ends(CartridgeHost(), relay_read, relay_write)
+    os.close(engine_write_fd)
+
+    assert outcome, "a host whose engine hung up ends its session"
+    assert outcome[0] is None, (
+        f"an engine that hung up closed the relay; the session ends cleanly, got {outcome[0]!r}"
     )

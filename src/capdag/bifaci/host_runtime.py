@@ -24,6 +24,7 @@ host.run(relay_reader, relay_writer, resource_fn=lambda: b"")
 ```
 """
 
+import errno
 import hashlib
 import json
 import os
@@ -522,6 +523,19 @@ class _ManagedCartridge:
         return out
 
 
+def _relay_hung_up(error: BaseException) -> bool:
+    """Whether a failed relay write says the engine hung up: the connection's
+    far end is closed (BrokenPipe, ConnectionReset) or gone (NotConnected).
+    The frame writer raises its own error from the stream's, so the cause is
+    looked at too. Mirrors the reference ``relay_hung_up``."""
+    for e in (error, error.__cause__):
+        if isinstance(e, (BrokenPipeError, ConnectionResetError)):
+            return True
+        if isinstance(e, OSError) and e.errno == errno.ENOTCONN:
+            return True
+    return False
+
+
 # =========================================================================
 # CartridgeHost — multi-cartridge relay-based host
 # =========================================================================
@@ -559,6 +573,10 @@ class CartridgeHost:
         # Why a RelayNotify could not be written to the relay, once one could
         # not: the run loop ends the session on it.
         self._relay_write_failure: Optional[str] = None
+        # Whether a RelayNotify write found the engine hung up: the relay is
+        # closed, and the run loop ends the session as it does when the
+        # relay's read side ends.
+        self._relay_hung_up = False
         # Inventory records this host does NOT manage as processes —
         # discovery outcomes like incompatible installs (verdict-rejected,
         # wrong manifest version, quarantined). Merged into EVERY
@@ -870,9 +888,16 @@ class CartridgeHost:
         last_stats_publish = time.monotonic()
 
         while True:
-            # A frame the relay could not take ends the session: it is lost,
-            # and every frame after it would be too, so the engine would wait
-            # on answers this host can no longer give.
+            # An engine that hung up closed the relay: the session ends as it
+            # does when the relay's read side ends.
+            if self._relay_hung_up:
+                self._relay_writer = None
+                self._kill_all_cartridges()
+                return
+
+            # Any other frame the relay could not take ends the session: it
+            # is lost, and every frame after it would be too, so the engine
+            # would wait on answers this host can no longer give.
             if self._relay_write_failure is not None:
                 self._relay_writer = None
                 self._kill_all_cartridges()
@@ -1489,9 +1514,12 @@ class CartridgeHost:
                 self._relay_writer.write(notify)
             except Exception as e:
                 # A frame the relay could not take ends the session: the run
-                # loop raises it. Said, never swallowed; the first failure is
-                # the one reported. Mirrors the reference run loop.
-                if self._relay_write_failure is None:
+                # loop ends it. An engine that hung up closed the relay; any
+                # other failure is raised. Said, never swallowed; the first
+                # failure is the one reported. Mirrors the reference run loop.
+                if _relay_hung_up(e):
+                    self._relay_hung_up = True
+                elif self._relay_write_failure is None:
                     self._relay_write_failure = f"RELAY_NOTIFY could not be written: {e}"
 
     def _aggregate_limits(self) -> Limits:
