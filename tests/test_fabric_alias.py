@@ -65,6 +65,22 @@ def test_1880_alias_name_normalization_rules():
         normalize_alias_name("a/b")
 
 
+# TEST1980: an alias name lowercases A-Z and no other character, and refuses
+# every Unicode White_Space character as whitespace: under Unicode case
+# mapping KELVIN SIGN lowercases to `k`, and one implementation would publish
+# a name another refuses.
+def test_1980_alias_names_lowercase_only_ascii_letters():
+    assert normalize_alias_name("JSONDoc") == "jsondoc"
+    with pytest.raises(ValueError, match="invalid characters"):
+        normalize_alias_name(chr(0x212A) + "ind")
+    for spaced in ("a" + chr(0xA0) + "b", "a" + chr(0x85) + "b"):
+        with pytest.raises(ValueError, match="whitespace"):
+            normalize_alias_name(spaced)
+    for odd in ("a" + chr(0xFEFF) + "b", "a" + chr(0x1C) + "b"):
+        with pytest.raises(ValueError, match="invalid characters"):
+            normalize_alias_name(odd)
+
+
 # TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 def test_1881_token_urn_vs_alias_detection():
     assert token_is_urn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"')
