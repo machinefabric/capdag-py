@@ -487,7 +487,6 @@ class Cap:
         self._metadata_json: Optional[Any] = None
         self._registered_by: Optional["RegisteredBy"] = None
         self.supported_model_types: List[str] = []
-        self.default_model_spec: Optional[str] = None
 
     @classmethod
     def with_description(cls, urn: CapUrn, title: str, aliases: List[str], description: str) -> "Cap":
@@ -538,6 +537,39 @@ class Cap:
     def urn_string(self) -> str:
         """Get the URN as a string"""
         return self.urn.to_string()
+
+    def model_spec_arg(self) -> Optional[CapArg]:
+        """The cap's model-spec argument: the one whose media URN conforms to
+        ``MEDIA_MODEL_SPEC``, or ``None`` when the cap takes no model spec. A cap
+        that declares two raises ``ValueError`` naming it."""
+        from capdag.urn.media_urn import MEDIA_MODEL_SPEC, MediaUrn
+
+        model_spec = MediaUrn.from_string(MEDIA_MODEL_SPEC)
+        found: Optional[CapArg] = None
+        for arg in self.args:
+            if not MediaUrn.from_string(arg.media_urn).conforms_to(model_spec):
+                continue
+            if found is not None:
+                raise ValueError(
+                    f"cap '{self.urn}' declares two model-spec arguments, "
+                    f"'{found.media_urn}' and '{arg.media_urn}'"
+                )
+            found = arg
+        return found
+
+    def default_model_spec(self) -> Optional[str]:
+        """The model a run of this cap uses when none is named: its model-spec
+        argument's ``default_value``, the value a run applies. ``None`` when the
+        cap takes no model spec, or its model-spec argument declares no
+        default."""
+        arg = self.model_spec_arg()
+        if arg is None or arg.default_value is None:
+            return None
+        if not isinstance(arg.default_value, str):
+            raise ValueError(
+                f"cap '{self.urn}' model-spec argument '{arg.media_urn}' declares a default that is not a string"
+            )
+        return arg.default_value
 
     def get_args(self) -> List[CapArg]:
         """Get all arguments"""
@@ -799,9 +831,6 @@ class Cap:
         if self.supported_model_types:
             result["supported_model_types"] = self.supported_model_types
 
-        if self.default_model_spec is not None:
-            result["default_model_spec"] = self.default_model_spec
-
         return result
 
     @classmethod
@@ -857,7 +886,6 @@ class Cap:
 
         cap.version = int(data.get("version", 0))
         cap.supported_model_types = data.get("supported_model_types", [])
-        cap.default_model_spec = data.get("default_model_spec")
 
         return cap
 
