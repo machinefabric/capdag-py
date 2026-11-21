@@ -6,7 +6,8 @@ for efficient path finding and reachability queries.
 Design Principles:
 1. Typed URNs: Store MediaUrn and CapUrn directly, not strings.
 2. Exact matching: For target matching, use is_equivalent() not conforms_to().
-3. Conformance for traversal: Use conforms_to() for graph traversal.
+3. Satisfaction for traversal: a node, read complete, satisfies the next cap's
+   input (satisfies()).
 4. Deterministic ordering: Results sorted by (path_length, specificity, urn).
 5. ForEach is synthesized dynamically in get_outgoing_edges() when is_sequence=True
    and there are scalar consumers; it is never pre-inserted as a real graph edge.
@@ -543,7 +544,11 @@ class LiveCapFab:
           - Otherwise: include with out_is_sequence = edge.output_is_sequence.
 
         Synthesizes a ForEach edge when is_sequence=True and there is at least
-        one Cap edge with not input_is_sequence whose from_spec source conforms to.
+        one Cap edge with not input_is_sequence whose from_spec source satisfies.
+
+        A source is what a step gave or a file's detected type, a complete
+        thing: what it does not mention it does not have, so it takes an edge
+        whose input it satisfies.
         """
         results: List[Tuple[LiveMachinePlanEdge, bool]] = []
         needs_foreach = False
@@ -551,7 +556,7 @@ class LiveCapFab:
         for edge in self._edges:
             if edge.edge_type != LiveMachinePlanEdgeType.CAP:
                 continue
-            if not source.conforms_to(edge.from_spec):
+            if not source.satisfies(edge.from_spec):
                 continue
             if is_sequence and not edge.input_is_sequence:
                 # Sequence data reaching a scalar cap — ForEach must be synthesized.

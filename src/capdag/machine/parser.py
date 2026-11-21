@@ -86,6 +86,7 @@ from capdag.machine.resolve import (
     WiringTarget,
     match_sources_to_args,
     resolve_named_wirings,
+    source_fits,
 )
 from capdag.machine.syntax import CAP_HEADER, MACHINE_HEADER, parse_syntax
 from capdag.planner.live_cap_fab import StepToken
@@ -520,6 +521,10 @@ def _include_machines(
             if wirings[index].cap_alias in machines:
                 media_of[index] = node_media
 
+    # A node some step produces holds what that step gives, a complete thing;
+    # every other node holds the type the text wrote for it.
+    produced = {target.node for wiring in wirings for target in wiring.targets}
+
     uses: Dict[str, int] = {}
     written: List[_RawWiring] = []
     for index, wiring in enumerate(wirings):
@@ -545,7 +550,7 @@ def _include_machines(
                 raise MachineInputBindingError(position, alias, member.name, count)
             if not member.value.is_constant:
                 held = node_media[member.value.node]
-                if not held.conforms_to(accepts):
+                if not source_fits(held, member.value.node in produced, accepts):
                     raise SourceDoesNotConformToMachineInputError(
                         position, alias, member.name, accepts.to_string(), held.to_string()
                     )
@@ -556,9 +561,12 @@ def _include_machines(
         if unnamed:
             free = [(name, media) for name, media in machine.inputs if name not in bound]
             sources = [node_media[node] for node in unnamed]
+            given = [node in produced for node in unnamed]
             accepted = [media for _, media in free]
             try:
-                pairs = match_sources_to_args(sources, accepted, [False] * len(accepted), None)
+                pairs = match_sources_to_args(
+                    sources, given, accepted, [False] * len(accepted), None
+                )
             except MatchFailure as failure:
                 if not failure.ambiguous:
                     raise UnmatchedMachineMemberError(

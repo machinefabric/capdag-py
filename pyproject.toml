@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "capdag"
-version = "1.558.319"
+version = "1.559.330"
 description = "Core capability URN and definition system for CapDAG"
 readme = "README.md"
 authors = [{name = "https://github.com/machinefabric"}]
