@@ -2631,6 +2631,27 @@ def test_540_output_stream_close_sends_stream_end():
     assert chunk_pos < end_pos, "the flushed tail ships BEFORE STREAM_END"
 
 
+# TEST7189: An array emitted after bytes still in the coalescing buffer does not overtake them: the bytes ship first, then the array's elements, each its own chunk, and STREAM_END counts all three.
+def test_7189_array_emission_is_an_ordering_barrier():
+    mock_writer = MockFrameWriter()
+    stream = OutputStream(
+        writer=SyncFrameWriter(mock_writer),
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:test",
+        max_chunk=256_000,
+    )
+    stream.start(False, None)
+    stream.write(b"abc")
+    stream.emit_cbor([1, 2])
+    stream.close()
+
+    payloads = [cbor2.loads(f.payload) for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert payloads == [b"abc", 1, 2], "the buffered bytes ship before the array's elements"
+    stream_end = next(f for f in mock_writer.frames if f.frame_type == FrameType.STREAM_END)
+    assert stream_end.chunk_count == 3
+
+
 # TEST8119: the coalescing AGE bound — an emission arriving after the
 # buffer's oldest byte crossed COALESCE_MAX_AGE flushes the accumulated
 # batch, so steady token emission lags the wire by at most one write-gap;
