@@ -79,8 +79,9 @@ class InvalidFrameError(CborError):
 
 
 class UnexpectedEofError(CborError):
-    """Unexpected end of stream"""
-    pass
+    """Unexpected end of stream: it ended part way through a frame."""
+    def __init__(self, message: str = "Unexpected end of stream"):
+        super().__init__(message)
 
 
 class ProtocolError(CborError):

@@ -911,6 +911,114 @@ def test_422_cartridge_death_sends_err():
     assert err_frame[0].error_code() == "CARTRIDGE_DIED"
 
 
+def _die_mid_frame(tmp_path, monkeypatch, how):
+    """Run a real cartridge process that dies part way through a frame the way
+    ``how`` says (tests/fixtures/dying_cartridge.py), with a request pending on
+    it, and return the ERR the host answered that request with."""
+    import sys
+    from pathlib import Path
+
+    import capdag
+
+    manifest = (
+        '{"name":"Dying","version":"1.0","channel":"release","registry_url":null,'
+        '"description":"Test","cap_groups":[{"name":"default","caps":['
+        + IDENTITY_CAP_JSON + "," + complete_cap_json("cap:die") + "]}]}"
+    )
+    script = Path(__file__).parent / "fixtures" / "dying_cartridge.py"
+    if sys.platform == "win32":
+        entry = tmp_path / "dying.cmd"
+        entry.write_text(f'@"{sys.executable}" "{script}"\r\n', encoding="utf-8")
+    else:
+        entry = tmp_path / "dying"
+        entry.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}"\n', encoding="utf-8")
+        entry.chmod(0o755)
+    package_root = str(Path(capdag.__file__).resolve().parent.parent)
+    monkeypatch.setenv(
+        "PYTHONPATH", os.pathsep.join(filter(None, [package_root, os.environ.get("PYTHONPATH")]))
+    )
+    monkeypatch.setenv("CAPDAG_TEST_DIE_HOW", how)
+    monkeypatch.setenv("CAPDAG_TEST_DIE_MANIFEST", manifest)
+
+    host = _policed_host()
+    host.register_cartridge(
+        str(entry), "dying", "0.0.0", CartridgeChannel.RELEASE, None,
+        json.loads(manifest)["cap_groups"],
+    )
+
+    r_hr, r_hw, r_pr, r_pw, r_hs, r_ps = make_conn()
+    err_frame = [None]
+
+    def engine():
+        w = FrameWriter(r_pw)
+        r = FrameReader(r_pr)
+        req_id = MessageId.new_uuid()
+        w.write(Frame.req(req_id, "cap:die", b"", "text/plain"))
+        w.write(Frame.end(req_id))
+        while True:
+            frame = r.read()
+            if frame is None:
+                break
+            if frame.frame_type == FrameType.ERR:
+                err_frame[0] = frame
+                break
+        close_socks(r_ps)
+
+    t_eng = threading.Thread(target=engine, daemon=True)
+    t_eng.start()
+    host.run(r_hr, r_hw)
+    cleanup(r_hs, r_ps)
+    t_eng.join(timeout=10)
+
+    err = err_frame[0]
+    assert err is not None, "the request the dead cartridge held must be answered"
+    assert err.error_code() == "CARTRIDGE_DIED"
+    message = err.error_message()
+    assert str(entry) in message, f"the death names the cartridge: {message}"
+    assert "reading its output failed: Unexpected end of stream" in message, message
+    assert "still running" not in message, f"the process had exited: {message}"
+    assert f"stderr:\ndying cartridge is dying: {how}" in message, message
+    return message
+
+
+# TEST13210: a cartridge that writes part of a frame and exits is reported with
+# the read error the host saw and the code it exited with — not only as having
+# died, and never as still running.
+def test_13210_a_cartridge_that_exits_mid_frame_is_reported_with_its_read_error_and_exit_code(
+    tmp_path, monkeypatch
+):
+    message = _die_mid_frame(tmp_path, monkeypatch, "exit:3")
+    assert "exited unexpectedly (exit code 3)" in message, message
+
+
+# TEST13211: a cartridge that aborts mid-frame is reported with the read error
+# and how the process ended: on Unix the signal that killed it. A Python
+# process that aborts on Windows exits with code 3 (os.abort).
+def test_13211_a_cartridge_that_aborts_mid_frame_is_reported_with_its_signal(tmp_path, monkeypatch):
+    import sys
+
+    message = _die_mid_frame(tmp_path, monkeypatch, "abort")
+    if sys.platform == "win32":
+        assert "exited unexpectedly (exit code 3)" in message, message
+    else:
+        assert "killed by signal 6 (SIGABRT)" in message, message
+
+
+# TEST13212: a Windows process's exit code is told apart: a crash names the
+# exception it ended with, a process the loader could not start names the
+# status that stopped it, and any other code is the program's own, shown
+# signed and in hex when its high bit is set.
+def test_13212_a_windows_exit_code_names_its_exception():
+    from capdag.bifaci.host_runtime import describe_windows_exit_code
+
+    assert describe_windows_exit_code(0xC0000409) == "exception 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN)"
+    assert describe_windows_exit_code(0xC0000005) == "exception 0xC0000005 (STATUS_ACCESS_VIOLATION)"
+    assert describe_windows_exit_code(0xC0000135) == "status 0xC0000135 (STATUS_DLL_NOT_FOUND)"
+    assert describe_windows_exit_code(0xFFFFFFFF) == "exit code -1 (0xFFFFFFFF)"
+    assert describe_windows_exit_code(3) == "exit code 3"
+    assert describe_windows_exit_code(0) == "exit code 0"
+
+
 # TEST423: Multiple cartridges registered with distinct caps route independently
 def test_423_multi_cartridge_distinct_caps():
     manifest_a = '{"name":"A","version":"1.0","channel":"release","registry_url":null,"description":"Test","cap_groups":[{"name":"default","caps":[' + IDENTITY_CAP_JSON + ',' + complete_cap_json("cap:alpha") + ']}]}'
@@ -1110,8 +1218,10 @@ def test_6623_cartridge_death_keeps_known_caps_advertised():
         host._cartridges[0].running = True
         host._cartridges[0].generation = 1
 
+    from capdag.bifaci.host_runtime import _StreamEnd
+
     relay_writer = FrameWriter(io.BytesIO())
-    host._handle_cartridge_death(0, 1, relay_writer)
+    host._handle_cartridge_death(0, 1, _StreamEnd.closed(), relay_writer)
 
     with host._lock:
         advertised = [entry.cap_urn for entry in host._cap_table]
@@ -1149,13 +1259,15 @@ def test_8067_stale_reader_death_cannot_kill_replacement_generation():
         cartridge.running = True
         cartridge.generation = 7
 
+    from capdag.bifaci.host_runtime import _StreamEnd
+
     relay_writer = FrameWriter(io.BytesIO())
-    host._handle_cartridge_death(0, 6, relay_writer)
+    host._handle_cartridge_death(0, 6, _StreamEnd.closed(), relay_writer)
     with host._lock:
         assert host._cartridges[0].running
         assert host._cartridges[0].generation == 7
 
-    host._handle_cartridge_death(0, 7, relay_writer)
+    host._handle_cartridge_death(0, 7, _StreamEnd.closed(), relay_writer)
     with host._lock:
         assert not host._cartridges[0].running
         assert host._cartridges[0].generation == 8

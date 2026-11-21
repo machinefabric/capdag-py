@@ -320,6 +320,14 @@ def test_222_read_frame_fails_on_truncated_length_prefix():
         read_frame(input_stream, Limits.default())
 
 
+# TEST13213: a stream that ends right after a whole length prefix, before any
+# of the frame it announces, ended part way through that frame.
+def test_13213_a_stream_ending_after_a_length_prefix_is_an_unexpected_end():
+    input_stream = io.BytesIO(b"\x00\x00\x00\x10")
+    with pytest.raises(UnexpectedEofError, match="Unexpected end of stream"):
+        read_frame(input_stream, Limits.default())
+
+
 # TEST223: Test read_frame returns error on truncated frame body (length prefix says more bytes than available)
 def test_223_read_frame_fails_on_truncated_frame_body():
     input_stream = io.BytesIO(b"\x00\x00\x00\x64" + b"\x01\x02\x03\x04\x05")
