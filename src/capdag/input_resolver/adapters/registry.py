@@ -151,20 +151,18 @@ class MediaAdapterRegistry:
 
     async def find_adapters_for_extension(self, ext: str) -> list[tuple[str, MediaUrn]]:
         """The adapters that cover a file media type the fabric declares for
-        ``ext``, one per cartridge, as ``(cartridge_id, adapter_media_urn)``
-        pairs. The fabric's file types that cannot be loaded raise the
-        registry's error."""
+        ``ext``, as ``(cartridge_id, adapter_media_urn)`` pairs: a cartridge
+        appears once per adapter it registered. The fabric's file types that
+        cannot be loaded raise the registry's error."""
         return self.adapters_for_candidates(await self._extension_candidates(ext))
 
     def adapters_for_candidates(self, candidates: Sequence[MediaUrn]) -> list[tuple[str, MediaUrn]]:
-        """The registered adapters some of these candidates conform to, one
-        per cartridge, as ``(cartridge_id, adapter_media_urn)`` pairs."""
+        """Every registered adapter some of these candidates conform to, as
+        ``(cartridge_id, adapter_media_urn)`` pairs, in registration order. A
+        cartridge appears once per adapter; detection asks it once."""
         results: list[tuple[str, MediaUrn]] = []
-        seen_cartridges: set[str] = set()
         for registered in self._registered_adapters:
-            matches = any(candidate.conforms_to(registered.media_urn) for candidate in candidates)
-            if matches and registered.cartridge_id not in seen_cartridges:
-                seen_cartridges.add(registered.cartridge_id)
+            if any(candidate.conforms_to(registered.media_urn) for candidate in candidates):
                 results.append((registered.cartridge_id, registered.media_urn))
         return results
 
