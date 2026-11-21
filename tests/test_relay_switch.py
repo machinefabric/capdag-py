@@ -1711,6 +1711,191 @@ def test_1904_add_master_probe_failure_registers_unhealthy_not_raises():
     assert switch._find_master_for_cap(CAP_GENERIC) == 0
 
 
+def _read_identity_probe(reader: FrameReader):
+    """Read an identity probe a fake master was sent — its REQ and body —
+    and return what answering it takes: (rid, xid, payload)."""
+    req = reader.read()
+    assert req is not None and req.frame_type == FrameType.REQ, "an identity probe begins with its REQ"
+    payload = bytearray()
+    while True:
+        frame = reader.read()
+        assert frame is not None, "the identity probe's body ended early"
+        if frame.frame_type == FrameType.CHUNK:
+            payload.extend(frame.payload or b"")
+        elif frame.frame_type == FrameType.END:
+            return req.id, req.routing_id, bytes(payload)
+
+
+def _identity_echo_frames(rid, xid, payload: bytes):
+    """The echo that answers an identity probe: STREAM_START, CHUNK(payload),
+    STREAM_END, END, on the probe's flow."""
+    stream_id = "identity-echo"
+    frames = [
+        Frame.stream_start(rid, stream_id, "media:"),
+        Frame.chunk(rid, stream_id, 0, payload, 0, compute_checksum(payload)),
+        Frame.stream_end(rid, stream_id, 1),
+        Frame.end(rid, None),
+    ]
+    for frame in frames:
+        frame.routing_id = xid
+    return frames
+
+
+def _wait_until(limit: float, what: str, done) -> None:
+    deadline = time.monotonic() + limit
+    while not done():
+        assert time.monotonic() < deadline, f"timed out waiting until {what}"
+        time.sleep(0.02)
+
+
+def _master_health(switch: RelaySwitch, idx: int):
+    with switch._lock:
+        master = switch._masters[idx]
+        return master.healthy, master.last_error
+
+
+LATE_CAP = 'cap:in="media:void";late;out="media:void"'
+
+
+# TEST7190: a host whose identity answer outlasts add_master's probe window —
+# a cartridge cold start longer than the window — joins unverified and
+# reported overdue, and its answer, arriving after the window, verifies it.
+# Half the answer arrives inside the window and the rest after it: the part
+# add_master read carries over to the wait. Mirrors the reference TEST7190.
+def test_7190_add_master_probe_answered_after_its_window_verifies_the_master():
+    switch = _build_switch_with_n_masters(1)
+    switch._set_identity_probe_window(0.3)
+    switch.start_background_pump()
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    release = threading.Event()
+
+    def slow_host():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest(LATE_CAP), Limits.default())
+        expect_policy(reader)
+        rid, xid, payload = _read_identity_probe(reader)
+        echo = _identity_echo_frames(rid, xid, payload)
+        for frame in echo[:2]:
+            writer.write(frame)
+        release.wait()
+        for frame in echo[2:]:
+            writer.write(frame)
+        while reader.read() is not None:
+            pass
+
+    threading.Thread(target=slow_host, daemon=True).start()
+    idx = switch.add_master(SocketPair(
+        id="slow-host",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    ))
+
+    healthy, reported = _master_health(switch, idx)
+    assert healthy is False, "a master whose probe is unanswered is not verified"
+    assert reported is not None and "identity probe unanswered after" in reported, reported
+    assert switch._find_master_for_cap(LATE_CAP) is None
+
+    release.set()
+    _wait_until(5, "the late answer verifies the master", lambda: switch._find_master_for_cap(LATE_CAP) == idx)
+    assert _master_health(switch, idx) == (True, None)
+
+
+# TEST7191: the runtime identity probe (a master whose advertised caps went
+# from empty to non-empty) left unanswered past its window reports the master
+# overdue and stays open; the answer, when it comes, makes the master's caps
+# routable. Mirrors the reference TEST7191.
+def test_7191_runtime_probe_answered_after_its_window_verifies_the_master():
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    release = threading.Event()
+
+    def slow_host():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, {"installed_cartridges": []}, Limits.default())
+        expect_policy(reader)
+        populated = make_manifest(LATE_CAP)
+        populated["installed_cartridges"][0]["id"] = "test-cartridge"
+        send_notify(writer, populated, Limits.default())
+        rid, xid, payload = _read_identity_probe(reader)
+        release.wait()
+        for frame in _identity_echo_frames(rid, xid, payload):
+            writer.write(frame)
+        while reader.read() is not None:
+            pass
+
+    threading.Thread(target=slow_host, daemon=True).start()
+    switch = RelaySwitch([SocketPair(
+        id="slow-master-0",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    )], _FULL_POLICY)
+    switch._set_identity_probe_window(0.3)
+    switch.start_background_pump()
+
+    _wait_until(
+        5,
+        "the unanswered probe is reported overdue",
+        lambda: "identity probe unanswered after" in (_master_health(switch, 0)[1] or ""),
+    )
+    assert _master_health(switch, 0)[0] is False
+    assert switch._find_master_for_cap(LATE_CAP) is None
+
+    release.set()
+    _wait_until(5, "the late answer verifies the master", lambda: switch._find_master_for_cap(LATE_CAP) == 0)
+    assert _master_health(switch, 0) == (True, None)
+
+
+# TEST7192: a master whose identity probe is open is unhealthy; when its
+# connection dies, the probe's request ends with MASTER_DIED and the master
+# says so. Death handling used to stop at an unhealthy master, leaving its
+# requests — the open probe — in the table for ever. Mirrors the reference
+# TEST7192.
+def test_7192_open_identity_probe_ends_when_its_master_dies():
+    switch = _build_switch_with_n_masters(1)
+    switch._set_identity_probe_window(0.2)
+    switch.start_background_pump()
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    hangup = threading.Event()
+
+    def mute_host():
+        reader = FrameReader(slave_read.makefile("rb"))
+        writer = FrameWriter(slave_write.makefile("wb"))
+        send_notify(writer, make_manifest('cap:in="media:void";mute;out="media:void"'), Limits.default())
+        expect_policy(reader)
+        _read_identity_probe(reader)
+        hangup.wait()
+        slave_write.shutdown(socket.SHUT_RDWR)
+        slave_write.close()
+        slave_read.close()
+
+    host = threading.Thread(target=mute_host, daemon=True)
+    host.start()
+    idx = switch.add_master(SocketPair(
+        id="mute-host",
+        read=engine_read.makefile("rb"),
+        write=engine_write.makefile("wb"),
+    ))
+    with switch._lock:
+        assert len(switch._requests) == 1, "the open probe is a live request"
+
+    hangup.set()
+    host.join(timeout=5)
+
+    def probe_ended():
+        with switch._lock:
+            empty = len(switch._requests) == 0
+        return empty and "MASTER_DIED" in (_master_health(switch, idx)[1] or "")
+
+    _wait_until(5, "the dead master's probe ends", probe_ended)
+    assert _master_health(switch, idx)[0] is False
+
+
 # ============================================================
 # Unified RequestTable / protocol_stats() cluster (protocol v4, L7/L8).
 # Parity with the reference RelaySwitch tests of the same numbers: the
