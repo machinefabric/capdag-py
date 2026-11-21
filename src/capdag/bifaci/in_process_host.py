@@ -392,10 +392,6 @@ class InProcessHostIdentity:
         )
 
 
-# Cap table entry: (cap_urn_string, handler_index).
-CapTable = List[Tuple[str, int]]
-
-
 def _in_process_pool_states(cap_urns: List[str], configured: Dict[str, int]):
     """The host's full pool-state map: one at-rest singleton per advertised
     cap plus the mandatory ``all`` pool. In-process handlers are
@@ -485,52 +481,27 @@ class InProcessCartridgeHost:
         return json.dumps(payload).encode("utf-8")
 
     @staticmethod
-    def build_cap_table(handlers: List[_HandlerEntry]) -> CapTable:
-        """Build the cap table for routing: flat list of (cap_urn, handler_idx)."""
-        table: CapTable = []
+    def registered_caps(handlers: List[_HandlerEntry]) -> Tuple[List[CapUrn], List[int]]:
+        """Every handler's caps as parsed values, in handler order and then
+        each handler's cap order, with the owning handler's index at the same
+        position."""
+        caps: List[CapUrn] = []
+        owners: List[int] = []
         for idx, entry in enumerate(handlers):
             for cap in entry.caps:
-                table.append((cap.urn.to_string(), idx))
-        return table
+                caps.append(cap.urn)
+                owners.append(idx)
+        return caps, owners
 
     @staticmethod
-    def find_handler_for_cap(cap_table: CapTable, cap_urn: str) -> Optional[int]:
-        """Find the best handler for a cap URN.
+    def find_handler_for_cap(caps: List[CapUrn], owners: List[int], request: CapUrn) -> Optional[int]:
+        """The index of the handler that serves ``request``, or None.
 
-        Uses ``is_dispatchable(candidate, request)`` to find handlers that can
-        legally handle the request, then ranks by specificity: equivalent
-        matches (distance 0) first, then more specific candidates (positive
-        distance), then more generic ones (negative distance).
+        The proved selection (``CapUrn.select``): least ranking key; of equal
+        keys, the first registered.
         """
-        try:
-            request_urn = CapUrn.from_string(cap_urn)
-        except (CapUrnError, ValueError):
-            return None
-
-        request_specificity = request_urn.specificity()
-        matches: List[Tuple[int, int]] = []  # (handler_idx, signed_distance)
-
-        for registered_cap, handler_idx in cap_table:
-            try:
-                registered_urn = CapUrn.from_string(registered_cap)
-            except (CapUrnError, ValueError):
-                continue
-            if registered_urn.is_dispatchable(request_urn):
-                specificity = registered_urn.specificity()
-                signed_distance = specificity - request_specificity
-                matches.append((handler_idx, signed_distance))
-
-        if not matches:
-            return None
-
-        # Ranking: non-negative distances before negative; within same sign,
-        # prefer smaller absolute distance.
-        def sort_key(m: Tuple[int, int]):
-            _, dist = m
-            return (0 if dist >= 0 else 1, abs(dist))
-
-        matches.sort(key=sort_key)
-        return matches[0][0]
+        i = CapUrn.select(caps, request)
+        return None if i is None else owners[i]
 
     def run(self, local_read, local_write) -> None:
         """Run the host. Returns when the local connection closes.
@@ -585,7 +556,7 @@ class InProcessCartridgeHost:
             Frame.relay_notify(manifest, limits.max_frame, limits.max_chunk)
         )
 
-        cap_table = self.build_cap_table(self.handlers)
+        caps, owners = self.registered_caps(self.handlers)
 
         # request_id -> input queue for forwarding frames to handler.
         active: Dict[MessageId, "queue.Queue"] = {}
@@ -639,7 +610,11 @@ class InProcessCartridgeHost:
                     if is_identity:
                         handler = identity_handler
                     else:
-                        idx = self.find_handler_for_cap(cap_table, cap_urn)
+                        try:
+                            request = CapUrn.from_string(cap_urn)
+                        except CapUrnError:
+                            request = None
+                        idx = None if request is None else self.find_handler_for_cap(caps, owners, request)
                         if idx is None:
                             # No registered handler for a dispatched cap is
                             # a deployment mismatch — Environment.
