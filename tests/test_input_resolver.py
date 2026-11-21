@@ -25,6 +25,7 @@ from capdag.input_resolver import (
     should_exclude_dir,
 )
 from capdag.input_resolver.adapters.registry import MediaAdapterRegistry
+from capdag.input_resolver.detection import FileMediaCandidate, _consult, surviving_candidates
 from capdag.input_resolver.path_resolver import resolve_file
 from capdag.input_resolver.value_adapter import ValueAdapter
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
@@ -477,6 +478,48 @@ async def test_1280_find_adapters_for_extension(tmp_path: Path):
 async def test_1281_no_adapter_for_unknown(tmp_path: Path):
     registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
     assert not await registry.has_adapter_for_extension("unknown")
+
+
+class _ClaimsOne:
+    """A cartridge that claims every file as one media type, counting how
+    often it is asked."""
+
+    def __init__(self, claim: str):
+        self.claim = claim
+        self.calls = 0
+
+    async def invoke_adapter_selection(self, cartridge_id: str, file_path: Path):
+        self.calls += 1
+        return [self.claim]
+
+
+# TEST1318: A cartridge with two incomparable adapters covering candidates of
+# one extension is returned once per adapter, so detection hands the model
+# every adapter that owns a candidate: asked once, the cartridge claims only
+# the record type, and the list candidate under its second adapter is owned,
+# unclaimed, and does not stand.
+@pytest.mark.asyncio
+async def test_1318_adapters_for_candidates_returns_every_owning_adapter(tmp_path: Path):
+    registry = MediaAdapterRegistry(_create_test_media_registry(tmp_path))
+    record = MediaUrn.from_string("media:enc=utf8;ext=json;fmt=json;record")
+    list_urn = MediaUrn.from_string("media:enc=utf8;ext=json;fmt=json;list")
+    registry.register_cap_group("g", [record.to_string(), list_urn.to_string()], "datacartridge")
+
+    assert registry.adapters_for_candidates([record, list_urn]) == [
+        ("datacartridge", record),
+        ("datacartridge", list_urn),
+    ], "both adapters of the cartridge must be returned, in registration order"
+
+    candidates = [
+        FileMediaCandidate(urn=record, validation=None),
+        FileMediaCandidate(urn=list_urn, validation=None),
+    ]
+    invoker = _ClaimsOne(record.to_string())
+    verdict = await _consult(Path("doc.json"), candidates, registry, invoker)
+    assert invoker.calls == 1, "the cartridge is asked once"
+    assert surviving_candidates(b'{"a": 1}', candidates, verdict) == [record], (
+        "the list candidate is owned and unclaimed, so only the claimed record stands"
+    )
 
 
 # =============================================================================
