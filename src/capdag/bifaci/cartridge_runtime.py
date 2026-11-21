@@ -3485,13 +3485,8 @@ def demux_peer_response(
                     if unfinished is not None:
                         item_queue.put(unfinished)
             elif frame.frame_type == FrameType.END:
-                # A stream the peer never ended, with part of an item still
-                # held, ended mid-item with the request — reported in a fixed
-                # order.
-                for stream_id in sorted(streams):
-                    unfinished = streams[stream_id].ended_mid_item()
-                    if unfinished is not None:
-                        item_queue.put(unfinished)
+                # Every stream has ended by now: END with one open is refused
+                # by the order check above.
                 ended = True
                 break
             elif frame.frame_type == FrameType.ERR:
