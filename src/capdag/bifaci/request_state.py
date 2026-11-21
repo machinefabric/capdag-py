@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
+import lungo_py
+
 from capdag import _formal
 from capdag.bifaci.frame import AttributionClass, CancelReason, Frame, FrameType, MessageId
 
@@ -104,6 +106,74 @@ class Disposition(str, Enum):
         if isinstance(disposition, _formal.DispositionNoRoute):
             return cls.NO_ROUTE
         raise RuntimeError(f"BUG: unknown disposition {disposition!r}")
+
+
+class ReceivedFlow:
+    """The order of one call's frames as a receiver takes them in, checked
+    frame by frame with the proved model (``formal/CapDAG/Bifaci/Request.lean``,
+    ``Emission.step``; stepping is ``check``, ``step_is_check``): a stream
+    started twice, a chunk or an end for a stream that is not open, a
+    ``chunk_index`` other than the number of chunks received on its stream, a
+    ``chunk_count`` that differs from it, END with a stream open, and any frame
+    after END or ERR are each refused, naming what is wrong. Frames that are
+    not of the flow (``Frame.is_flow_frame``) are not passed to the model.
+    Mirrors the Rust reference's ``ReceivedFlow``."""
+
+    def __init__(self) -> None:
+        self._state = _formal.emission_start()
+
+    def receive(self, frame: Frame) -> Optional[str]:
+        """Take in the next frame of the call: ``None`` when it is in order,
+        otherwise what is wrong. On a violation the flow is broken, and the
+        state is left where the last frame in order put it."""
+        if not frame.is_flow_frame():
+            return None
+        kind = frame.frame_type
+        if kind in (FrameType.STREAM_START, FrameType.CHUNK, FrameType.STREAM_END):
+            stream = frame.stream_id
+            if stream is None:
+                return f"{kind.name} frame names no stream"
+            if kind == FrameType.STREAM_START:
+                emitted: _formal.Emitted = _formal.EmittedStreamStart(stream)
+            elif kind == FrameType.CHUNK:
+                if frame.chunk_index is None:
+                    return f"chunk on stream {stream} carries no chunk_index"
+                emitted = _formal.EmittedChunk(stream, frame.chunk_index)
+            else:
+                emitted = _formal.EmittedStreamEnd(stream, frame.chunk_count)
+        elif kind == FrameType.END:
+            emitted = _formal.EmittedFin()
+        elif kind == FrameType.ERR:
+            emitted = _formal.EmittedErr()
+        else:
+            emitted = _formal.EmittedOther()
+        stepped = _formal.step(self._state, emitted)
+        if isinstance(stepped, lungo_py.Ok):
+            self._state = stepped.value
+            return None
+        return self._describe(stepped.error)
+
+    @staticmethod
+    def _describe(violation: "_formal.Violation") -> str:
+        if isinstance(violation, _formal.ViolationAfterEnd):
+            return "a frame after the call's END or ERR"
+        if isinstance(violation, _formal.ViolationStreamRestarted):
+            return f"stream {violation.stream} started twice"
+        if isinstance(violation, _formal.ViolationStreamNotOpen):
+            return f"a chunk or end for stream {violation.stream}, which is not open"
+        if isinstance(violation, _formal.ViolationChunkOutOfPlace):
+            return (
+                f"chunk out of place on stream {violation.stream}: "
+                f"expected {violation.expected}, got {violation.got}"
+            )
+        if isinstance(violation, _formal.ViolationChunkCountWrong):
+            return (
+                f"chunk count wrong on stream {violation.stream}: "
+                f"sent {violation.sent}, said {violation.said}"
+            )
+        if isinstance(violation, _formal.ViolationEndWithOpenStream):
+            return f"END with stream {violation.stream} still open"
+        raise RuntimeError(f"BUG: the model's violation {violation!r} has no description")
 
 
 class RequestPhase(str, Enum):
