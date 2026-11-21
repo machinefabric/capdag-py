@@ -7,7 +7,6 @@ the unified type and the media-related symbols under the historical
 """
 
 from capdag.fabric.registry import (
-    CACHE_DURATION_HOURS,
     FabricRegistry,
     FabricRegistryError,
     FileTypesError,
@@ -22,7 +21,6 @@ from capdag.fabric.registry import (
 )
 
 __all__ = [
-    "CACHE_DURATION_HOURS",
     "FabricRegistry",
     "FabricRegistryError",
     "FileTypesError",

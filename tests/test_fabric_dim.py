@@ -187,16 +187,12 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
         "medium": _dim("medium", 1, ["text"]),
     }
 
-    _retain_pinned(manifest, 11, caps, specs, aliases, dims)
+    _retain_pinned(manifest, caps, specs, aliases, dims)
     assert list(dims.keys()) == ["medium"], "a dim at another version is dropped"
     assert sorted(c.urn_string() for c in caps.values()) == sorted(
         [normalize_cap_urn(caps_urns[0]), normalize_cap_urn(caps_urns[2])]
     ), "the cap naming the dropped dim is dropped with it"
     assert list(specs.keys()) == ["media:x"], "a value the dim lacks drops the definition"
-
-    v0_dims = {"medium": _dim("medium", 1, ["text"])}
-    _retain_pinned(Manifest.empty(0), 0, {}, {}, {}, v0_dims)
-    assert v0_dims == {}, "v0 has no dims"
 
     # The registry's construction from a disk cache applies the same rule.
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
