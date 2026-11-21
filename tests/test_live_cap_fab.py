@@ -481,6 +481,35 @@ def test_7216_a_source_takes_an_edge_it_satisfies():
     )
 
 
+# TEST7219: the exact-path search steps only into states the target is
+# reachable from. Twelve kinds of dead-end data, each convertible into every
+# other, give hundreds of millions of routes within eight steps; the one route
+# to the target is six steps long and is found without walking them.
+def test_7219_search_skips_branches_that_cannot_reach_the_target():
+    graph = LiveCapFab()
+    for n in range(12):
+        graph.add_cap(_make_test_cap("media:start", f"media:dead;n={n}", f"into-dead-{n}", "Into Dead"))
+        for m in range(12):
+            if m != n:
+                graph.add_cap(
+                    _make_test_cap(f"media:dead;n={n}", f"media:dead;n={m}", f"dead-{n}-to-{m}", "Dead To Dead")
+                )
+    graph.add_cap(_make_test_cap("media:start", "media:route;n=1", "route-1", "Route 1"))
+    for n in range(1, 5):
+        graph.add_cap(_make_test_cap(f"media:route;n={n}", f"media:route;n={n + 1}", f"route-{n + 1}", "Route"))
+    graph.add_cap(_make_test_cap("media:route;n=5", "media:finish", "finish", "Finish"))
+
+    start, finish = _media("media:start"), _media("media:finish")
+    paths = graph.find_paths_to_exact_target(start, finish, False, 8, 10)
+    assert len(paths) == 1, "the one route is found"
+    assert paths[0].cap_step_count == 6
+
+    distances = graph._distances_to_exact_target(start, finish, False, 8)
+    assert (str(_media("media:dead;n=3")), False, False) not in distances, "dead-end data cannot reach the target"
+    assert distances[(str(start), False, False)] == 6
+    assert graph._distances_to_exact_target(finish, start, False, 8) is None
+
+
 # TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
 def test_1151_exact_vs_conformance_matching():
     singular = _media("media:analysis-result")
