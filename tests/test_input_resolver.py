@@ -27,10 +27,11 @@ from capdag.input_resolver import (
 from capdag.input_resolver.adapters.registry import MediaAdapterRegistry
 from capdag.input_resolver.detection import FileMediaCandidate, _consult, surviving_candidates
 from capdag.input_resolver.path_resolver import resolve_file
-from capdag.input_resolver.value_adapter import ValueAdapter
+from capdag.input_resolver.value_adapter import ValueAdapter, ValueAdapterError
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 from capdag.media.registry import FabricRegistry
 from capdag.urn.media_urn import MediaUrn
+from tagged_urn import ConstraintPresent
 
 
 # TEST1000: Single existing file
@@ -326,67 +327,129 @@ def _create_test_media_registry(tmp_path: Path) -> FabricRegistry:
     return registry
 
 
+def _media(text: str) -> MediaUrn:
+    return MediaUrn.from_string(text)
+
+
+def _with_marker(base: str, marker: str) -> str:
+    return str(_media(base).with_tag(marker, ConstraintPresent()))
+
+
 class _SpecialAdapter(ValueAdapter):
+    """Adapter that detects "special" values and adds the `refined` marker."""
+
     def __init__(self):
         super().__init__(
+            name="SpecialAdapter",
             base_media_urn="media:test",
             refined_marker_tag="refined",
-            value_matches=lambda value: value == "something-special",
+            value_matches=lambda value: "special" in value,
         )
 
 
-class _SpecificAdapter(ValueAdapter):
-    def __init__(self):
-        super().__init__(
-            base_media_urn="media:test;specific",
-            refined_marker_tag="result",
-            value_matches=lambda value: value == "something-specific",
-        )
+class _AnswerAdapter:
+    """Adapter that answers every base with a refinement of its own making."""
+
+    def __init__(self, name, answer):
+        self.name = name
+        self._answer = answer
+        self.asked = False
+
+    def refine(self, base_media_urn: str, value: str):
+        self.asked = True
+        return self._answer(base_media_urn)
+
+
+def _specific_adapter():
+    return _AnswerAdapter("SpecificAdapter", lambda base: _with_marker(base, "chosen-specific"))
+
+
+def _fixed_adapter(urn: str):
+    return _AnswerAdapter("FixedAdapter", lambda base: urn)
 
 
 # TEST1221: Matching value adapters refine the base media URN when the value fits.
 def test_1221_refine_with_matching_adapter():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    # The adapter is keyed by the `media:test` prefix; the base URN starts
-    # with that prefix, so the adapter fires and appends `refined`.
-    assert registry.refine_media_urn("media:test;enc=utf8", "something-special") == "media:enc=utf8;refined;test"
+    # The base falls under the key `media:test`, so its adapter is asked.
+    result = registry.refine_media_urn(_media("media:test;enc=utf8"), "a-special-value")
+    assert result.is_equivalent(_media("media:enc=utf8;refined;test"))
 
 
 # TEST1222: Base URNs without a registered adapter are returned unchanged.
 def test_1222_refine_no_matching_adapter():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:other;enc=utf8", "something-special") == "media:other;enc=utf8"
+    base = _media("media:other;enc=utf8")
+    assert registry.refine_media_urn(base, "a-special-value") == base
 
 
 # TEST1223: Adapters that decline to refine leave the original media URN intact.
 def test_1223_refine_adapter_returns_none():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    assert registry.refine_media_urn("media:test;enc=utf8", "ordinary-value") == "media:test;enc=utf8"
+    base = _media("media:test;enc=utf8")
+    assert registry.refine_media_urn(base, "ordinary-value") == base
 
 
-# TEST1224: When multiple adapter prefixes match, the longest prefix wins.
-def test_1224_refine_longest_prefix_match():
+# TEST1224: When several adapter keys cover the base, the adapter for the most specific key answers.
+def test_1224_refine_most_specific_key():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
-    registry.register("media:test;specific", _SpecificAdapter())
-    assert registry.refine_media_urn("media:test;specific;enc=utf8", "something-specific") == "media:enc=utf8;result;specific;test"
+    registry.register("media:specific;test", _specific_adapter())
+    result = registry.refine_media_urn(_media("media:foo;specific;test"), "a-special-value")
+    assert result.has_marker_tag("chosen-specific"), str(result)
+    assert not result.has_marker_tag("refined"), str(result)
 
 
 # TEST1225: An empty value adapter registry returns the input media URN unchanged.
 def test_1225_empty_registry():
     registry = ValueAdapterRegistry()
-    assert registry.refine_media_urn("media:anything", "any-value") == "media:anything"
+    base = _media("media:anything")
+    assert registry.refine_media_urn(base, "any-value") == base
 
 
-# TEST1226: Adapter presence checks report only the prefixes that were registered.
+# TEST1226: Adapter presence checks report only the keys that were registered.
 def test_1226_has_adapter():
     registry = ValueAdapterRegistry()
     registry.register("media:test", _SpecialAdapter())
     assert registry.has_adapter("media:test")
     assert not registry.has_adapter("media:other")
+
+
+# TEST6758: Value adapters are chosen by inclusion: keys are media URNs, the most specific key covering the base wins, two unordered ones are refused, and a refinement must lie inside the base
+def test_6758_value_adapters_chosen_by_inclusion():
+    registry = ValueAdapterRegistry()
+    with pytest.raises(ValueAdapterError) as bad:
+        registry.register("media:a=", _SpecialAdapter())
+    assert bad.value.kind == "bad-key"
+    registry.register("media:a", _SpecialAdapter())
+    with pytest.raises(ValueAdapterError) as duplicate:
+        registry.register("MEDIA:A", _SpecialAdapter())
+    assert duplicate.value.kind == "duplicate-key"
+
+    # Two keys the base falls under, neither refining the other.
+    registry.register("media:b", _SpecialAdapter())
+    with pytest.raises(ValueAdapterError) as ambiguous:
+        registry.refine_media_urn(_media("media:a;b"), "special")
+    assert ambiguous.value.kind == "ambiguous"
+    assert "'media:a' and 'media:b'" in str(ambiguous.value)
+
+    # A refinement outside the base is refused.
+    outside = ValueAdapterRegistry()
+    outside.register("media:a", _fixed_adapter("media:other"))
+    with pytest.raises(ValueAdapterError) as not_inside:
+        outside.refine_media_urn(_media("media:a"), "v")
+    assert not_inside.value.kind == "not-inside"
+
+    # A key fires for a base that falls under it whatever the base's text
+    # begins with: prefix matching never asked this adapter.
+    asked = _AnswerAdapter("Asked", lambda base: None)
+    model_spec = ValueAdapterRegistry()
+    model_spec.register("media:model-spec", asked)
+    model_spec.refine_media_urn(_media("media:enc=utf8;llm;model-spec"), "hf:x")
+    assert asked.asked
 
 
 # TEST1228: Value adapters can append a more specific marker when both base URN and value match.
