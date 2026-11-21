@@ -485,10 +485,12 @@ def test_401_relay_notify_factory_and_accessors():
     assert extracted_limits.max_frame == max_frame
     assert extracted_limits.max_chunk == max_chunk
 
-    # Test accessors on wrong frame type return None
+    # Reading a RelayNotify field from another frame type is an error
     req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
-    assert req.relay_notify_manifest() is None
-    assert req.relay_notify_limits() is None
+    with pytest.raises(ProtocolError):
+        req.relay_notify_manifest()
+    with pytest.raises(ProtocolError):
+        req.relay_notify_limits()
 
 
 # TEST402: Verify relay_state factory stores resource payload in frame payload field
@@ -1405,6 +1407,27 @@ def test_520_reorder_buffer_per_flow_limit():
     # Flow B: also overflow
     with pytest.raises(Exception, match="overflow"):
         buf.accept(_flow_frame(FrameType.CHUNK, rid_b, 3))
+
+
+# TEST7198: relay_notify_limits refuses a RelayNotify whose limits are not all present and positive integers, naming the key: initial_credit missing, max_chunk zero, max_frame text. relay_notify_manifest refuses a RelayNotify with no manifest.
+def test_7198_relay_notify_limits_are_read_strictly():
+    def with_meta(change):
+        frame = Frame.relay_notify(b"{}", Limits.default())
+        change(frame.meta)
+        return frame
+
+    cases = [
+        ("initial_credit", lambda m: m.pop("initial_credit")),
+        ("max_chunk", lambda m: m.__setitem__("max_chunk", 0)),
+        ("max_frame", lambda m: m.__setitem__("max_frame", "big")),
+    ]
+    for key, change in cases:
+        with pytest.raises(ProtocolError, match=key):
+            with_meta(change).relay_notify_limits()
+    with pytest.raises(ProtocolError, match="manifest"):
+        with_meta(lambda m: m.pop("manifest")).relay_notify_manifest()
+    whole = with_meta(lambda m: None).relay_notify_limits()
+    assert whole.initial_credit == Limits.default().initial_credit
 
 
 # TEST521: RelayNotify CBOR roundtrip preserves manifest and limits

@@ -69,6 +69,19 @@ DEFAULT_MAX_FRAME = 3_670_016
 DEFAULT_MAX_CHUNK = 262_144
 
 
+def _positive_limit(meta: dict, key: str) -> int:
+    """One limit of a RelayNotify: present, an integer, greater than zero;
+    anything else raises ProtocolError naming the key."""
+    from capdag.bifaci.io import ProtocolError
+
+    if key not in meta:
+        raise ProtocolError(f"RelayNotify limits: '{key}' is missing")
+    value = meta[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ProtocolError(f"RelayNotify limits: '{key}' is {value!r}, not a positive integer")
+    return value
+
+
 class FrameType(Enum):
     """Frame type discriminator. A member's value is its name, an identity,
     not a wire number: the wire number is the proved model's (``code`` and
@@ -1129,43 +1142,40 @@ class Frame:
             return None
         return CreditDirection.from_str_name(raw)
 
-    def relay_notify_manifest(self) -> Optional[bytes]:
-        """Extract manifest from RelayNotify metadata.
-        Returns None if not a RelayNotify frame or no manifest present."""
-        if self.frame_type != FrameType.RELAY_NOTIFY:
-            return None
-        if self.meta is None:
-            return None
-        manifest = self.meta.get("manifest")
-        if isinstance(manifest, bytes):
-            return manifest
-        return None
+    def relay_notify_manifest(self) -> bytes:
+        """The manifest a RelayNotify carries. Every RelayNotify carries one: a
+        frame of another type, a RelayNotify with no meta, no manifest, or a
+        manifest that is not a byte string, raises ProtocolError naming it."""
+        from capdag.bifaci.io import ProtocolError
 
-    def relay_notify_limits(self) -> Optional["Limits"]:
-        """Extract limits from RelayNotify metadata.
-        Returns None if not a RelayNotify frame or limits are missing."""
-        if self.frame_type != FrameType.RELAY_NOTIFY:
-            return None
-        if self.meta is None:
-            return None
-        max_frame = self.meta.get("max_frame")
-        max_chunk = self.meta.get("max_chunk")
-        if not isinstance(max_frame, int) or not isinstance(max_chunk, int):
-            return None
-        if max_frame <= 0 or max_chunk <= 0:
-            return None
-        max_reorder_buffer = self.meta.get("max_reorder_buffer")
-        if not isinstance(max_reorder_buffer, int) or max_reorder_buffer <= 0:
-            max_reorder_buffer = DEFAULT_MAX_REORDER_BUFFER
-        initial_credit = self.meta.get("initial_credit")
-        if not isinstance(initial_credit, int) or initial_credit <= 0:
-            initial_credit = DEFAULT_INITIAL_CREDIT
+        meta = self._relay_notify_meta()
+        if "manifest" not in meta:
+            raise ProtocolError("RelayNotify carries no manifest")
+        manifest = meta["manifest"]
+        if not isinstance(manifest, bytes):
+            raise ProtocolError("RelayNotify manifest is not a byte string")
+        return manifest
+
+    def relay_notify_limits(self) -> "Limits":
+        """The four limits a RelayNotify carries. Every RelayNotify carries all
+        four, each a positive integer: one missing, or one that is not a
+        positive integer, raises ProtocolError naming the key."""
+        meta = self._relay_notify_meta()
         return Limits(
-            max_frame=max_frame,
-            max_chunk=max_chunk,
-            max_reorder_buffer=max_reorder_buffer,
-            initial_credit=initial_credit,
+            max_frame=_positive_limit(meta, "max_frame"),
+            max_chunk=_positive_limit(meta, "max_chunk"),
+            max_reorder_buffer=_positive_limit(meta, "max_reorder_buffer"),
+            initial_credit=_positive_limit(meta, "initial_credit"),
         )
+
+    def _relay_notify_meta(self) -> dict:
+        from capdag.bifaci.io import ProtocolError
+
+        if self.frame_type != FrameType.RELAY_NOTIFY:
+            raise ProtocolError(f"a RelayNotify field read from a {self.frame_type.name} frame")
+        if self.meta is None:
+            raise ProtocolError("RelayNotify carries no meta")
+        return self.meta
 
     def is_eof(self) -> bool:
         """Check if this is the final frame in a stream"""

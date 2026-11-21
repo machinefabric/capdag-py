@@ -188,6 +188,52 @@ def _build_switch_with_n_masters(n: int, capless: bool = False) -> RelaySwitch:
 
 
 # TEST426: Single master REQ/response routing
+# TEST7199: Every RelayNotify carries all four limits as positive integers: a master whose first RelayNotify says max_chunk 0 is not taken (the switch fails naming max_chunk), and a later RelayNotify missing initial_credit is a protocol error naming it, leaving the limits the master last announced.
+def test_7199_relay_notify_limits_required_every_time():
+    def notify_with(change):
+        frame = Frame.relay_notify(json.dumps({"installed_cartridges": []}).encode(), Limits.default())
+        change(frame.meta)
+        return frame
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    def broken_first():
+        writer = FrameWriter(slave_write.makefile('wb'))
+        writer.write(notify_with(lambda m: m.__setitem__("max_chunk", 0)))
+
+    threading.Thread(target=broken_first, daemon=True).start()
+    with pytest.raises(ProtocolError, match="max_chunk"):
+        RelaySwitch([SocketPair(id="m0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    sent = threading.Event()
+
+    def broken_update():
+        reader = FrameReader(slave_read.makefile('rb'))
+        writer = FrameWriter(slave_write.makefile('wb'))
+        writer.write(notify_with(lambda m: None))
+        expect_policy(reader)
+        writer.write(notify_with(lambda m: m.pop("initial_credit")))
+        sent.set()
+
+    threading.Thread(target=broken_update, daemon=True).start()
+    switch = RelaySwitch([SocketPair(id="m0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
+    announced = switch.limits()
+    assert sent.wait(timeout=5)
+    switch.start_background_pump()
+    deadline = time.monotonic() + 5
+    while switch._masters[0].healthy and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not switch._masters[0].healthy, "a RelayNotify missing initial_credit ends the master"
+    assert "initial_credit" in (switch._masters[0].last_error or ""), switch._masters[0].last_error
+    kept = switch.limits()
+    assert (kept.max_frame, kept.max_chunk, kept.initial_credit) == (
+        announced.max_frame, announced.max_chunk, announced.initial_credit
+    ), "the limits last announced are kept"
+
+
 def test_426_single_master_req_response():
     """Verify basic single-master request/response flow"""
     # Create socket pair for master

@@ -185,13 +185,11 @@ class RelayMaster:
         if frame.frame_type != FrameType.RELAY_NOTIFY:
             raise RelayError(f"expected RelayNotify, got {frame.frame_type}")
 
-        manifest = frame.relay_notify_manifest()
-        if manifest is None:
-            raise RelayError("RelayNotify missing manifest")
-
-        limits = frame.relay_notify_limits()
-        if limits is None:
-            raise RelayError("RelayNotify missing limits")
+        try:
+            manifest = frame.relay_notify_manifest()
+            limits = frame.relay_notify_limits()
+        except ProtocolError as e:
+            raise RelayError(str(e)) from e
 
         return cls(manifest=manifest, limits=limits)
 
@@ -235,13 +233,13 @@ class RelayMaster:
                 return None
 
             if frame.frame_type == FrameType.RELAY_NOTIFY:
-                # Intercept: update manifest and limits
-                m = frame.relay_notify_manifest()
-                if m is not None:
-                    self._manifest = m
-                l = frame.relay_notify_limits()
-                if l is not None:
-                    self._limits = l
+                # Intercept: update manifest and limits. Both are read before
+                # either is kept: a RelayNotify missing one raises and leaves
+                # what was last said.
+                manifest = frame.relay_notify_manifest()
+                limits = frame.relay_notify_limits()
+                self._manifest = manifest
+                self._limits = limits
                 continue  # Don't return relay frames to caller
             elif frame.frame_type == FrameType.RELAY_STATE:
                 # RelayState from slave? Protocol error — drop

@@ -509,9 +509,6 @@ class RelaySwitch:
             manifest = frame.relay_notify_manifest()
             limits = frame.relay_notify_limits()
 
-            if manifest is None or limits is None:
-                raise ProtocolError("RelayNotify missing manifest or limits")
-
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
@@ -668,8 +665,6 @@ class RelaySwitch:
                 raise ProtocolError("Expected RelayNotify during handshake")
             manifest = frame.relay_notify_manifest()
             limits = frame.relay_notify_limits()
-            if manifest is None or limits is None:
-                raise ProtocolError("RelayNotify missing manifest or limits")
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
@@ -829,50 +824,53 @@ class RelaySwitch:
                 # whose RelayNotify branch returns the frame through to the
                 # engine after updating internal state.
                 if frame.frame_type == FrameType.RELAY_NOTIFY:
+                    # The manifest and the limits are both read before anything
+                    # is changed: a RelayNotify missing either, or with a limit
+                    # that is not a positive integer, raises, which ends the
+                    # master and leaves what it last said.
                     manifest = frame.relay_notify_manifest()
                     limits = frame.relay_notify_limits()
-                    if manifest is not None and limits is not None:
-                        caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
-                        probe_required = False
-                        with self._lock:
-                            if 0 <= master_idx < len(self._masters):
-                                master = self._masters[master_idx]
-                                # Detect the empty → non-empty transition. The
-                                # initial RelayNotify (during connect) skipped
-                                # the identity probe when caps were empty; if
-                                # the host now advertises a real handler chain
-                                # we must probe it end-to-end before letting the
-                                # new caps become routable. The master is held
-                                # unhealthy until the probe driver confirms
-                                # identity.
-                                prior_caps_empty = len(master.caps) == 0
-                                probe_required = prior_caps_empty and len(caps) > 0
-                                master.manifest = manifest
-                                master.limits = limits
-                                master.caps = caps
-                                master.installed_cartridges = installed_cartridges
-                                # Refresh admission from the fresh inventory: a
-                                # cartridge that left it goes unavailable
-                                # (starting its grace window), one that returned
-                                # is configured again, releasing anything queued.
-                                self._configure_master_admission_locked(
-                                    master_idx, installed_cartridges
+                    caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
+                    probe_required = False
+                    with self._lock:
+                        if 0 <= master_idx < len(self._masters):
+                            master = self._masters[master_idx]
+                            # Detect the empty → non-empty transition. The
+                            # initial RelayNotify (during connect) skipped
+                            # the identity probe when caps were empty; if
+                            # the host now advertises a real handler chain
+                            # we must probe it end-to-end before letting the
+                            # new caps become routable. The master is held
+                            # unhealthy until the probe driver confirms
+                            # identity.
+                            prior_caps_empty = len(master.caps) == 0
+                            probe_required = prior_caps_empty and len(caps) > 0
+                            master.manifest = manifest
+                            master.limits = limits
+                            master.caps = caps
+                            master.installed_cartridges = installed_cartridges
+                            # Refresh admission from the fresh inventory: a
+                            # cartridge that left it goes unavailable
+                            # (starting its grace window), one that returned
+                            # is configured again, releasing anything queued.
+                            self._configure_master_admission_locked(
+                                master_idx, installed_cartridges
+                            )
+                            master.host_protocol_stats = host_protocol_stats
+                            if probe_required:
+                                master.healthy = False
+                                master.last_error = (
+                                    "runtime identity probe pending — "
+                                    "caps held back from routing"
                                 )
-                                master.host_protocol_stats = host_protocol_stats
-                                if probe_required:
-                                    master.healthy = False
-                                    master.last_error = (
-                                        "runtime identity probe pending — "
-                                        "caps held back from routing"
-                                    )
-                                self._rebuild_cap_table()
-                                self._rebuild_installed_cartridges()
-                                self._rebuild_capabilities()
-                                self._rebuild_limits()
-                        if probe_required:
-                            # Hand off to the probe driver. The queue is
-                            # unbounded so this never blocks the reader.
-                            self._pending_identity_probes.put(master_idx)
+                            self._rebuild_cap_table()
+                            self._rebuild_installed_cartridges()
+                            self._rebuild_capabilities()
+                            self._rebuild_limits()
+                    if probe_required:
+                        # Hand off to the probe driver. The queue is
+                        # unbounded so this never blocks the reader.
+                        self._pending_identity_probes.put(master_idx)
                     # Pass through to engine for visibility.
                     self._frame_queue.put(MasterFrame(master_idx, frame, None))
                     continue
@@ -1315,7 +1313,7 @@ class RelaySwitch:
 
             if master_frame.error is not None:
                 # Error reading from master
-                self._handle_master_death(master_frame.master_idx)
+                self._handle_master_death(master_frame.master_idx, master_frame.error)
                 continue
 
             if master_frame.frame is None:
@@ -1364,7 +1362,7 @@ class RelaySwitch:
         while not self._pump_stop:
             master_frame = self._frame_queue.get()
             if master_frame.error is not None:
-                self._handle_master_death(master_frame.master_idx)
+                self._handle_master_death(master_frame.master_idx, master_frame.error)
                 continue
             if master_frame.frame is None:
                 self._handle_master_death(master_frame.master_idx)
@@ -1786,9 +1784,14 @@ class RelaySwitch:
                 # Unknown frame type - return to engine
                 return frame
 
-    def _handle_master_death(self, master_idx: int):
-        """Handle master death: ERR pending requests, mark unhealthy, rebuild caps"""
+    def _handle_master_death(self, master_idx: int, error: Optional[BaseException] = None):
+        """Handle master death: ERR pending requests, mark unhealthy, rebuild caps.
+        A death caused by an error reading the master (a RelayNotify that
+        breaks the protocol, among others) records that error as the
+        master's ``last_error``, naming what was wrong."""
         with self._lock:
+            if error is not None:
+                self._masters[master_idx].last_error = str(error)
             # The slot is DETACHED from here on, whatever the health flag
             # said: the connection is declared dead, so the slot is
             # reattachable to ``add_master`` / ``slot_accepts_attach``.
