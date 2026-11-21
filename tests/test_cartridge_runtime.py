@@ -3503,6 +3503,39 @@ def test_7053_over_window_chunk_is_credit_violation():
     assert s2.recv() is None, "s2 ends after its two chunks"
 
 
+# TEST7202: A caller that does not read a peer's response grants nothing beyond the initial window; the chunks it then reads are granted back.
+def test_7202_unread_peer_response_is_not_granted():
+    mock_writer = MockFrameWriter()
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+    raw.put(Frame.stream_start(rid, "r", "media:enc=utf8", False))
+    for i in range(4):
+        raw.put(_mk_scalar_chunk(rid, "r", i))
+    raw.put(Frame.stream_end(rid, "r", 4))
+    raw.put(Frame.end(rid, None))
+    raw.put(None)
+
+    response = demux_peer_response(raw, SyncFrameWriter(mock_writer), rid, initial_credit=4)
+
+    def granted():
+        return sum(
+            f.credit_count() or 0 for f in list(mock_writer.frames) if f.frame_type == FrameType.CREDIT
+        )
+
+    # The demux has every frame and nothing has been read.
+    time.sleep(0.1)
+    assert granted() == 0, "a response nobody has read is granted nothing beyond the initial window"
+    items = 0
+    while True:
+        item = response.recv()
+        if item is None:
+            break
+        if item.is_data:
+            items += 1
+    assert items == 4, "the caller reads the whole response"
+    assert granted() == 4, "the chunks the caller reads are granted back"
+
+
 # -----------------------------------------------------------------------
 # END-carries-final-progress (L3/L5) — not individually numbered in the
 # Rust diff (covered there at the E2E/interop level), exercised here at the

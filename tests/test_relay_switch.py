@@ -373,6 +373,80 @@ def test_427_multi_master_cap_routing():
     assert resp2.payload == bytes([2])
 
 
+# TEST7193: A peer request takes no router admission permit. With the serving cartridge's `all` pool at capacity one and that one permit held by an engine call, a peer REQ for the same cap from another master's cartridge still reaches the serving master at once, while a second engine call stays queued.
+def test_7193_peer_request_takes_no_admission_permit():
+    from capdag.urn.cap_urn import CapUrn
+
+    served = 'cap:in="media:void";test;out="media:void"'
+    engine_read0, slave_write0 = socket.socketpair()
+    slave_read0, engine_write0 = socket.socketpair()
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_seen = threading.Event()
+    peer_seen = []
+    peer_arrived = threading.Event()
+    send_peer = threading.Event()
+
+    def server_thread():
+        reader = FrameReader(slave_read0.makefile("rb"))
+        writer = FrameWriter(slave_write0.makefile("wb"))
+        capacity_one = make_manifest(served)
+        capacity_one["installed_cartridges"][0]["runtime_stats"]["pools"]["all"] = {
+            "declared": 1, "configured": 1, "active": 0, "queued": 0,
+        }
+        send_notify(writer, capacity_one, Limits.default())
+        complete_identity_verification(reader, writer)
+        reqs = 0
+        while True:
+            frame = reader.read()
+            if frame is None:
+                return
+            if frame.frame_type != FrameType.REQ:
+                continue
+            reqs += 1
+            if reqs == 1:
+                engine_seen.set()
+            elif reqs == 2:
+                peer_seen.append(frame)
+                peer_arrived.set()
+
+    def caller_thread():
+        reader = FrameReader(slave_read1.makefile("rb"))
+        writer = FrameWriter(slave_write1.makefile("wb"))
+        send_notify(writer, make_manifest(), Limits.default())
+        complete_identity_verification(reader, writer)
+        send_peer.wait()
+        writer.write(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+
+    threading.Thread(target=server_thread, daemon=True).start()
+    threading.Thread(target=caller_thread, daemon=True).start()
+
+    switch = RelaySwitch([
+        SocketPair(id="server", read=engine_read0.makefile("rb"), write=engine_write0.makefile("wb")),
+        SocketPair(id="caller", read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
+    ], _FULL_POLICY)
+    # The switch routes a peer REQ as it reads the masters.
+    switch.start_background_pump()
+
+    switch.send_to_master(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+    assert engine_seen.wait(timeout=5), "the first engine call reaches the serving master"
+    second_done = threading.Event()
+
+    def second_call():
+        switch.send_to_master(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+        second_done.set()
+
+    threading.Thread(target=second_call, daemon=True).start()
+    assert not second_done.wait(timeout=0.2), "the second engine call waits for the one permit"
+
+    send_peer.set()
+    assert peer_arrived.wait(timeout=2), "a peer request must not wait for an admission permit"
+    assert CapUrn.from_string(peer_seen[0].cap).is_equivalent(CapUrn.from_string(served)), (
+        f"the peer REQ names the served cap: {peer_seen[0].cap}"
+    )
+    assert not second_done.is_set(), "the second engine call is still queued"
+
+
 # TEST428: Unknown cap returns error
 def test_428_unknown_cap_returns_error():
     """Verify NoHandlerError for unknown cap"""
