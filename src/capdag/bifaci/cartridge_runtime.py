@@ -4170,13 +4170,10 @@ class CartridgeRuntime:
         IMPORTANT: Manifest MUST declare CAP_IDENTITY - fails hard if missing.
         """
         # Validate manifest - FAIL HARD if CAP_IDENTITY not declared
-        from capdag.standard.caps import CAP_IDENTITY
-        identity_urn = CapUrn.from_string(CAP_IDENTITY)
+        from capdag.standard.caps import identity_urn
+        identity = identity_urn()
 
-        has_identity = any(
-            identity_urn.conforms_to(cap.urn) or cap.urn.conforms_to(identity_urn)
-            for cap in manifest.all_caps()
-        )
+        has_identity = any(cap.urn.is_equivalent(identity) for cap in manifest.all_caps())
 
         if not has_identity:
             raise ValueError(

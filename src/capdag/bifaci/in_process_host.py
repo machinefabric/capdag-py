@@ -47,7 +47,7 @@ from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn, CapUrnError
-from capdag.standard.caps import CAP_IDENTITY, identity_cap
+from capdag.standard.caps import CAP_IDENTITY, identity_cap, identity_urn
 
 
 # =============================================================================
@@ -439,11 +439,12 @@ class InProcessCartridgeHost:
         puts every handler-contributed cap into its lone cap group. The wire
         format is symmetric with out-of-process hosts.
         """
-        # Collect all handler caps; prepend CAP_IDENTITY exactly once.
+        # Collect all handler caps; prepend the identity cap exactly once.
+        identity = identity_urn()
         caps: List[Cap] = [identity_cap()]
         for entry in self.handlers:
             for cap in entry.caps:
-                if cap.urn.to_string() != CAP_IDENTITY:
+                if not cap.urn.is_equivalent(identity):
                     caps.append(cap)
         cap_urn_list = [cap.urn.to_string() for cap in caps]
 
@@ -624,7 +625,19 @@ class InProcessCartridgeHost:
                         write_tx.put(err)
                         continue
 
-                    is_identity = cap_urn == CAP_IDENTITY
+                    try:
+                        parsed_cap = CapUrn.from_string(cap_urn)
+                    except CapUrnError as e:
+                        err = Frame.err(
+                            rid, "INVALID_REQUEST", AttributionClass.INTERNAL,
+                            f"REQ cap '{cap_urn}' is no cap URN: {e}",
+                        )
+                        err.routing_id = xid
+                        write_tx.put(err)
+                        continue
+
+                    # The identity cap, by equivalence.
+                    is_identity = parsed_cap.is_equivalent(identity_urn())
                     # Nothing but the identity check is served before the
                     # switch's policy (12.2 §Policy): the switch sends one
                     # before anything it routes.
