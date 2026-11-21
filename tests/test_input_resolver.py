@@ -608,3 +608,21 @@ def test_1146_input_resolver_error_display_and_source():
     assert "[" in str(invalid_glob)
     assert "unclosed character class" in str(invalid_glob)
     assert isinstance(invalid_glob, InputResolverError)
+
+
+# TEST1984: Content that is not UTF-8 holds no text, so settle asks no value
+# adapter of it and keeps the survivor as it stands; UTF-8 content is refined.
+def test_1984_settle_asks_no_value_adapter_of_binary_content():
+    from capdag.input_resolver.detection import settle
+
+    adapters = ValueAdapterRegistry()
+    adapters.register(
+        "media:",
+        ValueAdapter(base_media_urn="media:", refined_marker_tag="refined", value_matches=lambda _value: True),
+    )
+    survivor = MediaUrn.from_string("media:enc=utf8;fmt=json")
+
+    assert settle([survivor], adapters, bytes([0xFF, 0xFE, 0x00])) == [survivor.to_string()]
+
+    refined = MediaUrn.from_string("media:enc=utf8;fmt=json;refined")
+    assert settle([survivor], adapters, b"x") == [refined.to_string()]

@@ -222,18 +222,22 @@ def settle(
 ) -> List[str]:
     """Refine what stands through the value adapters and keep only the most
     specific member of each line of refinement (the model's
-    ``mostSpecific``), in order. A refinement that is no media URN is a
+    ``mostSpecific``), in order. Content that is not UTF-8 holds no text, so
+    no value adapter is asked of it. A refinement that is no media URN is a
     ValueError naming it."""
-    text = _decoded(content) or ""
+    text = _decoded(content)
     refined: List[MediaUrn] = []
     for urn in survivors:
-        urn_str = value_adapters.refine_media_urn(urn.to_string(), text)
-        try:
-            refined_urn = MediaUrn.from_string(urn_str)
-        except _URN_ERRORS as e:
-            raise _Unsound(
-                f"a value adapter refined a file's media to '{urn_str}', which is no media URN: {e}"
-            ) from e
+        if text is None:
+            refined_urn = urn
+        else:
+            urn_str = value_adapters.refine_media_urn(urn.to_string(), text)
+            try:
+                refined_urn = MediaUrn.from_string(urn_str)
+            except _URN_ERRORS as e:
+                raise _Unsound(
+                    f"a value adapter refined a file's media to '{urn_str}', which is no media URN: {e}"
+                ) from e
         if not any(seen.is_equivalent(refined_urn) for seen in refined):
             refined.append(refined_urn)
     every = [_formal(u) for u in refined]
