@@ -108,6 +108,7 @@ from capdag.urn.media_urn import (
 from capdag.urn.cap_urn import (
     CapUrn,
     CapUrnError,
+    IllegalDeclarationError,
     CapUrnBuilder,
     CapMatcher,
     CapKind,
@@ -389,6 +390,7 @@ __all__ = [
     # CapUrn
     "CapUrn",
     "CapUrnError",
+    "IllegalDeclarationError",
     "CapUrnBuilder",
     "CapMatcher",
     "CapKind",
