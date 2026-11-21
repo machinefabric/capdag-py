@@ -230,6 +230,9 @@ def test_015_cap_prefix_required():
     # Missing cap: prefix should fail
     with pytest.raises(CapUrnError):
         CapUrn.from_string(f'in="{MEDIA_VOID}";out="{MEDIA_OBJECT}";generate')
+    # A URN of another prefix is no cap
+    with pytest.raises(CapUrnError, match="must start with 'cap:'"):
+        CapUrn.from_string("media:generate")
 
     # Valid cap: prefix should work
     cap = CapUrn.from_string(_test_urn("generate;ext=pdf"))
