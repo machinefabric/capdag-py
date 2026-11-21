@@ -187,11 +187,17 @@ def _build_switch_with_n_masters(n: int, capless: bool = False) -> RelaySwitch:
     return RelaySwitch(pairs, _FULL_POLICY)
 
 
-# TEST426: Single master REQ/response routing
 # TEST7199: Every RelayNotify carries all four limits as positive integers: a master whose first RelayNotify says max_chunk 0 is not taken (the switch fails naming max_chunk), and a later RelayNotify missing initial_credit is a protocol error naming it, leaving the limits the master last announced.
 def test_7199_relay_notify_limits_required_every_time():
     def notify_with(change):
-        frame = Frame.relay_notify(json.dumps({"installed_cartridges": []}).encode(), Limits.default())
+        limits = Limits.default()
+        frame = Frame.relay_notify(
+            json.dumps({"installed_cartridges": []}).encode(),
+            limits.max_frame,
+            limits.max_chunk,
+            limits.max_reorder_buffer,
+            limits.initial_credit,
+        )
         change(frame.meta)
         return frame
 
@@ -234,6 +240,7 @@ def test_7199_relay_notify_limits_required_every_time():
     ), "the limits last announced are kept"
 
 
+# TEST426: Single master REQ/response routing
 def test_426_single_master_req_response():
     """Verify basic single-master request/response flow"""
     # Create socket pair for master

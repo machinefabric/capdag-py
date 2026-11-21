@@ -491,7 +491,9 @@ def test_7001_handshake_rejects_another_version():
     cartridge_writer.write(hello)
 
     cartridge_to_host.seek(0)
-    with pytest.raises(HandshakeError) as exc_info:
+    # A frame of another version is refused as it is decoded, before the
+    # handshake reads what it says.
+    with pytest.raises(InvalidFrameError) as exc_info:
         handshake(host_reader, host_writer)
 
     msg = str(exc_info.value)

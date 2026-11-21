@@ -894,8 +894,10 @@ class StreamEmitter(Protocol):
         ...
 
     def emit_cbor(self, value: Any) -> None:
-        """Emit a CBOR value as output.
-        The value is CBOR-encoded once and sent as raw CBOR bytes in CHUNK frames.
+        """Emit a CBOR value as output, each CHUNK one CBOR value: bytes
+        coalesce with earlier byte emissions, text is split at max_chunk on
+        character boundaries, an array goes as one chunk per element, a map
+        as one [key, value] chunk per entry, and anything else as one chunk.
         Raises: RuntimeError on write failure."""
         ...
 
@@ -3081,6 +3083,18 @@ class OutputStream:
                         raise RuntimeError("Cannot split string on character boundary")
                     self._write_chunk_payload(cbor2.dumps(chunk_str))
                     offset += len(chunk_str.encode("utf-8"))
+                return
+
+            # An array goes as one chunk per element, and a map as one
+            # [key, value] chunk per entry, so a receiver reads each as it
+            # arrives (the Rust reference's `cbor_chunk_values`).
+            if isinstance(value, list):
+                for element in value:
+                    self._write_chunk_payload(cbor2.dumps(element))
+                return
+            if isinstance(value, dict):
+                for key, entry in value.items():
+                    self._write_chunk_payload(cbor2.dumps([key, entry]))
                 return
 
             self._write_chunk_payload(cbor2.dumps(value))

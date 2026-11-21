@@ -1412,7 +1412,10 @@ def test_520_reorder_buffer_per_flow_limit():
 # TEST7198: relay_notify_limits refuses a RelayNotify whose limits are not all present and positive integers, naming the key: initial_credit missing, max_chunk zero, max_frame text. relay_notify_manifest refuses a RelayNotify with no manifest.
 def test_7198_relay_notify_limits_are_read_strictly():
     def with_meta(change):
-        frame = Frame.relay_notify(b"{}", Limits.default())
+        limits = Limits.default()
+        frame = Frame.relay_notify(
+            b"{}", limits.max_frame, limits.max_chunk, limits.max_reorder_buffer, limits.initial_credit
+        )
         change(frame.meta)
         return frame
 
