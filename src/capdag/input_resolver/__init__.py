@@ -44,7 +44,7 @@ from capdag.input_resolver.types import (
     SymlinkCycleError,
     UnknownExtensionError,
 )
-from capdag.input_resolver.value_adapter import ValueAdapter
+from capdag.input_resolver.value_adapter import ValueAdapter, ValueAdapterError
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 
 __all__ = [
@@ -74,6 +74,7 @@ __all__ = [
     "SymlinkCycleError",
     "UnknownExtensionError",
     "ValueAdapter",
+    "ValueAdapterError",
     "ValueAdapterRegistry",
     "detect_file_media",
     "extension_media",

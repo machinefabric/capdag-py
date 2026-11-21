@@ -16,7 +16,7 @@ matching use standard tagged URN semantics.
 """
 
 from typing import List, Optional
-from tagged_urn import TaggedUrn, TaggedUrnBuilder, TaggedUrnError
+from tagged_urn import Constraint, ConstraintExact, TaggedUrn, TaggedUrnBuilder, TaggedUrnError
 
 
 # =============================================================================
@@ -289,6 +289,11 @@ class MediaUrnError(Exception):
     pass
 
 
+class MediaUrnPrefixError(MediaUrnError):
+    """A tagged URN whose prefix is not ``media``."""
+    pass
+
+
 class MediaUrnCoordinateDelta:
     def __init__(self, inner):
         self.inner = inner
@@ -318,10 +323,10 @@ class MediaUrn:
           ``media:!void;…`` and ``media:?void;…`` do not say void.
         """
         if urn.get_prefix() != self.PREFIX:
-            raise MediaUrnError(
+            raise MediaUrnPrefixError(
                 f"Invalid prefix: expected '{self.PREFIX}', got '{urn.get_prefix()}'"
             )
-        if urn.tags.get("void") == "*" and len(urn.tags) > 1:
+        if urn.has_marker_tag("void") and len(urn.tags) > 1:
             extras = sorted(k for k in urn.tags if k != "void")
             raise MediaUrnError(
                 "media:void is atomic and cannot be refined; got extra tag(s): "
@@ -344,17 +349,25 @@ class MediaUrn:
         """Get the inner TaggedUrn"""
         return self._urn
 
-    def get_tag(self, key: str) -> Optional[str]:
-        """Get any tag value by key"""
+    def get_tag(self, key: str) -> Optional[Constraint]:
+        """The constraint this media writes for ``key``, or None when it does
+        not mention it."""
         return self._urn.get_tag(key)
 
+    def exact_value(self, key: str) -> Optional[str]:
+        """The exact value this media writes for ``key`` (``key=value``); None
+        when it does not mention the key or constrains it in another form."""
+        c = self._urn.get_tag(key)
+        return c.value if isinstance(c, ConstraintExact) else None
+
     def has_tag(self, key: str, value: str) -> bool:
-        """Check if this media URN has a specific tag"""
+        """Whether this media writes the exact value ``value`` for ``key``."""
         return self._urn.has_tag(key, value)
 
-    def with_tag(self, key: str, value: str) -> "MediaUrn":
-        """Create a new MediaUrn with an additional or updated tag"""
-        new_urn = self._urn.with_tag(key, value)
+    def with_tag(self, key: str, constraint: Constraint) -> "MediaUrn":
+        """A new MediaUrn with a tag added or replaced; the key must be an
+        identifier and the constraint one a URN can write."""
+        new_urn = self._urn.with_tag(key, constraint)
         return MediaUrn(new_urn)
 
     def without_tag(self, key: str) -> "MediaUrn":
@@ -468,12 +481,9 @@ class MediaUrn:
         return MediaUrn(next_urn)
 
     def has_marker_tag(self, tag_name: str) -> bool:
-        """Check if a marker tag is present (has wildcard value).
-
-        Marker tags are tags with wildcard values (*) that indicate
-        boolean-like properties of the media type.
-        """
-        return self._urn.tags.get(tag_name) == "*"
+        """Whether ``tag_name`` is present as a marker (written as just the
+        key): a boolean-like property of the media type."""
+        return self._urn.has_marker_tag(tag_name)
 
     def is_scalar(self) -> bool:
         """Check if this media URN represents a single value (not a list).
@@ -498,15 +508,15 @@ class MediaUrn:
 
     def is_json(self) -> bool:
         """Check if this value's content format is JSON (fmt=json)."""
-        return self._urn.get_tag("fmt") == "json"
+        return self.exact_value("fmt") == "json"
 
     def is_yaml(self) -> bool:
         """Check if this value's content format is YAML (fmt=yaml)."""
-        return self._urn.get_tag("fmt") == "yaml"
+        return self.exact_value("fmt") == "yaml"
 
     def is_csv(self) -> bool:
         """Check if this value's content format is CSV (fmt=csv)."""
-        return self._urn.get_tag("fmt") == "csv"
+        return self.exact_value("fmt") == "csv"
 
     def is_image(self) -> bool:
         """Check if this represents image data.
@@ -544,7 +554,7 @@ class MediaUrn:
         the nullary value; a cap with ``media:void`` on a side has no
         meaningful data on that side. NOT "invalid" or "absent".
 
-        True only for the ``void`` marker (``void``, stored as ``*``):
+        True only for the ``void`` marker (``void``, the constraint present):
         ``media:!void`` says the media must not be void, and
         ``media:?void`` leaves it open.
         """
@@ -580,8 +590,9 @@ class MediaUrn:
         return self.has_marker_tag("live")
 
     def extension(self) -> Optional[str]:
-        """Get the extension tag value if present"""
-        return self._urn.get_tag("ext")
+        """The extension this media names exactly (``ext=pdf`` gives "pdf"),
+        or None."""
+        return self.exact_value("ext")
 
     def __str__(self) -> str:
         return self.to_string()
@@ -590,12 +601,12 @@ class MediaUrn:
         return f"MediaUrn('{self.to_string()}')"
 
     def ordering_key(self) -> tuple:
-        """The key media URNs are ordered by: the prefix, then the tags as
-        (key, stored value) pairs in key order. This is the reference's
-        structural order — NOT the order of the canonical text, which differs
-        wherever one key is the beginning of another (`file` and `file-path`).
-        Everything canonical that sorts by URN sorts by this."""
-        return (self._urn.prefix, tuple(sorted(self._urn.tags.items())))
+        """The key media URNs are ordered by: the tagged URN's order, by its
+        parts (``TaggedUrn.ordering_key``) — NOT the order of the canonical
+        text, which differs wherever one key is the beginning of another
+        (`file` and `file-path`). Everything canonical that sorts by URN sorts
+        by this."""
+        return self._urn.ordering_key()
 
     def _cmp_key(self) -> tuple:
         return self.ordering_key()
