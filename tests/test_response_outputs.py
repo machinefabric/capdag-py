@@ -472,6 +472,8 @@ def test_12730_a_peer_response_has_a_stream_per_output():
         Frame.stream_start(rid, "head", "media:enc=utf8", False),
         _value_chunk(rid, "head", 0, b"H1"),
         _value_chunk(rid, "rest", 1, b"R2"),
+        Frame.stream_end(rid, "rest", 2),
+        Frame.stream_end(rid, "head", 1),
         Frame.end_ok(rid, None),
     ]
     assert _feed(one_answer).collect_value() == b"H1"

@@ -40,6 +40,7 @@ from capdag.bifaci.frame import (
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
 from capdag.bifaci.io import FrameReader, FrameWriter, CborError, HandshakeError, IdentityEcho, identity_probe_frames, verify_identity
+from capdag.bifaci.io import ProtocolError as FrameProtocolError
 from capdag.bifaci.request_state import (
     AdmissionController,
     AdmissionError,
@@ -506,8 +507,7 @@ class RelaySwitch:
             if frame is None or frame.frame_type != FrameType.RELAY_NOTIFY:
                 raise ProtocolError("Expected RelayNotify during handshake")
 
-            manifest = frame.relay_notify_manifest()
-            limits = frame.relay_notify_limits()
+            manifest, limits = _read_relay_notify(frame, master_idx)
 
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
@@ -663,8 +663,7 @@ class RelaySwitch:
             frame = reader.read()
             if frame is None or frame.frame_type != FrameType.RELAY_NOTIFY:
                 raise ProtocolError("Expected RelayNotify during handshake")
-            manifest = frame.relay_notify_manifest()
-            limits = frame.relay_notify_limits()
+            manifest, limits = _read_relay_notify(frame, master_idx)
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
@@ -828,8 +827,7 @@ class RelaySwitch:
                     # is changed: a RelayNotify missing either, or with a limit
                     # that is not a positive integer, raises, which ends the
                     # master and leaves what it last said.
-                    manifest = frame.relay_notify_manifest()
-                    limits = frame.relay_notify_limits()
+                    manifest, limits = _read_relay_notify(frame, master_idx)
                     caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
                     probe_required = False
                     with self._lock:
@@ -2159,6 +2157,16 @@ def _admission_chain(
         )
         for name in names
     ]
+
+
+def _read_relay_notify(frame: Frame, master_idx: int) -> Tuple[bytes, Limits]:
+    """A RelayNotify's manifest and limits, read strictly: one missing or
+    malformed is this switch's protocol error, naming the master and the
+    field (12.2)."""
+    try:
+        return frame.relay_notify_manifest(), frame.relay_notify_limits()
+    except FrameProtocolError as e:
+        raise ProtocolError(f"master {master_idx}: {e}") from e
 
 
 def _parse_relay_notify_payload(
