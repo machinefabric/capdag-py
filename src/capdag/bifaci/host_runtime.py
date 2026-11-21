@@ -556,6 +556,9 @@ class CartridgeHost:
         # Relay writer captured during ``run()`` so command handlers can
         # re-publish RelayNotify to the engine. None outside ``run()``.
         self._relay_writer: Optional[FrameWriter] = None
+        # Why a RelayNotify could not be written to the relay, once one could
+        # not: the run loop ends the session on it.
+        self._relay_write_failure: Optional[str] = None
         # Inventory records this host does NOT manage as processes —
         # discovery outcomes like incompatible installs (verdict-rejected,
         # wrong manifest version, quarantined). Merged into EVERY
@@ -867,6 +870,14 @@ class CartridgeHost:
         last_stats_publish = time.monotonic()
 
         while True:
+            # A frame the relay could not take ends the session: it is lost,
+            # and every frame after it would be too, so the engine would wait
+            # on answers this host can no longer give.
+            if self._relay_write_failure is not None:
+                self._relay_writer = None
+                self._kill_all_cartridges()
+                raise IoError(f"relay write failed: {self._relay_write_failure}")
+
             # Periodic runtime-stats republish — mirrors the reference
             # ``stats_interval`` tick.
             now = time.monotonic()
@@ -1476,9 +1487,12 @@ class CartridgeHost:
             )
             try:
                 self._relay_writer.write(notify)
-            except Exception:
-                # Relay closed — ignore, mirrors Rust's best-effort send.
-                pass
+            except Exception as e:
+                # A frame the relay could not take ends the session: the run
+                # loop raises it. Said, never swallowed; the first failure is
+                # the one reported. Mirrors the reference run loop.
+                if self._relay_write_failure is None:
+                    self._relay_write_failure = f"RELAY_NOTIFY could not be written: {e}"
 
     def _aggregate_limits(self) -> Limits:
         """Element-wise minimum over the negotiated limits of every running

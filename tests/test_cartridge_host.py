@@ -1760,3 +1760,37 @@ def test_1947_roster_flap_cancels_retirement_instead_of_respawning(tmp_path):
     with host._lock:
         host._reap_drained_cartridges_locked()
     assert cartridge.running
+
+
+# TEST7193: a frame the host cannot write to its relay ends its session with
+# the failure named. The write used to be swallowed while the host went on
+# reading the relay, so the engine waited for answers the host could no longer
+# give. Here the relay's read side stays open and sends nothing; the host's
+# first frame — its initial RelayNotify — cannot be written. Mirrors the
+# reference TEST7193.
+def test_7193_failed_relay_write_ends_the_host_session():
+    relay_read_fd, engine_write_fd = os.pipe()
+    engine_read_fd, relay_write_fd = os.pipe()
+    os.close(engine_read_fd)
+    relay_read = os.fdopen(relay_read_fd, "rb")
+    relay_write = os.fdopen(relay_write_fd, "wb")
+
+    host = CartridgeHost()
+    outcome = []
+
+    def run():
+        try:
+            host.run(relay_read, relay_write)
+            outcome.append(None)
+        except Exception as e:
+            outcome.append(e)
+
+    runner = threading.Thread(target=run, daemon=True)
+    runner.start()
+    runner.join(timeout=5)
+    os.close(engine_write_fd)
+
+    assert outcome, "a host whose relay cannot take its frames ends its session"
+    assert outcome[0] is not None and "relay write failed" in str(outcome[0]), (
+        f"the session ends naming the failed write, got {outcome[0]!r}"
+    )
