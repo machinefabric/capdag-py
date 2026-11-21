@@ -13,10 +13,12 @@ must fit what that arg ACCEPTS. A name written more than once gathers, and
 only a sequence arg may be gathered into. A constant is held to the
 validation of the arg's media definition.
 
-A node some step of the strand produces holds what that step gives, a
-complete thing, so it fits a type it satisfies: what it does not mention it
-does not have. A node nothing produces (an input of the machine) holds the
-type the text or an input anchor wrote, and fits a type it conforms to.
+A node some step of the strand produces from a declared output holds what
+that step gives, a complete thing, so it fits a type it satisfies: what it
+does not mention it does not have. Any other node holds a type, and fits a
+type it conforms to: an input of the machine, which the text or an input
+anchor wrote, and the main output of an effect=none or effect=patch cap,
+which says how what it gives follows from what it takes.
 
 The members that name no arg are matched by type over the args no name
 bound, by minimum-cost assignment in two phases of strict precedence:
@@ -77,10 +79,11 @@ from capdag.machine.iteration import (
     iteration_of,
 )
 from capdag.planner.policy import StepPolicy
-from capdag.urn.cap_urn import CapUrn
+from capdag.urn.cap_urn import CapEffect, CapUrn
 from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
 
 if TYPE_CHECKING:
+    from capdag.cap.definition import Cap
     from capdag.cap.registry import FabricRegistry
     from capdag.planner.live_cap_fab import StepToken, Strand
 
@@ -289,8 +292,11 @@ def _resolve_wirings(
     # what it is from outside the map is the iteration structure's to say.)
     # An input of the machine is one value: notation has no run shape.
     #
-    # A node some wiring produces holds what that step gives, a complete
-    # thing; every other node holds a type the text or an input anchor wrote.
+    # A node some wiring produces from a declared output holds what that step
+    # gives, a complete thing. The main output of an effect=none or
+    # effect=patch cap says how what it gives follows from what it takes, not
+    # what it gives, so a node it produces holds a type, as every node nothing
+    # produces does: one the text or an input anchor wrote.
     node_is_sequence = [False] * len(nodes)
     node_is_given = [False] * len(nodes)
     definitions = []
@@ -321,7 +327,9 @@ def _resolve_wirings(
             if any(taken.output_media_urn.is_equivalent(output_media_urn) for taken in outputs):
                 raise OutputTakenTwiceError(strand_index, cap_urn, output.name)
             node_is_sequence[target.node] = output.is_sequence
-            node_is_given[target.node] = True
+            node_is_given[target.node] = main_output_is_given(definition) or not is_main_output(
+                definition, output
+            )
             outputs.append(EdgeOutput(output_media_urn, output.name, target.node))
         # Canonical order, like the assignment's.
         outputs.sort(key=lambda each: each.output_media_urn.ordering_key())
@@ -607,6 +615,20 @@ class MatchFailure(Exception):
             if self.ambiguous
             else f"source {source} fits no arg left for it"
         )
+
+
+def main_output_is_given(definition: "Cap") -> bool:
+    """Whether a cap's main output says what the cap gives, so that what it
+    produces there is a complete thing: it does unless the cap's effect is
+    none or patch, whose main output says how what it gives follows from what
+    it takes (07 §What a cap gives)."""
+    return definition.urn.effect_kind() not in (CapEffect.NONE, CapEffect.PATCH)
+
+
+def is_main_output(definition: "Cap", output: Any) -> bool:
+    """Whether ``output`` is the cap's main output."""
+    main = definition.main_output()
+    return main is not None and main.name == output.name
 
 
 def source_fits(source: MediaUrn, given: bool, accepts: MediaUrn) -> bool:
