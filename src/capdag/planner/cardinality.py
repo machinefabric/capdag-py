@@ -15,14 +15,14 @@ This module provides shape analysis for cap inputs and outputs across two orthog
 The four combinations:
 | Cardinality | Structure | Example                             |
 |-------------|-----------|-------------------------------------|
-| scalar      | opaque    | media:enc=utf8 - one string        |
-| scalar      | record    | media:enc=utf8;fmt=json;record - one JSON obj|
-| list        | opaque    | sequence of media:file-path         |
-| list        | record    | sequence of media:enc=utf8;fmt=json;record   |
+| Single      | opaque    | media:enc=utf8 - one string        |
+| Single      | record    | media:enc=utf8;fmt=json;record - one JSON obj|
+| Sequence    | opaque    | sequence of media:file-path         |
+| Sequence    | record    | sequence of media:enc=utf8;fmt=json;record   |
 
 Design principle: URN handling uses proper parsing via MediaUrn, never string comparison.
-The `list` tag remains a semantic type/property marker on media URNs; it is not
-used here as the planner's cardinality source of truth.
+The `list` marker describes one value's content, not a count: cardinality is
+never read from a media URN.
 """
 
 from __future__ import annotations
@@ -35,21 +35,9 @@ from capdag.urn.media_urn import MediaUrn
 
 class InputCardinality(Enum):
     """Cardinality of cap inputs/outputs."""
-    SINGLE = "single"       # Exactly 1 item (no list marker = scalar by default)
-    SEQUENCE = "sequence"   # Array of items (has list marker)
+    SINGLE = "single"       # Exactly 1 item (no is_sequence declared)
+    SEQUENCE = "sequence"   # A sequence of items (is_sequence declared)
     AT_LEAST_ONE = "at_least_one"  # 1 or more items (cap can handle either)
-
-    @staticmethod
-    def from_media_urn(urn_str: str) -> InputCardinality:
-        """Parse cardinality from a media URN string.
-
-        Uses the `list` marker tag to determine if this represents an array.
-        No list marker = scalar (default), list marker = sequence.
-        """
-        media_urn = MediaUrn.from_string(urn_str)
-        if media_urn.is_list():
-            return InputCardinality.SEQUENCE
-        return InputCardinality.SINGLE
 
     def is_multiple(self) -> bool:
         """Check if this cardinality accepts multiple items."""
@@ -78,18 +66,6 @@ class InputCardinality(Enum):
             return CardinalityCompatibility.DIRECT
 
         return CardinalityCompatibility.DIRECT
-
-    def apply_to_urn(self, base_urn: str) -> str:
-        """Validate the URN is parseable and return it unchanged.
-
-        DEPRECATED: Cardinality is tracked by is_sequence on the wire protocol,
-        not by URN tags. This method is a no-op that returns the URN unchanged.
-        Fails hard on malformed input to expose issues rather than silently swallowing them.
-        """
-        # Validate — fail hard on broken input
-        MediaUrn.from_string(base_urn)
-        # Cardinality does not change the URN — shape is tracked by is_sequence
-        return base_urn
 
 
 class CardinalityCompatibility(Enum):
@@ -240,11 +216,6 @@ class MediaShape:
             return ShapeCompatibility.WRAP_IN_ARRAY
         else:
             return ShapeCompatibility.REQUIRES_FAN_OUT
-
-    def apply_to_urn(self, base_urn: str) -> str:
-        """Apply this shape to a base URN."""
-        with_cardinality = self.cardinality.apply_to_urn(base_urn)
-        return self.structure.apply_to_urn(with_cardinality)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MediaShape):

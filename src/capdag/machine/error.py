@@ -443,6 +443,23 @@ class NoMainOutputError(_InStrand):
         self.cap_urn = cap_urn
 
 
+class RetryOnStreamingStepError(_InStrand):
+    """A step with ``retry`` whose cap declares a streaming output. A retried
+    step's outputs are held until an attempt succeeds, and an output that may
+    be unbounded cannot be held."""
+
+    def __init__(self, strand_index: int, cap_urn: str, retry: int, output: str):
+        super().__init__(
+            strand_index,
+            f"cap '{cap_urn}' is given retry={retry}, and its output '{output}' is streaming"
+            " — a retried step's outputs are held until an attempt succeeds,"
+            " and a streaming output cannot be held",
+        )
+        self.cap_urn = cap_urn
+        self.retry = retry
+        self.output = output
+
+
 class UntypedMachineInputError(_AtStatement):
     """A wiring holds an unnamed member that nothing produces and whose arg
     nothing decides."""

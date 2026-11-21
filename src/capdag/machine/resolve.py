@@ -46,6 +46,7 @@ from capdag.machine.error import (
     NoCapabilityStepsError,
     NoMainOutputError,
     OutputTakenTwiceError,
+    RetryOnStreamingStepError,
     RuntimeMediaInferenceError,
     SourceDoesNotConformToArgError,
     UndecidedMember,
@@ -291,6 +292,12 @@ def _resolve_wirings(
             registry.get_cached_cap, cap_urn, lambda: UnknownCapError(cap_urn)
         )
         definitions.append(definition)
+        if wiring.policy.retry > 0:
+            for output in definition.get_outputs():
+                if output.streaming:
+                    raise RetryOnStreamingStepError(
+                        strand_index, cap_urn, wiring.policy.retry, output.name
+                    )
         outputs: List[EdgeOutput] = []
         for target in wiring.targets:
             if target.name is None:

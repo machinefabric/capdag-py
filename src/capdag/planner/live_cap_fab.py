@@ -7,7 +7,7 @@ Design Principles:
 1. Typed URNs: Store MediaUrn and CapUrn directly, not strings.
 2. Exact matching: For target matching, use is_equivalent() not conforms_to().
 3. Conformance for traversal: Use conforms_to() for graph traversal.
-4. Deterministic ordering: Results sorted by (path_length, specificity, urn).
+4. Deterministic ordering: paths sorted by cap step count (fewest first), then total specificity (highest first), then step order.
 5. ForEach is synthesized dynamically in get_outgoing_edges() when is_sequence=True
    and there are scalar consumers; it is never pre-inserted as a real graph edge.
 6. Collect is not synthesized — it pairs implicitly with ForEach at execution time.
@@ -15,6 +15,7 @@ Design Principles:
 
 from __future__ import annotations
 
+import functools
 import threading
 import uuid
 from collections import defaultdict, deque
@@ -391,6 +392,64 @@ PathFindingEvent = (
 )
 
 
+_STEP_RANK = {
+    StrandStepType.CAP: 0,
+    StrandStepType.FOR_EACH: 1,
+    StrandStepType.COLLECT: 2,
+}
+
+
+def _cmp(a, b) -> int:
+    return (a > b) - (a < b)
+
+
+def _optional_media_key(media: Optional[MediaUrn]) -> tuple:
+    """The main output (None) before any named one, as the reference orders
+    an absent output URN."""
+    return (0,) if media is None else (1, media.ordering_key())
+
+
+def _compare_steps(a: StrandStep, b: StrandStep) -> int:
+    """Structural order of two strand steps: a cap before a ForEach before a
+    Collect; caps by their cap URNs' structural order and then the output
+    they take; ForEach and Collect by their media definition; then each
+    step's from_spec and to_spec by the media URN's structural order."""
+    rank = _cmp(_STEP_RANK[a.step_type], _STEP_RANK[b.step_type])
+    if rank != 0:
+        return rank
+    if a.step_type == StrandStepType.CAP:
+        detail = _cmp(a.cap_urn.ordering_key(), b.cap_urn.ordering_key()) or _cmp(
+            _optional_media_key(a.output_urn), _optional_media_key(b.output_urn)
+        )
+    else:
+        detail = _cmp(a.media_def.ordering_key(), b.media_def.ordering_key())
+    if detail != 0:
+        return detail
+    return _cmp(a.from_spec.ordering_key(), b.from_spec.ordering_key()) or _cmp(
+        a.to_spec.ordering_key(), b.to_spec.ordering_key()
+    )
+
+
+def _compare_paths(a: Strand, b: Strand) -> int:
+    """Path order: fewest cap steps first (ForEach and Collect do not count),
+    then the highest sum of step specificities, then the steps compared
+    structurally in turn, the shorter path first when one is a prefix of the
+    other. No URN is compared as text."""
+    by_count = _cmp(a.cap_step_count, b.cap_step_count)
+    if by_count != 0:
+        return by_count
+    by_specificity = _cmp(
+        sum(s.specificity() for s in b.steps), sum(s.specificity() for s in a.steps)
+    )
+    if by_specificity != 0:
+        return by_specificity
+    for step_a, step_b in zip(a.steps, b.steps):
+        by_step = _compare_steps(step_a, step_b)
+        if by_step != 0:
+            return by_step
+    return _cmp(len(a.steps), len(b.steps))
+
+
 class LiveCapFab:
     """Precomputed graph of capabilities for path finding.
 
@@ -669,12 +728,7 @@ class LiveCapFab:
                 results=results,
             )
 
-        # Sort paths: cap_step_count ascending, total_specificity descending, cap URNs lexicographic
-        results.sort(key=lambda p: (
-            p.cap_step_count,
-            -sum(s.specificity() for s in p.steps),
-            [str(s.get_cap_urn()) for s in p.steps if s.is_cap()],
-        ))
+        results.sort(key=functools.cmp_to_key(_compare_paths))
 
         return results
 
@@ -730,12 +784,7 @@ class LiveCapFab:
                 paths_found=paths_this_depth,
             ))
 
-        # Sort
-        results.sort(key=lambda p: (
-            p.cap_step_count,
-            -sum(s.specificity() for s in p.steps),
-            [str(s.get_cap_urn()) for s in p.steps if s.is_cap()],
-        ))
+        results.sort(key=functools.cmp_to_key(_compare_paths))
 
         on_event(PathFindingEventComplete(
             total_paths=len(results),

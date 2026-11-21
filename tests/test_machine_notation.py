@@ -19,6 +19,7 @@ from capdag.machine import (
     NodeMediaConflictError,
     NoMainOutputError,
     OutputTakenTwiceError,
+    RetryOnStreamingStepError,
     SourceDoesNotConformToArgError,
     StepPolicy,
     ON_ERROR_ABSENT,
@@ -117,11 +118,24 @@ def score_cap():
     )
 
 
+def tail_cap():
+    """Follows a series as it grows, giving its rows as they come — a
+    streaming output, which may never end."""
+    rows = output_of(RESIDUALS, "rows", "The rows as they come", is_sequence=True)
+    rows.streaming = True
+    return definition(
+        f'cap:in="{SERIES}";tail;out="{RESIDUALS}"',
+        "tail",
+        [stdin_arg(SERIES, "series")],
+        [rows],
+    )
+
+
 def notation_registry():
     """The caps above and the media definitions their constants are held to:
     a window of 1 to 365, a label that is a string of three allowed words,
     tags that are strings, and references of at most twelve bytes."""
-    registry = registry_of([compare_cap(), fetch_cap(), publish_cap(), mean_cap(), score_cap()])
+    registry = registry_of([compare_cap(), fetch_cap(), publish_cap(), mean_cap(), score_cap(), tail_cap()])
     registry.add_spec(media_def(WINDOW, {"min": 1.0, "max": 365.0}, {"type": "integer"}))
     registry.add_spec(
         media_def(LABEL, {"allowed_values": ["mean", "median", "max"]}, {"type": "string"})
@@ -830,3 +844,22 @@ def test_12867_render_payload_marks_the_main_input_and_output():
     edge = json.loads(machine.to_render_payload_json(titled_registry()))["strands"][0]["edges"][0]
     assert {b["arg_name"]: b["is_main_input"] for b in edge["assignment"]} == {"series": True, "benchmark": False}
     assert {o["output_name"]: o["is_main_output"] for o in edge["outputs"]} == {"comparison": True, "residuals": False}
+
+
+# TEST7270: a step given `retry` whose cap declares a streaming output is
+# refused when the machine is read. A retried step's outputs are held until an
+# attempt succeeds, and a streaming output, which may never end, cannot be
+# held. The same step with no retry, or with only `on_error`, resolves, and
+# `retry` on a step whose outputs are all bounded still does.
+def test_7270_retry_is_refused_on_a_step_that_streams():
+    tail_headers = HEADERS + f'[tail cap:in="{SERIES}";tail;out="{RESIDUALS}"]'
+
+    refused = resolution_error("[s -> tail{retry=2} -> r]", headers=tail_headers)
+    assert isinstance(refused, RetryOnStreamingStepError), repr(refused)
+    assert refused.retry == 2
+    assert refused.output == "rows"
+    assert str(refused).endswith("a streaming output cannot be held"), str(refused)
+
+    for wiring in ("[s -> tail -> r]", "[s -> tail{on_error=absent} -> r]"):
+        parse_machine(tail_headers + wiring, notation_registry())
+    machine_of("[s -> compare{retry=2} -> r]")

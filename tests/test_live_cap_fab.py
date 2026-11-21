@@ -182,6 +182,45 @@ def test_787_find_paths_sorting_prefers_shorter():
     assert paths[0].steps[0].title() == "Direct"
 
 
+# TEST7271: Among paths with as many cap steps, the one whose steps' specificities sum higher comes first, whatever order the caps were added in
+def test_7271_paths_of_as_many_steps_are_ordered_by_specificity():
+    general = _make_test_cap("media:format-a", "media:format-c", "convert", "Convert")
+    specific = _make_test_cap("media:format-a", "media:format-c", "convert;fast", "Convert fast")
+    assert specific.urn.specificity() > general.urn.specificity()
+
+    for caps in ([general, specific], [specific, general]):
+        graph = LiveCapFab()
+        for cap in caps:
+            graph.add_cap(cap)
+        paths = graph.find_paths_to_exact_target(
+            _media("media:format-a"), _media("media:format-c"), False, 5, 10
+        )
+        assert len(paths) == 2, "one path through each cap"
+        assert paths[0].steps[0].cap_urn.is_equivalent(specific.urn), \
+            f"the convert;fast path comes first, got {paths[0].steps[0].cap_urn}"
+
+
+# TEST7272: Paths equal in cap steps and specificity are ordered by their cap URNs' structure, not by their text or titles
+def test_7272_equal_paths_are_ordered_structurally_not_by_text():
+    # Structurally the tag key `a` comes before `a-x`. As text,
+    # `cap:a-x=c;…` sorts before `cap:a=b;…` ('-' < '='), and by title
+    # "Alpha" sorts before "Zed": either would put the other path first.
+    zed = _make_test_cap("media:format-a", "media:format-c", "a=b", "Zed")
+    alpha = _make_test_cap("media:format-a", "media:format-c", "a-x=c", "Alpha")
+    assert zed.urn.specificity() == alpha.urn.specificity()
+    assert str(alpha.urn) < str(zed.urn)
+
+    for caps in ([zed, alpha], [alpha, zed]):
+        graph = LiveCapFab()
+        for cap in caps:
+            graph.add_cap(cap)
+        paths = graph.find_paths_to_exact_target(
+            _media("media:format-a"), _media("media:format-c"), False, 5, 10
+        )
+        assert len(paths) == 2, "one path through each cap"
+        assert [path.steps[0].title() for path in paths] == ["Zed", "Alpha"]
+
+
 # TEST788: ForEach is only synthesized when is_sequence=true
 def test_788_foreach_only_with_sequence_input():
     graph = LiveCapFab()
