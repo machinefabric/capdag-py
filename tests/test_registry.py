@@ -585,7 +585,7 @@ def test_12715_a_cached_definition_that_breaks_a_rule_is_dropped(tmp_path):
         key = normalize_cap_urn(cap.urn_string())
         manifest.caps[key] = 3
         file = cache.entry_path(tmp_path, "caps", key, 3)
-        cache.store_entry(file, CacheEntry(cap, 0, 0).to_dict(), "cap")
+        cache.store_entry(file, CacheEntry(cap).to_dict(), "cap")
         files.append(file)
 
     loaded = load_pinned_entries(tmp_path, manifest).caps
@@ -669,7 +669,7 @@ def _shared_entry_file(cache_dir: Path) -> Path:
 def _store_shared(cache_dir: Path, cap: Cap) -> None:
     from capdag.fabric.registry import CacheEntry
 
-    cache.store_entry(_shared_entry_file(cache_dir), CacheEntry(cap, 0, 0).to_dict(), "cap")
+    cache.store_entry(_shared_entry_file(cache_dir), CacheEntry(cap).to_dict(), "cap")
 
 
 def _stored_test_charter(registry_dir: Path, anchor: str):
@@ -765,11 +765,16 @@ async def test_1991_two_manifest_versions_read_only_their_own_entries(tmp_path, 
     assert title(v13, 13) == "cached for manifest 13"
 
     # Registries built for each manifest, from the stored charter and each
-    # version's cached manifest, without the network.
+    # version's cached manifest, without the network. Every manifest holds
+    # the identity cap.
+    from capdag.standard.caps import identity_cap
+
     anchor = "https://registry.example/fabric"
     _stored_test_charter(registry_dir, anchor)
     for folder, version in ((v10, 10), (v13, 13)):
-        (folder / cache.MANIFEST_FILE).write_text(json.dumps(_shared_pinned(version).to_dict()))
+        manifest = _shared_pinned(version)
+        manifest.caps[normalize_cap_urn(identity_cap().urn_string())] = 1
+        (folder / cache.MANIFEST_FILE).write_text(json.dumps(manifest.to_dict()))
     monkeypatch.setattr(FabricRegistry, "_capdag_cache_root", staticmethod(lambda: tmp_path / "capdag"))
     config = RegistryConfig().with_anchor(anchor)
     a = await FabricRegistry.with_config_and_manifest_version(config, 10)
@@ -803,7 +808,7 @@ async def test_1992_a_corrupt_entry_is_reported_naming_its_file(tmp_path):
 
     other = _shared_variant("another defver")
     other.version = 4
-    cache.store_entry(file, CacheEntry(other, 0, 0).to_dict(), "cap")
+    cache.store_entry(file, CacheEntry(other).to_dict(), "cap")
     with pytest.raises(CacheError) as exc_info:
         load_pinned_entries(cache_dir, manifest)
     message = str(exc_info.value)
