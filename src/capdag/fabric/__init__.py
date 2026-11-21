@@ -13,7 +13,6 @@ from capdag.fabric.dim import (
 from capdag.fabric.registry import (
     ALIAS_TARGET_CAP,
     ALIAS_TARGET_MEDIA,
-    CACHE_DURATION_HOURS,
     AliasCacheEntry,
     CacheEntry,
     CacheError,
@@ -44,7 +43,6 @@ from capdag.fabric.registry import (
 __all__ = [
     "ALIAS_TARGET_CAP",
     "ALIAS_TARGET_MEDIA",
-    "CACHE_DURATION_HOURS",
     "AliasCacheEntry",
     "CacheEntry",
     "CacheError",

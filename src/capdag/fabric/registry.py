@@ -74,7 +74,6 @@ from capdag.urn.media_urn import MediaUrn
 #: The anchor of MachineFabric's production fabric, used when nothing names
 #: another. Only the anchor: where its objects are is read from its charter.
 DEFAULT_FABRIC_ANCHOR = "https://fabric.capdag.com"
-CACHE_DURATION_HOURS = 24
 
 _log = logging.getLogger(__name__)
 
@@ -185,23 +184,65 @@ class ValidationError(FabricRegistryError):
     """Validation error."""
 
 
-def checked_cap_definition(body: bytes, cap_urn: str) -> Cap:
-    """Read a definition a registry served and hold it to the definition
-    rules (RULE1-RULE22) before it is cached or returned: a definition is
-    held to them by the side that receives it as well as the side that sends
-    it. One that does not parse is a ParseError; one that parses and breaks a
-    rule is a ValidationError naming the cap and the rule."""
+def checked_cap_definition(body: bytes, normalized_urn: str, defver: int) -> Cap:
+    """Read a definition a registry served for the cap ``normalized_urn`` at
+    ``defver``, check it is that cap at that version, and hold it to the
+    definition rules (RULE1-RULE22) before it is cached or returned: a
+    definition is held to them by the side that receives it as well as the
+    side that sends it. One that does not parse, or is another cap or another
+    version, is a ParseError; one that breaks a rule is a ValidationError
+    naming the cap and the rule."""
     try:
         cap = Cap.from_dict(json.loads(body))
     except (ValueError, KeyError, TypeError) as e:
-        raise ParseError(f"Failed to parse registry response for cap '{cap_urn}': {e}")
+        raise ParseError(f"Failed to parse registry response for cap '{normalized_urn}': {e}")
+    if normalize_cap_urn(cap.urn_string()) != normalized_urn:
+        raise ParseError(
+            f"cap object URN '{cap.urn_string()}' does not match requested URN '{normalized_urn}'"
+        )
+    if cap.version != defver:
+        raise ParseError(
+            f"cap '{normalized_urn}' object reports version {cap.version} but manifest pins defver {defver}"
+        )
     try:
         validate_cap_definition(cap)
     except CapDefinitionError as e:
         raise ValidationError(
-            f"the registry's definition of cap '{cap_urn}' breaks a definition rule: {e}"
+            f"the registry's definition of cap '{normalized_urn}' breaks a definition rule: {e}"
         )
     return cap
+
+
+def checked_media_def(body: bytes, normalized_urn: str, defver: int) -> "StoredMediaDef":
+    """Read a media definition a registry served for the media URN
+    ``normalized_urn`` at ``defver`` and check it is that definition at that
+    version: one that does not parse, or is another definition or another
+    version, is a ParseError."""
+    try:
+        spec = StoredMediaDef.from_dict(json.loads(body))
+    except (ValueError, KeyError, TypeError) as e:
+        raise ParseError(f"Failed to parse registry response for media '{normalized_urn}': {e}")
+    if normalize_media_urn(spec.urn) != normalized_urn:
+        raise ParseError(
+            f"media def object URN '{spec.urn}' does not match requested URN '{normalized_urn}'"
+        )
+    if spec.version != defver:
+        raise ParseError(
+            f"media def '{normalized_urn}' object reports version {spec.version} but manifest pins defver {defver}"
+        )
+    return spec
+
+
+def check_manifest_defvers(manifest: "Manifest") -> None:
+    """Refuse a manifest that pins a cap, media def, alias or dim at defver 0:
+    every definition a registry serves is at version 1 or later, so a 0 names
+    nothing a reader could fetch."""
+    for pins in (manifest.caps, manifest.media, manifest.aliases, manifest.dims):
+        for name, defver in pins.items():
+            if defver == 0:
+                raise ParseError(
+                    f"manifest v{manifest.version} pins '{name}' at 0, which is no definition version"
+                )
 
 
 class FileTypesError(FabricRegistryError):
@@ -258,26 +299,13 @@ class CacheEntry:
     """On-disk cache entry for a Cap definition."""
 
     definition: Cap
-    cached_at: int
-    ttl_hours: int
-
-    def is_expired(self) -> bool:
-        return int(time.time()) > self.cached_at + (self.ttl_hours * 3600)
 
     def to_dict(self) -> Dict:
-        return {
-            "definition": self.definition.to_dict(),
-            "cached_at": self.cached_at,
-            "ttl_hours": self.ttl_hours,
-        }
+        return {"definition": self.definition.to_dict()}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "CacheEntry":
-        return cls(
-            definition=Cap.from_dict(data["definition"]),
-            cached_at=data["cached_at"],
-            ttl_hours=data["ttl_hours"],
-        )
+        return cls(definition=Cap.from_dict(data["definition"]))
 
 
 class StoredMediaDef:
@@ -361,28 +389,15 @@ class StoredMediaDef:
 class MediaCacheEntry:
     """On-disk cache entry for a media def."""
 
-    def __init__(self, spec: StoredMediaDef, cached_at: int, ttl_hours: int):
+    def __init__(self, spec: StoredMediaDef):
         self.spec = spec
-        self.cached_at = cached_at
-        self.ttl_hours = ttl_hours
-
-    def is_expired(self) -> bool:
-        return int(time.time()) > self.cached_at + (self.ttl_hours * 3600)
 
     def to_dict(self) -> Dict:
-        return {
-            "spec": self.spec.to_dict(),
-            "cached_at": self.cached_at,
-            "ttl_hours": self.ttl_hours,
-        }
+        return {"spec": self.spec.to_dict()}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "MediaCacheEntry":
-        return cls(
-            spec=StoredMediaDef.from_dict(data["spec"]),
-            cached_at=data["cached_at"],
-            ttl_hours=data["ttl_hours"],
-        )
+        return cls(spec=StoredMediaDef.from_dict(data["spec"]))
 
 
 # =============================================================================
@@ -410,11 +425,23 @@ def is_alias_token(token: str) -> bool:
     return not token_is_urn(token)
 
 
+#: The Unicode White_Space code points (Rust's ``char::is_whitespace``): the
+#: set every capdag implementation refuses in an alias name. ``str.isspace``
+#: differs from it (it holds U+001C-U+001F).
+_WHITE_SPACE = frozenset(
+    [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0, 0x1680]
+    + list(range(0x2000, 0x200B))
+    + [0x2028, 0x2029, 0x202F, 0x205F, 0x3000]
+)
+
+
 def normalize_alias_name(name: str) -> str:
-    """Normalize and validate an alias name. Lowercases the input, then
-    requires it to be non-empty, contain no ':' (so it can never look like a
-    tagged URN), contain no whitespace, and match ``[a-z0-9._-]+``. Returns
-    the canonical lowercased name or raises ``ValueError`` — no lenient path.
+    """Normalize and validate an alias name. Requires it to be non-empty,
+    contain no ':' (so it can never look like a tagged URN) and no Unicode
+    White_Space, then lowercases ``A``-``Z`` (and no other character: Unicode
+    case mapping would turn a non-ASCII letter such as KELVIN SIGN into an
+    ASCII one) and requires it to match ``[a-z0-9._-]+``. Returns the
+    canonical lowercased name or raises ``ValueError`` — no lenient path.
     """
     if not name:
         raise ValueError("alias name is empty")
@@ -422,9 +449,9 @@ def normalize_alias_name(name: str) -> str:
         raise ValueError(
             f"alias name '{name}' contains ':' — aliases must never look like a tagged URN"
         )
-    if any(ch.isspace() for ch in name):
+    if any(ord(ch) in _WHITE_SPACE for ch in name):
         raise ValueError(f"alias name '{name}' contains whitespace")
-    lowered = name.lower()
+    lowered = "".join(chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch for ch in name)
     if not _ALIAS_NAME_RE.match(lowered):
         raise ValueError(
             f"alias name '{name}' contains invalid characters; "
@@ -499,28 +526,15 @@ class StoredAlias:
 class AliasCacheEntry:
     """On-disk cache entry for an alias."""
 
-    def __init__(self, alias: StoredAlias, cached_at: int, ttl_hours: int):
+    def __init__(self, alias: StoredAlias):
         self.alias = alias
-        self.cached_at = cached_at
-        self.ttl_hours = ttl_hours
-
-    def is_expired(self) -> bool:
-        return int(time.time()) > self.cached_at + (self.ttl_hours * 3600)
 
     def to_dict(self) -> Dict:
-        return {
-            "alias": self.alias.to_dict(),
-            "cached_at": self.cached_at,
-            "ttl_hours": self.ttl_hours,
-        }
+        return {"alias": self.alias.to_dict()}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "AliasCacheEntry":
-        return cls(
-            alias=StoredAlias.from_dict(data["alias"]),
-            cached_at=data["cached_at"],
-            ttl_hours=data["ttl_hours"],
-        )
+        return cls(alias=StoredAlias.from_dict(data["alias"]))
 
 
 # =============================================================================
@@ -531,25 +545,15 @@ class AliasCacheEntry:
 class DimCacheEntry:
     """On-disk cache entry for a dim."""
 
-    def __init__(self, dim: StoredDim, cached_at: int, ttl_hours: int):
+    def __init__(self, dim: StoredDim):
         self.dim = dim
-        self.cached_at = cached_at
-        self.ttl_hours = ttl_hours
 
     def to_dict(self) -> Dict:
-        return {
-            "dim": self.dim.to_dict(),
-            "cached_at": self.cached_at,
-            "ttl_hours": self.ttl_hours,
-        }
+        return {"dim": self.dim.to_dict()}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "DimCacheEntry":
-        return cls(
-            dim=StoredDim.from_dict(data["dim"]),
-            cached_at=data["cached_at"],
-            ttl_hours=data["ttl_hours"],
-        )
+        return cls(dim=StoredDim.from_dict(data["dim"]))
 
 
 # =============================================================================
@@ -779,7 +783,6 @@ def _dims_resolve_in(dims: List[DimRef], cached: Dict[str, StoredDim]) -> bool:
 
 def _retain_pinned(
     manifest: "Manifest",
-    manifest_version: int,
     caps: Dict[str, Cap],
     specs: Dict[str, StoredMediaDef],
     aliases: Dict[str, StoredAlias],
@@ -787,9 +790,7 @@ def _retain_pinned(
 ) -> None:
     """Keep, of what was loaded from the disk cache, only what the pinned
     manifest names at the version it names, and only definitions whose dims
-    all survive with them. At v0 the manifest is empty and caps and media are
-    all retained; aliases and dims are versioned-regime concepts and are all
-    dropped.
+    all survive with them.
 
     A definition whose dims did not survive is dropped here and fetched
     again, with its dims, when it is next asked for — so a cached definition
@@ -799,14 +800,10 @@ def _retain_pinned(
         for key in [k for k, v in d.items() if not keep(k, v)]:
             del d[key]
 
-    if manifest_version >= 1:
-        keep_only(caps, lambda urn, cap: manifest.caps.get(urn, 0) == cap.version)
-        keep_only(specs, lambda urn, spec: manifest.media.get(urn, 0) == spec.version)
-        keep_only(aliases, lambda name, alias: manifest.aliases.get(name, 0) == alias.version)
-        keep_only(dims, lambda name, dim: manifest.dims.get(name, 0) == dim.version)
-    else:
-        aliases.clear()
-        dims.clear()
+    keep_only(caps, lambda urn, cap: manifest.caps.get(urn, 0) == cap.version)
+    keep_only(specs, lambda urn, spec: manifest.media.get(urn, 0) == spec.version)
+    keep_only(aliases, lambda name, alias: manifest.aliases.get(name, 0) == alias.version)
+    keep_only(dims, lambda name, dim: manifest.dims.get(name, 0) == dim.version)
     keep_only(caps, lambda _urn, cap: _dims_resolve_in(cap.dims, dims))
     keep_only(specs, lambda _urn, spec: _dims_resolve_in(spec.dims, dims))
 
@@ -1001,9 +998,6 @@ def load_pinned_entries(cache_dir: Path, manifest: "Manifest") -> PinnedEntries:
                 "cap",
                 _identity_mismatch(cached_urn, cap_entry.definition.version, urn, defver),
             )
-        if defver == 0 and cap_entry.is_expired():
-            _log.info("the cached cap %s is past its time to live", path)
-            continue
         try:
             validate_cap_definition(cap_entry.definition)
         except CapDefinitionError as e:
@@ -1026,9 +1020,6 @@ def load_pinned_entries(cache_dir: Path, manifest: "Manifest") -> PinnedEntries:
                 "media def",
                 _identity_mismatch(cached_urn, media_entry.spec.version, urn, defver),
             )
-        if defver == 0 and media_entry.is_expired():
-            _log.info("the cached media def %s is past its time to live", path)
-            continue
         entries.media[cached_urn] = media_entry.spec
     for name, defver in manifest.aliases.items():
         path = cache.entry_path(cache_dir, "aliases", name, defver)
@@ -1370,7 +1361,6 @@ class FabricRegistry:
             registry.cached_dims = pinned.dims
             _retain_pinned(
                 manifest,
-                manifest_version,
                 registry.cached_caps,
                 registry.cached_specs,
                 registry.cached_aliases,
@@ -1389,7 +1379,9 @@ class FabricRegistry:
         """Manifest bootstrap, in the cache folder ``cache_dir`` of manifest
         ``version``. Tries the cached manifest first; falls back to a network
         GET. A cached manifest that does not parse, or is another version's,
-        is corrupt: a CacheError naming its file, never refetched over."""
+        is corrupt: a CacheError naming its file, never refetched over. A
+        manifest, cached or fetched, that pins anything at defver 0 is refused
+        (:func:`check_manifest_defvers`)."""
         cache_file = cache_dir / cache.MANIFEST_FILE
         m = cache.read_entry(cache_file, "manifest", Manifest.from_dict)
         if m is not None:
@@ -1399,6 +1391,7 @@ class FabricRegistry:
                     "manifest",
                     f"it is manifest {m.version}, in the folder of manifest {version}",
                 )
+            check_manifest_defvers(m)
             return m
 
         url = locations.manifest(version)
@@ -1411,6 +1404,7 @@ class FabricRegistry:
             raise ParseError(
                 f"Manifest fetched as v{version} reports version {manifest.version}"
             )
+        check_manifest_defvers(manifest)
         cache.write_atomically(cache_file, body.encode("utf-8"))
         return manifest
 
@@ -1453,24 +1447,24 @@ class FabricRegistry:
 
     def _save_cap_to_cache(self, cap: Cap) -> None:
         cache_file = self._cap_cache_file_path(cap.urn_string(), cap.version)
-        entry = CacheEntry(definition=cap, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        entry = CacheEntry(definition=cap)
         cache.store_entry(cache_file, entry.to_dict(), "cap")
 
     def _save_media_def_to_cache(self, spec: StoredMediaDef) -> None:
         cache_file = self._media_cache_file_path(spec.urn, spec.version)
-        entry = MediaCacheEntry(spec=spec, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        entry = MediaCacheEntry(spec=spec)
         cache.store_entry(cache_file, entry.to_dict(), "media def")
 
     def _save_alias_to_cache(self, alias: StoredAlias) -> None:
         cache_file = self._alias_cache_file_path(alias.name, alias.version)
-        entry = AliasCacheEntry(alias=alias, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        entry = AliasCacheEntry(alias=alias)
         cache.store_entry(cache_file, entry.to_dict(), "alias")
 
     def _save_dim_to_cache(self, dim: StoredDim) -> None:
         _, cache_file = _definition_url_and_cache_path(
             self.cache_dir, self.locations, "dims", dim.name, dim.version
         )
-        entry = DimCacheEntry(dim=dim, cached_at=int(time.time()), ttl_hours=CACHE_DURATION_HOURS)
+        entry = DimCacheEntry(dim=dim)
         cache.store_entry(cache_file, entry.to_dict(), "dim")
 
     # -------------------------------------------------------------------------
@@ -1493,7 +1487,7 @@ class FabricRegistry:
         body = await _fetch_object(
             self.client, url, f"cap '{normalized_urn}' (defver {defver})", self.manifest_version
         )
-        return checked_cap_definition(body, normalized_urn)
+        return checked_cap_definition(body, normalized_urn, defver)
 
     async def _fetch_media_def_from_registry(self, urn: str, defver: int) -> StoredMediaDef:
         if not HTTPX_AVAILABLE or self.client is None:
@@ -1511,10 +1505,7 @@ class FabricRegistry:
         body = await _fetch_object(
             self.client, url, f"media def '{normalized_urn}' (defver {defver})", self.manifest_version
         )
-        try:
-            return StoredMediaDef.from_dict(json.loads(body))
-        except (ValueError, KeyError, TypeError) as e:
-            raise ParseError(f"Failed to parse registry response for media '{urn}': {e}")
+        return checked_media_def(body, normalized_urn, defver)
 
     async def _fetch_alias_from_registry(self, normalized_name: str, defver: int) -> StoredAlias:
         if not HTTPX_AVAILABLE or self.client is None:
@@ -1576,11 +1567,6 @@ class FabricRegistry:
             with self.cache_lock:
                 dim = self.cached_dims.get(r.dim)
             if dim is None:
-                if self.manifest_version == 0:
-                    raise NotFoundError(
-                        f"{owner} names dim '{r.dim}', but the registry is pinned at v0 "
-                        f"(dims are a versioned-regime concept)"
-                    )
                 defver = self.manifest.dims.get(r.dim)
                 if defver is None:
                     raise NotFoundError(
@@ -1602,10 +1588,8 @@ class FabricRegistry:
 
     def _cap_defver(self, normalized_urn: str) -> int:
         """Resolve a normalized cap URN to its defver under the pinned
-        manifest. At v0 → 0. At v >= 1 the URN must be in the manifest's caps
-        map; absence is a hard NotFoundError (no fallback to another version)."""
-        if self.manifest_version == 0:
-            return 0
+        manifest. The URN must be in the manifest's caps map; absence is a hard
+        NotFoundError (no fallback to another version)."""
         defver = self.manifest.caps.get(normalized_urn)
         if defver is None:
             raise NotFoundError(
@@ -1614,8 +1598,6 @@ class FabricRegistry:
         return defver
 
     def _media_defver(self, normalized_urn: str) -> int:
-        if self.manifest_version == 0:
-            return 0
         defver = self.manifest.media.get(normalized_urn)
         if defver is None:
             raise NotFoundError(
@@ -1624,13 +1606,8 @@ class FabricRegistry:
         return defver
 
     def _alias_defver(self, normalized_name: str) -> int:
-        """Resolve a normalized alias name to its defver. Aliases exist only
-        in the versioned regime: at v0 any alias lookup is a hard NotFound."""
-        if self.manifest_version == 0:
-            raise NotFoundError(
-                f"alias '{normalized_name}' cannot resolve: registry is pinned at v0 "
-                f"(aliases are a versioned-regime concept)"
-            )
+        """Resolve a normalized alias name to its defver under the pinned
+        manifest. The name must be in the manifest's aliases map."""
         defver = self.manifest.aliases.get(normalized_name)
         if defver is None:
             raise NotFoundError(
@@ -1639,14 +1616,8 @@ class FabricRegistry:
         return defver
 
     def _dim_defver(self, name: str) -> int:
-        """Resolve a dim name to its defver under the pinned manifest. Dims
-        exist only in the versioned regime: at v0 any dim lookup is a hard
-        NotFound. At v >= 1 the name must be in the manifest's dims map."""
-        if self.manifest_version == 0:
-            raise NotFoundError(
-                f"dim '{name}' cannot resolve: registry is pinned at v0 "
-                f"(dims are a versioned-regime concept)"
-            )
+        """Resolve a dim name to its defver under the pinned manifest. The
+        name must be in the manifest's dims map."""
         defver = self.manifest.dims.get(name)
         if defver is None:
             raise NotFoundError(
@@ -2162,32 +2133,29 @@ class FabricRegistry:
     # -------------------------------------------------------------------------
 
     def ensure_identity_cap(self) -> None:
-        """Install the mandatory identity cap into the in-memory cap cache.
+        """Seed the mandatory identity cap into the in-memory cap cache at the
+        version the pinned manifest holds it at.
 
-        Idempotent. The identity cap is mandatory in every capability
-        set so the resolver's source-to-cap-arg matching can route
-        through identity in any notation.
+        Idempotent. The identity cap is mandatory in every capability set so
+        the resolver's source-to-cap-arg matching can route through identity
+        in any notation. It is a fabric cap like any other, so a manifest that
+        does not hold it is no capability set this library reads: a
+        ValidationError naming it.
         """
         from capdag.standard.caps import identity_cap
 
         identity = identity_cap()
-        # STANDARD_CAPS travel with the manifest: their per-def version is the
-        # registry's pinned manifest version (mirrors Rust).
-        if self.manifest_version >= 1:
-            identity.version = self.manifest_version
-        try:
-            normalized_urn = normalize_cap_urn(identity.urn_string())
-        except ParseError as e:
-            # The identity cap URN is a built-in constant and should always
-            # parse; if it ever does not, log an error and skip caching
-            # identity rather than crashing registry construction.
-            _log.error("ensure_identity_cap: skipping identity seed: %s", e)
-            return
+        normalized_urn = normalize_cap_urn(identity.urn_string())
         with self.cache_lock:
+            defver = self.manifest.caps.get(normalized_urn)
+            if defver is None:
+                raise ValidationError(
+                    f"manifest v{self.manifest_version} does not hold the identity cap "
+                    f"'{normalized_urn}', which every capability set includes"
+                )
+            identity.version = defver
             if normalized_urn not in self.cached_caps:
                 self.cached_caps[normalized_urn] = identity
-            if self.manifest_version >= 1:
-                self.manifest.caps[normalized_urn] = self.manifest_version
 
     # -------------------------------------------------------------------------
     # Test helpers
@@ -2209,10 +2177,22 @@ class FabricRegistry:
         # aliases into the manifest at their declared version (mirrors Rust).
         config = RegistryConfig()
         registry = cls(
-            cache_dir, config, publisher_layout_charter(config.anchor), client, 1, Manifest.empty(1)
+            cache_dir, config, publisher_layout_charter(config.anchor), client, 1, cls._test_manifest(1)
         )
         registry.ensure_identity_cap()
         return registry
+
+    @staticmethod
+    def _test_manifest(manifest_version: int) -> Manifest:
+        """The manifest of a test registry: version ``manifest_version``,
+        holding only the identity cap, at defver 1."""
+        from capdag.standard.caps import identity_cap
+
+        if manifest_version < 1:
+            raise ValueError("a registry is pinned at manifest 1 or later")
+        manifest = Manifest.empty(manifest_version)
+        manifest.caps[normalize_cap_urn(identity_cap().urn_string())] = 1
+        return manifest
 
     @staticmethod
     def _test_cache_dir(registry_dir: Optional[Path], manifest_version: int) -> Path:
@@ -2242,7 +2222,7 @@ class FabricRegistry:
         registry_dir: Optional[Path] = None,
     ) -> "FabricRegistry":
         """A test registry with ``config``, pinned at ``manifest_version``
-        with an empty manifest made in memory, caching in ``v<N>`` of
+        with a manifest made in memory holding only the identity cap, caching in ``v<N>`` of
         ``registry_dir`` (a fresh temporary folder when none is given). It
         fetches from the publisher's layout at ``config``'s anchor."""
         cache_dir = cls._test_cache_dir(registry_dir, manifest_version)
@@ -2253,7 +2233,7 @@ class FabricRegistry:
             publisher_layout_charter(config.anchor),
             client,
             manifest_version,
-            Manifest.empty(manifest_version),
+            cls._test_manifest(manifest_version),
         )
         registry.ensure_identity_cap()
         return registry
@@ -2261,12 +2241,13 @@ class FabricRegistry:
     def add_caps_to_cache(self, caps: List[Cap]) -> None:
         """Insert caps directly into the in-memory cache (test helper).
 
-        Records each cap in the manifest at its version. A cap whose version
-        is 0 is stamped to the pinned manifest version (matching Rust's
-        'test forgot to set it' handling)."""
+        Records each cap in the manifest at its version. A cap at version 0
+        is one no registry has published (a dev cartridge's, or a test
+        fixture's); it is recorded at the pinned manifest version, the
+        snapshot it now belongs to."""
         with self.cache_lock:
             for cap in caps:
-                if cap.version == 0 and self.manifest_version >= 1:
+                if cap.version == 0:
                     cap.version = self.manifest_version
                 try:
                     normalized = normalize_cap_urn(cap.urn_string())
@@ -2276,8 +2257,7 @@ class FabricRegistry:
                     _log.warning("add_caps_to_cache: skipping cap: %s", e)
                     continue
                 self.cached_caps[normalized] = cap
-                if self.manifest_version >= 1:
-                    self.manifest.caps[normalized] = cap.version
+                self.manifest.caps[normalized] = cap.version
 
     def list_media_in_manifest_for_test(self, urn: str, defver: int) -> None:
         """Name a media definition in the manifest without caching it: a test
@@ -2292,11 +2272,12 @@ class FabricRegistry:
     def add_spec(self, spec: StoredMediaDef) -> None:
         """Insert a media def directly into the in-memory cache (test helper).
 
-        Records the spec in the manifest. A spec whose version is 0 is
-        stamped to the pinned manifest version.
+        Records the spec in the manifest. A spec at version 0 is recorded at
+        the pinned manifest version, as :meth:`add_caps_to_cache` records a
+        cap.
         """
         with self.cache_lock:
-            if spec.version == 0 and self.manifest_version >= 1:
+            if spec.version == 0:
                 spec.version = self.manifest_version
             try:
                 normalized = normalize_media_urn(spec.urn)
@@ -2306,10 +2287,9 @@ class FabricRegistry:
                 _log.warning("add_spec: skipping media def: %s", e)
                 return
             self.cached_specs[normalized] = spec
-            if self.manifest_version >= 1:
-                self.manifest.media[normalized] = spec.version
-                # The manifest is no longer the file it was read from.
-                self.manifest_file = None
+            self.manifest.media[normalized] = spec.version
+            # The manifest is no longer the file it was read from.
+            self.manifest_file = None
 
     def display_alias_for_urn(self, urn: str) -> Optional[str]:
         """Reverse-resolve a cap or media URN to its display alias name.
@@ -2366,8 +2346,7 @@ class FabricRegistry:
         defver in the manifest, bypassing the network (test helper)."""
         with self.cache_lock:
             self.cached_aliases[alias.name] = alias
-            if self.manifest_version >= 1:
-                self.manifest.aliases[alias.name] = alias.version
+            self.manifest.aliases[alias.name] = alias.version
 
     def insert_cached_dim_for_test(self, dim: StoredDim) -> None:
         """Insert a dim directly into the in-memory cache and register its
@@ -2375,5 +2354,4 @@ class FabricRegistry:
         ``insert_cached_alias_for_test``."""
         with self.cache_lock:
             self.cached_dims[dim.name] = dim
-            if self.manifest_version >= 1:
-                self.manifest.dims[dim.name] = dim.version
+            self.manifest.dims[dim.name] = dim.version

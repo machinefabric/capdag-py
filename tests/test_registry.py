@@ -440,7 +440,7 @@ def test_12714_a_served_definition_is_held_to_the_definition_rules():
 
     def definition(args, outputs) -> bytes:
         return json.dumps({
-            "urn": cap_urn, "aliases": ["disbind"], "title": "Disbind PDF",
+            "urn": cap_urn, "version": 1, "aliases": ["disbind"], "title": "Disbind PDF",
             "args": args, "outputs": outputs,
         }).encode("utf-8")
 
@@ -451,24 +451,115 @@ def test_12714_a_served_definition_is_held_to_the_definition_rules():
         }
 
     page = {"media_urn": "media:enc=utf8;page", "name": "pages", "output_description": "Pages"}
+    key = normalize_cap_urn(cap_urn)
 
-    cap = checked_cap_definition(definition([main("media:document;ext=pdf")], [page]), cap_urn)
+    cap = checked_cap_definition(definition([main("media:document;ext=pdf")], [page]), key, 1)
     assert cap.main_output() is not None
     assert cap.main_output().name == "pages"
 
     with pytest.raises(ParseError):
-        checked_cap_definition(b"{not json", cap_urn)
+        checked_cap_definition(b"{not json", key, 1)
 
     # The cap URN says it produces pages, and the definition declares no such output.
     with pytest.raises(ValidationError) as exc_info:
-        checked_cap_definition(definition([main("media:document;ext=pdf")], []), cap_urn)
+        checked_cap_definition(definition([main("media:document;ext=pdf")], []), key, 1)
     assert "RULE21" in str(exc_info.value)
     assert "disbind" in str(exc_info.value)
 
     # The main input is declared under a type that is not the cap's `in=`.
     with pytest.raises(ValidationError) as exc_info:
-        checked_cap_definition(definition([main("media:document")], [page]), cap_urn)
+        checked_cap_definition(definition([main("media:document")], [page]), key, 1)
     assert "RULE15" in str(exc_info.value)
+
+
+# TEST1976: a cap a registry serves is the cap that was asked for, at the
+# version the manifest pins: another cap's body, or this cap at another
+# version, is refused before it is cached.
+def test_1976_a_served_cap_is_the_one_asked_for_at_its_pinned_version():
+    from capdag.fabric.registry import ParseError, checked_cap_definition
+
+    cap_urn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"'
+    key = normalize_cap_urn(cap_urn)
+
+    def body(urn: str, version: int) -> bytes:
+        return json.dumps({
+            "urn": urn, "version": version, "aliases": ["disbind"], "title": "Disbind PDF",
+            "args": [{
+                "media_urn": "media:document;ext=pdf", "name": "document", "required": True,
+                "sources": [{"stdin": "media:document;ext=pdf"}],
+            }],
+            "outputs": [{"media_urn": "media:enc=utf8;page", "name": "pages", "output_description": "Pages"}],
+        }).encode("utf-8")
+
+    assert checked_cap_definition(body(cap_urn, 3), key, 3).version == 3
+
+    other = 'cap:in="media:document;ext=pdf";bind;out="media:enc=utf8;page"'
+    with pytest.raises(ParseError, match="does not match requested URN"):
+        checked_cap_definition(body(other, 3), key, 3)
+
+    with pytest.raises(ParseError, match="reports version 2 but manifest pins defver 3"):
+        checked_cap_definition(body(cap_urn, 2), key, 3)
+
+
+# TEST1977: a media definition a registry serves is the one that was asked
+# for, at the version the manifest pins.
+def test_1977_a_served_media_def_is_the_one_asked_for_at_its_pinned_version():
+    from capdag.fabric.registry import ParseError, checked_media_def, normalize_media_urn
+
+    key = normalize_media_urn("media:document;ext=pdf")
+
+    def body(urn: str, version: int) -> bytes:
+        return json.dumps(
+            {"urn": urn, "version": version, "media_type": "application/pdf", "title": "PDF"}
+        ).encode("utf-8")
+
+    assert checked_media_def(body("media:ext=pdf;document", 3), key, 3).version == 3
+
+    with pytest.raises(ParseError, match="does not match requested URN"):
+        checked_media_def(body("media:ext=png;image", 3), key, 3)
+
+    with pytest.raises(ParseError, match="reports version 2 but manifest pins defver 3"):
+        checked_media_def(body("media:document;ext=pdf", 2), key, 3)
+
+
+# TEST1978: every definition a manifest pins is at version 1 or later; a
+# manifest pinning one at 0 is refused, and no registry is pinned at
+# manifest 0.
+def test_1978_a_manifest_pinning_a_definition_at_zero_is_refused():
+    from capdag.fabric.registry import Manifest, ParseError, RegistryConfig, check_manifest_defvers
+
+    manifest = Manifest.empty(14)
+    manifest.caps["cap:effect=none"] = 13
+    check_manifest_defvers(manifest)
+
+    manifest.media["media:"] = 0
+    with pytest.raises(ParseError, match="manifest v14 pins 'media:' at 0, which is no definition version"):
+        check_manifest_defvers(manifest)
+
+    with pytest.raises(ValueError, match="a registry is pinned at manifest 1 or later"):
+        FabricRegistry.new_for_test_with_config_and_version(RegistryConfig(), 0)
+
+
+# TEST1979: the identity cap is held at the version the pinned manifest holds
+# it at, and the manifest is not rewritten; a manifest without the identity
+# cap is refused, naming it.
+def test_1979_the_identity_cap_is_held_at_the_version_its_manifest_pins():
+    from capdag.fabric.registry import RegistryConfig, ValidationError
+    from capdag.standard.caps import identity_cap
+
+    registry = FabricRegistry.new_for_test_with_config_and_version(RegistryConfig(), 14)
+    key = normalize_cap_urn(identity_cap().urn_string())
+    registry.manifest.caps[key] = 13
+    registry.cached_caps.pop(key)
+
+    registry.ensure_identity_cap()
+    assert registry.cached_caps[key].version == 13
+    assert registry.manifest.caps[key] == 13, "the manifest still pins 13"
+
+    del registry.manifest.caps[key]
+    registry.cached_caps.pop(key)
+    with pytest.raises(ValidationError, match="does not hold the identity cap 'cap:effect=none'"):
+        registry.ensure_identity_cap()
 
 
 # TEST12715: the cache holds only checked definitions, so one on disk that
