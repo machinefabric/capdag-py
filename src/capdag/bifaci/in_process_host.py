@@ -125,7 +125,7 @@ class ResponseWriter:
         """Send a complete data response: STREAM_START + CBOR-encoded CHUNK(s) +
         STREAM_END + END."""
         stream_id = "result"
-        self.send(Frame.stream_start(MessageId(0), stream_id, media_urn))
+        self.send(Frame.stream_start(MessageId(0), stream_id, media_urn, is_sequence=False))
 
         if not data:
             cbor_payload = cbor2.dumps(b"")
@@ -332,7 +332,7 @@ class IdentityHandler(FrameHandler):
 
         # Echo back as a single stream (raw bytes, no CBOR encode)
         stream_id = "identity"
-        output.send(Frame.stream_start(MessageId(0), stream_id, "media:"))
+        output.send(Frame.stream_start(MessageId(0), stream_id, "media:", is_sequence=False))
         payload = bytes(data)
         output.send(
             Frame.chunk(MessageId(0), stream_id, 0, payload, 0, compute_checksum(payload))

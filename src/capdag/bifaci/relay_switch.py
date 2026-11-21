@@ -39,7 +39,7 @@ from capdag.bifaci.frame import (
     Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
-from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity, identity_nonce
+from capdag.bifaci.io import FrameReader, FrameWriter, CborError, HandshakeError, IdentityEcho, identity_probe_frames, verify_identity
 from capdag.bifaci.request_state import (
     AdmissionController,
     AdmissionError,
@@ -1448,8 +1448,6 @@ class RelaySwitch:
 
         rid = MessageId.new_uuid()
         rid_key = rid.to_string()
-        nonce = identity_nonce()
-        stream_id = "identity-verify-runtime"
         resp_q: "queue.Queue[Frame]" = queue.Queue()
 
         # Register the response channel and snapshot the writer under the lock.
@@ -1461,16 +1459,6 @@ class RelaySwitch:
             writer = self._masters[master_idx].socket_writer
 
         try:
-            req = Frame.req(rid, CAP_IDENTITY, b"", "application/cbor")
-            req.routing_id = xid
-            ss = Frame.stream_start(rid, stream_id, "media:")
-            ss.routing_id = xid
-            chunk = Frame.chunk(rid, stream_id, 0, nonce, 0, compute_checksum(nonce))
-            chunk.routing_id = xid
-            se = Frame.stream_end(rid, stream_id, 1)
-            se.routing_id = xid
-            end = Frame.end(rid, None)
-            end.routing_id = xid
 
             # Serialize the writes under the lock so the five probe frames
             # cannot interleave with an engine ``send_to_master`` writing to
@@ -1478,14 +1466,14 @@ class RelaySwitch:
             # echo wait below.
             try:
                 with self._lock:
-                    for fr in (req, ss, chunk, se, end):
+                    for fr in identity_probe_frames(rid, xid):
                         writer.write(fr)
             except Exception as e:
                 return f"identity probe send failed: {e}"
 
-            # Drain the echo: STREAM_START → CHUNK(nonce) → STREAM_END → END.
+            # Drain the echo, judged as the handshake judges it.
             deadline = time.monotonic() + RUNTIME_PROBE_TIMEOUT
-            accumulated = bytearray()
+            echo = IdentityEcho()
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1500,38 +1488,11 @@ class RelaySwitch:
                         f"runtime identity probe timed out after "
                         f"{RUNTIME_PROBE_TIMEOUT}s"
                     )
-                if frame.frame_type == FrameType.STREAM_START:
-                    continue
-                if frame.frame_type == FrameType.CHUNK:
-                    if frame.payload is not None:
-                        accumulated.extend(frame.payload)
-                    continue
-                if frame.frame_type == FrameType.STREAM_END:
-                    continue
-                if frame.frame_type == FrameType.END:
-                    if bytes(accumulated) != nonce:
-                        return (
-                            f"identity probe payload mismatch "
-                            f"(expected {len(nonce)} bytes, got {len(accumulated)})"
-                        )
-                    return None
-                if frame.frame_type == FrameType.ERR:
-                    code = frame.error_code() or "UNKNOWN"
-                    msg = frame.error_message() or "no message"
-                    return f"identity probe failed: [{code}] {msg}"
-                if frame.frame_type in (
-                    FrameType.LOG,
-                    FrameType.CREDIT,
-                    FrameType.HEARTBEAT,
-                ):
-                    # Control/side-channel frames are legal ANYWHERE during
-                    # the probe (spec 12.4: LOG interleaves without affecting
-                    # data flow; CREDIT/HEARTBEAT are the control plane the
-                    # writer gate itself exempts, L4). A v4 cartridge
-                    # crediting its probe input as it consumes (L10) must
-                    # not fail identity verification.
-                    continue
-                return f"identity probe: unexpected frame type {frame.frame_type}"
+                try:
+                    if echo.accept(frame):
+                        return None
+                except HandshakeError as e:
+                    return str(e)
         finally:
             with self._lock:
                 self._external_response_channels.pop(rid_key, None)
