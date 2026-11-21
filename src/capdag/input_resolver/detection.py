@@ -52,6 +52,7 @@ from capdag.input_resolver.types import (
     PermissionDeniedError,
     UnknownExtensionError,
 )
+from capdag.input_resolver.value_adapter import ValueAdapterError
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 from capdag.media.spec import MediaValidation
 from capdag.urn.media_urn import MediaUrn, MediaUrnError
@@ -222,18 +223,15 @@ def settle(
 ) -> List[str]:
     """Refine what stands through the value adapters and keep only the most
     specific member of each line of refinement (the model's
-    ``mostSpecific``), in order. A refinement that is no media URN is a
-    ValueError naming it."""
+    ``mostSpecific``), in order. A refinement the registry refuses (ambiguous,
+    no media URN, or outside its base) is a ValueError naming it."""
     text = _decoded(content) or ""
     refined: List[MediaUrn] = []
     for urn in survivors:
-        urn_str = value_adapters.refine_media_urn(urn.to_string(), text)
         try:
-            refined_urn = MediaUrn.from_string(urn_str)
-        except _URN_ERRORS as e:
-            raise _Unsound(
-                f"a value adapter refined a file's media to '{urn_str}', which is no media URN: {e}"
-            ) from e
+            refined_urn = value_adapters.refine_media_urn(urn, text)
+        except ValueAdapterError as e:
+            raise _Unsound(str(e)) from e
         if not any(seen.is_equivalent(refined_urn) for seen in refined):
             refined.append(refined_urn)
     every = [_formal(u) for u in refined]

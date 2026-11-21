@@ -4,6 +4,7 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 """
 
 import pytest
+from tagged_urn import ConstraintExact
 from capdag import (
     MediaUrn,
     MediaUrnError,
@@ -122,7 +123,7 @@ def test_066_is_json():
 def test_067_is_text():
     # Has enc= → characters
     assert MediaUrn.from_string(MEDIA_STRING).get_tag("enc") is not None  # media:enc=utf8
-    assert MediaUrn.from_string(MEDIA_JSON).get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    assert MediaUrn.from_string(MEDIA_JSON).exact_value("enc") == "utf8"  # a JSON record is UTF-8
     # No enc= → not characters
     assert MediaUrn.from_string(MEDIA_BOOLEAN).get_tag("enc") is None  # media:bool — its own kind
     assert MediaUrn.from_string(MEDIA_INTEGER).get_tag("enc") is None  # media:integer;numeric
@@ -181,7 +182,7 @@ def test_073_extension_helpers():
     text_ext = text_media_urn_for_ext("txt")
     text_urn = MediaUrn.from_string(text_ext)
     assert text_urn.extension() == "txt"
-    assert text_urn.get_tag("enc") == "utf8"
+    assert text_urn.exact_value("enc") == "utf8"
     assert text_urn.has_marker_tag("plain-text")
     assert text_ext == MEDIA_TXT
     html_ext = text_media_urn_for_ext("html")
@@ -294,8 +295,8 @@ def test_078_object_does_not_conform_to_string():
 def test_304_media_availability_output_constant():
     urn = MediaUrn.from_string(MEDIA_AVAILABILITY_OUTPUT)
     assert urn is not None
-    assert urn.get_tag("fmt") == "json"  # a JSON record
-    assert urn.get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    assert urn.exact_value("fmt") == "json"  # a JSON record
+    assert urn.exact_value("enc") == "utf8"  # a JSON record is UTF-8
     assert not urn.has_marker_tag("plain-text")  # and not plain text
     assert urn.is_record()
 
@@ -304,8 +305,8 @@ def test_304_media_availability_output_constant():
 def test_305_media_path_output_constant():
     urn = MediaUrn.from_string(MEDIA_PATH_OUTPUT)
     assert urn is not None
-    assert urn.get_tag("fmt") == "json"  # a JSON record
-    assert urn.get_tag("enc") == "utf8"  # a JSON record is UTF-8
+    assert urn.exact_value("fmt") == "json"  # a JSON record
+    assert urn.exact_value("enc") == "utf8"  # a JSON record is UTF-8
     assert not urn.has_marker_tag("plain-text")  # and not plain text
     assert urn.is_record()
 
@@ -411,7 +412,7 @@ def test_553_is_live_feed():
 # TEST555: with_tag adds a tag and without_tag removes it
 def test_555_with_tag_and_without_tag():
     urn = MediaUrn.from_string("media:string")
-    with_ext = urn.with_tag("ext", "pdf")
+    with_ext = urn.with_tag("ext", ConstraintExact("pdf"))
     assert with_ext.extension() == "pdf"
     # Original unchanged
     assert urn.extension() is None
@@ -465,7 +466,7 @@ def test_558_predicate_constant_consistency():
     # JSON is characters, so it carries enc=utf8; fmt=json says how they are structured.
     json_urn = MediaUrn.from_string(MEDIA_JSON)
     assert json_urn.is_json()
-    assert json_urn.get_tag("enc") == "utf8"
+    assert json_urn.exact_value("enc") == "utf8"
     assert json_urn.is_record()
     assert json_urn.is_scalar()  # JSON object is a single value (scalar cardinality)
     assert not json_urn.is_list()
@@ -615,7 +616,7 @@ def test_1811_void_atomicity_reads_the_marker():
     for s in ["media:!void;enc=utf8", "media:?void;enc=utf8"]:
         urn = MediaUrn.from_string(s)
         assert not urn.is_void(), s
-        assert urn.get_tag("enc") == "utf8", s
+        assert urn.exact_value("enc") == "utf8", s
 
 
 # TEST1812: every marker predicate reads its marker, never the key's presence. For each marker x, the predicate is true for media:x and false for media:!x (must not have x) and media:?x (x left open); the negated predicates (is_scalar, is_opaque) are the reverse.
