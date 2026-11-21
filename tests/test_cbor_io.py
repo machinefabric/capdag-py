@@ -1183,7 +1183,7 @@ import cbor2
 def test_7094_decode_frame_rejects_missing_id():
     frame_map = {
         Keys.VERSION: PROTOCOL_VERSION,
-        Keys.FRAME_TYPE: int(FrameType.HELLO),
+        Keys.FRAME_TYPE: FrameType.HELLO.code(),
         # id (key 2) deliberately omitted
     }
     data = cbor2.dumps(frame_map)
@@ -1197,7 +1197,7 @@ def test_7003_decode_frame_rejects_malformed_id_wrong_length():
     for bad_len in (0, 1, 15, 17, 32):
         frame_map = {
             Keys.VERSION: PROTOCOL_VERSION,
-            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.FRAME_TYPE: FrameType.HELLO.code(),
             Keys.ID: b"\x00" * bad_len,
         }
         data = cbor2.dumps(frame_map)
@@ -1212,13 +1212,38 @@ def test_7004_decode_frame_rejects_malformed_id_wrong_type():
     for bad_id in ("not-an-id", 3.14, True, False, [1, 2, 3], {"nested": "map"}):
         frame_map = {
             Keys.VERSION: PROTOCOL_VERSION,
-            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.FRAME_TYPE: FrameType.HELLO.code(),
             Keys.ID: bad_id,
         }
         data = cbor2.dumps(frame_map)
 
         with pytest.raises(InvalidFrameError, match="id"):
             decode_frame(data)
+
+
+def _hand_built_frame(version, frame_type):
+    """A frame of the given version and frame type with an id and nothing else, as bytes."""
+    return cbor2.dumps({Keys.VERSION: version, Keys.FRAME_TYPE: frame_type, Keys.ID: 0})
+
+
+# TEST7188: Every frame is of this protocol version: decode_frame refuses a frame of another version, naming both, and a version beyond a byte is refused rather than read as the byte it wraps to (262 is not 6)
+def test_7188_decode_refuses_another_protocol_version():
+    heartbeat = FrameType.HEARTBEAT.code()
+    with pytest.raises(InvalidFrameError) as exc_info:
+        decode_frame(_hand_built_frame(5, heartbeat))
+    assert "ours 6" in str(exc_info.value) and "theirs 5" in str(exc_info.value)
+
+    with pytest.raises(InvalidFrameError, match="262"):
+        decode_frame(_hand_built_frame(262, heartbeat))
+
+    assert decode_frame(_hand_built_frame(PROTOCOL_VERSION, heartbeat)).version == PROTOCOL_VERSION
+
+
+# TEST7200: A frame type is read whole: decode_frame refuses 257, 259 and -255, each naming the value, rather than reading them as the byte they wrap to
+def test_7200_decode_refuses_frame_type_beyond_a_byte():
+    for frame_type in (257, 259, -255):
+        with pytest.raises(InvalidFrameError, match=str(frame_type)):
+            decode_frame(_hand_built_frame(PROTOCOL_VERSION, frame_type))
 
 
 # TEST7005: a present routing_id (key 13) must be a well-formed MessageId — a malformed one is a hard InvalidFrameError, never silently dropped (which would strip the relay hint and misroute) nor fabricated as MessageId(0). Valid routing_ids still round-trip; an absent routing_id decodes as None.
@@ -1243,7 +1268,7 @@ def test_7005_decode_frame_strict_routing_id():
     for bad_len in (0, 15, 17, 32):
         frame_map = {
             Keys.VERSION: PROTOCOL_VERSION,
-            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.FRAME_TYPE: FrameType.HELLO.code(),
             Keys.ID: MessageId.new_uuid().uuid_bytes,
             Keys.ROUTING_ID: b"\x00" * bad_len,
         }
@@ -1254,7 +1279,7 @@ def test_7005_decode_frame_strict_routing_id():
     for bad in ("nope", 2.5, True, [1], {"k": "v"}, -1):
         frame_map = {
             Keys.VERSION: PROTOCOL_VERSION,
-            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.FRAME_TYPE: FrameType.HELLO.code(),
             Keys.ID: MessageId.new_uuid().uuid_bytes,
             Keys.ROUTING_ID: bad,
         }
@@ -1267,7 +1292,7 @@ def test_7098_decode_frame_rejects_negative_int_id():
     for bad_id in (-1, -7, -12345):
         frame_map = {
             Keys.VERSION: PROTOCOL_VERSION,
-            Keys.FRAME_TYPE: int(FrameType.HELLO),
+            Keys.FRAME_TYPE: FrameType.HELLO.code(),
             Keys.ID: bad_id,
         }
         data = cbor2.dumps(frame_map)

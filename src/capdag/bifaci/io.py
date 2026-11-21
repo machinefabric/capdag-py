@@ -112,7 +112,7 @@ def encode_frame(frame: Frame) -> bytes:
 
     # Required fields
     frame_map[Keys.VERSION] = frame.version
-    frame_map[Keys.FRAME_TYPE] = int(frame.frame_type)
+    frame_map[Keys.FRAME_TYPE] = frame.frame_type.code()
 
     # Message ID
     if frame.id.is_uuid():
@@ -217,17 +217,27 @@ def decode_frame(data: bytes) -> Frame:
             lookup[k] = v
 
     # Extract required fields
+    # Every frame is of this protocol version: a frame of any other is
+    # refused here, not read as one.
     version = lookup.get(Keys.VERSION)
     if version is None:
         raise InvalidFrameError("missing version")
+    if not isinstance(version, int) or isinstance(version, bool) or not 0 <= version <= 255:
+        raise InvalidFrameError(f"version: {version} is not a protocol version")
+    if version != PROTOCOL_VERSION:
+        raise InvalidFrameError(
+            f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {version}"
+        )
 
-    frame_type_u8 = lookup.get(Keys.FRAME_TYPE)
-    if frame_type_u8 is None:
+    # The frame type is read whole and named by the model's numbering.
+    frame_type_code = lookup.get(Keys.FRAME_TYPE)
+    if frame_type_code is None:
         raise InvalidFrameError("missing frame_type")
-
-    frame_type = FrameType.from_u8(frame_type_u8)
+    if not isinstance(frame_type_code, int) or isinstance(frame_type_code, bool) or frame_type_code < 0:
+        raise InvalidFrameError(f"invalid frame_type: {frame_type_code}")
+    frame_type = FrameType.from_code(frame_type_code)
     if frame_type is None:
-        raise InvalidFrameError(f"invalid frame_type: {frame_type_u8}")
+        raise InvalidFrameError(f"invalid frame_type: {frame_type_code}")
 
     # Extract ID — strict decode. A malformed or absent id must be a hard
     # DecodeError, never a fabricated MessageId(0)/MessageId.default(): a
