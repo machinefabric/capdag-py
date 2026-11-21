@@ -14,6 +14,10 @@ def _to_jpeg() -> CapUrn:
 
 
 def _some_image() -> CapUrn:
+    return CapUrn.from_string('cap:render;in="media:document;ext=pdf";out="media:ext;image"')
+
+
+def _bare_image() -> CapUrn:
     return CapUrn.from_string('cap:render;in="media:document;ext=pdf";out="media:image"')
 
 
@@ -31,16 +35,28 @@ def test_12368_a_question_may_leave_a_side_unknown():
     wants_jpeg = CapQuery.producing(MediaUrn.from_string("media:ext=jpeg;image"))
     assert wants_jpeg.grade(_to_jpeg()) is MatchGrade.EXACT
     assert wants_jpeg.admits(_to_jpeg()), "whatever it takes: a png here"
-    # "Some image" is not a jpeg, and not excluded: possible, never routed on.
+    # An image file of some type is not a jpeg, and not excluded: possible,
+    # never routed on.
     assert wants_jpeg.grade(_some_image()) is MatchGrade.POSSIBLE
     assert not wants_jpeg.admits(_some_image()) and wants_jpeg.may_admit(_some_image())
     assert wants_jpeg.grade(_pages()) is MatchGrade.NONE
+    # A declared output says what the cap gives: one giving media:image gives
+    # an image with no file type, never a jpeg.
+    assert wants_jpeg.grade(_bare_image()) is MatchGrade.NONE
 
     # Asked for any image, a jpeg is guaranteed to be one, not exactly it.
     wants_image = CapQuery.producing(MediaUrn.from_string("media:image"))
     assert wants_image.grade(_to_jpeg()) is MatchGrade.GUARANTEED
-    assert wants_image.grade(_some_image()) is MatchGrade.EXACT
-    assert not wants_image.admits(_passes_through()), "media: out promises no image"
+    assert wants_image.grade(_some_image()) is MatchGrade.GUARANTEED
+    assert wants_image.grade(_bare_image()) is MatchGrade.EXACT
+    wants_image_file = CapQuery.producing(MediaUrn.from_string("media:ext;image"))
+    assert wants_image_file.grade(_some_image()) is MatchGrade.EXACT
+    # A cap that gives what it is sent, asked for an image whatever it takes,
+    # gives whatever it takes — not only images.
+    assert not wants_image.admits(_passes_through())
+    wants_pdf = CapQuery.producing(MediaUrn.from_string("media:document;ext=pdf"))
+    assert not wants_pdf.admits(_passes_through())
+    assert wants_pdf.grade(_passes_through()) is MatchGrade.POSSIBLE
 
     # What can a pdf become? Whatever takes a pdf — or takes anything.
     has_pdf = CapQuery.consuming(MediaUrn.from_string("media:document;ext=pdf"))
@@ -74,8 +90,9 @@ def test_12369_a_querys_tags_are_asked_of_the_tags_a_cap_has():
     assert not not_converters.admits(_to_jpeg()), "it has it"
     assert not_converters.grade(_to_jpeg()) is MatchGrade.NONE
 
-    # The same holds of a request: `!x` is served by a cap silent on x.
-    request = CapUrn.from_string('cap:!convert-image;out="media:image"')
-    assert _some_image().is_dispatchable(request)
-    assert not _to_jpeg().is_dispatchable(request)
-    assert CapQuery.from_request(request).grade(_some_image()) is MatchGrade.EXACT
+    # The same holds of a call: `!x` is served by a cap silent on x.
+    call = CapUrn.from_string('cap:!convert-image;in="media:ext=png;image";out="media:ext;image"')
+    renders_png = CapUrn.from_string('cap:render;in="media:ext=png;image";out="media:ext;image"')
+    assert renders_png.is_dispatchable(call)
+    assert not _to_jpeg().is_dispatchable(call), "it takes a png and gives an image file, and is tagged convert-image"
+    assert CapQuery.from_call(call).grade(renders_png) is MatchGrade.EXACT
