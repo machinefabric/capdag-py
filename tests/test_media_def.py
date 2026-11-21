@@ -277,7 +277,7 @@ def test_104_resolved_is_text():
         metadata=None,
         extensions=[],
     )
-    assert resolved._parse_media_urn().get_tag("enc") == "utf8"
+    assert resolved._parse_media_urn().exact_value("enc") == "utf8"
     assert not resolved.is_json()
 
 
@@ -773,3 +773,23 @@ def test_1970_media_def_dims_survive_and_refuse_unknown_keys():
     extra = body.replace('"value":"pdf"}', '"value":"pdf","title":"PDF"}')
     with pytest.raises(ValueError, match="title"):
         StoredMediaDef.from_dict(json.loads(extra))
+
+
+# TEST7242: A resolved media definition's kind predicates read the marker: !x and ?x are not x
+def test_7242_media_def_kind_predicates_read_the_marker():
+    def resolved(urn):
+        return ResolvedMediaDef(media_urn=urn, media_type="application/octet-stream", extensions=[])
+
+    predicates = {
+        "image": ResolvedMediaDef.is_image,
+        "audio": ResolvedMediaDef.is_audio,
+        "video": ResolvedMediaDef.is_video,
+        "numeric": ResolvedMediaDef.is_numeric,
+        "bool": ResolvedMediaDef.is_bool,
+        "record": ResolvedMediaDef.is_record,
+        "list": ResolvedMediaDef.is_list,
+    }
+    for marker, predicate in predicates.items():
+        assert predicate(resolved(f"media:{marker}")), f"media:{marker}"
+        assert not predicate(resolved(f"media:!{marker}")), f"media:!{marker}"
+        assert not predicate(resolved(f"media:?{marker}")), f"media:?{marker}"

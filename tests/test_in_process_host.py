@@ -561,14 +561,32 @@ def test_660_closest_specificity_routing():
     ]
 
     host = InProcessCartridgeHost(InProcessHostIdentity.for_test("in-process-test"), handlers)
-    cap_table = InProcessCartridgeHost.build_cap_table(host.handlers)
+    caps, owners = InProcessCartridgeHost.registered_caps(host.handlers)
 
     # Request for pdf thumbnail should match specific (pdf, specificity 3) over
     # generic (image, specificity 2).
-    result = InProcessCartridgeHost.find_handler_for_cap(
-        cap_table, 'cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"'
-    )
+    request = CapUrn.from_string('cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"')
+    result = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
     assert result == 1  # specific handler
+
+
+# TEST7240: The in-process host chooses among tied handlers by the proved selection: the first registered, every time
+def test_7240_in_process_host_ties_go_to_the_first_registered():
+    first = "cap:in=media:;op;out=media:;x=a"
+    second = "cap:in=media:;op;out=media:;y=b"
+    request = CapUrn.from_string("cap:in=media:;op;out=media:")
+
+    def chosen(order):
+        handlers = [(name, [make_test_cap(urn)], AnswersAnywayHandler()) for name, urn in order]
+        host = InProcessCartridgeHost(InProcessHostIdentity.for_test("ties"), handlers)
+        caps, owners = InProcessCartridgeHost.registered_caps(host.handlers)
+        idx = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
+        assert idx is not None, "both handlers serve the request"
+        return host.handlers[idx].name
+
+    for _ in range(32):
+        assert chosen([("first", first), ("second", second)]) == "first"
+        assert chosen([("second", second), ("first", first)]) == "second"
 
 
 class AnswersAnywayHandler(FrameHandler):
