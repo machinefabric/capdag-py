@@ -3463,36 +3463,44 @@ def test_7063_pending_grants_flush_before_blocking():
     assert granted == 8, f"pending grants must flush before blocking (L10 corollary): granted {granted} of 8"
 
 
-# TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
+# TEST7053: A chunk received beyond the granted window is a CREDIT_VIOLATION error on that stream; the request goes on: another stream of the same request is still delivered whole (L12).
 def test_7053_over_window_chunk_is_credit_violation():
     mock_writer = MockFrameWriter()
     sync_writer = SyncFrameWriter(mock_writer)
     rid = MessageId.new_uuid()
     raw = queue.Queue()
 
-    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf8", False))
-    # Window is 2; a misbehaving sender pushes 3 chunks with no grants
-    # possible (nothing consumed yet).
+    for stream_id in ("s1", "s2"):
+        raw.put(Frame.stream_start(rid, stream_id, "media:enc=utf8", False))
+    # Window is 2; a misbehaving sender pushes 3 chunks on s1 with no grants
+    # possible (nothing consumed yet), and keeps to the window on s2.
     for i in range(3):
         raw.put(_mk_scalar_chunk(rid, "s1", i))
+    for i in range(2):
+        raw.put(_mk_scalar_chunk(rid, "s2", i))
+    raw.put(Frame.stream_end(rid, "s1", 3))
+    raw.put(Frame.stream_end(rid, "s2", 2))
     raw.put(Frame.end(rid, None))
 
     package = demux_multi_stream(
         raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=2),
     )
-    stream = package.recv()
-    # The premise is that nothing is consumed while the three chunks arrive,
-    # so no grant can extend the window. The demux runs on its own thread:
-    # the request's end is when it has seen all three, and consuming before
-    # that grants credit back and makes the third chunk legitimate.
-    assert package.recv() is None, "the request has one stream and then ends"
-    item0 = stream.recv()
-    assert not isinstance(item0, Exception), "chunk 0 is within the window"
-    item1 = stream.recv()
-    assert not isinstance(item1, Exception), "chunk 1 is within the window"
-    item2 = stream.recv()
+    s1 = package.recv()
+    s2 = package.recv()
+    # The premise is that nothing is consumed while the chunks arrive, so no
+    # grant can extend the window. The demux runs on its own thread: the
+    # request's end is when it has seen them all, and consuming before that
+    # grants credit back and makes the third chunk legitimate.
+    assert package.recv() is None, "the request has two streams and then ends: the violation breaks only s1"
+    assert not isinstance(s1.recv(), Exception), "chunk 0 is within the window"
+    assert not isinstance(s1.recv(), Exception), "chunk 1 is within the window"
+    item2 = s1.recv()
     assert isinstance(item2, Exception), "chunk 2 exceeds the granted window (L12)"
     assert "CREDIT_VIOLATION" in str(item2)
+    # The request goes on: s2 is delivered whole.
+    assert not isinstance(s2.recv(), Exception)
+    assert not isinstance(s2.recv(), Exception)
+    assert s2.recv() is None, "s2 ends after its two chunks"
 
 
 # -----------------------------------------------------------------------

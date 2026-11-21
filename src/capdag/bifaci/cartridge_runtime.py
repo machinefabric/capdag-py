@@ -2658,10 +2658,10 @@ def demux_multi_stream(
         lf_accumulators: Dict[str, Tuple[str, list]] = {}
         # stream_id -> remaining credit window (L10/L12). Starts at the
         # negotiated initial_credit; handler consumption (grants) extends
-        # it; a chunk arriving with the window at zero is a fatal
-        # CREDIT_VIOLATION. The demux itself never blocks on this — it only
-        # accounts, so control frames keep flowing regardless of data
-        # pressure.
+        # it; a chunk arriving with the window at zero is a CREDIT_VIOLATION
+        # that breaks that stream, and the request goes on. The demux itself
+        # never blocks on this — it only accounts, so control frames keep
+        # flowing regardless of data pressure.
         stream_windows: Dict[str, CreditWindow] = {}
         # stream_id -> item reassembly state for sequence-mode streams (see
         # `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
@@ -2682,6 +2682,7 @@ def demux_multi_stream(
                 _close_all_open_streams()
                 streams_queue.put(StreamAbandoned())
                 break
+
 
             if frame.frame_type == FrameType.STREAM_START:
                 stream_id = frame.stream_id
@@ -2740,8 +2741,10 @@ def demux_multi_stream(
                         lf_accumulators[stream_id][1].append(frame.payload)
                     continue
 
-                # Credit-violation check (L12): a chunk beyond the granted
-                # window is a fatal protocol error for this request.
+                # Credit-violation check (L12): a chunk arriving with nothing
+                # left of its window is a CREDIT_VIOLATION: that stream is
+                # broken and delivers the error to whoever reads it; the
+                # request goes on.
                 window = stream_windows.get(stream_id)
                 if window is not None:
                     if not window.arrive():

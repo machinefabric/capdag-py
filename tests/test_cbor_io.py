@@ -562,6 +562,46 @@ def test_481_verify_identity_succeeds():
     t.join(timeout=2)
 
 
+# TEST7194: identity verification judges the echo by its value, not its bytes on the wire: the nonce echoed as two CBOR byte strings (3 and 4 bytes) passes, and a CBOR text "bifaci" fails, naming "Expected bytes chunk".
+def test_7194_identity_echo_judged_by_value():
+    import socket
+    import threading
+
+    def run(echo):
+        host_read_sock, cartridge_write_sock = socket.socketpair()
+        cartridge_read_sock, host_write_sock = socket.socketpair()
+
+        def cartridge_thread():
+            reader = FrameReader(cartridge_read_sock.makefile("rb"))
+            writer = FrameWriter(cartridge_write_sock.makefile("wb"))
+            req = reader.read()
+            nonce = b""
+            while True:
+                frame = reader.read()
+                if frame.frame_type == FrameType.CHUNK:
+                    nonce += cbor2.loads(frame.payload)
+                if frame.frame_type == FrameType.END:
+                    break
+            pieces = echo(nonce)
+            writer.write(Frame.stream_start(req.id, "echo", "media:", is_sequence=False))
+            for i, piece in enumerate(pieces):
+                payload = cbor2.dumps(piece)
+                writer.write(Frame.chunk(req.id, "echo", 0, payload, i, compute_checksum(payload)))
+            writer.write(Frame.stream_end(req.id, "echo", len(pieces)))
+            writer.write(Frame.end(req.id, None))
+
+        t = threading.Thread(target=cartridge_thread, daemon=True)
+        t.start()
+        try:
+            verify_identity(FrameReader(host_read_sock.makefile("rb")), FrameWriter(host_write_sock.makefile("wb")))
+        finally:
+            t.join(timeout=2)
+
+    run(lambda nonce: [nonce[:3], nonce[3:]])
+    with pytest.raises(HandshakeError, match="Expected bytes chunk"):
+        run(lambda nonce: ["bifaci"])
+
+
 # TEST482: verify_identity fails when cartridge returns ERR on identity call
 def test_482_verify_identity_fails_on_err():
     import socket
