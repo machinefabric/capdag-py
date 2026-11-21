@@ -38,6 +38,7 @@ from capdag.fabric.registry import (
 )
 from capdag.bifaci.charter import FetchedCharter, store_charter
 from capdag.fabric import cache
+from capdag.standard.caps import identity_cap
 from capdag.urn.cap_urn import CapUrn
 
 
@@ -219,13 +220,14 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
     disk_manifest = Manifest.empty(11)
     disk_manifest.dims["language"] = 2
     disk_manifest.dims["medium"] = 1
+    disk_manifest.caps[normalize_cap_urn(identity_cap().urn_string())] = 1
     for cap in (kept_cap, stale_cap):
         urn = normalize_cap_urn(cap.urn_string())
         disk_manifest.caps[urn] = 1
         cap_file = cache_dir / "caps" / hashlib.sha256(urn.encode()).hexdigest() / "1.json"
         assert cap_file == cache.entry_path(cache_dir, "caps", urn, 1)
         cap_file.parent.mkdir(parents=True, exist_ok=True)
-        cap_file.write_text(json.dumps(CacheEntry(cap, 0, 0).to_dict()))
+        cap_file.write_text(json.dumps(CacheEntry(cap).to_dict()))
     for spec in (
         _spec_with_dims("media:x", [("medium", "text")]),
         _spec_with_dims("media:y", [("medium", "audio")]),
@@ -233,11 +235,11 @@ async def test_1971_the_disk_cache_keeps_definitions_only_with_their_pinned_dims
         disk_manifest.media[spec.urn] = 1
         _, spec_file = _definition_url_and_cache_path(cache_dir, locations, "media", spec.urn, 1)
         spec_file.parent.mkdir(parents=True, exist_ok=True)
-        spec_file.write_text(json.dumps(MediaCacheEntry(spec, 0, 0).to_dict()))
+        spec_file.write_text(json.dumps(MediaCacheEntry(spec).to_dict()))
     for d in (_dim("language", 1, ["en"]), _dim("medium", 1, ["text"])):
         _, dim_file = _definition_url_and_cache_path(cache_dir, locations, "dims", d.name, d.version)
         dim_file.parent.mkdir(parents=True, exist_ok=True)
-        dim_file.write_text(json.dumps(DimCacheEntry(d, 0, 0).to_dict()))
+        dim_file.write_text(json.dumps(DimCacheEntry(d).to_dict()))
     (cache_dir / cache.MANIFEST_FILE).write_text(json.dumps(disk_manifest.to_dict()))
 
     registry = await FabricRegistry.with_config_and_manifest_version(config, 11)

@@ -858,3 +858,36 @@ def test_1969_cap_dims_round_trip_in_order_and_refuse_what_they_cannot_hold():
     twice = text.replace('{"dim":"constrained","value":"constrained"}', '{"dim":"language","value":"es"}')
     with pytest.raises(ValueError, match="dim 'language' is named more than once"):
         Cap.from_dict(json.loads(twice))
+
+
+# TEST1983: a cap's default model is its model-spec argument's default, the
+# value a run uses; a cap with no model-spec argument has none, and a cap that
+# declares two is an error naming it. A body that still carries a stored
+# `default_model_spec` is read, and the stored value is not used.
+def test_1983_the_default_model_is_the_model_spec_arguments_default():
+    urn = 'cap:in="media:enc=utf8;plain-text";generate;out="media:enc=utf8;ext=txt;plain-text"'
+    prompt = {"media_urn": "media:enc=utf8;plain-text", "name": "prompt", "required": True,
+              "sources": [{"stdin": "media:enc=utf8;plain-text"}]}
+
+    def model(name, default=None):
+        arg = {"media_urn": "media:candle;enc=utf8;llm;model-spec", "name": name, "required": False,
+               "sources": [{"cli_flag": f"--{name}"}]}
+        if default is not None:
+            arg["default_value"] = default
+        return arg
+
+    def cap(args, **extra):
+        return Cap.from_dict({"urn": urn, "title": "Generate", "aliases": ["generate"], "args": args, **extra})
+
+    with_default = cap([prompt, model("model-spec", "hf:a/b")])
+    assert with_default.default_model_spec() == "hf:a/b"
+    assert with_default.model_spec_arg().name == "model-spec"
+
+    assert cap([prompt]).default_model_spec() is None
+    assert cap([prompt]).model_spec_arg() is None
+
+    with pytest.raises(ValueError, match="declares two model-spec arguments"):
+        cap([prompt, model("model-a"), model("model-b")]).default_model_spec()
+
+    stored = cap([prompt], default_model_spec="hf:stored/model")
+    assert stored.default_model_spec() is None, "a stored default is not the cap's"
