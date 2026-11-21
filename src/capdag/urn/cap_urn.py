@@ -20,6 +20,12 @@ class CapUrnError(Exception):
     pass
 
 
+class IllegalDeclarationError(CapUrnError):
+    """A cap that parses but cannot be declared: the bare top form, or an
+    ``effect=none`` cap whose input is not inside its output."""
+    pass
+
+
 class CapKind(Enum):
     """Functional category of a cap, derived from all three axes
     (``in``, ``out``, and the remaining tags).
@@ -163,33 +169,21 @@ class CapUrn:
         self._validate_admissible()
 
     def _validate_admissible(self) -> None:
-        in_media = self.in_media_urn()
-        out_media = self.out_media_urn()
-        if (
-            in_media.is_top()
-            and out_media.is_top()
-            and not self.tags
-            and self.effect_kind() == CapEffect.DECLARED
-        ):
-            raise CapUrnError(
+        """Refuse a cap that cannot be declared, as the model decides
+        (``Cap.illegal``): the bare top form, and an ``effect=none`` cap whose
+        input is not inside its output."""
+        illegal = _formal.cap_illegal(self._formal)
+        if illegal is None:
+            return
+        if isinstance(illegal, _formal.IllegalBareTop):
+            raise IllegalDeclarationError(
                 "illegal bare top cap; use cap:effect=none for identity, or declare a non-vacuous input/output/effect/tag"
             )
-        if self.effect_kind() in (CapEffect.DECLARED, CapEffect.ANY):
-            return
-        if self.effect_kind() == CapEffect.NONE:
-            if not in_media.conforms_to(out_media):
-                raise CapUrnError(
-                    f"effect=none requires declared input '{in_media}' to conform to declared output '{out_media}'"
-                )
-            return
-        if self.effect_kind() == CapEffect.PATCH:
-            delta = out_media.delta_from(in_media)
-            witness = in_media.apply_delta(delta)
-            if not witness.conforms_to(out_media):
-                raise CapUrnError(
-                    f"effect=patch witness '{witness}' does not conform to declared output '{out_media}'"
-                )
-            return
+        if isinstance(illegal, _formal.IllegalNoneNotInside):
+            raise IllegalDeclarationError(
+                f"effect=none requires declared input '{self.in_urn}' to conform to declared output '{self.out_urn}'"
+            )
+        raise RuntimeError(f"the model named a reason a cap is illegal that this mirror does not know: {illegal!r}")
 
     @classmethod
     def _from_preserved_parts(
