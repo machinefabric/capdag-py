@@ -30,6 +30,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
+from tagged_urn import ConstraintPresent
+
 from capdag.urn.media_urn import MediaUrn
 
 
@@ -122,7 +124,7 @@ class InputStructure(Enum):
         else:  # RECORD
             if has_record:
                 return base_urn
-            return str(media_urn.with_tag("record", "*"))
+            return str(media_urn.with_tag("record", ConstraintPresent()))
 
 
 class StructureCompatibility:

@@ -20,6 +20,7 @@ from capdag import (
     CAP_IDENTITY,
 )
 from capdag.urn.cap_urn import CapEffect
+from tagged_urn import ConstraintExact, ConstraintPresent, ConstraintUnconstrained
 
 
 def _test_urn(tags_part: str) -> str:
@@ -31,8 +32,8 @@ def _test_urn(tags_part: str) -> str:
 def test_001_cap_urn_creation():
     cap = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
     assert cap.has_marker_tag("generate")
-    assert cap.get_tag("target") == "thumbnail"
-    assert cap.get_tag("ext") == "pdf"
+    assert cap.exact_value("target") == "thumbnail"
+    assert cap.exact_value("ext") == "pdf"
     # Direction specs are required and accessible
     assert cap.in_spec() == MEDIA_VOID
     assert cap.out_spec() == MEDIA_OBJECT
@@ -91,13 +92,13 @@ def test_004_unquoted_values_lowercased():
     cap = CapUrn.from_string(_test_urn("Generate;EXT=PDF;Target=Thumbnail"))
 
     assert cap.has_marker_tag("generate")
-    assert cap.get_tag("ext") == "pdf"
-    assert cap.get_tag("target") == "thumbnail"
+    assert cap.exact_value("ext") == "pdf"
+    assert cap.exact_value("target") == "thumbnail"
 
     # Key lookup is case-insensitive: uppercase variants of an
     # existing key resolve to the same keyed tag.
-    assert cap.get_tag("EXT") == "pdf"
-    assert cap.get_tag("Ext") == "pdf"
+    assert cap.exact_value("EXT") == "pdf"
+    assert cap.exact_value("Ext") == "pdf"
 
     # Both URNs parse to same canonical form (same tags, same values).
     cap2 = CapUrn.from_string(_test_urn("generate;ext=pdf;target=thumbnail"))
@@ -109,17 +110,17 @@ def test_004_unquoted_values_lowercased():
 def test_005_quoted_values_preserve_case():
     # Quoted values preserve their case
     cap = CapUrn.from_string(_test_urn(r'key="Value With Spaces"'))
-    assert cap.get_tag("key") == "Value With Spaces"
+    assert cap.exact_value("key") == "Value With Spaces"
 
     # Key is still lowercase
     cap2 = CapUrn.from_string(_test_urn(r'KEY="Value With Spaces"'))
-    assert cap2.get_tag("key") == "Value With Spaces"
+    assert cap2.exact_value("key") == "Value With Spaces"
 
     # Unquoted vs quoted case difference
     unquoted = CapUrn.from_string(_test_urn("key=UPPERCASE"))
     quoted = CapUrn.from_string(_test_urn(r'key="UPPERCASE"'))
-    assert unquoted.get_tag("key") == "uppercase"  # lowercase
-    assert quoted.get_tag("key") == "UPPERCASE"  # preserved
+    assert unquoted.exact_value("key") == "uppercase"  # lowercase
+    assert quoted.exact_value("key") == "UPPERCASE"  # preserved
     assert unquoted != quoted  # NOT equal
 
 
@@ -127,37 +128,37 @@ def test_005_quoted_values_preserve_case():
 def test_006_quoted_value_special_chars():
     # Semicolons in quoted values
     cap = CapUrn.from_string(_test_urn(r'key="value;with;semicolons"'))
-    assert cap.get_tag("key") == "value;with;semicolons"
+    assert cap.exact_value("key") == "value;with;semicolons"
 
     # Equals in quoted values
     cap2 = CapUrn.from_string(_test_urn(r'key="value=with=equals"'))
-    assert cap2.get_tag("key") == "value=with=equals"
+    assert cap2.exact_value("key") == "value=with=equals"
 
     # Spaces in quoted values
     cap3 = CapUrn.from_string(_test_urn(r'key="hello world"'))
-    assert cap3.get_tag("key") == "hello world"
+    assert cap3.exact_value("key") == "hello world"
 
 
 # TEST7: Test that escape sequences in quoted values (\" and \\) are parsed correctly
 def test_007_quoted_value_escape_sequences():
     # Escaped quotes
     cap = CapUrn.from_string(_test_urn(r'key="value\"quoted\""'))
-    assert cap.get_tag("key") == r'value"quoted"'
+    assert cap.exact_value("key") == r'value"quoted"'
 
     # Escaped backslashes
     cap2 = CapUrn.from_string(_test_urn(r'key="path\\file"'))
-    assert cap2.get_tag("key") == r'path\file'
+    assert cap2.exact_value("key") == r'path\file'
 
     # Mixed escapes
     cap3 = CapUrn.from_string(_test_urn(r'key="say \"hello\\world\""'))
-    assert cap3.get_tag("key") == r'say "hello\world"'
+    assert cap3.exact_value("key") == r'say "hello\world"'
 
 
 # TEST8: Test that mixed quoted and unquoted values in same URN parse correctly
 def test_008_mixed_quoted_unquoted():
     cap = CapUrn.from_string(_test_urn(r'a="Quoted";b=simple'))
-    assert cap.get_tag("a") == "Quoted"
-    assert cap.get_tag("b") == "simple"
+    assert cap.exact_value("a") == "Quoted"
+    assert cap.exact_value("b") == "simple"
 
 
 # TEST9: Test that unterminated quote produces UnterminatedQuote error
@@ -211,14 +212,14 @@ def test_013_round_trip_quoted():
     serialized = cap.to_string()
     reparsed = CapUrn.from_string(serialized)
     assert cap == reparsed
-    assert reparsed.get_tag("key") == "Value With Spaces"
+    assert reparsed.exact_value("key") == "Value With Spaces"
 
 
 # TEST14: Test that escape sequences round-trip correctly
 def test_014_round_trip_escapes():
     original = _test_urn(r'key="value\"with\\escapes"')
     cap = CapUrn.from_string(original)
-    assert cap.get_tag("key") == r'value"with\escapes'
+    assert cap.exact_value("key") == r'value"with\escapes'
     serialized = cap.to_string()
     reparsed = CapUrn.from_string(serialized)
     assert cap == reparsed
@@ -333,8 +334,8 @@ def test_019_missing_tag_handling():
 
 # TEST020: Specificity is the sum of per-tag truth-table scores
 # across in/out/y. Marker tags (bare segments and `key=*`) score 2
-# (must-have-any), exact `key=value` tags score 3, missing/`?` score
-# 0, `!` scores 1.
+# (must-have-any), exact `key=value` tags score 4, missing/`?` score
+# 0, `x?=v` 1, `x!=v` 3, `!` 5.
 def test_020_specificity_calculation():
     # Cap-URN spec is 10000*spec_U(out) + 100*spec_U(in) + spec_U(y),
     # so out-axis differences dominate, then in, then y.
@@ -364,17 +365,17 @@ def test_021_builder_creates_cap_urn():
     assert cap.in_spec() == MEDIA_VOID
     assert cap.out_spec() == MEDIA_OBJECT
     assert cap.has_marker_tag("generate")
-    assert cap.get_tag("ext") == "pdf"
+    assert cap.exact_value("ext") == "pdf"
 
 
 # TEST22: Test builder requires both in_spec and out_spec
 def test_022_builder_requires_direction_specs():
     # Missing in_spec
-    with pytest.raises(CapUrnError, match="Missing required 'in' spec"):
+    with pytest.raises(CapUrnError, match="Cap URN requires 'in' tag"):
         CapUrnBuilder().out_spec(MEDIA_OBJECT).tag("op", "test").build()
 
     # Missing out_spec
-    with pytest.raises(CapUrnError, match="Missing required 'out' spec"):
+    with pytest.raises(CapUrnError, match="Cap URN requires 'out' tag"):
         CapUrnBuilder().in_spec(MEDIA_VOID).tag("op", "test").build()
 
     # Both present should work
@@ -393,8 +394,8 @@ def test_023_builder_preserves_case():
     )
     # Key is normalized to lowercase; case-insensitive lookup resolves
     # to the same keyed tag.
-    assert cap.get_tag("op") == "Generate"
-    assert cap.get_tag("OP") == "Generate"
+    assert cap.exact_value("op") == "Generate"
+    assert cap.exact_value("OP") == "Generate"
     # Quoted values preserve case exactly.
     assert cap.has_tag("op", "Generate")
 
@@ -415,8 +416,8 @@ def test_6544_builder_rejects_structural_keys():
     with pytest.raises(CapUrnError, match="reserved structural key"):
         CapUrnBuilder().marker("effect")
 
-    # Pure-numeric keys are rejected at build time (inherited from tagged-urn).
-    with pytest.raises(CapUrnError, match="numeric"):
+    # A key begins with a letter; one that does not is refused at build time.
+    with pytest.raises(CapUrnError, match="invalid character"):
         (
             CapUrnBuilder()
             .in_spec(MEDIA_VOID)
@@ -484,8 +485,8 @@ def test_026_merge_and_subset():
     merged = cap1.merge(cap2)
     assert merged.has_marker_tag("convert")
     assert merged.has_marker_tag("generate")
-    assert merged.get_tag("ext") == "pdf"
-    assert merged.get_tag("target") == "thumbnail"
+    assert merged.exact_value("ext") == "pdf"
+    assert merged.exact_value("target") == "thumbnail"
 
     # Subset by key list keeps only the named keys.
     subset = cap1.subset(["generate"])
@@ -499,7 +500,7 @@ def test_027_with_wildcard_tag():
 
     # Wildcard a regular tag
     cap2 = cap.with_wildcard_tag("ext")
-    assert cap2.get_tag("ext") == "*"
+    assert cap2.get_tag("ext") == ConstraintPresent()
 
     # Wildcard in direction resolves to the top media URN.
     cap3 = cap.with_wildcard_tag("in")
@@ -527,16 +528,18 @@ def test_029_minimal_valid_cap_urn():
 # TEST30: Test extended characters (forward slashes, colons) in tag values
 def test_030_extended_characters_in_values():
     cap = CapUrn.from_string(_test_urn("path=path/to/file;url=http://example.com"))
-    assert cap.get_tag("path") == "path/to/file"
-    assert cap.get_tag("url") == "http://example.com"
+    assert cap.exact_value("path") == "path/to/file"
+    assert cap.exact_value("url") == "http://example.com"
 
 
 # TEST31: Test wildcard rejected in keys but accepted in values
 def test_031_wildcard_in_keys_and_values():
-    # Bare key parses as a marker (must-have-any) — value is "*".
-    cap = CapUrn.from_string(_test_urn("op"))
-    assert cap.has_marker_tag("op")
-    assert cap.get_tag("op") == "*"
+    # A bare key and key=* are both the marker (present), never an exact value.
+    for text in ("op", "op=*"):
+        cap = CapUrn.from_string(_test_urn(text))
+        assert cap.has_marker_tag("op")
+        assert cap.get_tag("op") == ConstraintPresent()
+        assert cap.exact_value("op") is None
 
     # Wildcard in key should fail (handled by tagged-urn)
     with pytest.raises(CapUrnError):
@@ -550,25 +553,29 @@ def test_032_duplicate_keys_rejected():
         CapUrn.from_string(_test_urn("op;op=convert"))
 
 
-# TEST33: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed
+# TEST33: Test keys that begin with a digit are rejected, digits after the first letter allowed, numeric values allowed
 def test_033_numeric_keys():
-    # Pure numeric key should fail (handled by tagged-urn)
-    with pytest.raises(CapUrnError, match="numeric"):
-        CapUrn.from_string(_test_urn("123=value"))
+    # A key begins with a letter
+    for text in ("123=value", "123key=value"):
+        with pytest.raises(CapUrnError, match="invalid character"):
+            CapUrn.from_string(_test_urn(text))
 
-    # Mixed alphanumeric key is allowed
+    # Digits after the first letter are allowed
     cap = CapUrn.from_string(_test_urn("key123=value"))
-    assert cap.get_tag("key123") == "value"
+    assert cap.exact_value("key123") == "value"
 
     # Numeric value is allowed
     cap2 = CapUrn.from_string(_test_urn("key=123"))
-    assert cap2.get_tag("key") == "123"
+    assert cap2.exact_value("key") == "123"
 
 
 # TEST34: Test empty values are rejected
 def test_034_empty_values_rejected():
-    # Empty value in builder
-    with pytest.raises(CapUrnError, match="Empty value"):
+    # Empty value in parsing and in the builder
+    for text in ("key=", "key=;other=value"):
+        with pytest.raises(CapUrnError):
+            CapUrn.from_string(_test_urn(text))
+    with pytest.raises(CapUrnError, match="empty value"):
         CapUrnBuilder().in_spec(MEDIA_VOID).out_spec(MEDIA_OBJECT).tag("key", "").build()
 
 
@@ -586,23 +593,25 @@ def test_035_has_tag_behavior():
     assert not cap.has_tag("key", "value")
     assert not cap.has_tag("key", "VALUE")
 
-    # Works for in/out
-    assert cap.has_tag("in", MEDIA_VOID)
-    assert cap.has_tag("out", MEDIA_OBJECT)
+    # The direction is not a cap-tag: it is read with in_spec/out_spec
+    assert not cap.has_tag("in", MEDIA_VOID)
+    assert not cap.has_tag("out", MEDIA_OBJECT)
+    assert cap.in_spec() == MEDIA_VOID
+    assert cap.out_spec() == MEDIA_OBJECT
 
 
 # TEST36: Test with_tag preserves value case
 def test_036_with_tag_preserves_case():
     cap = CapUrn.from_string(_test_urn("generate"))
-    cap2 = cap.with_tag("key", "MixedCase")
-    assert cap2.get_tag("key") == "MixedCase"
+    cap2 = cap.with_tag("key", ConstraintExact("MixedCase"))
+    assert cap2.get_tag("key") == ConstraintExact("MixedCase")
 
 
 # TEST37: Test with_tag rejects empty value
 def test_037_with_tag_rejects_empty():
     cap = CapUrn.from_string(_test_urn("generate"))
-    with pytest.raises(CapUrnError, match="Empty value"):
-        cap.with_tag("key", "")
+    with pytest.raises(CapUrnError, match="empty value"):
+        cap.with_tag("key", ConstraintExact(""))
 
 
 # TEST38: Test semantic equivalence of unquoted and quoted simple lowercase values
@@ -614,23 +623,18 @@ def test_038_semantic_equivalence_quoted_unquoted():
     assert cap1 == cap2
 
 
-# TEST39: Test get_tag returns direction specs (in/out) with case-insensitive lookup
-def test_039_get_tag_direction_specs():
-    cap = CapUrn.from_string(_test_urn("generate"))
+# TEST39: Test the direction is read with in_spec/out_spec, and get_tag reads cap-tags only
+def test_039_direction_specs_are_not_cap_tags():
+    cap = CapUrn.from_string('cap:in="media:string";test;out="media:integer"')
 
-    # get_tag works for in/out
-    assert cap.get_tag("in") == MEDIA_VOID
-    assert cap.get_tag("out") == MEDIA_OBJECT
+    assert cap.in_spec() == "media:string"
+    assert cap.out_spec() == "media:integer"
+    assert cap.has_marker_tag("test")
 
-    # Case-insensitive
-    assert cap.get_tag("IN") == MEDIA_VOID
-    assert cap.get_tag("OUT") == MEDIA_OBJECT
-    assert cap.get_tag("In") == MEDIA_VOID
-    assert cap.get_tag("Out") == MEDIA_OBJECT
-
-    # Also accessible via methods
-    assert cap.in_spec() == MEDIA_VOID
-    assert cap.out_spec() == MEDIA_OBJECT
+    # in, out and effect are not cap-tags, whatever their case
+    for key in ("in", "out", "effect", "IN", "OUT"):
+        assert cap.get_tag(key) is None, key
+    assert len(cap.tags) == 1
 
 
 # ============================================================================
@@ -813,7 +817,7 @@ def test_561_in_out_media_urn():
     assert in_urn.has_tag("ext", "pdf")
 
     out_urn = cap.out_media_urn()
-    assert out_urn.get_tag("enc") == "utf8"  # text output carries enc
+    assert out_urn.exact_value("enc") == "utf8"  # text output carries enc
     assert out_urn.has_tag("ext", "txt")
 
     # Generic legal cap still exposes top media on both axes
@@ -960,12 +964,13 @@ def test_566_with_tag_ignores_in_out():
     cap = CapUrn.from_string(
         'cap:in="media:void";test;out="media:void"'
     )
-    with pytest.raises(CapUrnError):
-        cap.with_tag("in", "media:")
-    with pytest.raises(CapUrnError):
-        cap.with_tag("out", "media:")
-    with pytest.raises(CapUrnError):
-        cap.with_tag("effect", "none")
+    for key, constraint in (
+        ("in", ConstraintExact("media:")),
+        ("out", ConstraintExact("media:")),
+        ("effect", ConstraintExact("none")),
+    ):
+        with pytest.raises(CapUrnError, match="reserved structural key"):
+            cap.with_tag(key, constraint)
 
 
 # TEST567: conforms_to_str and accepts_str work with string arguments
@@ -1554,7 +1559,7 @@ def test_1104_is_dispatchable_rejects_non_dispatchable():
     assert not candidate.is_dispatchable(request)
 
 
-# TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
+# TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 4.
 def test_891_direction_semantic_specificity():
     generic_cap = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
@@ -1838,20 +1843,19 @@ def test_1830_canonicalize_no_constraint():
         )
 
 
-# TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character.
+# TEST1831: ?x=v, x?=v and x=?v all canonicalize to x?=v; a quoted x="?v" is the exact value ?v.
 def test_1831_canonicalize_absent_or_not_value():
     canonical = "cap:x?=foo"
-    for input_str in ["cap:?x=foo", "cap:x?=foo"]:
+    for input_str in ["cap:?x=foo", "cap:x?=foo", "cap:x=?foo"]:
         cap = CapUrn.from_string(input_str)
         assert cap.to_string() == canonical, (
             f"input {input_str!r} must canonicalize to {canonical!r}"
         )
 
-    # `x=?foo` is a plain exact tag whose value is the string `?foo`
-    # — NOT a canonicalization alias.
-    exact = CapUrn.from_string("cap:x=?foo")
-    assert exact.to_string() == "cap:x=?foo"
-    assert exact.get_tag("x") == "?foo"
+    # A quoted value is literal: the exact value `?foo`.
+    literal = CapUrn.from_string('cap:x="?foo"')
+    assert literal.to_string() == 'cap:x="?foo"'
+    assert literal.get_tag("x") == ConstraintExact("?foo")
 
 
 # TEST1832: x ≡ x=* both canonicalize to bare x.
@@ -1864,20 +1868,19 @@ def test_1832_canonicalize_must_have_any():
         )
 
 
-# TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.
+# TEST1833: !x=v, x!=v and x=!v all canonicalize to x!=v; a quoted x="!v" is the exact value !v.
 def test_1833_canonicalize_present_not_value():
     canonical = "cap:x!=foo"
-    for input_str in ["cap:!x=foo", "cap:x!=foo"]:
+    for input_str in ["cap:!x=foo", "cap:x!=foo", "cap:x=!foo"]:
         cap = CapUrn.from_string(input_str)
         assert cap.to_string() == canonical, (
             f"input {input_str!r} must canonicalize to {canonical!r}"
         )
 
-    # `x=!foo` is a plain exact tag whose value is the string `!foo`
-    # — NOT a canonicalization alias.
-    exact = CapUrn.from_string("cap:x=!foo")
-    assert exact.to_string() == "cap:x=!foo"
-    assert exact.get_tag("x") == "!foo"
+    # A quoted value is literal: the exact value `!foo`.
+    literal = CapUrn.from_string('cap:x="!foo"')
+    assert literal.to_string() == 'cap:x="!foo"'
+    assert literal.get_tag("x") == ConstraintExact("!foo")
 
 
 # TEST1834: x=v stays as x=v (the lone exact-value form).
@@ -1978,3 +1981,132 @@ def test_6736_axis_weighting_decoded_layout():
     # out=4 markers (8), in=2 markers (4), y=1 marker (2)
     # 10000*8 + 100*4 + 2 = 80402
     assert cap.specificity() == 10000 * 8 + 100 * 4 + 2
+
+
+# TEST6759: CapUrn() and from_tags read direction tags as parsing does: * is media:, an empty spec is refused, and a cap-tag map naming a structural key is refused
+def test_6759_constructors_normalize_directions_like_parsing():
+    made = CapUrn("*", "media:record", {"op": ConstraintPresent()})
+    assert made == CapUrn.from_string("cap:op;out=media:record")
+
+    tags = {"op": ConstraintPresent(), "in": ConstraintPresent(), "out": ConstraintPresent()}
+    assert CapUrn.from_tags(tags) == CapUrn.from_string("cap:in=*;op;out=*")
+
+    with pytest.raises(CapUrnError, match="Empty value for 'in' tag"):
+        CapUrn("", "media:record", {"op": ConstraintPresent()})
+
+    with pytest.raises(CapUrnError, match="reserved structural key 'in'"):
+        CapUrn("media:pdf", "media:record", {"op": ConstraintPresent(), "in": ConstraintExact("media:pdf")})
+
+
+# TEST6760: A quoted * in a direction tag and a quoted ? as the effect are literal values, which a cap refuses
+def test_6760_quoted_structural_sigils_are_literal():
+    with pytest.raises(CapUrnError, match="Invalid 'in' media URN"):
+        CapUrn.from_string('cap:in="*";op')
+    with pytest.raises(CapUrnError, match="Unsupported effect"):
+        CapUrn.from_string('cap:effect="?";op')
+    # Unquoted, they are the marker and the unconstrained effect.
+    assert CapUrn.from_string("cap:in=*;op").in_spec() == "media:"
+    assert CapUrn.from_string("cap:effect=?;op").effect_kind() == CapEffect.ANY
+
+
+# TEST6761: A missing direction and a direction that is no media URN say what the validation rules say
+def test_6761_cu1_cu2_messages():
+    with pytest.raises(CapUrnError) as missing_in:
+        CapUrnBuilder().out_spec("media:").build()
+    assert str(missing_in.value) == "Cap URN requires 'in' tag"
+    with pytest.raises(CapUrnError) as missing_out:
+        CapUrnBuilder().in_spec("media:").build()
+    assert str(missing_out.value) == "Cap URN requires 'out' tag"
+
+    with pytest.raises(CapUrnError) as not_media:
+        CapUrn.from_string("cap:in=invalid;op")
+    assert str(not_media.value) == "Invalid 'in' media URN: invalid. Must start with 'media:' or be '*'"
+    with pytest.raises(CapUrnError) as not_parsing:
+        CapUrn.from_string('cap:in="media:void;x";op')
+    assert str(not_parsing.value).startswith("Invalid 'in' media URN: media:void;x: "), str(not_parsing.value)
+    with pytest.raises(CapUrnError) as out_not_media:
+        CapUrn.from_string("cap:op;out=invalid")
+    assert str(out_not_media.value) == "Invalid 'out' media URN: invalid. Must start with 'media:' or be '*'"
+
+
+# TEST6762: Every surface form the cap URN docs give canonicalizes to the canonical form they give, which reads back as itself
+def test_6762_documented_canonical_forms():
+    pairs = [
+        ("cap:test", "cap:test"),
+        ("cap:in=media:;test;out=media:", "cap:test"),
+        ("cap:in=*;test;out=*", "cap:test"),
+        ("cap:in=media:pdf;extract;out=media:record", "cap:extract;in=media:pdf;out=media:record"),
+        ("cap:in=media:;out=media:;effect=none", "cap:effect=none"),
+        ("cap:effect=none", "cap:effect=none"),
+        (
+            'cap:extract;in="media:document;ext=pdf";out=media:record',
+            'cap:extract;in="media:document;ext=pdf";out=media:record',
+        ),
+        (
+            'cap:in="media:enc=utf8";out="media:enc=utf8;fmt=json;record";prompt',
+            'cap:in="media:enc=utf8";out="media:enc=utf8;fmt=json;record";prompt',
+        ),
+        ("cap:in=media:;out=media:;transform", "cap:transform"),
+        (
+            'cap:in="media:document;ext=pdf";extract;out="media:record"',
+            'cap:extract;in="media:document;ext=pdf";out=media:record',
+        ),
+        ('cap:in=media:;generate;out="media:enc=utf8"', 'cap:generate;out="media:enc=utf8"'),
+    ]
+    for surface, canonical in pairs:
+        cap = CapUrn.from_string(surface)
+        assert cap.to_string() == canonical, surface
+        assert CapUrn.from_string(canonical) == cap, f"{canonical} reads back"
+
+    with pytest.raises(CapUrnError, match="effect=none requires"):
+        CapUrn.from_string('cap:effect=none;in="media:document;ext=pdf";out="media:enc=utf8"')
+
+    # The accessor example: the direction specs and the kind.
+    cap = CapUrn.from_string('cap:extract;in="media:document;ext=pdf";out=media:record')
+    assert cap.in_spec() == "media:document;ext=pdf"
+    assert cap.out_spec() == "media:record"
+    assert cap.has_marker_tag("extract")
+    assert cap.kind() == CapKind.TRANSFORM
+
+
+# TEST6763: The ranking docs' worked examples hold: each candidate's specificity, that it serves the request, the order find_all_matches gives and the choice select makes
+def test_6763_documented_ranking_examples():
+    p = CapUrn.from_string
+
+    # Exact match preferred.
+    request = p("cap:extract;in=media:pdf;out=media:record")
+    a = p("cap:extract;in=media:pdf;out=media:record")
+    b = p("cap:extract;in=media:pdf;out=media:record;v=2")
+    c = p("cap:extract;out=media:record")
+    assert request.specificity() == 20202
+    assert (a.specificity(), b.specificity(), c.specificity()) == (20202, 20206, 20002)
+    caps = [c, b, a]
+    assert all(cap.is_dispatchable(request) for cap in caps)
+    assert CapMatcher.find_all_matches(caps, request) == [a, b, c]
+    assert CapUrn.select(caps, request) == 2
+
+    # Refinement when no exact match.
+    request = p("cap:convert")
+    a = p("cap:convert;in=media:pdf;out=media:html")
+    b = p("cap:convert;in=media:image;out=media:png")
+    c = p("cap:convert")
+    assert request.specificity() == 2
+    assert (a.specificity(), b.specificity(), c.specificity()) == (20202, 20202, 2)
+    caps = [a, b, c]
+    assert all(cap.is_dispatchable(request) for cap in caps)
+    assert CapMatcher.find_all_matches(caps, request) == [c, a, b]
+    assert CapUrn.select(caps, request) == 2
+    # Without C, A and B tie, and the first in the list is chosen.
+    assert CapUrn.select([a, b], request) == 0
+    assert CapUrn.select([b, a], request) == 0
+
+    # Fallback only.
+    request = p('cap:extract;format=json;in="media:pdf;v=2.0";out=media:record')
+    a = p("cap:extract;format=json;in=media:pdf;out=media:record")
+    b = p("cap:extract;format=json;out=media:record")
+    assert request.specificity() == 20606
+    assert (a.specificity(), b.specificity()) == (20206, 20006)
+    caps = [b, a]
+    assert all(cap.is_dispatchable(request) for cap in caps)
+    assert CapMatcher.find_all_matches(caps, request) == [a, b]
+    assert CapUrn.select(caps, request) == 1

@@ -275,7 +275,7 @@ def embeddings_dimensions_urn() -> CapUrn:
     """Build URN for embeddings-dimensions capability"""
     return (
         CapUrnBuilder()
-        .marker("embeddings_dimensions")
+        .marker("embeddings-dimensions")
         .in_spec(MEDIA_MODEL_SPEC)
         .out_spec(MEDIA_MODEL_DIM)
         .build()
@@ -286,7 +286,7 @@ def embeddings_generation_urn() -> CapUrn:
     """Build URN for text embeddings-generation capability"""
     return (
         CapUrnBuilder()
-        .marker("generate_embeddings")
+        .marker("generate-embeddings")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_EMBEDDING_VECTOR)
         .build()
@@ -297,9 +297,9 @@ def image_embeddings_generation_urn() -> CapUrn:
     """Build URN for image embeddings-generation capability"""
     return (
         CapUrnBuilder()
-        .marker("generate_image_embeddings")
-        .tag("ml-model", "*")
-        .tag("candle", "*")
+        .marker("generate-image-embeddings")
+        .marker("ml-model")
+        .marker("candle")
         .in_spec(MEDIA_PNG)
         .out_spec(MEDIA_EMBEDDING_VECTOR)
         .build()
@@ -389,7 +389,7 @@ def render_page_image_urn(input_media: str) -> str:
     """
     return (
         CapUrnBuilder()
-        .marker("render_page_image")
+        .marker("render-page-image")
         .in_spec(input_media)
         .out_spec(MEDIA_PNG)
         .build()
@@ -420,7 +420,7 @@ def format_conversion_urn(in_media: str, out_media: str) -> str:
     """Build URN for a format conversion capability."""
     return (
         CapUrnBuilder()
-        .marker("convert_format")
+        .marker("convert-format")
         .in_spec(in_media)
         .out_spec(out_media)
         .build()
@@ -505,9 +505,9 @@ def generate_json_urn(lang_code: str) -> CapUrn:
     """
     return (
         CapUrnBuilder()
-        .marker("generate_json")
+        .marker("generate-json")
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_JSON)
         .build()
@@ -521,7 +521,7 @@ def same_urn(lang_code: str) -> CapUrn:
         CapUrnBuilder()
         .marker("same")
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec("media:enc=utf8;fmt=json;record;semantic-judgment")
         .build()
@@ -535,7 +535,7 @@ def _semantic_judgment_urn(marker: str, lang_code: str) -> CapUrn:
         CapUrnBuilder()
         .marker(marker)
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec("media:enc=utf8;fmt=json;record;semantic-judgment")
         .build()
@@ -589,7 +589,7 @@ def summarize_urn(lang_code: str) -> CapUrn:
         CapUrnBuilder()
         .marker("summarize")
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_TXT)
         .build()
@@ -600,9 +600,9 @@ def make_decision_urn(lang_code: str) -> CapUrn:
     """Build URN for make-decision capability"""
     return (
         CapUrnBuilder()
-        .marker("make_decision")
+        .marker("make-decision")
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_DECISION)
         .build()
@@ -613,9 +613,9 @@ def make_multiple_decisions_urn(lang_code: str) -> CapUrn:
     """Build URN for make-multiple-decisions capability"""
     return (
         CapUrnBuilder()
-        .marker("make_multiple_decisions")
+        .marker("make-multiple-decisions")
         .tag("language", lang_code)
-        .tag("constrained", "*")
+        .marker("constrained")
         .in_spec(MEDIA_PLAIN_TEXT)
         .out_spec(MEDIA_DECISION)
         .build()
