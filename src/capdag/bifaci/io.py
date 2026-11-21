@@ -407,7 +407,7 @@ def write_frame(writer: BinaryIO, frame: Frame, limits: Limits) -> None:
         writer.write(frame_bytes)
         writer.flush()
     except Exception as e:
-        raise CborError(f"Write failed: {e}")
+        raise CborError(f"Write failed: {e}") from e
 
 
 def read_frame(reader: BinaryIO, limits: Limits) -> Optional[Frame]:
