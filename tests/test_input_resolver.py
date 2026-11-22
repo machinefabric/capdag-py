@@ -681,7 +681,7 @@ def test_1984_settle_asks_no_value_adapter_of_binary_content():
     adapters = ValueAdapterRegistry()
     adapters.register(
         "media:",
-        ValueAdapter(base_media_urn="media:", refined_marker_tag="refined", value_matches=lambda _value: True),
+        ValueAdapter(name="refine-anything", base_media_urn="media:", refined_marker_tag="refined", value_matches=lambda _value: True),
     )
     survivor = MediaUrn.from_string("media:enc=utf8;fmt=json")
 
