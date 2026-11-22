@@ -623,11 +623,7 @@ class InProcessCartridgeHost:
                     if is_identity:
                         handler = identity_handler
                     else:
-                        try:
-                            request = CapUrn.from_string(cap_urn)
-                        except CapUrnError:
-                            request = None
-                        idx = None if request is None else self.find_handler_for_cap(caps, owners, request)
+                        idx = self.find_handler_for_cap(caps, owners, parsed_cap)
                         if idx is None:
                             # No registered handler for a dispatched cap is
                             # a deployment mismatch — Environment.
