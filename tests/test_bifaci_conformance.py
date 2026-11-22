@@ -65,6 +65,7 @@ from capdag.bifaci.request_state import (
     Disposition,
     FrameDirection,
     PoolKey,
+    ReceivedFlow,
     RequestState,
     RequestTable,
     RoutingEntry,
@@ -725,3 +726,66 @@ def test_12389_handshake_refuses_a_zero_credit_window():
         handshake_accept(
             FrameReader.new(to_cartridge), FrameWriter.new(io.BytesIO()), b"{}", {}
         )
+
+
+_EMITTED_TYPES = {
+    "stream_start": FrameType.STREAM_START,
+    "chunk": FrameType.CHUNK,
+    "stream_end": FrameType.STREAM_END,
+    "end": FrameType.END,
+    "err": FrameType.ERR,
+    # REQ and LOG are what the model calls other; a LOG stands for them.
+    "other": FrameType.LOG,
+}
+
+
+def _emission_frame(row):
+    frame_type = _EMITTED_TYPES[row["frame"]]
+    return Frame(
+        frame_type,
+        MessageId(1),
+        stream_id=row.get("stream"),
+        chunk_index=row.get("index") if frame_type == FrameType.CHUNK else None,
+        chunk_count=row.get("count") if frame_type == FrameType.STREAM_END else None,
+    )
+
+
+def _violation_text(violation):
+    if violation is None:
+        return None
+    kind, stream = violation["kind"], violation.get("stream")
+    if kind == "after_end":
+        return "a frame after the call's END or ERR"
+    if kind == "stream_restarted":
+        return f"stream {stream} started twice"
+    if kind == "stream_not_open":
+        return f"a chunk or end for stream {stream}, which is not open"
+    if kind == "chunk_out_of_place":
+        return f"chunk out of place on stream {stream}: expected {violation['expected']}, got {violation['got']}"
+    if kind == "chunk_count_wrong":
+        return f"chunk count wrong on stream {stream}: sent {violation['sent']}, said {violation['said']}"
+    if kind == "end_with_open_stream":
+        return f"END with stream {stream} still open"
+    raise AssertionError(f"the model's table names no violation '{kind}'")
+
+
+# TEST7126: a receiver takes a call's frames in order as the model does: it
+# refuses the first frame of every short flow that the model finds out of order
+# (a stream started twice, a chunk or an end for a stream not open, a chunk out
+# of its place, a count that is not what was sent, END with a stream open,
+# anything after END or ERR), naming what is wrong, and refuses nothing in a
+# flow the model finds in order.
+def test_7126_a_received_flow_is_checked_as_the_model_does():
+    rows = _rows("emission")
+    wrong = []
+    for row in rows:
+        flow = ReceivedFlow()
+        refused = None
+        for frame in row["frames"]:
+            refused = flow.receive(_emission_frame(frame))
+            if refused is not None:
+                break
+        expected = _violation_text(row["violation"])
+        if refused != expected:
+            wrong.append(f"{row}: refused {refused!r}")
+    _conclude("emission", len(rows), wrong)
