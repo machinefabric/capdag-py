@@ -1505,7 +1505,7 @@ class _FlowState:
     def __init__(self):
         from capdag import _formal
 
-        self.order = _formal.start()
+        self.order = _formal.reorder_start()
         self.buffer: dict[int, "Frame"] = {}
 
 

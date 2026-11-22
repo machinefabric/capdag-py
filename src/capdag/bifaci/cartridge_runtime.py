@@ -68,6 +68,7 @@ from capdag.bifaci.policy import (
     HostPolicy, LivePolicy, NetworkPolicy, Reach, NETWORK_POLICY_CODE, NETWORK_POLICY_UNSET_CODE,
 )
 from capdag.bifaci.credit import CreditGate, CreditRouter, CreditClosed, CreditWindow
+from capdag.bifaci.request_state import ReceivedFlow
 from capdag.bifaci.stats import (
     DropCounters,
     DropSnapshot,
@@ -2675,6 +2676,9 @@ def demux_multi_stream(
                 tx.put(None)
             stream_channels.clear()
 
+        # The call's frames are checked in order with the proved model (12.4).
+        flow = ReceivedFlow()
+
         while True:
             frame: Optional[Frame] = raw_rx.get()
 
@@ -2685,6 +2689,13 @@ def demux_multi_stream(
                 streams_queue.put(StreamAbandoned())
                 break
 
+            violation = flow.receive(frame)
+            if violation is not None:
+                for tx in stream_channels.values():
+                    tx.put(StreamError(violation))
+                _close_all_open_streams()
+                streams_queue.put(StreamError(violation))
+                break
 
             if frame.frame_type == FrameType.STREAM_START:
                 stream_id = frame.stream_id
@@ -3394,7 +3405,15 @@ def demux_peer_response(
         # that broke the protocol. A queue that ends without one was cut
         # short.
         ended = False
+        # The response's frames are checked in order with the proved model
+        # (12.4); a violation is the response's protocol error.
+        flow = ReceivedFlow()
         for frame in iter(raw_frames.get, None):
+            violation = flow.receive(frame)
+            if violation is not None:
+                item_queue.put(_protocol(violation))
+                ended = True
+                break
             if frame.frame_type == FrameType.STREAM_START:
                 stream_id = frame.stream_id
                 if stream_id is None:
@@ -3480,13 +3499,8 @@ def demux_peer_response(
                     if unfinished is not None:
                         item_queue.put(unfinished)
             elif frame.frame_type == FrameType.END:
-                # A stream the peer never ended, with part of an item still
-                # held, ended mid-item with the request — reported in a fixed
-                # order.
-                for stream_id in sorted(streams):
-                    unfinished = streams[stream_id].ended_mid_item()
-                    if unfinished is not None:
-                        item_queue.put(unfinished)
+                # Every stream has ended by now: END with one open is refused
+                # by the order check above.
                 ended = True
                 break
             elif frame.frame_type == FrameType.ERR:

@@ -523,7 +523,7 @@ def test_12730_a_peer_response_has_a_stream_per_output():
     ]))
     assert [item.data_error is None for item in twice] == [True, False], twice
     assert isinstance(twice[1].data_error, ProtocolError)
-    assert "a second STREAM_START for stream 'head'" in str(twice[1].data_error)
+    assert "stream head started twice" in str(twice[1].data_error)
 
     # What goes wrong on another output's stream is an error of the response:
     # it is tagged with its output, and a collector does not pass over it.
@@ -548,17 +548,27 @@ def test_12730_a_peer_response_has_a_stream_per_output():
         with pytest.raises(PeerResponseError, match="Checksum mismatch"):
             collect(_feed(broken))
 
-    # A sequence stream of another output that the request's END cuts inside
-    # an item ends with that error, under its output.
+    # A sequence stream of another output that its STREAM_END cuts inside an
+    # item ends with that error, under its output.
     rows = cbor2.dumps([1, 2, 3])
     cut = [
         Frame.stream_start(rid, "rest", "media:enc=utf8", True).for_output(REST),
         Frame.chunk(rid, "rest", 0, rows[:2], 0, compute_checksum(rows[:2])),
+        Frame.stream_end(rid, "rest", 1),
         Frame.end_ok(rid, None),
     ]
     unfinished = _drain(_feed(cut))
     assert len(unfinished) == 1 and unfinished[0].output == REST
     assert "ended mid-item" in str(unfinished[0].data_error)
+    # The request's END with that stream still open is a protocol error naming
+    # it.
+    open_at_end = _drain(_feed([
+        Frame.stream_start(rid, "rest", "media:enc=utf8", True).for_output(REST),
+        Frame.chunk(rid, "rest", 0, rows[:2], 0, compute_checksum(rows[:2])),
+        Frame.end_ok(rid, None),
+    ]))
+    assert len(open_at_end) == 1 and isinstance(open_at_end[0].data_error, ProtocolError), open_at_end
+    assert "END with stream rest still open" in str(open_at_end[0].data_error)
 
 
 # TEST12731: a request stream names no output: an argument is identified by

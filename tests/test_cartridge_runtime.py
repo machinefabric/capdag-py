@@ -3536,6 +3536,55 @@ def test_7202_unread_peer_response_is_not_granted():
     assert granted() == 4, "the chunks the caller reads are granted back"
 
 
+def _demux_of(indices, chunk_count):
+    """A request whose stream ``s`` carries one chunk per index given, then a
+    STREAM_END saying ``chunk_count``, then END, read by the demux as a
+    handler reads it."""
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+    raw.put(Frame.stream_start(rid, "s", "media:enc=utf8", False))
+    for i in indices:
+        raw.put(_mk_scalar_chunk(rid, "s", i))
+    raw.put(Frame.stream_end(rid, "s", chunk_count))
+    raw.put(Frame.end(rid, None))
+    return demux_multi_stream(raw)
+
+
+def _handler_sees(package):
+    """Everything the handler is given, in order: each stream's items, and any
+    error, as text."""
+    seen = []
+    while True:
+        stream = package.recv()
+        if stream is None:
+            return seen
+        if isinstance(stream, Exception):
+            seen.append(f"package error: {stream}")
+            continue
+        while True:
+            item = stream.recv()
+            if item is None:
+                break
+            seen.append(f"stream error: {item}" if isinstance(item, Exception) else "item")
+
+
+# TEST7191: A request stream whose CHUNKs carry chunk_index 0 then 2 gives its handler a protocol error naming the chunk out of place, the stream, and the index expected and the one received.
+def test_7191_chunk_out_of_place_is_a_protocol_error():
+    seen = _handler_sees(_demux_of([0, 2], 2))
+    assert any("chunk out of place on stream s: expected 1, got 2" in s for s in seen), (
+        f"the out-of-place chunk must be an error, saw {seen}"
+    )
+    assert seen.count("item") == 1, f"only the chunk in place is delivered: {seen}"
+
+
+# TEST7192: A stream of two CHUNKs ended by a STREAM_END whose chunk_count is 3 gives a protocol error naming the count wrong: sent 2, said 3.
+def test_7192_chunk_count_wrong_is_a_protocol_error():
+    seen = _handler_sees(_demux_of([0, 1], 3))
+    assert any("chunk count wrong on stream s: sent 2, said 3" in s for s in seen), (
+        f"the wrong count must be an error, saw {seen}"
+    )
+
+
 # -----------------------------------------------------------------------
 # END-carries-final-progress (L3/L5) — not individually numbered in the
 # Rust diff (covered there at the E2E/interop level), exercised here at the
