@@ -28,6 +28,7 @@ add_library(capdagFormal_lean SHARED
   program/modules/CapDAG-Run-Control.c
   program/modules/CapDAG-Run-Step.c
   program/modules/Init-Core.c
+  program/modules/Init-Data-Array-Basic.c
   program/modules/Init-Data-ByteArray-Basic.c
   program/modules/Init-Data-ByteArray-Extra.c
   program/modules/Init-Data-Format-Basic.c
@@ -43,7 +44,6 @@ add_library(capdagFormal_lean SHARED
   program/modules/Init-Data-String-Bootstrap.c
   program/modules/Init-Data-String-Defs.c
   program/modules/Init-Data-String-Iterate.c
-  program/modules/Init-Data-String-Length.c
   program/modules/Init-Data-String-Modify.c
   program/modules/Init-Data-UInt-Basic.c
   program/modules/Init-Data-UInt-BasicAux.c
@@ -56,11 +56,13 @@ add_library(capdagFormal_lean SHARED
   program/modules/Init-Util.c
   program/modules/Lean-Data-Iterators-Producers-PersistentHashMap.c
   program/modules/Lean-Elab-Structure.c
+  program/modules/Lungo-Attr-Names.c
   program/modules/TaggedUrn-Constraint.c
   program/modules/TaggedUrn-Exec.c
   program/modules/TaggedUrn-Join.c
   program/modules/TaggedUrn-Patch.c
   program/modules/TaggedUrn-Sorted.c
+  program/modules/TaggedUrn-Split.c
   program/modules/TaggedUrn-Urn.c
 )
 target_include_directories(capdagFormal_lean PRIVATE program)

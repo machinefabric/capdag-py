@@ -38,7 +38,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 try:
     import httpx
@@ -251,6 +251,11 @@ class FileTypesError(FabricRegistryError):
     loaded. The message names each."""
 
 
+class CapsError(FabricRegistryError):
+    """The caps the pinned manifest names could not all be loaded. The
+    message names each one and why."""
+
+
 # =============================================================================
 # URN normalization
 # =============================================================================
@@ -346,6 +351,13 @@ class StoredMediaDef:
         self.extensions = extensions or []
         # The dims this media def was built from (see ``MediaDef.dims``).
         self.dims: List[DimRef] = list(dims or [])
+
+    def is_bookend(self) -> bool:
+        """Whether a value of this media can begin or end a planned machine (a
+        strand bookend): its definition lists a file extension, so it can be
+        read from a file or saved as one. The one rule every planner graph
+        marks its bookends by."""
+        return bool(self.extensions)
 
     def to_dict(self) -> Dict:
         result: Dict[str, Any] = {
@@ -1167,6 +1179,11 @@ def file_types_of(
 # =============================================================================
 
 
+#: How many caps are fetched at once when the manifest's caps load on a cold
+#: cache (:meth:`FabricRegistry.manifest_caps`).
+CAP_FETCHES_AT_ONCE = 16
+
+
 async def _fetch_object(
     client: Optional["httpx.AsyncClient"], url: str, what: str, manifest_version: int
 ) -> bytes:
@@ -1791,6 +1808,63 @@ class FabricRegistry:
         with self.cache_lock:
             return list(self.cached_caps.values())
 
+    async def manifest_caps(self) -> List[Cap]:
+        """Every cap the pinned manifest names — the whole capability graph of
+        the fabric — in URN order.
+
+        The caps not in memory yet are fetched, :data:`CAP_FETCHES_AT_ONCE` at
+        a time, each with the media definitions and dims it names, and kept in
+        this manifest version's cache; a later call, and a later command
+        reading the same cache, fetches nothing. What it answers never depends
+        on what earlier commands happened to fetch.
+
+        A cap that cannot be had fails the call with a CapsError naming each
+        one and why (a refused or unanswered fetch, a definition the registry
+        does not hold, a fetch blocked offline): an answer from part of the
+        fabric's caps would be a wrong answer."""
+        with self.cache_lock:
+            named = list(self.manifest.caps)
+            missing = [urn for urn in named if urn not in self.cached_caps]
+
+        gate = asyncio.Semaphore(CAP_FETCHES_AT_ONCE)
+
+        async def fetch(urn: str) -> Cap:
+            async with gate:
+                if self._offline:
+                    raise NetworkBlockedError(
+                        f"Network access blocked while offline: cannot fetch cap {urn!r}"
+                    )
+                return await self._fetch_cap_atomic(urn)
+
+        results = await asyncio.gather(*(fetch(urn) for urn in missing), return_exceptions=True)
+        failures: List[str] = []
+        failed: Set[str] = set()
+        for urn, result in zip(missing, results):
+            if isinstance(result, FabricRegistryError):
+                failures.append(f"{urn}: {result}")
+                failed.add(urn)
+            elif isinstance(result, BaseException):
+                # Anything but a registry's answer is a defect, raised as it is.
+                raise result
+
+        caps: List[Cap] = []
+        with self.cache_lock:
+            for urn in named:
+                cached = self.cached_caps.get(urn)
+                if cached is not None:
+                    caps.append(cached)
+                elif urn not in failed:
+                    failures.append(f"{urn}: it was fetched and is not in the cap cache")
+        if failures:
+            failures.sort()
+            raise CapsError(
+                f"{len(failures)} of the {len(named)} caps of manifest v{self.manifest_version} "
+                f"could not be loaded, so the fabric's capabilities are not all known: "
+                f"{'; '.join(failures)}"
+            )
+        caps.sort(key=lambda cap: str(cap.urn))
+        return caps
+
     def get_cached_cap(self, urn: str) -> Cap:
         """Synchronous in-memory lookup; never touches the network.
 
@@ -1880,6 +1954,31 @@ class FabricRegistry:
     async def get_cached_media_defs(self) -> List[StoredMediaDef]:
         with self.cache_lock:
             return list(self.cached_specs.values())
+
+    def manifest_media_urns(self) -> List[MediaUrn]:
+        """Every media URN the pinned manifest publishes a definition for, in
+        no particular order. Nothing is fetched: the definitions themselves are
+        had with :meth:`get_media_def`. An entry that is no media URN is a
+        ParseError naming it."""
+        with self.cache_lock:
+            published = list(self.manifest.media)
+        urns: List[MediaUrn] = []
+        for urn in published:
+            try:
+                urns.append(MediaUrn.from_string(urn))
+            except Exception as e:
+                raise ParseError(
+                    f"the manifest publishes media '{urn}', which is not a media URN: {e}"
+                ) from e
+        return urns
+
+    def bookend_urns(self) -> Set[MediaUrn]:
+        """Snapshot of every bookend-eligible URN currently in the cache: the
+        cached media definitions that are bookends
+        (:meth:`StoredMediaDef.is_bookend`)."""
+        with self.cache_lock:
+            specs = list(self.cached_specs.values())
+        return {MediaUrn.from_string(spec.urn) for spec in specs if spec.is_bookend()}
 
     def get_cached_media_def(self, urn: str) -> StoredMediaDef:
         """Synchronous in-memory lookup; never touches the network: the media

@@ -4,7 +4,7 @@ Tests use // TEST###: comments matching the Rust implementation for cross-tracki
 """
 
 import pytest
-from tagged_urn import ConstraintExact
+from tagged_urn import exact
 from capdag import (
     MediaUrn,
     MediaUrnError,
@@ -412,7 +412,7 @@ def test_553_is_live_feed():
 # TEST555: with_tag adds a tag and without_tag removes it
 def test_555_with_tag_and_without_tag():
     urn = MediaUrn.from_string("media:string")
-    with_ext = urn.with_tag("ext", ConstraintExact("pdf"))
+    with_ext = urn.with_tag("ext", exact("pdf"))
     assert with_ext.extension() == "pdf"
     # Original unchanged
     assert urn.extension() is None
@@ -485,17 +485,16 @@ def test_852_lub_identical():
     assert lub.is_equivalent(pdf)
 
 
-# TEST853: LUB promotes a shared key with differing values to "some value": both
-# inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator
-# generic caps like in="media:ext" accept — not the trivial media:. The image
-# marker is only on one side, so it is dropped.
-def test_853_lub_shared_key_promotes_to_wildcard():
+# TEST853: LUB keeps a shared key with differing values as the set of them:
+# both inputs HAVE an ext (pdf vs png), so the bound is media:ext=pdf|png,
+# which generic caps like in="media:ext" accept — not the trivial media:. The
+# image marker is only on one side, so it is dropped.
+def test_853_lub_shared_key_keeps_the_values():
     pdf = MediaUrn.from_string("media:document;ext=pdf")
     png = MediaUrn.from_string("media:ext=png;image")
     lub = MediaUrn.least_upper_bound([pdf, png])
-    expected = MediaUrn.from_string("media:ext")
-    assert lub.is_equivalent(expected), \
-        f"LUB of ext=pdf and ext=png;image should be media:ext but got {lub.to_string()}"
+    assert lub.to_string() == "media:ext=pdf|png"
+    assert lub.conforms_to(MediaUrn.from_string("media:ext"))
     assert pdf.conforms_to(lub)
     assert png.conforms_to(lub)
 
@@ -542,21 +541,51 @@ def test_858_lub_three_inputs():
     c = MediaUrn.from_string("media:enc=utf8;fmt=ndjson;list")
     lub = MediaUrn.least_upper_bound([a, b, c])
     # All three are UTF-8 lists and all three HAVE a fmt (json/csv/ndjson —
-    # differing values → "some fmt"); record is on a and b only → dropped.
-    expected = MediaUrn.from_string("media:enc=utf8;fmt;list")
-    assert lub.is_equivalent(expected), \
-        f"LUB should be media:enc=utf8;fmt;list but got {lub.to_string()}"
+    # differing values → one of them); record is on a and b only → dropped.
+    assert lub.to_string() == "media:enc=utf8;fmt=csv|json|ndjson;list"
     assert a.conforms_to(lub) and b.conforms_to(lub) and c.conforms_to(lub)
 
 
-# TEST859: LUB with valued tags (non-marker) that differ promotes the key
+# TEST859: LUB with valued tags (non-marker) that differ keeps both values
 def test_859_lub_valued_tags():
     v1 = MediaUrn.from_string("media:ext=png;image")
     v2 = MediaUrn.from_string("media:ext=jpeg;image")
     lub = MediaUrn.least_upper_bound([v1, v2])
-    expected = MediaUrn.from_string("media:ext;image")
-    assert lub.is_equivalent(expected), \
-        f"LUB should promote conflicting ext to some ext, got {lub.to_string()}"
+    assert lub.to_string() == "media:ext=jpeg|png;image"
+
+
+# TEST7231: a media type splits into the shapes it may have — absence apart
+# from presence, each value of a set apart — and ends on the bookends those
+# shapes are, read complete; one shape that is no bookend ends it on none.
+def test_7231_a_media_type_splits_into_its_shapes_and_ends_on_their_bookends():
+    def texts(urns):
+        return sorted(u.to_string() for u in urns)
+
+    assert texts(MediaUrn.from_string("media:enc=utf8;fmt=json;?list").splits()) == [
+        "media:enc=utf8;fmt=json;!list",
+        "media:enc=utf8;fmt=json;list",
+    ], "absence apart from presence"
+    assert texts(MediaUrn.from_string("media:ext=jpeg|png;image").splits()) == [
+        "media:ext=jpeg;image",
+        "media:ext=png;image",
+    ], "each value of the set apart"
+
+    saved = MediaUrn.from_string("media:enc=utf8;ext=json;fmt=json;?list;?record")
+    files = [
+        MediaUrn.from_string(f)
+        for f in [
+            "media:enc=utf8;ext=json;fmt=json",
+            "media:enc=utf8;ext=json;fmt=json;list",
+            "media:enc=utf8;ext=json;fmt=json;record",
+            "media:enc=utf8;ext=json;fmt=json;list;record",
+        ]
+    ]
+    ends = saved.ends_on(files)
+    assert ends is not None, "every shape is one of the bookends"
+    assert texts(ends) == texts(files), "one bookend for each shape"
+    assert saved.ends_on(files[1:]) is None, (
+        "without a file type for JSON that is neither a list nor a record, one shape is no bookend"
+    )
 
 
 # TEST628: Verify media URN constants all start with "media:" prefix

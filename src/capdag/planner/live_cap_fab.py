@@ -6,6 +6,9 @@ for efficient path finding and reachability queries.
 Design Principles:
 1. Typed URNs: Store MediaUrn and CapUrn directly, not strings.
 2. Exact matching: For target matching, use is_equivalent() not conforms_to().
+   A node that may have several shapes (``…;fmt=json;?list;?record``) ends on
+   the bookends its shapes are, read complete (``MediaUrn.ends_on``), and a
+   route reaching it reaches each of them.
 3. Satisfaction for traversal: a node, read complete, satisfies the next cap's
    input (satisfies()).
 4. Deterministic ordering: paths sorted by cap step count (fewest first), then total specificity (highest first), then step order.
@@ -463,8 +466,16 @@ class LiveCapFab:
         self._edges: List[LiveMachinePlanEdge] = []
         self._outgoing: Dict[str, List[int]] = defaultdict(list)
         self._incoming: Dict[str, List[int]] = defaultdict(list)
-        self._nodes: Set[str] = set()
+        self._nodes: Set[MediaUrn] = set()
         self._cap_to_edges: Dict[str, List[int]] = defaultdict(list)
+        # The nodes that end on bookends (sources or targets of a transmute),
+        # each with the bookends it ends on: one for each shape the node may
+        # have, the published file type that shape is read complete
+        # (MediaUrn.ends_on). A node of one shape that is a file type ends on
+        # that file type; a node any of whose shapes is no file type ends on
+        # none and is not listed. Computed at sync time from the registry
+        # snapshot supplied to sync_from_caps / sync_from_cap_urns.
+        self._bookend_nodes: Dict[MediaUrn, List[MediaUrn]] = {}
 
     def clear(self):
         """Clear the graph completely."""
@@ -473,15 +484,80 @@ class LiveCapFab:
         self._incoming.clear()
         self._nodes.clear()
         self._cap_to_edges.clear()
+        self._bookend_nodes.clear()
 
-    def sync_from_caps(self, caps) -> None:
-        """Rebuild the graph from a list of Cap definitions."""
+    def is_bookend(self, urn: MediaUrn) -> bool:
+        """Whether the given node ends on bookends: every shape it may have is
+        a file type, so whatever a route reaching it gives can sit on disk as
+        a file.
+
+        Strand bookends (transmute source or target) MUST end on bookends.
+        Internal URNs that appear as cap inputs/outputs but do not name a
+        concrete file format (wildcards like ``media:enc=utf8``, primitives
+        like ``media:integer;numeric``, role markers like
+        ``media:enc=utf8;page``) are tracked as nodes for path-finding but end
+        on no bookend and never appear as transmute sources/targets.
+        """
+        return urn in self._bookend_nodes
+
+    def ends_on(self, node: MediaUrn) -> List[MediaUrn]:
+        """The bookends ``node`` ends on, one for each shape it may have;
+        empty when it ends on none."""
+        return list(self._bookend_nodes.get(node, []))
+
+    def _reaches(self, node: MediaUrn, target: MediaUrn) -> bool:
+        """Whether a route reaching ``node`` reaches ``target``: the node is
+        the target, or ends on bookends one of which is."""
+        return node.is_equivalent(target) or any(
+            bookend.is_equivalent(target) for bookend in self._bookend_nodes.get(node, [])
+        )
+
+    def sync_from_caps(self, caps, bookend_urns: Set[MediaUrn]) -> None:
+        """Rebuild the graph from a list of Cap definitions.
+
+        ``bookend_urns`` is the live snapshot of media-registry URNs whose
+        stored definition has at least one file extension. Each node in the
+        graph is marked with the bookends among them it ends on, once per
+        sync; lookups during traversal make no registry call.
+        """
         self.clear()
         for cap in caps:
             self.add_cap(cap)
+        self._refresh_bookends(bookend_urns)
 
-    async def sync_from_cap_urns(self, cap_urns: List[str], registry) -> None:
-        """Rebuild the graph from cap URN strings using the registry cache."""
+    def set_bookends(self, bookend_urns: Set[MediaUrn]) -> None:
+        """Recompute which nodes end on bookends, and on which, from the
+        supplied registry snapshot. Public so callers that build the graph
+        incrementally via ``add_cap`` (e.g. tests) can refresh the bookend set
+        independently of a full sync."""
+        self._refresh_bookends(bookend_urns)
+
+    def _refresh_bookends(self, bookend_urns: Set[MediaUrn]) -> None:
+        """Recompute which nodes end on bookends, and on which, from the
+        supplied registry snapshot."""
+        bookends = sorted(bookend_urns, key=MediaUrn.ordering_key)
+        self._bookend_nodes = self._nodes_ending_on(self._nodes, bookends)
+
+    @staticmethod
+    def _nodes_ending_on(
+        nodes: Set[MediaUrn], bookends: List[MediaUrn]
+    ) -> Dict[MediaUrn, List[MediaUrn]]:
+        """Each of ``nodes`` that ends on ``bookends``, with the bookends it
+        ends on, each named once."""
+        ending: Dict[MediaUrn, List[MediaUrn]] = {}
+        for node in nodes:
+            ends = node.ends_on(bookends)
+            if ends is None:
+                continue
+            ending[node] = sorted(set(ends), key=MediaUrn.ordering_key)
+        return ending
+
+    async def sync_from_cap_urns(
+        self, cap_urns: List[str], registry, bookend_urns: Set[MediaUrn]
+    ) -> None:
+        """Rebuild the graph from cap URN strings using the registry cache,
+        each node marked with the bookends among ``bookend_urns`` it ends on
+        (as :meth:`sync_from_caps`)."""
         self.clear()
 
         all_caps = await registry.get_cached_caps()
@@ -500,6 +576,44 @@ class LiveCapFab:
             )
             if matching_cap is not None:
                 self.add_cap(matching_cap)
+
+        self._refresh_bookends(bookend_urns)
+
+    @classmethod
+    async def from_fabric(cls, registry) -> "LiveCapFab":
+        """The graph of the whole fabric: every cap the registry's pinned
+        manifest names (``FabricRegistry.manifest_caps``), each node marked
+        with the bookends it ends on: for each shape it may have, the media
+        definition the manifest publishes for that shape, read complete, when
+        that definition is a bookend (``StoredMediaDef.is_bookend``).
+
+        Nothing comes from what the cache happens to hold: the caps not cached
+        are fetched, and so is every definition a node's shape is. A cap or a
+        definition that cannot be had raises the registry's error naming it,
+        never a graph with a part of the fabric missing.
+        """
+        caps = await registry.manifest_caps()
+        fab = cls()
+        for cap in caps:
+            fab.add_cap(cap)
+        # `media:` takes anything and names no definition: nothing is a file
+        # of it.
+        published = sorted(
+            (urn for urn in registry.manifest_media_urns() if not urn.is_top()),
+            key=MediaUrn.ordering_key,
+        )
+        is_bookend: Dict[MediaUrn, bool] = {}
+        for node, shapes in cls._nodes_ending_on(fab._nodes, published).items():
+            ends_on_bookends = True
+            for shape in shapes:
+                known = is_bookend.get(shape)
+                if known is None:
+                    known = (await registry.get_media_def(str(shape))).is_bookend()
+                    is_bookend[shape] = known
+                ends_on_bookends &= known
+            if ends_on_bookends:
+                fab._bookend_nodes[node] = shapes
+        return fab
 
     def add_cap(self, cap) -> None:
         """Add a capability as an edge in the graph."""
@@ -581,8 +695,8 @@ class LiveCapFab:
 
         self._outgoing[from_canonical].append(edge_idx)
         self._incoming[to_canonical].append(edge_idx)
-        self._nodes.add(from_canonical)
-        self._nodes.add(to_canonical)
+        self._nodes.add(from_spec)
+        self._nodes.add(to_spec)
         self._cap_to_edges[cap_canonical].append(edge_idx)
 
     def stats(self) -> Tuple[int, int]:
@@ -640,7 +754,9 @@ class LiveCapFab:
         is_sequence: bool,
         max_depth: int = 10,
     ) -> List[ReachableTargetInfo]:
-        """BFS reachability from source. Returns unique reachable targets."""
+        """BFS reachability from source. Returns the bookends the reached
+        nodes end on, one target each, sorted by (min_path_length,
+        display_name)."""
         # The third key member tracks whether a synthesized ForEach still needs
         # its immediately following scalar-input cap.
         visited_nodes: Set[Tuple[str, bool, bool]] = set()
@@ -699,9 +815,32 @@ class LiveCapFab:
                     depth + 1,
                 ))
 
+        # The targets are the bookends the reached nodes end on. Reachability
+        # in the cap graph includes URNs that exist only as cap-input
+        # wildcards (e.g. `media:enc=utf8`, `media:integer;numeric`). Such
+        # URNs describe the value type a cap accepts, not a file format that
+        # can sit on disk, so they are never valid transmute targets. A node
+        # that may have several shapes reaches each bookend it ends on, one
+        # target each. The bookends are precomputed at sync time from the
+        # live media registry — no registry call here.
+        by_bookend: Dict[MediaUrn, ReachableTargetInfo] = {}
+        for reached in visited.values():
+            for bookend in self.ends_on(reached.media_def):
+                target = by_bookend.get(bookend)
+                if target is None:
+                    by_bookend[bookend] = ReachableTargetInfo(
+                        media_def=bookend,
+                        display_name=str(bookend),
+                        min_path_length=reached.min_path_length,
+                        path_count=reached.path_count,
+                    )
+                else:
+                    target.min_path_length = min(target.min_path_length, reached.min_path_length)
+                    target.path_count += reached.path_count
+
         # Sort: min_path_length ascending, then display_name
         results = sorted(
-            visited.values(),
+            by_bookend.values(),
             key=lambda r: (r.min_path_length, r.display_name),
         )
         return results
@@ -721,9 +860,10 @@ class LiveCapFab:
         A state is ``(media, is_sequence, pending_foreach)``, as the path
         search walks it. The states are found forward from the source over the
         edges ``_get_outgoing_edges`` gives, and the distances backward over
-        those same steps from the states that are the target. A state missing
-        from the map cannot reach the target; one at distance d cannot reach
-        it in fewer than d steps.
+        those same steps from the states that reach the target (``_reaches``:
+        the target, or a node ending on bookends one of which is). A state
+        missing from the map cannot reach the target; one at distance d cannot
+        reach it in fewer than d steps.
         """
         start = (str(source), is_sequence, False)
         steps_into: Dict[Tuple[str, bool, bool], List[Tuple[str, bool, bool]]] = defaultdict(list)
@@ -741,9 +881,9 @@ class LiveCapFab:
                 next_pending = edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH
                 next_state = (str(edge.to_spec), out_seq, next_pending)
                 steps_into[next_state].append(from_state)
-                # The target: its media, reached by a step, not waiting on a
-                # ForEach's cap.
-                if not next_pending and edge.to_spec.is_equivalent(target):
+                # The target: a media that reaches it, reached by a step, not
+                # waiting on a ForEach's cap.
+                if not next_pending and self._reaches(edge.to_spec, target):
                     target_states.add(next_state)
                 if next_state not in seen:
                     seen.add(next_state)
@@ -768,9 +908,10 @@ class LiveCapFab:
         max_depth: int = 10,
         max_paths: int = 20,
     ) -> List[Strand]:
-        """Iterative deepening DFS path finding with exact target matching
-        (is_equivalent). It steps only into states the target is within reach
-        of."""
+        """Iterative deepening DFS path finding with exact target matching: a
+        path ends at a node that is the target (is_equivalent) or ends on
+        bookends one of which is. It steps only into states the target is
+        within reach of."""
         distances = self._distances_to_exact_target(source, target, is_sequence, max_depth)
         if distances is None:
             return []
@@ -891,7 +1032,9 @@ class LiveCapFab:
             path and path[-1].edge_type == LiveMachinePlanEdgeType.FOR_EACH
         )
 
-        if path and current.is_equivalent(target):
+        # The node reaches the target: it is the target, or ends on bookends
+        # one of which is.
+        if path and self._reaches(current, target):
             steps = []
             cap_count = 0
             # A fabricated cap's single input is its MAIN (stdin) input, fed by the
@@ -946,7 +1089,7 @@ class LiveCapFab:
                 if distance is None or distance > depth_limit - 1:
                     continue
                 next_key = (str(edge.to_spec), out_seq)
-                if next_key in visited and not edge.to_spec.is_equivalent(target):
+                if next_key in visited and not self._reaches(edge.to_spec, target):
                     continue
                 path.append(edge)
                 self._iddfs_find(

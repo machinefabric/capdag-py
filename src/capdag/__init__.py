@@ -109,6 +109,7 @@ from capdag.urn.cap_urn import (
     CapUrn,
     CapUrnError,
     IllegalDeclarationError,
+    DuplicateValueError,
     CapUrnBuilder,
     CapMatcher,
     CapKind,
@@ -163,6 +164,7 @@ from capdag.fabric.registry import (
     NetworkBlockedError,
     ValidationError,
     FileTypesError,
+    CapsError,
     normalize_cap_urn,
     normalize_media_urn,
 )
@@ -391,6 +393,7 @@ __all__ = [
     "CapUrn",
     "CapUrnError",
     "IllegalDeclarationError",
+    "DuplicateValueError",
     "CapUrnBuilder",
     "CapMatcher",
     "CapKind",
@@ -473,6 +476,7 @@ __all__ = [
     "NetworkBlockedError",
     "ValidationError",
     "FileTypesError",
+    "CapsError",
     "normalize_cap_urn",
     "normalize_media_urn",
     # Media Def

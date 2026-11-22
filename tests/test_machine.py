@@ -1395,7 +1395,7 @@ def test_1196_aliased_serialization_uses_alias_and_round_trips():
 
 
 # TEST12836: a strand's steps name where each input comes from. A strand's own
-# input, taken by two steps, is one node holding the most specific type either
+# input, taken by two steps, is one node holding the narrower type either
 # declares for it; a step that names a producer no step of the strand is makes
 # the strand disconnected, and is refused.
 def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
@@ -1446,7 +1446,7 @@ def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
         assert len(resolved.input_anchor_ids()) == 1
         anchor = resolved.input_anchor_ids()[0]
         assert resolved.node_urn(anchor).is_equivalent(_media("media:enc=utf8;page")), \
-            "the most specific type a step declares for it, whichever step comes first"
+            "the narrower type a step declares for it, whichever step comes first"
         for edge in resolved.edges():
             assert edge.source_nodes() == [anchor]
 
@@ -1459,6 +1459,56 @@ def test_12836_a_strand_input_is_one_node_and_a_missing_producer_is_refused():
     with pytest.raises(DisconnectedStrandError) as exc_info:
         resolve_strand(strand_of([orphan, reads_nothing]), reg, 4)
     assert exc_info.value.strand_index == 4
+
+
+# TEST7228: two steps that take the strand's input give it two types; the node
+# keeps the one inside the other, even where the two score the same
+# specificity (`ext=jpeg|png|webp` and `ext=jpeg|png`), and two types neither
+# of which is inside the other are a conflict.
+def test_7228_a_strand_input_keeps_the_narrower_of_two_types():
+    from capdag.machine.error import NodeMediaConflictError
+
+    wide = ('cap:in="media:ext=jpeg|png|webp;image";measure;out="media:numeric;size"',
+            "media:ext=jpeg|png|webp;image", "media:numeric;size")
+    narrow = ('cap:in="media:ext=jpeg|png;image";thumbnail;out="media:ext=png;image;thumbnail"',
+              "media:ext=jpeg|png;image", "media:ext=png;image;thumbnail")
+    other = ('cap:in="media:ext=png|webp;image";sharpen;out="media:ext=png;image;sharp"',
+             "media:ext=png|webp;image", "media:ext=png;image;sharp")
+    reg = _registry_with([_simple_cap(*wide), _simple_cap(*narrow), _simple_cap(*other)])
+
+    def step(cap_urn: str, from_urn: str, to_urn: str) -> StrandStep:
+        return StrandStep(
+            step_type=StrandStepType.CAP,
+            from_spec=_media(from_urn),
+            to_spec=_media(to_urn),
+            cap_urn=_cap_urn(cap_urn),
+            inputs=[CapInput(arg_urn=_media(from_urn), source=ArgSourceRef.strand_input())],
+        )
+
+    def strand_of(steps) -> Strand:
+        return Strand(
+            steps=steps,
+            source_media_urn=steps[0].from_spec,
+            target_media_urn=steps[-1].to_spec,
+            total_steps=len(steps),
+            cap_step_count=len(steps),
+            description="fan-out",
+        )
+
+    assert _media("media:ext=jpeg|png|webp;image").specificity() == \
+        _media("media:ext=jpeg|png;image").specificity(), "the two types score the same"
+
+    for first, second in ((wide, narrow), (narrow, wide)):
+        resolved = resolve_strand(strand_of([step(*first), step(*second)]), reg, 0)
+        anchor = resolved.input_anchor_ids()[0]
+        assert resolved.node_urn(anchor).is_equivalent(_media("media:ext=jpeg|png;image")), \
+            "the type inside the other, whichever step comes first"
+
+    with pytest.raises(NodeMediaConflictError) as exc_info:
+        resolve_strand(strand_of([step(*narrow), step(*other)]), reg, 2)
+    assert exc_info.value.node == "strand 2 input"
+    assert exc_info.value.first == "media:ext=jpeg|png;image"
+    assert exc_info.value.second == "media:ext=png|webp;image"
 
 
 # TEST12837: the resolver holds a wiring it is handed to the names its cap's

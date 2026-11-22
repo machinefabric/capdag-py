@@ -663,12 +663,12 @@ class UncachedCapError(MachineAbstractionError):
 
 
 class NodeMediaConflictError(MachineAbstractionError):
-    """The wirings that touch a node give it URNs that are not on one
-    specialization chain."""
+    """The wirings that touch a node give it two URNs neither of which is
+    inside the other."""
 
     def __init__(self, node: str, first: str, second: str):
         super().__init__(
-            f"node '{node}' is given media URNs that are not on one specialization chain: "
+            f"node '{node}' is given media URNs neither of which is inside the other: "
             f"'{first}' and '{second}'"
         )
         self.node = node

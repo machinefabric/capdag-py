@@ -27,8 +27,8 @@ member stands in its group never decides it (09 §The URN of a node):
   type of the step's main input — at most one such member per wiring, and
   only while no named member bound the main input
   (``UntypedMachineInputError`` otherwise);
-- URNs given to one node must be on one specialization chain
-  (``NodeMediaConflictError`` otherwise); the node has the most specific.
+- of two URNs given to one node, one must be inside the other
+  (``NodeMediaConflictError`` otherwise); the node has the narrower.
 """
 
 from __future__ import annotations
@@ -87,6 +87,7 @@ from capdag.machine.resolve import (
     WiringTarget,
     main_output_is_given,
     match_sources_to_args,
+    narrower_of,
     resolve_named_wirings,
     source_fits,
 )
@@ -678,15 +679,17 @@ def _include_machines(
 
 def _give(node_media: Dict[str, MediaUrn], node: str, media: MediaUrn) -> None:
     """Give ``node`` the URN ``media``, beside any URN it was already given:
-    the two must be on one specialization chain, and the node holds the more
-    specific."""
+    one of the two must be inside the other, and the node holds the narrower.
+    Two types can score the same and still differ (``ext=a|b`` and
+    ``ext=a|b|c``), so specificity never decides it."""
     existing = node_media.get(node)
     if existing is None:
         node_media[node] = media
         return
-    if not existing.is_comparable(media):
+    narrower = narrower_of(existing, media)
+    if narrower is None:
         raise NodeMediaConflictError(node, existing.to_string(), media.to_string())
-    if media.specificity() > existing.specificity():
+    if narrower:
         node_media[node] = media
 
 

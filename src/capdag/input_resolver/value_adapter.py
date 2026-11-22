@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from tagged_urn import ConstraintPresent
+from tagged_urn import present
 
 from capdag.urn.media_urn import MediaUrn
 
@@ -42,4 +42,4 @@ class ValueAdapter:
             return None
         if not self.value_matches(value):
             return None
-        return actual_base.with_tag(self.refined_marker_tag, ConstraintPresent()).to_string()
+        return actual_base.with_tag(self.refined_marker_tag, present()).to_string()

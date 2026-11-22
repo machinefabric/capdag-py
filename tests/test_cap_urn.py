@@ -19,8 +19,8 @@ from capdag import (
     MEDIA_IDENTITY,
     CAP_IDENTITY,
 )
-from capdag.urn.cap_urn import CapEffect
-from tagged_urn import ConstraintExact, ConstraintPresent, ConstraintUnconstrained
+from capdag.urn.cap_urn import CapEffect, DuplicateValueError
+from tagged_urn import exact, one_of, present
 
 
 def _test_urn(tags_part: str) -> str:
@@ -503,7 +503,7 @@ def test_027_with_wildcard_tag():
 
     # Wildcard a regular tag
     cap2 = cap.with_wildcard_tag("ext")
-    assert cap2.get_tag("ext") == ConstraintPresent()
+    assert cap2.get_tag("ext") == present()
 
     # Wildcard in direction resolves to the top media URN.
     cap3 = cap.with_wildcard_tag("in")
@@ -541,12 +541,22 @@ def test_031_wildcard_in_keys_and_values():
     for text in ("op", "op=*"):
         cap = CapUrn.from_string(_test_urn(text))
         assert cap.has_marker_tag("op")
-        assert cap.get_tag("op") == ConstraintPresent()
+        assert cap.get_tag("op") == present()
         assert cap.exact_value("op") is None
 
     # Wildcard in key should fail (handled by tagged-urn)
     with pytest.raises(CapUrnError):
         CapUrn.from_string(_test_urn("*=value"))
+
+
+# TEST7230: a cap-tag may be a set of values, and a value given twice in one
+# set is refused as a DuplicateValue.
+def test_7230_a_cap_tag_set_and_a_value_given_twice():
+    cap = CapUrn.from_string(_test_urn("format=yaml|json"))
+    assert cap.get_tag("format") == one_of(["json", "yaml"], False)
+    assert "format=json|yaml" in cap.to_string(), cap.to_string()
+    with pytest.raises(DuplicateValueError, match="json"):
+        CapUrn.from_string(_test_urn("format=json|json"))
 
 
 # TEST32: Test duplicate keys are rejected with DuplicateKey error
@@ -606,15 +616,15 @@ def test_035_has_tag_behavior():
 # TEST36: Test with_tag preserves value case
 def test_036_with_tag_preserves_case():
     cap = CapUrn.from_string(_test_urn("generate"))
-    cap2 = cap.with_tag("key", ConstraintExact("MixedCase"))
-    assert cap2.get_tag("key") == ConstraintExact("MixedCase")
+    cap2 = cap.with_tag("key", exact("MixedCase"))
+    assert cap2.get_tag("key") == exact("MixedCase")
 
 
 # TEST37: Test with_tag rejects empty value
 def test_037_with_tag_rejects_empty():
     cap = CapUrn.from_string(_test_urn("generate"))
     with pytest.raises(CapUrnError, match="empty value"):
-        cap.with_tag("key", ConstraintExact(""))
+        cap.with_tag("key", exact(""))
 
 
 # TEST38: Test semantic equivalence of unquoted and quoted simple lowercase values
@@ -968,9 +978,9 @@ def test_566_with_tag_ignores_in_out():
         'cap:in="media:void";test;out="media:void"'
     )
     for key, constraint in (
-        ("in", ConstraintExact("media:")),
-        ("out", ConstraintExact("media:")),
-        ("effect", ConstraintExact("none")),
+        ("in", exact("media:")),
+        ("out", exact("media:")),
+        ("effect", exact("none")),
     ):
         with pytest.raises(CapUrnError, match="reserved structural key"):
             cap.with_tag(key, constraint)
@@ -1913,7 +1923,7 @@ def test_1831_canonicalize_absent_or_not_value():
     # A quoted value is literal: the exact value `?foo`.
     literal = CapUrn.from_string('cap:x="?foo"')
     assert literal.to_string() == 'cap:x="?foo"'
-    assert literal.get_tag("x") == ConstraintExact("?foo")
+    assert literal.get_tag("x") == exact("?foo")
 
 
 # TEST1832: x ≡ x=* both canonicalize to bare x.
@@ -1938,7 +1948,7 @@ def test_1833_canonicalize_present_not_value():
     # A quoted value is literal: the exact value `!foo`.
     literal = CapUrn.from_string('cap:x="!foo"')
     assert literal.to_string() == 'cap:x="!foo"'
-    assert literal.get_tag("x") == ConstraintExact("!foo")
+    assert literal.get_tag("x") == exact("!foo")
 
 
 # TEST1834: x=v stays as x=v (the lone exact-value form).
@@ -2043,17 +2053,17 @@ def test_6736_axis_weighting_decoded_layout():
 
 # TEST6759: CapUrn() and from_tags read direction tags as parsing does: * is media:, an empty spec is refused, and a cap-tag map naming a structural key is refused
 def test_6759_constructors_normalize_directions_like_parsing():
-    made = CapUrn("*", "media:record", {"op": ConstraintPresent()})
+    made = CapUrn("*", "media:record", {"op": present()})
     assert made == CapUrn.from_string("cap:op;out=media:record")
 
-    tags = {"op": ConstraintPresent(), "in": ConstraintPresent(), "out": ConstraintPresent()}
+    tags = {"op": present(), "in": present(), "out": present()}
     assert CapUrn.from_tags(tags) == CapUrn.from_string("cap:in=*;op;out=*")
 
     with pytest.raises(CapUrnError, match="Empty value for 'in' tag"):
-        CapUrn("", "media:record", {"op": ConstraintPresent()})
+        CapUrn("", "media:record", {"op": present()})
 
     with pytest.raises(CapUrnError, match="reserved structural key 'in'"):
-        CapUrn("media:pdf", "media:record", {"op": ConstraintPresent(), "in": ConstraintExact("media:pdf")})
+        CapUrn("media:pdf", "media:record", {"op": present(), "in": exact("media:pdf")})
 
 
 # TEST6760: A quoted * in a direction tag and a quoted ? as the effect are literal values, which a cap refuses

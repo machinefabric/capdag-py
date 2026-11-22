@@ -13,14 +13,16 @@ from enum import Enum
 from typing import Dict, List, Optional
 from tagged_urn import (
     Constraint,
-    ConstraintExact,
-    ConstraintPresent,
-    ConstraintUnconstrained,
+    DuplicateValueError as TaggedUrnDuplicateValueError,
     EmptyPrefixError,
     MissingPrefixError,
     TaggedUrn,
     TaggedUrnBuilder,
     TaggedUrnError,
+    exact,
+    exact_value,
+    present,
+    unconstrained,
 )
 from capdag.urn.media_urn import MediaUrn, MediaUrnError, MediaUrnPrefixError
 from capdag import _formal
@@ -35,6 +37,19 @@ class IllegalDeclarationError(CapUrnError):
     """A cap that parses but cannot be declared: the bare top form, or an
     ``effect=none`` cap whose input is not inside its output."""
     pass
+
+
+class DuplicateValueError(CapUrnError):
+    """A value given twice in one set of values."""
+    pass
+
+
+def _cap_urn_error(e: TaggedUrnError) -> CapUrnError:
+    """A tagged URN error as the cap URN error it is: a value given twice is a
+    :class:`DuplicateValueError`; any other is a cap URN that is not valid."""
+    if isinstance(e, TaggedUrnDuplicateValueError):
+        return DuplicateValueError(f"Duplicate value: {e}")
+    return CapUrnError(f"Invalid cap URN: {e}")
 
 
 class CapKind(Enum):
@@ -117,10 +132,11 @@ def _process_direction_tag(tag: Optional[Constraint], side: str) -> str:
     """A direction tag as a cap's tag map holds it: missing, or the marker
     (``in``, ``in=*``), is ``media:``; an exact value is that media URN in
     canonical form; any other form is refused."""
-    if tag is None or isinstance(tag, ConstraintPresent):
+    if tag is None or tag == present():
         return "media:"
-    if isinstance(tag, ConstraintExact):
-        return _direction_media(side, tag.value)
+    value = exact_value(tag)
+    if value is not None:
+        return _direction_media(side, value)
     raise CapUrnError(
         f"Invalid '{side}' media URN: {_written_tag(side, tag)}. Must start with 'media:' or be '*'"
     )
@@ -132,12 +148,11 @@ def _normalize_effect_value(raw: Optional[Constraint]) -> str:
     that effect; anything else is refused, named as written."""
     if raw is None:
         return CapEffect.DECLARED.value
-    if isinstance(raw, (ConstraintPresent, ConstraintUnconstrained)):
+    if raw == present() or raw == unconstrained():
         return CapEffect.ANY.value
-    if isinstance(raw, ConstraintExact) and raw.value in (
-        CapEffect.DECLARED.value, CapEffect.NONE.value, CapEffect.PATCH.value
-    ):
-        return raw.value
+    value = exact_value(raw)
+    if value in (CapEffect.DECLARED.value, CapEffect.NONE.value, CapEffect.PATCH.value):
+        return value
     raise CapUrnError(
         f"Unsupported effect '{_written_tag('effect', raw)}'. Supported values are declared, none, patch, "
         "or explicit unconstrained ?effect/effect=*"
@@ -191,7 +206,7 @@ class CapUrn:
         try:
             other = TaggedUrn(self.PREFIX, tags)
         except TaggedUrnError as e:
-            raise CapUrnError(f"Invalid cap URN: {e}") from e
+            raise _cap_urn_error(e) from e
         self.tags: Dict[str, Constraint] = dict(other.tags)
         self._other = other
 
@@ -278,7 +293,7 @@ class CapUrn:
         try:
             tagged = TaggedUrn.from_string(s)
         except TaggedUrnError as e:
-            raise CapUrnError(f"Invalid cap URN: {e}") from e
+            raise _cap_urn_error(e) from e
         if tagged.get_prefix() != cls.PREFIX:
             raise CapUrnError(f"Cap identifier must start with '{cls.PREFIX}:'")
         return cls.from_tags(dict(tagged.tags))
@@ -300,7 +315,7 @@ class CapUrn:
         if self.out_urn != MEDIA_IDENTITY:
             builder.tag("out", self.out_urn)
         if self.effect == CapEffect.ANY.value:
-            builder.constraint("effect", ConstraintUnconstrained())
+            builder.constraint("effect", unconstrained())
         elif self.effect != CapEffect.DECLARED.value:
             builder.tag("effect", self.effect)
         for k, c in self.tags.items():
@@ -332,8 +347,7 @@ class CapUrn:
         """The exact value this cap writes for the cap-tag ``key``
         (``key=value``); None when it does not mention the key or constrains it
         in another form."""
-        c = self.get_tag(key)
-        return c.value if isinstance(c, ConstraintExact) else None
+        return exact_value(self.get_tag(key))
 
     def in_spec(self) -> str:
         """Get the input media URN string"""
@@ -390,7 +404,7 @@ class CapUrn:
         """Whether the cap-tag ``tag_name`` is present as a marker (written as
         just the key). Example: ``cap:constrained;...`` has marker tag
         "constrained"."""
-        return isinstance(self.get_tag(tag_name), ConstraintPresent)
+        return self.get_tag(tag_name) == present()
 
     def with_tag(self, key: str, constraint: Constraint) -> "CapUrn":
         """Add or replace a cap-tag. The key must be an identifier; the
@@ -621,18 +635,23 @@ class CapUrn:
                       + WEIGHT_IN  * spec_U(c.in)
                       +              spec_U(c.y)
 
-        Per-tag scoring, by the constraint each tag writes:
+        Per-tag scoring, by what each tag allows:
 
-        +--------------------+-------+----------------------+
-        | Constraint         | Score | Form                 |
-        +====================+=======+======================+
-        | unconstrained      | 0     | ``?x`` no constraint |
-        | optionalNot v      | 1     | ``x?=v``             |
-        | present            | 2     | ``x`` (``x=*``)      |
-        | presentNot v       | 3     | ``x!=v``             |
-        | exact v            | 4     | ``x=v``              |
-        | absent             | 5     | ``!x``               |
-        +--------------------+-------+----------------------+
+        +----------------------------------------+-----------------------------------+-------+
+        | What a tag allows                      | Forms                             | Score |
+        +========================================+===================================+=======+
+        | absence and every value                | ``?x``                            | 0     |
+        +----------------------------------------+-----------------------------------+-------+
+        | absence and some values, not every one | ``x?=v``, ``x?=a|b``, ``x=a|!``   | 1     |
+        +----------------------------------------+-----------------------------------+-------+
+        | every value                            | ``x`` (``x=*``)                   | 2     |
+        +----------------------------------------+-----------------------------------+-------+
+        | two or more values, not every value    | ``x!=v``, ``x=a|b``               | 3     |
+        +----------------------------------------+-----------------------------------+-------+
+        | exactly one value                      | ``x=v``                           | 4     |
+        +----------------------------------------+-----------------------------------+-------+
+        | only absence                           | ``!x``                            | 5     |
+        +----------------------------------------+-----------------------------------+-------+
 
         The lexicographic priority ``(out, in, y)`` reflects the
         routing intent: producing different things is the largest
@@ -660,7 +679,7 @@ class CapUrn:
         elif key_lower == "effect":
             effect = CapEffect.ANY.value
         elif key_lower in tags:
-            tags[key_lower] = ConstraintPresent()
+            tags[key_lower] = present()
         return CapUrn._from_canonical(in_urn, out_urn, tags, effect)
 
     def subset(self, keys: List[str]) -> "CapUrn":
@@ -835,11 +854,11 @@ class CapUrnBuilder:
 
     def tag(self, key: str, value: str) -> "CapUrnBuilder":
         """Add a cap-tag with the exact value ``value``, taken literally."""
-        return self.constraint(key, ConstraintExact(value))
+        return self.constraint(key, exact(value))
 
     def marker(self, key: str) -> "CapUrnBuilder":
         """Add a cap-tag as a marker (written as just the key)."""
-        return self.constraint(key, ConstraintPresent())
+        return self.constraint(key, present())
 
     def build(self) -> CapUrn:
         """Build the cap URN

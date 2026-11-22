@@ -53,6 +53,7 @@ from capdag.machine.error import (
     MainInputUnboundError,
     NoCapabilityStepsError,
     NoMainOutputError,
+    NodeMediaConflictError,
     OutputTakenTwiceError,
     RetryOnStreamingStepError,
     RuntimeMediaInferenceError,
@@ -127,6 +128,18 @@ class PreInternedWiring:
     included_as: List[str] = field(default_factory=list)
 
 
+def narrower_of(held: MediaUrn, given: MediaUrn) -> Optional[bool]:
+    """Whether ``given`` should replace ``held`` as one node's type: True when
+    ``given`` is strictly inside ``held``, False when ``held`` is inside
+    ``given`` (equivalent types included), None when neither is inside the
+    other."""
+    if held.conforms_to(given):
+        return False
+    if given.conforms_to(held):
+        return True
+    return None
+
+
 def resolve_strand(
     strand: "Strand",
     registry: "FabricRegistry",
@@ -151,7 +164,9 @@ def resolve_strand(
     # output NodeId.
     producer_node: Dict[str, NodeId] = {}
     # The single shared strand input anchor node, allocated on first
-    # reference and refined to the most specific consuming from_spec.
+    # reference and refined to the narrower consuming from_spec — the one
+    # inside the other; two neither of which is inside the other are a
+    # NodeMediaConflictError.
     strand_input_node: Optional[NodeId] = None
 
     for step in strand.steps:
@@ -165,7 +180,13 @@ def resolve_strand(
             source = cap_input.source
             if source.is_strand_input():
                 if strand_input_node is not None:
-                    if step.from_spec.specificity() > nodes[strand_input_node].specificity():
+                    held = nodes[strand_input_node]
+                    narrower = narrower_of(held, step.from_spec)
+                    if narrower is None:
+                        raise NodeMediaConflictError(
+                            f"strand {strand_index} input", held.to_string(), step.from_spec.to_string()
+                        )
+                    if narrower:
                         nodes[strand_input_node] = step.from_spec
                     source_id = strand_input_node
                 else:
