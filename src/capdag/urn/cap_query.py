@@ -19,7 +19,7 @@ Every answer is decided by the proved model (``formal/CapDAG/Query.lean``).
 from enum import Enum
 from typing import Dict, Optional
 
-from tagged_urn import TaggedUrn
+from tagged_urn import Constraint, TaggedUrn
 
 from capdag import _formal
 from capdag.urn.cap_urn import CapUrn
@@ -48,9 +48,9 @@ class MatchGrade(Enum):
         return self is not MatchGrade.NONE
 
 
-def _tag_pattern(tags: Optional[Dict[str, str]]) -> TaggedUrn:
-    """The cap-tag pattern a query asks for: ``cap:`` with these tags. None, or
-    an empty map, asks for none."""
+def _tag_pattern(tags: Optional[Dict[str, Constraint]]) -> TaggedUrn:
+    """The cap-tag pattern a query asks for: ``cap:`` with these tags, as
+    constraints. None, or an empty map, asks for none."""
     return TaggedUrn(CapUrn.PREFIX, dict(tags or {}))
 
 
@@ -80,7 +80,7 @@ class CapQuery:
         return cls(_formal.query_of_pattern(pattern.formal), f"pattern {pattern}")
 
     @classmethod
-    def producing(cls, output: MediaUrn, tags: Optional[Dict[str, str]] = None) -> "CapQuery":
+    def producing(cls, output: MediaUrn, tags: Optional[Dict[str, Constraint]] = None) -> "CapQuery":
         """Caps that GIVE ``output``, whatever they take, with the cap-tags
         ``tags`` asks for."""
         return cls(
@@ -89,7 +89,7 @@ class CapQuery:
         )
 
     @classmethod
-    def consuming(cls, input: MediaUrn, tags: Optional[Dict[str, str]] = None) -> "CapQuery":
+    def consuming(cls, input: MediaUrn, tags: Optional[Dict[str, Constraint]] = None) -> "CapQuery":
         """Caps that TAKE ``input``, whatever they give: what this input can
         become in one step."""
         return cls(
@@ -99,7 +99,7 @@ class CapQuery:
 
     @classmethod
     def between(
-        cls, input: MediaUrn, output: MediaUrn, tags: Optional[Dict[str, str]] = None
+        cls, input: MediaUrn, output: MediaUrn, tags: Optional[Dict[str, Constraint]] = None
     ) -> "CapQuery":
         """Caps that take ``input`` and give ``output``: nothing unknown."""
         return cls(
