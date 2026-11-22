@@ -1804,7 +1804,7 @@ def test_479_custom_identity_overrides_default():
     # Override identity with a custom Op
     runtime.register_op_type(CAP_IDENTITY, FailOp)
 
-    # Handler count must not change (dict insert replaces, doesn't add)
+    # Handler count must not change (an equivalent registration replaces, doesn't add)
     assert len(runtime.handlers) == handlers_before, \
         "Replacing identity must not increase handler count"
 
@@ -1817,6 +1817,41 @@ def test_479_custom_identity_overrides_default():
         invoke_op(factory, frames, emitter)
     assert "custom identity" in str(exc_info.value), \
         f"Custom identity Op must be called: {exc_info.value}"
+
+
+# TEST6757: Of handlers that rank alike for a request, the first registered serves, in
+# every runtime; an equivalent registration replaces, and an unparsable one is refused
+def test_6757_handler_ties_go_to_first_registered():
+    from capdag.urn.cap_urn import CapUrn, CapUrnError as CapUrnParseError
+
+    class NoopOp(Op):
+        async def perform(self, dry, wet):
+            return None
+        def metadata(self): return OpMetadata.builder("NoopOp").build()
+
+    x = CapUrn.from_string("cap:op;x=a").to_string()
+    y = CapUrn.from_string("cap:op;y=b").to_string()
+
+    for first, second in [(x, y), (y, x)]:
+        for _ in range(64):
+            runtime = CartridgeRuntime.with_manifest_json(VALID_MANIFEST)
+            runtime.register_op_type(first, NoopOp)
+            runtime.register_op_type(second, NoopOp)
+            found = runtime.find_handler_with_pattern("cap:op")
+            assert found is not None, "both handlers serve cap:op"
+            assert found[1] == first, "the first registered of two alike handlers must serve"
+
+    runtime = CartridgeRuntime.with_manifest_json(VALID_MANIFEST)
+    before = len(runtime.handlers)
+    runtime.register_op_type("cap:op;x=a", NoopOp)
+    runtime.register_op_type("cap:x=a;op", NoopOp)
+    assert len(runtime.handlers) == before + 1, "two spellings of one cap must be one entry"
+
+    with pytest.raises(CapUrnError):
+        runtime.register_op_type("cap:op;x=", NoopOp)
+
+    with pytest.raises(CapUrnParseError):
+        runtime.find_handler_with_pattern("op;x=a")
 
 
 # =============================================================================

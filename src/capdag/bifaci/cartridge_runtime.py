@@ -78,7 +78,7 @@ from capdag.bifaci.stats import (
 )
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource, OUTPUT_CARRIES_INPUT
-from capdag.urn.cap_urn import CapUrn
+from capdag.urn.cap_urn import CapUrn, CapUrnError as CapUrnParseError
 from capdag.bifaci.manifest import CapManifest
 from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_IDENTITY, MEDIA_VOID
 
@@ -4146,7 +4146,9 @@ class CartridgeRuntime:
         and used for CLI argument parsing (CLI mode).
         **Cartridges MUST provide a manifest - there is no fallback.**
         """
-        self.handlers: Dict[str, OpFactory] = {}
+        # In registration order: of handlers that rank alike for a request,
+        # the first registered serves.
+        self.handlers: List[Tuple[CapUrn, OpFactory]] = []
         self.manifest_data = manifest_data
         self.limits = Limits.default()
 
@@ -4266,8 +4268,25 @@ class CartridgeRuntime:
     def register_op(self, cap_urn: str, factory: OpFactory) -> None:
         """Register an Op factory for a cap URN.
         The factory creates a fresh Op[None] instance per invocation.
+
+        Raises CapUrnError if ``cap_urn`` does not parse. Registering a cap
+        equivalent to one already registered replaces its handler.
         """
-        self.handlers[cap_urn] = factory
+        self._register_factory(cap_urn, factory)
+
+    def _register_factory(self, cap_urn: str, factory: OpFactory) -> None:
+        """Add ``factory`` under ``cap_urn``, or replace the factory of a
+        registered cap equivalent to it, keeping that cap's place in
+        registration order."""
+        try:
+            cap = CapUrn.from_string(cap_urn)
+        except CapUrnParseError as e:
+            raise CapUrnError(f"cannot register a handler for '{cap_urn}': {e}") from e
+        for i, (registered, _) in enumerate(self.handlers):
+            if registered.is_equivalent(cap):
+                self.handlers[i] = (registered, factory)
+                return
+        self.handlers.append((cap, factory))
 
     def register_live_family(self, pattern: str, content_urn: str, opener) -> None:
         """Register a live family this cartridge resolves itself (13.2
@@ -4287,85 +4306,36 @@ class CartridgeRuntime:
         self._live_families.register(pattern, content_urn, opener)
 
     def register_op_type(self, cap_urn: str, op_class: type) -> None:
-        """Register an Op class for a cap URN. Instance created via op_class() per invocation."""
-        self.handlers[cap_urn] = op_class
+        """Register an Op class for a cap URN. Instance created via op_class() per invocation.
+
+        Raises CapUrnError if ``cap_urn`` does not parse. Registering a cap
+        equivalent to one already registered replaces its handler.
+        """
+        self._register_factory(cap_urn, op_class)
 
     def find_handler(self, cap_urn: str) -> Optional[OpFactory]:
-        """Find an Op factory for a cap URN.
-        Returns the factory if found, None otherwise.
-
-        Uses is_dispatchable(candidate, request): can this registered handler
-        dispatch the incoming request? Mirrors Rust exactly:
-          `registered_urn.is_dispatchable(&request_urn)`
-
-        Ranks by: non-negative signed distance (refinement/exact) first,
-        then by smallest absolute distance. This prevents identity handlers
-        from stealing routes from specific handlers.
+        """Find an Op factory for a cap URN: None when no registered cap
+        serves it. Raises CapUrnParseError when ``cap_urn`` does not parse.
+        See ``find_handler_with_pattern``. (matches Rust find_handler)
         """
-        # First try exact match
-        if cap_urn in self.handlers:
-            return self.handlers[cap_urn]
-
-        # Then try pattern matching via CapUrn
-        try:
-            request_urn = CapUrn.from_string(cap_urn)
-        except Exception:
-            return None
-
-        request_specificity = request_urn.specificity()
-        matches = []  # (handler, signed_distance)
-
-        for registered_cap_str, handler in self.handlers.items():
-            try:
-                registered_urn = CapUrn.from_string(registered_cap_str)
-                # Use is_dispatchable: can this candidate handle this request?
-                if registered_urn.is_dispatchable(request_urn):
-                    specificity = registered_urn.specificity()
-                    signed_distance = specificity - request_specificity
-                    matches.append((handler, signed_distance))
-            except Exception:
-                continue
-
-        if not matches:
-            return None
-
-        # Rank: non-negative distance (refinement/exact) before negative (fallback),
-        # then by smallest absolute distance
-        matches.sort(key=lambda m: (0 if m[1] >= 0 else 1, abs(m[1])))
-        return matches[0][0]
+        found = self.find_handler_with_pattern(cap_urn)
+        return found[0] if found is not None else None
 
     def find_handler_with_pattern(self, cap_urn: str) -> Optional[Tuple[OpFactory, str]]:
         """Find the best handler for a cap URN and return it together with
         the CANONICAL registered pattern that won — the request's singleton
-        pool and pool-chain key. (matches Rust find_handler_with_pattern)"""
-        # First try exact match
-        if cap_urn in self.handlers:
-            try:
-                return self.handlers[cap_urn], CapUrn.from_string(cap_urn).to_string()
-            except Exception:
-                return self.handlers[cap_urn], cap_urn
+        pool and pool-chain key.
 
-        try:
-            request_urn = CapUrn.from_string(cap_urn)
-        except Exception:
+        The proved ranking chooses (``CapUrn.select``) among the registered
+        caps that serve the request; of handlers that rank alike, the first
+        registered serves. Raises CapUrnParseError when ``cap_urn`` does not
+        parse. (matches Rust find_handler_with_pattern)"""
+        request = CapUrn.from_string(cap_urn)
+        i = CapUrn.select([cap for cap, _ in self.handlers], request)
+        if i is None:
             return None
-
-        request_specificity = request_urn.specificity()
-        matches = []  # (handler, pattern, signed_distance)
-        for registered_cap_str, handler in self.handlers.items():
-            try:
-                registered_urn = CapUrn.from_string(registered_cap_str)
-                if registered_urn.is_dispatchable(request_urn):
-                    specificity = registered_urn.specificity()
-                    matches.append(
-                        (handler, registered_urn.to_string(), specificity - request_specificity)
-                    )
-            except Exception:
-                continue
-        if not matches:
-            return None
-        matches.sort(key=lambda m: (0 if m[2] >= 0 else 1, abs(m[2])))
-        return matches[0][0], matches[0][1]
+        cap, factory = self.handlers[i]
+        return factory, cap.to_string()
 
     def run(self) -> None:
         """Run the cartridge runtime.
@@ -4440,7 +4410,10 @@ class CartridgeRuntime:
             )
 
         # Find handler factory
-        factory = self.find_handler(cap.urn_string())
+        try:
+            factory = self.find_handler(cap.urn_string())
+        except CapUrnParseError as e:
+            raise CapUrnError(f"'{cap.urn_string()}': {e}") from e
         if factory is None:
             raise NoHandlerError(f"No handler registered for cap '{cap.urn_string()}'")
 
@@ -4541,7 +4514,7 @@ class CartridgeRuntime:
         declarations = PoolDeclarations()
         if self.manifest is not None:
             declarations = self.manifest.pool_declarations
-        materialized = RuntimePools(sorted(self.handlers.keys()), declarations)
+        materialized = RuntimePools([cap.to_string() for cap, _ in self.handlers], declarations)
         with self._pools_lock:
             self._pools = materialized
             pool_snapshot = materialized.snapshot()
@@ -4777,7 +4750,21 @@ class CartridgeRuntime:
                             pass
                         continue
 
-                    found = self.find_handler_with_pattern(cap_urn)
+                    try:
+                        found = self.find_handler_with_pattern(cap_urn)
+                    except CapUrnParseError as e:
+                        err_frame = Frame.err(
+                            frame.id,
+                            "INVALID_REQUEST",
+                            AttributionClass.INTERNAL,
+                            f"Request cap URN '{cap_urn}' does not parse: {e}",
+                        )
+                        err_frame.routing_id = routing_id_for_errors
+                        try:
+                            sync_writer.write(err_frame)
+                        except Exception:
+                            pass
+                        continue
                     factory, pattern = found if found is not None else (None, None)
                     if factory is None:
                         # A dispatched cap this binary doesn't handle is a
