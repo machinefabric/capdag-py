@@ -18,7 +18,7 @@ from tests.machine_fixtures import canonical, media, one_edge_of, registry_of, s
 
 def _refused(sources, args, arg_is_sequence) -> MatchFailure:
     with pytest.raises(MatchFailure) as exc_info:
-        match_sources_to_args(sources, args, arg_is_sequence, None)
+        match_sources_to_args(sources, [False] * len(sources), args, arg_is_sequence, None)
     return exc_info.value
 
 
@@ -28,7 +28,7 @@ def _refused(sources, args, arg_is_sequence) -> MatchFailure:
 def test_1400_gather_n_sources_into_sequence_arg():
     sources = [media("media:enc=utf8;page")] * 3
     args = [media("media:enc=utf8")]
-    pairs = match_sources_to_args(sources, args, [True], None)
+    pairs = match_sources_to_args(sources, [False] * len(sources), args, [True], None)
     assert len(pairs) == 3, "one binding per gathered source"
     for arg, source in pairs:
         assert arg.is_equivalent(media("media:enc=utf8"))
@@ -44,7 +44,7 @@ def test_1400_gather_n_sources_into_sequence_arg():
 def test_1401_product_precedence_over_gather():
     sources = [media("media:enc=utf8;page"), media("media:enc=utf8;summary")]
     args = [media("media:enc=utf8;page"), media("media:enc=utf8")]
-    pairs = match_sources_to_args(sources, args, [False, True], None)
+    pairs = match_sources_to_args(sources, [False] * len(sources), args, [False, True], None)
     assert len(pairs) == 2
     # The page source must claim the scalar page arg (injection), NOT be
     # gathered into the sequence arg alongside the summary.

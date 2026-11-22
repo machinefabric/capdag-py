@@ -95,8 +95,9 @@ def _wiring(cap_urn: CapUrn, sources: list, target: int) -> PreInternedWiring:
 
 
 def _match(sources: list, args: list):
-    """The matching over scalar args, with no arg that must be bound."""
-    return match_sources_to_args(sources, args, [False] * len(args), None)
+    """The matching of written types over scalar args, with no arg that must
+    be bound."""
+    return match_sources_to_args(sources, [False] * len(sources), args, [False] * len(args), None)
 
 
 def _refused(sources: list, args: list) -> MatchFailure:
@@ -1069,6 +1070,47 @@ def test_1183_match_more_sources_than_args_fails_hard():
     sources[1] = _media("media:numeric")
     failure = _refused(sources, args)
     assert (failure.ambiguous, failure.source) == (False, 1)
+
+
+# TEST7217: a node a step gives is read complete when it is bound: a JSON
+# record, which does not mention `list`, binds to an input that refuses lists,
+# at a distance below zero, and is preferred to an input that takes any text.
+# The same type written for an input of the machine is a type, which may be a
+# list, and binds to neither.
+def test_7217_a_given_node_binds_by_satisfaction_at_a_negative_distance():
+    record = _media("media:enc=utf8;ext=json;fmt=json;record")
+    no_list = _media("media:enc=utf8;fmt=json;record;!list")
+    text = _media("media:enc=utf8")
+    assert record.specificity() < no_list.specificity(), "the distance is below zero"
+
+    for args in ([no_list, text], [text, no_list]):
+        pairs = match_sources_to_args([record], [True], args, [False, False], None)
+        assert len(pairs) == 1
+        assert pairs[0][0].is_equivalent(no_list), f"bound to {pairs[0][0]}"
+    with pytest.raises(MatchFailure) as exc_info:
+        match_sources_to_args([record], [False], [no_list], [False], None)
+    assert (exc_info.value.ambiguous, exc_info.value.source) == (False, 0)
+
+    # Through the resolver: a step that gives the record feeds one whose input
+    # refuses lists.
+    make = 'cap:in=media:enc=utf8;make-record;out="media:enc=utf8;ext=json;fmt=json;record"'
+    to_yaml = 'cap:in="media:enc=utf8;fmt=json;record;!list";to-yaml;out="media:enc=utf8;fmt=yaml;record"'
+    reg = _registry_with([
+        _simple_cap(make, "media:enc=utf8", "media:enc=utf8;ext=json;fmt=json;record"),
+        _simple_cap(to_yaml, "media:enc=utf8;fmt=json;record;!list", "media:enc=utf8;fmt=yaml;record"),
+    ])
+    yaml = _media("media:enc=utf8;fmt=yaml;record")
+    strand = resolve_pre_interned(
+        [text, record, yaml],
+        [_wiring(_cap_urn(make), [0], 1), _wiring(_cap_urn(to_yaml), [1], 2)],
+        reg,
+        0,
+    )
+    assert len(strand.edges()) == 2
+
+    # The record as an input of the machine: a type, which may be a list.
+    with pytest.raises(UnmatchedSourceInCapArgsError):
+        resolve_pre_interned([record, yaml], [_wiring(_cap_urn(to_yaml), [0], 1)], reg, 0)
 
 
 # TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs.

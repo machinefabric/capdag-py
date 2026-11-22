@@ -51,7 +51,7 @@ def test_12166_the_implementation_is_the_proved_model():
     for r in table["dispatch"]:
         c = CapUrn.from_string(r["candidate"])
         q = CapUrn.from_string(r["request"])
-        request = CapQuery.from_request(q)
+        request = CapQuery.from_call(q)
         grade = request.grade(c).value
         if grade != r["grade"]:
             wrong.append(f"grade of {c} for {q}: model {r['grade']}, got {grade}")

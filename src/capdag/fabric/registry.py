@@ -234,7 +234,12 @@ def normalize_cap_urn(urn: str) -> str:
 
 
 def normalize_media_urn(urn: str) -> str:
-    """Normalize a Media URN to its canonical string form.
+    """The key the registry holds the media definition ``urn`` resolves to
+    under: the canonical string of its ``reference_base``. A URN that refines
+    a published type by an absence or an open key
+    (``media:enc=utf8;fmt=json;!ext``, ``…;?list;?record``) names that
+    published definition, and a published definition writes no such tag, so it
+    is its own key.
 
     A URN that fails to parse is malformed; this raises ``ParseError``
     rather than passing the raw string through (see
@@ -243,7 +248,7 @@ def normalize_media_urn(urn: str) -> str:
     must never escape uncaught and crash the app.
     """
     try:
-        return MediaUrn.from_string(urn).to_string()
+        return MediaUrn.from_string(urn).reference_base().to_string()
     except Exception as e:
         raise ParseError(f"malformed media URN '{urn}': {e}")
 

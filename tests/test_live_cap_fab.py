@@ -487,6 +487,68 @@ def test_1150_add_cap_and_basic_traversal():
     assert cap_target.min_path_length == 1
 
 
+# TEST7216: a source is read complete: a JSON record file, which does not
+# mention `list`, takes the edge of a cap whose input refuses lists, though as a
+# type it may be a list; a JSON list does not.
+def test_7216_a_source_takes_an_edge_it_satisfies():
+    graph = LiveCapFab()
+    graph.add_cap(
+        _make_test_cap(
+            "media:enc=utf8;fmt=json;record;!list",
+            "media:enc=utf8;fmt=yaml;record",
+            "record_to_yaml",
+            "Record To YAML",
+        )
+    )
+    yaml = _media("media:enc=utf8;fmt=yaml;record")
+    record = _media("media:enc=utf8;ext=json;fmt=json;record")
+    assert not record.conforms_to(_media("media:enc=utf8;fmt=json;record;!list")), "as a type the file may be a list"
+
+    def reaches(source):
+        return next(
+            (t for t in graph.get_reachable_targets(source, False, 5) if t.media_def.is_equivalent(yaml)),
+            None,
+        )
+
+    found = reaches(record)
+    assert found is not None, "the record file takes the edge to YAML"
+    assert found.min_path_length == 1
+    assert len(graph.find_paths_to_exact_target(record, yaml, False, 5, 10)) == 1
+
+    assert reaches(_media("media:enc=utf8;ext=json;fmt=json;list;record")) is None, (
+        "a list does not take an edge that refuses lists"
+    )
+
+
+# TEST7219: the exact-path search steps only into states the target is
+# reachable from. Twelve kinds of dead-end data, each convertible into every
+# other, give hundreds of millions of routes within eight steps; the one route
+# to the target is six steps long and is found without walking them.
+def test_7219_search_skips_branches_that_cannot_reach_the_target():
+    graph = LiveCapFab()
+    for n in range(12):
+        graph.add_cap(_make_test_cap("media:start", f"media:dead;n={n}", f"into-dead-{n}", "Into Dead"))
+        for m in range(12):
+            if m != n:
+                graph.add_cap(
+                    _make_test_cap(f"media:dead;n={n}", f"media:dead;n={m}", f"dead-{n}-to-{m}", "Dead To Dead")
+                )
+    graph.add_cap(_make_test_cap("media:start", "media:route;n=1", "route-1", "Route 1"))
+    for n in range(1, 5):
+        graph.add_cap(_make_test_cap(f"media:route;n={n}", f"media:route;n={n + 1}", f"route-{n + 1}", "Route"))
+    graph.add_cap(_make_test_cap("media:route;n=5", "media:finish", "finish", "Finish"))
+
+    start, finish = _media("media:start"), _media("media:finish")
+    paths = graph.find_paths_to_exact_target(start, finish, False, 8, 10)
+    assert len(paths) == 1, "the one route is found"
+    assert paths[0].cap_step_count == 6
+
+    distances = graph._distances_to_exact_target(start, finish, False, 8)
+    assert (str(_media("media:dead;n=3")), False, False) not in distances, "dead-end data cannot reach the target"
+    assert distances[(str(start), False, False)] == 6
+    assert graph._distances_to_exact_target(finish, start, False, 8) is None
+
+
 # TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
 def test_1151_exact_vs_conformance_matching():
     singular = _media("media:analysis-result")

@@ -57,6 +57,7 @@ from capdag.machine.error import (
     NodeMediaConflictError,
     NoEdgesError,
     PolicyOnMachineError,
+    RuntimeMediaInferenceError,
     SourceDoesNotConformToMachineInputError,
     UndecidedMember,
     UndefinedAliasError,
@@ -84,8 +85,10 @@ from capdag.machine.resolve import (
     MatchFailure,
     PreInternedWiring,
     WiringTarget,
+    main_output_is_given,
     match_sources_to_args,
     resolve_named_wirings,
+    source_fits,
 )
 from capdag.machine.syntax import CAP_HEADER, MACHINE_HEADER, parse_syntax
 from capdag.planner.live_cap_fab import StepToken
@@ -520,6 +523,24 @@ def _include_machines(
             if wirings[index].cap_alias in machines:
                 media_of[index] = node_media
 
+    # A node a cap produces from a declared output holds what that step gives,
+    # a complete thing. Every other node holds a type: the one the text wrote,
+    # the main output of an effect=none or effect=patch cap (which says how
+    # what it gives follows from what it takes), or an output of a machine step.
+    produced = set()
+    for wiring in wirings:
+        if wiring.cap_alias in machines:
+            continue
+        cap_urn = alias_map[wiring.cap_alias][0]
+        definition = definition_lookup(
+            registry.get_cached_cap, cap_urn.to_string(), lambda: UnknownCapError(cap_urn.to_string())
+        )
+        main = definition.main_output()
+        for target in wiring.targets:
+            is_main = target.name is None or (main is not None and main.name == target.name)
+            if not is_main or main_output_is_given(definition):
+                produced.add(target.node)
+
     uses: Dict[str, int] = {}
     written: List[_RawWiring] = []
     for index, wiring in enumerate(wirings):
@@ -545,7 +566,7 @@ def _include_machines(
                 raise MachineInputBindingError(position, alias, member.name, count)
             if not member.value.is_constant:
                 held = node_media[member.value.node]
-                if not held.conforms_to(accepts):
+                if not source_fits(held, member.value.node in produced, accepts):
                     raise SourceDoesNotConformToMachineInputError(
                         position, alias, member.name, accepts.to_string(), held.to_string()
                     )
@@ -556,9 +577,12 @@ def _include_machines(
         if unnamed:
             free = [(name, media) for name, media in machine.inputs if name not in bound]
             sources = [node_media[node] for node in unnamed]
+            given = [node in produced for node in unnamed]
             accepted = [media for _, media in free]
             try:
-                pairs = match_sources_to_args(sources, accepted, [False] * len(accepted), None)
+                pairs = match_sources_to_args(
+                    sources, given, accepted, [False] * len(accepted), None
+                )
             except MatchFailure as failure:
                 if not failure.ambiguous:
                     raise UnmatchedMachineMemberError(
@@ -826,6 +850,91 @@ def _type_nodes(
     for node, given in from_main_input:
         _give(node_media, node, given)
 
+    # What an effect=none or effect=patch cap gives follows from what it is
+    # sent (07 §What a cap gives), so the types on either side of one are read
+    # through it, both ways:
+    #
+    # - forward, its main output's node holds what the cap gives for the type
+    #   of the node feeding its main input, which refines the declared output
+    #   it was given above: a JSON list of records sent to a patch to YAML
+    #   gives a YAML list of records;
+    # - backward, a step's main input says what the patches feeding it must
+    #   give, and so what the input of the machine at the start of them must
+    #   be: walked back through each, its input put back where its output
+    #   changes it. A YAML input of the machine converted to JSON for a step
+    #   that takes JSON lists of records is a YAML list of records.
+    #
+    # Read again until nothing changes, so a chain of such caps is typed
+    # whatever order it is written in.
+    steps = []
+    for wiring in wirings:
+        if wiring.cap_alias in machines:
+            continue
+        cap_urn, definition = cap_of(wiring)
+        steps.append((wiring, cap_urn, definition, main_input_of(wiring, cap_urn)))
+    patches = {
+        target.node: step
+        for step in steps
+        if not main_output_is_given(step[2])
+        for target in step[0].targets
+        if _is_main_target(step[2], target)
+    }
+    for _ in wirings:
+        changed = False
+        for wiring, cap_urn, definition, in_media in steps:
+            if in_media is None:
+                continue
+            source = _main_source(wiring, definition, in_media)
+            if source is None:
+                continue
+
+            # Backward, from this step's main input to the input of the
+            # machine at the start of the patches feeding it.
+            required = in_media
+            start = source
+            walked = 0
+            while start in patches and walked < len(wirings):
+                walked += 1
+                patch_wiring, patch_urn, patch_definition, patch_in = patches[start]
+                if patch_in is None:
+                    break
+                try:
+                    patch_out = patch_urn.out_media_urn()
+                except Exception as error:
+                    raise InvalidMediaUrnError(patch_wiring.cap_alias, f"out= spec: {error}") from error
+                required = required.apply_delta(patch_in.delta_from(patch_out))
+                feeding = _main_source(patch_wiring, patch_definition, patch_in)
+                if feeding is None:
+                    break
+                start = feeding
+            held = node_media.get(start)
+            if walked > 0 and start not in produced and held is not None and held.is_comparable(required):
+                before = held.to_string()
+                _give(node_media, start, required)
+                changed = changed or before != node_media[start].to_string()
+
+            # Forward, from what this step is sent to what it gives.
+            if main_output_is_given(definition):
+                continue
+            sent = node_media.get(source)
+            # A member that does not fit the input is the resolver's to refuse.
+            if sent is None or not sent.satisfies(in_media):
+                continue
+            try:
+                given = cap_urn.infer_runtime_output_media(sent)
+            except Exception as error:
+                raise RuntimeMediaInferenceError(
+                    strand_index, cap_urn.to_string(), sent.to_string(), str(error)
+                ) from error
+            for target in wiring.targets:
+                if not _is_main_target(definition, target):
+                    continue
+                before = node_media.get(target.node)
+                _give(node_media, target.node, given)
+                changed = changed or before is None or before.to_string() != node_media[target.node].to_string()
+        if not changed:
+            break
+
     # A machine step has no main input: an unnamed member that nothing above
     # gave a type has none to be matched by.
     for wiring in wirings:
@@ -836,6 +945,28 @@ def _type_nodes(
             raise UntypedMachineMemberError(wiring.position, wiring.cap_alias, untyped)
 
     return node_media
+
+
+def _is_main_target(definition, target: _RawTarget) -> bool:
+    """Whether a target, by the output name it wrote, takes the cap's main
+    output."""
+    if target.name is None:
+        return True
+    main = definition.main_output()
+    return main is not None and main.name == target.name
+
+
+def _main_source(wiring: _RawWiring, definition, in_media: MediaUrn) -> Optional[str]:
+    """The node feeding a step's main input (``in_media``): the member that
+    names the main input's arg, or else the one member that names nothing.
+    None when neither says."""
+    main_arg = next((arg for arg in definition.get_args() if arg.is_main_input(in_media)), None)
+    if main_arg is not None:
+        for member in wiring.sources:
+            if member.name == main_arg.name and not member.value.is_constant:
+                return member.value.node
+    unnamed = wiring.unnamed_nodes()
+    return unnamed[0] if len(unnamed) == 1 else None
 
 
 class _UnionFind:
