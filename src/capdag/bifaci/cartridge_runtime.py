@@ -2594,7 +2594,7 @@ class LiveFeedContext:
             if not content.satisfies(main_urn):
                 raise StreamError(
                     f"live-feed reference '{reference_urn}' delivers "
-                    f"'{provider_content}' which does not conform to cap "
+                    f"'{provider_content}' which does not fit cap "
                     f"'{self._cap_urn}' main input '{arg.media_urn}' — this machine "
                     f"cannot consume that device"
                 )

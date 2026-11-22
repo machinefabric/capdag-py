@@ -863,3 +863,47 @@ def test_7270_retry_is_refused_on_a_step_that_streams():
     for wiring in ("[s -> tail -> r]", "[s -> tail{on_error=absent} -> r]"):
         parse_machine(tail_headers + wiring, notation_registry())
     machine_of("[s -> compare{retry=2} -> r]")
+
+
+# TEST7222: the node a patch cap produces holds what the cap gives for the node
+# it is sent, not its declared output: a series (a JSON list of records)
+# converted to YAML is a YAML list of records, so a step that takes YAML lists
+# of records takes it, whichever order the text writes the steps in.
+def test_7222_a_patch_output_node_holds_what_the_cap_gives():
+    yaml_records = "media:enc=utf8;fmt=yaml;list;record"
+    to_yaml_urn = 'cap:effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;fmt=yaml;!ext"'
+    count_urn = f'cap:in="{yaml_records}";count;out="media:count;numeric"'
+    registry = notation_registry()
+    registry.add_caps_to_cache([
+        definition(
+            to_yaml_urn,
+            "to-yaml",
+            [stdin_arg("media:enc=utf8;fmt=json", "input")],
+            [output_of("media:enc=utf8;fmt=yaml;!ext", "output")],
+        ),
+        definition(count_urn, "count", [stdin_arg(yaml_records, "rows")], [output_of("media:count;numeric", "count")]),
+    ])
+    headers = f"{HEADERS}[to_yaml {to_yaml_urn}][count {count_urn}]"
+    want = media("media:enc=utf8;fmt=yaml;list;record;time-series;!ext")
+    for wirings in (
+        '[(reference="a") -> fetch -> s][s -> to_yaml -> y][y -> count -> n]',
+        '[y -> count -> n][s -> to_yaml -> y][(reference="a") -> fetch -> s]',
+    ):
+        machine, names = parse_machine_with_node_names(headers + wirings, registry)
+        strand = machine.strands()[0]
+        y = strand.node_urn(names[0]["y"])
+        assert y.is_equivalent(want), f"{wirings}: the YAML node is what the patch gives for the series, got {y}"
+        assert len(strand.edges()) == 3, wirings
+
+    # An input of the machine converted for a step that takes YAML lists of
+    # records is a JSON list of records: what that step takes, read back
+    # through the patch.
+    for wirings in ("[x -> to_yaml -> y][y -> count -> n]", "[y -> count -> n][x -> to_yaml -> y]"):
+        machine, names = parse_machine_with_node_names(headers + wirings, registry)
+        strand = machine.strands()[0]
+        x = strand.node_urn(names[0]["x"])
+        assert x.is_equivalent(media("media:enc=utf8;fmt=json;list;record")), (
+            f"{wirings}: the input is what the step after the patch takes, read back, got {x}"
+        )
+        y = strand.node_urn(names[0]["y"])
+        assert y.is_equivalent(media("media:enc=utf8;fmt=yaml;list;record;!ext")), f"{wirings}: got {y}"

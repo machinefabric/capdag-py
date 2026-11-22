@@ -375,6 +375,21 @@ class MediaUrn:
         new_urn = self._urn.without_tag(key)
         return MediaUrn(new_urn)
 
+    def reference_base(self) -> "MediaUrn":
+        """The published media definition this URN, written as a reference,
+        resolves to: the URN without every tag that lets its key be absent
+        (``!k``, ``?k``, ``k?=v``). Such a tag names no value — ``!k`` says the
+        dim has none, ``?k`` leaves it open — so it refines a published type
+        rather than naming another: ``media:enc=utf8;fmt=json;!ext`` and
+        ``media:enc=utf8;fmt=json;?list;?record`` both resolve to
+        ``media:enc=utf8;fmt=json``. Which tags go is decided from the parsed
+        constraint by tagged-urn's model (``TaggedUrn.admits_absence``)."""
+        base = self._urn
+        for key in self._urn.tags:
+            if self._urn.admits_absence(key):
+                base = base.without_tag(key)
+        return MediaUrn(base)
+
     @staticmethod
     def least_upper_bound(urns: "List[MediaUrn]") -> "MediaUrn":
         """The most specific media type every one of ``urns`` conforms to: their

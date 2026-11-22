@@ -1,14 +1,19 @@
 """Asking the fabric for a cap.
 
 A request is not a cap. A cap takes this and gives that; a request is a QUESTION
-about caps, and may leave a side unasked: "what gives me this file, whatever it
-takes?", "what can this input become?". Those are not cap URNs with ``media:`` on
-a side — ``media:`` is the type "anything", a claim about every input — they are
-queries with that side unknown.
+about caps. A call always says what it sends, but a search may leave a side
+unasked: "what gives me this file, whatever it takes?", "what can this input
+become?". Those are not cap URNs with ``media:`` on a side — ``media:`` is the
+type "anything", a claim about every input — they are queries with that side
+unknown.
+
+A query asks of what a cap GIVES for what is sent: a declared output, read
+complete — what it does not mention, the cap does not give — or, for an
+``effect=none`` or ``effect=patch`` cap, what it was sent with its effect applied.
 
 :class:`CapQuery` is such a question, and :class:`MatchGrade` is how a registered
-cap answers it. A cap URN read as a request or as a pattern is one
-(:meth:`CapQuery.from_request`, :meth:`CapQuery.from_pattern`) — which is what
+cap answers it. A cap URN read as a typed call or as a pattern is one
+(:meth:`CapQuery.from_call`, :meth:`CapQuery.from_pattern`) — which is what
 ``CapUrn.is_dispatchable`` and ``CapUrn.accepts`` ask — and so are the questions
 no cap URN can spell (:meth:`CapQuery.producing`, :meth:`CapQuery.consuming`,
 :meth:`CapQuery.between`).
@@ -68,15 +73,17 @@ class CapQuery:
         return self._asked
 
     @classmethod
-    def from_request(cls, request: CapUrn) -> "CapQuery":
-        """The cap URN ``request``, read as a request: an input it leaves open is
-        not established. What ``CapUrn.is_dispatchable`` asks."""
-        return cls(_formal.query_of_request(request.formal), f"request {request}")
+    def from_call(cls, call: CapUrn) -> "CapQuery":
+        """The cap URN ``call``, read as a typed call: it sends what its input
+        says — ``media:``, if it says nothing, is anything — and asks for its
+        output, tags and effect. What ``CapUrn.is_dispatchable`` asks."""
+        return cls(_formal.query_of_call(call.formal), f"call {call}")
 
     @classmethod
     def from_pattern(cls, pattern: CapUrn) -> "CapQuery":
-        """The cap URN ``pattern``, read as a pattern over caps: an output it
-        leaves open is not established. What ``CapUrn.accepts`` asks."""
+        """The cap URN ``pattern``, read as a pattern over caps: caps taking
+        within its input, everything they give of the type its output names; an
+        output it leaves open asks nothing. What ``CapUrn.accepts`` asks."""
         return cls(_formal.query_of_pattern(pattern.formal), f"pattern {pattern}")
 
     @classmethod
