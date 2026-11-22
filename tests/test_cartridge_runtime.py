@@ -2330,7 +2330,7 @@ def test_8137_main_input_fallback_resolves_live_reference():
 
 
 # TEST8138: main-input fallback content mismatch — a provider whose content
-# does not conform to the cap's main input is a hard error at resolution,
+# does not fit the cap's main input is a hard error at resolution,
 # never a mislabeled stream.
 def test_8138_main_input_fallback_content_mismatch_rejected():
     from capdag.bifaci.cartridge_runtime import demux_multi_stream
@@ -2343,7 +2343,7 @@ def test_8138_main_input_fallback_content_mismatch_rejected():
     package = demux_multi_stream(raw_queue, live_feed_ctx=ctx)
     err = package.recv()
     assert isinstance(err, Exception), "a non-conforming provider content must be rejected"
-    assert "does not conform" in str(err), f"the error names the conformance failure: {err}"
+    assert "does not fit" in str(err), f"the error names the failure to fit: {err}"
 
 
 # ── Live families a cartridge resolves itself ──
@@ -2486,7 +2486,7 @@ def test_8164_a_registered_family_feeds_a_transport_blind_main_input():
     err = package.recv()
     assert isinstance(err, Exception), \
         "a family whose content the main input does not take is refused"
-    assert "does not conform" in str(err), f"{err}"
+    assert "does not fit" in str(err), f"{err}"
 
 
 # TEST8165: a stop reaches a registered family's feed as it reaches a

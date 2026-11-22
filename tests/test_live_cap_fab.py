@@ -496,7 +496,7 @@ def test_7216_a_source_takes_an_edge_it_satisfies():
         _make_test_cap(
             "media:enc=utf8;fmt=json;record;!list",
             "media:enc=utf8;fmt=yaml;record",
-            "record_to_yaml",
+            "record-to-yaml",
             "Record To YAML",
         )
     )

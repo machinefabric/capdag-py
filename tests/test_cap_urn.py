@@ -1077,8 +1077,8 @@ def test_648_wildcard_010_wildcard_accepts_specific():
     assert specific_out.conforms_to(wildcard), "the same, asked from the cap's side"
     assert not wildcard.is_dispatchable(specific_out), \
         "a media:-output candidate does not serve a request that needs text"
-    assert specific_out.accepts(wildcard), \
-        "a pattern asking for text out is covered by a cap that gives anything"
+    assert not specific_out.accepts(wildcard), \
+        "a pattern asking for text out does not fit a cap whose declared output names no tag: it gives a thing with none"
     assert wildcard.accepts(specific_in), "an open pattern fits a cap that takes text"
     assert specific_in.conforms_to(wildcard)
 
@@ -1115,8 +1115,8 @@ def test_6614_wildcard_accepts_specific():
     assert specific_out.conforms_to(wildcard), "the same, asked from the cap's side"
     assert not wildcard.is_dispatchable(specific_out), \
         "a media:-output candidate does not serve a request that needs text"
-    assert specific_out.accepts(wildcard), \
-        "a pattern asking for text out is covered by a cap that gives anything"
+    assert not specific_out.accepts(wildcard), \
+        "a pattern asking for text out does not fit a cap whose declared output names no tag: it gives a thing with none"
     assert wildcard.accepts(specific_in), "an open pattern fits a cap that takes text"
     assert specific_in.conforms_to(wildcard)
 
@@ -1569,7 +1569,8 @@ def test_890_direction_semantic_matching():
     generic_out_request = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:image"'
     )
-    assert specific_out_cap.accepts(generic_out_request)
+    # A pattern asking for an image fits a cap that gives png thumbnails.
+    assert generic_out_request.accepts(specific_out_cap)
 
     generic_out_cap = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:image"'
@@ -1577,7 +1578,8 @@ def test_890_direction_semantic_matching():
     specific_out_request = CapUrn.from_string(
         'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
     )
-    assert not generic_out_cap.accepts(specific_out_request)
+    # A pattern asking for png thumbnails does not fit a cap giving an image of no file type.
+    assert not specific_out_request.accepts(generic_out_cap)
 
 
 # TEST1100: Tests that CapUrn normalizes media URN tags to canonical order This is the root cause fix for caps not matching when cartridges report URNs with different tag ordering than the registry (e.g., "record;enc=utf8" vs "enc=utf8;record")
@@ -2142,14 +2144,16 @@ def test_6763_documented_ranking_examples():
     assert CapUrn.select(caps, request) == 2
 
     # Refinement when no exact match.
-    request = p("cap:convert")
-    a = p("cap:convert;in=media:pdf;out=media:html")
-    b = p("cap:convert;in=media:image;out=media:png")
-    c = p("cap:convert")
-    assert request.specificity() == 2
-    assert (a.specificity(), b.specificity(), c.specificity()) == (20202, 20202, 2)
+    request = p("cap:convert;in=media:image;out=media:image")
+    a = p('cap:convert;in=media:image;out="media:ext=png;image"')
+    b = p('cap:convert;in=media:image;out="media:ext=jpeg;image"')
+    c = p("cap:convert;in=media:image;out=media:image")
+    assert request.specificity() == 20202
+    assert (a.specificity(), b.specificity(), c.specificity()) == (60202, 60202, 20202)
     caps = [a, b, c]
     assert all(cap.is_dispatchable(request) for cap in caps)
+    # A cap that takes only PDFs does not serve a request that sends any image.
+    assert not p("cap:convert;in=media:pdf;out=media:image").is_dispatchable(request)
     assert CapMatcher.find_all_matches(caps, request) == [c, a, b]
     assert CapUrn.select(caps, request) == 2
     # Without C, A and B tie, and the first in the list is chosen.
