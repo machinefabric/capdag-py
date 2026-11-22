@@ -90,8 +90,8 @@ def test_991_detects_duplicate_cap_urns():
 # TEST880: Tests duplicate detection passes for caps with unique URN combinations Verifies that check_for_duplicate_caps() correctly accepts caps with different op/in/out combinations
 def test_880_no_duplicates_with_unique_caps():
     caps = [
-        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract Metadata"),
-        _make_test_cap("extract_outline", "media:document;ext=pdf", "media:document-outline;enc=utf8;record", "Extract Outline"),
+        _make_test_cap("extract-metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract Metadata"),
+        _make_test_cap("extract-outline", "media:document;ext=pdf", "media:document-outline;enc=utf8;record", "Extract Outline"),
         _make_test_cap("disbind", "media:document;ext=pdf", "media:disbound-pages;enc=utf8;list", "Disbind PDF"),
     ]
 
@@ -111,8 +111,8 @@ def test_992_different_ops_same_types_not_duplicates():
 # TEST993: Tests caps with same operation but different input types are not duplicates Verifies that input type differences distinguish caps with the same operation name
 def test_993_same_op_different_input_types_not_duplicates():
     caps = [
-        _make_test_cap("extract_metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract PDF Metadata"),
-        _make_test_cap("extract_metadata", "media:enc=utf8;ext=txt;plain-text", "media:enc=utf8;file-metadata;record", "Extract TXT Metadata"),
+        _make_test_cap("extract-metadata", "media:document;ext=pdf", "media:enc=utf8;file-metadata;record", "Extract PDF Metadata"),
+        _make_test_cap("extract-metadata", "media:enc=utf8;ext=txt;plain-text", "media:enc=utf8;file-metadata;record", "Extract TXT Metadata"),
     ]
 
     assert MachinePlanBuilder.check_for_duplicate_caps(caps) == 2

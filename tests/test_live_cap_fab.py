@@ -366,7 +366,7 @@ def test_1289_bfs_reachable_includes_source_roundtrip():
         _make_test_cap(
             "media:enc=utf8",
             "media:integer;numeric",
-            "coerce_to_int",
+            "coerce-to-int",
             "Coerce to Integer",
         )
     )
@@ -374,7 +374,7 @@ def test_1289_bfs_reachable_includes_source_roundtrip():
         _make_test_cap(
             "media:integer;numeric",
             "media:enc=utf8",
-            "coerce_to_text",
+            "coerce-to-text",
             "Coerce to Text",
         )
     )
@@ -391,7 +391,7 @@ def test_1290_iddfs_finds_roundtrip_paths():
         _make_test_cap(
             "media:enc=utf8",
             "media:integer;numeric",
-            "coerce_to_int",
+            "coerce-to-int",
             "Coerce to Integer",
         )
     )
@@ -399,7 +399,7 @@ def test_1290_iddfs_finds_roundtrip_paths():
         _make_test_cap(
             "media:integer;numeric",
             "media:enc=utf8",
-            "coerce_to_text",
+            "coerce-to-text",
             "Coerce to Text",
         )
     )
@@ -418,7 +418,7 @@ def test_1291_iddfs_roundtrip_with_sequence():
         _make_test_cap(
             "media:enc=utf8",
             "media:integer;numeric",
-            "coerce_to_int",
+            "coerce-to-int",
             "Coerce to Integer",
         )
     )
@@ -426,7 +426,7 @@ def test_1291_iddfs_roundtrip_with_sequence():
         _make_test_cap(
             "media:integer;numeric",
             "media:enc=utf8",
-            "coerce_to_text",
+            "coerce-to-text",
             "Coerce to Text",
         )
     )
@@ -439,9 +439,9 @@ def test_1291_iddfs_roundtrip_with_sequence():
 # TEST1292: BFS and IDDFS agree that round-trip targets exist.
 def test_1292_bfs_iddfs_roundtrip_consistency():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
-    graph.add_cap(_make_test_cap("media:b", "media:c", "b_to_c", "B to C"))
-    graph.add_cap(_make_test_cap("media:c", "media:a", "c_to_a", "C to A"))
+    graph.add_cap(_make_test_cap("media:a", "media:b", "a-to-b", "A to B"))
+    graph.add_cap(_make_test_cap("media:b", "media:c", "b-to-c", "B to C"))
+    graph.add_cap(_make_test_cap("media:c", "media:a", "c-to-a", "C to A"))
 
     source = _media("media:a")
     bfs_targets = graph.get_reachable_targets(source, False, 5)
@@ -456,7 +456,7 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
 # TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded.
 def test_1293_roundtrip_requires_cap_steps():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:a", "media:b", "a_to_b", "A to B"))
+    graph.add_cap(_make_test_cap("media:a", "media:b", "a-to-b", "A to B"))
 
     source = _media("media:a")
     paths = graph.find_paths_to_exact_target(source, source, False, 5, 100)
@@ -470,7 +470,7 @@ def test_1293_roundtrip_requires_cap_steps():
 # TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
 def test_1150_add_cap_and_basic_traversal():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract_text", "Extract Text"))
+    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract-text", "Extract Text"))
 
     assert len(graph._edges) == 1
     assert len(graph._nodes) == 2
@@ -496,7 +496,7 @@ def test_1151_exact_vs_conformance_matching():
 
     graph = LiveCapFab()
     graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:analysis-result", "analyze", "Analyze PDF"))
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:analysis-result;list", "analyze_multi", "Analyze PDF Multi"))
+    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:analysis-result;list", "analyze-multi", "Analyze PDF Multi"))
 
     source = _media("media:document;ext=pdf")
 
@@ -530,8 +530,8 @@ def test_1152_multi_step_path():
 # TEST1153: Repeated path searches return the same path order for the same graph and target.
 def test_1153_deterministic_ordering():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract_a", "Extract A"))
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract_b", "Extract B"))
+    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract-a", "Extract A"))
+    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract-b", "Extract B"))
 
     source = _media("media:document;ext=pdf")
     target = _media("media:digitized")
@@ -578,7 +578,7 @@ def test_1111_foreach_for_user_provided_list_source():
     make_decision = _make_test_cap(
         "media:enc=utf8",
         "media:decision;enc=utf8;fmt=json;record",
-        "make_decision",
+        "make-decision",
         "Make Decision",
     )
     graph.sync_from_caps([make_decision])
