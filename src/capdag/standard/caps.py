@@ -7,7 +7,7 @@ all CapDAG cartridges. These are the single source of truth for URN construction
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from capdag.urn.cap_urn import CapUrn, CapUrnBuilder
+from capdag.urn.cap_urn import CapEffect, CapUrn, CapUrnBuilder
 from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource, CliFlagSource
 from capdag.urn.media_urn import (
     # Fabric registry lookup
@@ -63,7 +63,6 @@ from capdag.urn.media_urn import (
     MEDIA_JSON_LIST,
     MEDIA_JSON_LIST_RECORD,
     MEDIA_YAML_VALUE,
-    MEDIA_YAML_RECORD,
     MEDIA_YAML_LIST,
     MEDIA_YAML_LIST_RECORD,
     MEDIA_CSV,
@@ -167,6 +166,8 @@ _MEDIA_URN_FOR_TYPE = {
     "number": MEDIA_NUMBER,
     "boolean": MEDIA_BOOLEAN,
     "object": MEDIA_OBJECT,
+    # What a coercion to an object gives: a JSON object, not any record.
+    "json-object": MEDIA_JSON_RECORD,
     "string-list": MEDIA_STRING_LIST,
     "integer-list": MEDIA_INTEGER_LIST,
     "number-list": MEDIA_NUMBER_LIST,
@@ -232,11 +233,11 @@ def all_coercion_paths() -> List[Tuple[str, str]]:
         ("string", "boolean"),
         ("integer", "boolean"),
         ("number", "boolean"),
-        # To object (wrap in object)
-        ("string", "object"),
-        ("integer", "object"),
-        ("number", "object"),
-        ("boolean", "object"),
+        # To a JSON object (wrap in object)
+        ("string", "json-object"),
+        ("integer", "json-object"),
+        ("number", "json-object"),
+        ("boolean", "json-object"),
     ]
 
 
@@ -416,23 +417,36 @@ def disbind_urn(input_media: str = MEDIA_IDENTITY) -> CapUrn:
 # -----------------------------------------------------------------------------
 
 
-def format_conversion_urn(in_media: str, out_media: str) -> str:
-    """Build URN for a format conversion capability."""
+def format_conversion_urn(in_media: str, out_media: str, effect: CapEffect) -> str:
+    """Build URN for a format conversion capability. Every format conversion
+    carries the ``convert-format`` marker."""
     return (
         CapUrnBuilder()
         .marker("convert-format")
         .in_spec(in_media)
         .out_spec(out_media)
+        .effect(effect)
         .build()
         .to_string()
     )
 
 
+# What converting to YAML gives: YAML content, not a file.
+MEDIA_YAML_CONTENT = "media:enc=utf8;fmt=yaml;!ext"
+# What converting to JSON gives: JSON content, not a file.
+MEDIA_JSON_CONTENT = "media:enc=utf8;fmt=json;!ext"
+
+
 @dataclass
 class FormatConversionPath:
-    """A format conversion path with authoritative title and description."""
+    """A format conversion path with authoritative title and description.
+
+    ``effect`` is ``CapEffect.PATCH`` for a conversion that keeps the shape
+    it is given (JSON <-> YAML: a list stays a list, a record a record), and
+    ``CapEffect.DECLARED`` for one whose output names what it gives."""
     in_media: str
     out_media: str
+    effect: CapEffect
     title: str
     description: str
 
@@ -440,52 +454,35 @@ class FormatConversionPath:
 def all_format_conversion_paths() -> List[FormatConversionPath]:
     """All valid format conversion paths between JSON, YAML, CSV, and textable lists."""
     return [
-        # JSON <-> YAML value
-        FormatConversionPath(MEDIA_JSON_VALUE, MEDIA_YAML_VALUE,
-            "Convert JSON Value to YAML", "Convert a JSON scalar value to YAML format"),
-        FormatConversionPath(MEDIA_YAML_VALUE, MEDIA_JSON_VALUE,
-            "Convert YAML Value to JSON", "Convert a YAML scalar value to JSON format"),
-        # JSON <-> YAML record
-        FormatConversionPath(MEDIA_JSON_RECORD, MEDIA_YAML_RECORD,
-            "Convert JSON Object to YAML Mapping", "Convert a JSON object to a YAML mapping"),
-        FormatConversionPath(MEDIA_YAML_RECORD, MEDIA_JSON_RECORD,
-            "Convert YAML Mapping to JSON Object", "Convert a YAML mapping to a JSON object"),
-        # JSON <-> YAML list
-        FormatConversionPath(MEDIA_JSON_LIST, MEDIA_YAML_LIST,
-            "Convert JSON Array to YAML Sequence", "Convert a JSON array to a YAML sequence"),
-        FormatConversionPath(MEDIA_YAML_LIST, MEDIA_JSON_LIST,
-            "Convert YAML Sequence to JSON Array", "Convert a YAML sequence to a JSON array"),
-        # JSON <-> YAML list of records
-        FormatConversionPath(MEDIA_JSON_LIST_RECORD, MEDIA_YAML_LIST_RECORD,
-            "Convert JSON Array of Objects to YAML List of Mappings",
-            "Convert a JSON array of objects to a YAML list of mappings"),
-        FormatConversionPath(MEDIA_YAML_LIST_RECORD, MEDIA_JSON_LIST_RECORD,
-            "Convert YAML List of Mappings to JSON Array of Objects",
-            "Convert a YAML list of mappings to a JSON array of objects"),
+        # JSON <-> YAML: one patch each way, keeping whatever shape it is given
+        FormatConversionPath(MEDIA_JSON_VALUE, MEDIA_YAML_CONTENT, CapEffect.PATCH,
+            "Convert JSON to YAML", "Re-serialize any JSON value as YAML, keeping its shape"),
+        FormatConversionPath(MEDIA_YAML_VALUE, MEDIA_JSON_CONTENT, CapEffect.PATCH,
+            "Convert YAML to JSON", "Re-serialize any YAML value as JSON, keeping its shape"),
         # JSON list of records <-> CSV
-        FormatConversionPath(MEDIA_JSON_LIST_RECORD, MEDIA_CSV,
+        FormatConversionPath(MEDIA_JSON_LIST_RECORD, MEDIA_CSV, CapEffect.DECLARED,
             "Convert JSON Array of Objects to CSV", "Convert a JSON array of objects to CSV format"),
-        FormatConversionPath(MEDIA_CSV, MEDIA_JSON_LIST_RECORD,
+        FormatConversionPath(MEDIA_CSV, MEDIA_JSON_LIST_RECORD, CapEffect.DECLARED,
             "Convert CSV to JSON Array of Objects", "Convert CSV data to a JSON array of objects"),
         # YAML list of records <-> CSV
-        FormatConversionPath(MEDIA_YAML_LIST_RECORD, MEDIA_CSV,
+        FormatConversionPath(MEDIA_YAML_LIST_RECORD, MEDIA_CSV, CapEffect.DECLARED,
             "Convert YAML List of Mappings to CSV", "Convert a YAML list of mappings to CSV format"),
-        FormatConversionPath(MEDIA_CSV, MEDIA_YAML_LIST_RECORD,
+        FormatConversionPath(MEDIA_CSV, MEDIA_YAML_LIST_RECORD, CapEffect.DECLARED,
             "Convert CSV to YAML List of Mappings", "Convert CSV data to a YAML list of mappings"),
         # Textable list <-> JSON list
-        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_JSON_LIST,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_JSON_LIST, CapEffect.DECLARED,
             "Convert Text List to JSON Array", "Convert a list of textable values to a JSON array"),
-        FormatConversionPath(MEDIA_JSON_LIST, MEDIA_STRING_LIST,
+        FormatConversionPath(MEDIA_JSON_LIST, MEDIA_STRING_LIST, CapEffect.DECLARED,
             "Convert JSON Array to Text List", "Convert a JSON array to a list of textable values"),
         # Textable list <-> YAML list
-        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_YAML_LIST,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_YAML_LIST, CapEffect.DECLARED,
             "Convert Text List to YAML Sequence", "Convert a list of textable values to a YAML sequence"),
-        FormatConversionPath(MEDIA_YAML_LIST, MEDIA_STRING_LIST,
+        FormatConversionPath(MEDIA_YAML_LIST, MEDIA_STRING_LIST, CapEffect.DECLARED,
             "Convert YAML Sequence to Text List", "Convert a YAML sequence to a list of textable values"),
         # Textable list <-> CSV
-        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_CSV,
+        FormatConversionPath(MEDIA_STRING_LIST, MEDIA_CSV, CapEffect.DECLARED,
             "Convert Text List to CSV", "Convert a list of textable values to CSV format"),
-        FormatConversionPath(MEDIA_CSV, MEDIA_STRING_LIST,
+        FormatConversionPath(MEDIA_CSV, MEDIA_STRING_LIST, CapEffect.DECLARED,
             "Convert CSV to Text List", "Convert CSV data to a list of textable values"),
     ]
 
@@ -631,13 +628,14 @@ def make_multiple_decisions_urn(lang_code: str) -> CapUrn:
 # -----------------------------------------------------------------------------
 
 
-async def format_conversion_cap(registry, in_media: str, out_media: str) -> Cap:
+async def format_conversion_cap(registry, in_media: str, out_media: str, effect: CapEffect) -> Cap:
     """Get a single format conversion cap from the registry.
 
     Args:
         registry: FabricRegistry instance
         in_media: Input media URN
         out_media: Output media URN
+        effect: The conversion's effect (patch for JSON <-> YAML)
 
     Returns:
         The Cap for this format conversion
@@ -645,7 +643,7 @@ async def format_conversion_cap(registry, in_media: str, out_media: str) -> Cap:
     Raises:
         FabricRegistryError: If the cap is not found
     """
-    urn = format_conversion_urn(in_media, out_media)
+    urn = format_conversion_urn(in_media, out_media, effect)
     return await registry.get_cap(urn)
 
 
@@ -666,7 +664,7 @@ async def all_format_conversion_caps(registry) -> List[Tuple[str, str, Cap]]:
     """
     caps = []
     for path in all_format_conversion_paths():
-        cap = await format_conversion_cap(registry, path.in_media, path.out_media)
+        cap = await format_conversion_cap(registry, path.in_media, path.out_media, path.effect)
         caps.append((path.in_media, path.out_media, cap))
     return caps
 

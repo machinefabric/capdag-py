@@ -642,3 +642,19 @@ def test_1812_marker_predicates_read_the_marker():
         assert not predicate(MediaUrn.from_string(f"media:{marker}")), f"media:{marker}"
         assert predicate(MediaUrn.from_string(f"media:!{marker}")), f"media:!{marker}"
         assert predicate(MediaUrn.from_string(f"media:?{marker}")), f"media:?{marker}"
+
+
+# TEST7212: a media URN written as a reference resolves to the published definition without every tag that lets its key be absent (!k, ?k, k?=v); a tag that requires its key (k, k=v, k!=v) stays, and a URN with none is its own base.
+def test_7212_reference_base_drops_tags_admitting_absence():
+    for reference, base in [
+        ("media:enc=utf8;fmt=json;!ext", "media:enc=utf8;fmt=json"),
+        ("media:enc=utf8;fmt=json;?list;?record", "media:enc=utf8;fmt=json"),
+        ("media:enc=utf8;fmt=json;list;record;!ext", "media:enc=utf8;fmt=json;list;record"),
+        ("media:ext?=pdf;image", "media:image"),
+        ("media:ext!=pdf;image", "media:ext!=pdf;image"),
+        ("media:enc=utf8;fmt=json", "media:enc=utf8;fmt=json"),
+        ("media:!void", "media:"),
+        ("media:void", "media:void"),
+    ]:
+        got = MediaUrn.from_string(reference).reference_base().to_string()
+        assert got == MediaUrn.from_string(base).to_string(), reference

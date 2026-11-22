@@ -9,20 +9,28 @@ Binding a wiring's members
 --------------------------
 
 Members that name an arg bind first, each to the arg of that name; the source
-must conform to what that arg ACCEPTS. A name written more than once gathers,
-and only a sequence arg may be gathered into. A constant is held to the
+must fit what that arg ACCEPTS. A name written more than once gathers, and
+only a sequence arg may be gathered into. A constant is held to the
 validation of the arg's media definition.
+
+A node some step of the strand produces from a declared output holds what
+that step gives, a complete thing, so it fits a type it satisfies: what it
+does not mention it does not have. Any other node holds a type, and fits a
+type it conforms to: an input of the machine, which the text or an input
+anchor wrote, and the main output of an effect=none or effect=patch cap,
+which says how what it gives follows from what it takes.
 
 The members that name no arg are matched by type over the args no name
 bound, by minimum-cost assignment in two phases of strict precedence:
 
-- Cost of pairing source s with arg a: spec(s) - spec(a) if s conforms to
-  what a accepts — how much more the source says than the arg asks;
-  otherwise the pair is impossible.
+- Cost of pairing source s with an arg a it fits: spec(s) - spec(a), the
+  signed specificity distance. A complete source may fit an arg that says
+  more than it writes, so the distance may be negative; a negative distance
+  is a fit like any other. A pair that does not fit is impossible.
 - Phase 1 — product: each source claims a distinct arg. Whenever such an
   assignment exists, this phase decides.
 - Phase 2 — gather: only when no such assignment exists, a sequence arg may
-  absorb several conforming sources (scalar args still take at most one).
+  absorb several sources that fit it (scalar args still take at most one).
 - The minimum-cost assignment of the deciding phase must be unique: a tie is
   ``AmbiguousMachineNotationError``. Where a member stands in its group is
   never a tiebreaker (it only fixes the item order within one gathered arg).
@@ -72,10 +80,11 @@ from capdag.machine.iteration import (
     iteration_of,
 )
 from capdag.planner.policy import StepPolicy
-from capdag.urn.cap_urn import CapUrn
+from capdag.urn.cap_urn import CapEffect, CapUrn
 from capdag.urn.media_urn import MEDIA_VOID, MediaUrn
 
 if TYPE_CHECKING:
+    from capdag.cap.definition import Cap
     from capdag.cap.registry import FabricRegistry
     from capdag.planner.live_cap_fab import StepToken, Strand
 
@@ -283,7 +292,14 @@ def _resolve_wirings(
     # sequence. (A node a mapped step produces has one such value per item;
     # what it is from outside the map is the iteration structure's to say.)
     # An input of the machine is one value: notation has no run shape.
+    #
+    # A node some wiring produces from a declared output holds what that step
+    # gives, a complete thing. The main output of an effect=none or
+    # effect=patch cap says how what it gives follows from what it takes, not
+    # what it gives, so a node it produces holds a type, as every node nothing
+    # produces does: one the text or an input anchor wrote.
     node_is_sequence = [False] * len(nodes)
+    node_is_given = [False] * len(nodes)
     definitions = []
     wiring_outputs: List[List[EdgeOutput]] = []
     for wiring in wirings:
@@ -318,6 +334,9 @@ def _resolve_wirings(
             if any(taken.output_media_urn.is_equivalent(output_media_urn) for taken in outputs):
                 raise OutputTakenTwiceError(strand_index, cap_urn, output.name)
             node_is_sequence[target.node] = output.is_sequence
+            node_is_given[target.node] = main_output_is_given(definition) or not is_main_output(
+                definition, output
+            )
             outputs.append(EdgeOutput(output_media_urn, output.name, target.node))
         # Canonical order, like the assignment's.
         outputs.sort(key=lambda each: each.output_media_urn.ordering_key())
@@ -350,7 +369,7 @@ def _resolve_wirings(
             if primary_arg_index is None:
                 raise CapDoesNotDeclareInputError(strand_index, cap_urn)
 
-        # Every arg, by what it ACCEPTS (the type a source must conform to:
+        # Every arg, by what it ACCEPTS (the type a source must fit:
         # its stdin source URN for the main input, its `accepts` when it
         # gives one, its own URN otherwise) and by its SLOT (its media_urn,
         # the identity a binding records and the URN its stream is delivered
@@ -372,7 +391,7 @@ def _resolve_wirings(
                 _check_constant(registry, cap_urn, args[arg_index], source.constant, strand_index)
             else:
                 source_urn = nodes[source.node]
-                if not source_urn.conforms_to(arg_accepts[arg_index]):
+                if not source_fits(source_urn, node_is_given[source.node], arg_accepts[arg_index]):
                     raise SourceDoesNotConformToArgError(
                         strand_index,
                         cap_urn,
@@ -395,11 +414,12 @@ def _resolve_wirings(
         # The main input, when no named member bound it.
         must_bind = free.index(primary_arg_index) if primary_arg_index in free else None
         source_urns = [nodes[node_id] for node_id in wiring.source_node_ids]
+        source_given = [node_is_given[node_id] for node_id in wiring.source_node_ids]
 
         if source_urns:
             try:
                 matched = match_sources_to_args(
-                    source_urns, free_accepts, free_is_sequence, must_bind
+                    source_urns, source_given, free_accepts, free_is_sequence, must_bind
                 )
             except MatchFailure as failure:
                 if not failure.ambiguous:
@@ -604,14 +624,41 @@ class MatchFailure(Exception):
         )
 
 
+def main_output_is_given(definition: "Cap") -> bool:
+    """Whether a cap's main output says what the cap gives, so that what it
+    produces there is a complete thing: it does unless the cap's effect is
+    none or patch, whose main output says how what it gives follows from what
+    it takes (07 §What a cap gives)."""
+    return definition.urn.effect_kind() not in (CapEffect.NONE, CapEffect.PATCH)
+
+
+def is_main_output(definition: "Cap", output: Any) -> bool:
+    """Whether ``output`` is the cap's main output."""
+    main = definition.main_output()
+    return main is not None and main.name == output.name
+
+
+def source_fits(source: MediaUrn, given: bool, accepts: MediaUrn) -> bool:
+    """Whether a source fits a type an arg accepts. A source that is what a
+    step gave (``given``) is a complete thing: what it does not mention it does
+    not have, so it fits a type it satisfies. A source the text or an input
+    anchor typed is a type, and fits a type it conforms to (04 §Complete
+    things)."""
+    return source.satisfies(accepts) if given else source.conforms_to(accepts)
+
+
 def match_sources_to_args(
     sources: List[MediaUrn],
+    source_given: List[bool],
     args: List[MediaUrn],
     arg_is_sequence: List[bool],
     must_bind: Optional[int],
 ) -> List[Tuple[MediaUrn, MediaUrn]]:
-    """Match a wiring's sources to a cap's args by minimum total
-    specificity-distance, with a uniqueness requirement.
+    """Match a wiring's sources to a cap's args by minimum total signed
+    specificity distance, with a uniqueness requirement.
+
+    ``source_given[s]`` says that ``sources[s]`` is what a step gave, a
+    complete thing; otherwise it is a written type (see ``source_fits``).
 
     Two phases, in strict precedence order:
 
@@ -619,8 +666,8 @@ def match_sources_to_args(
        assignment exists, including the hard failure on tied minimum-cost
        assignments.
     2. Gather — only when no such assignment exists (more sources than args,
-       or a Hall violation): a sequence arg may absorb several conforming
-       sources; a scalar arg still takes at most one. The minimum-cost such
+       or a Hall violation): a sequence arg may absorb several sources that
+       fit it; a scalar arg still takes at most one. The minimum-cost such
        assignment must be unique.
 
     ``must_bind`` is the index of the arg an assignment MUST bind — the cap's
@@ -630,42 +677,41 @@ def match_sources_to_args(
     gathered into one arg keep their declaration order, which fixes the
     gathered sequence's item order). Raises ``MatchFailure``.
     """
+    if len(sources) != len(source_given):
+        raise AssertionError("every source says whether a step gave it")
     has_sequence_arg = any(arg_is_sequence)
 
-    def fits_something(source: MediaUrn) -> bool:
-        return any(source.conforms_to(arg) for arg in args)
+    def fits(position: int, arg: MediaUrn) -> bool:
+        return source_fits(sources[position], source_given[position], arg)
+
+    def fits_something(position: int) -> bool:
+        return any(fits(position, arg) for arg in args)
 
     if len(sources) > len(args) and not has_sequence_arg:
         # Pigeonhole: at least one source has no arg slot and no sequence arg
         # exists to gather the surplus. The first source with no candidate
         # arg is the one named; when every source has one, at least one of
         # them MUST end up unmatched, and the first stands for it.
-        for position, source in enumerate(sources):
-            if not fits_something(source):
+        for position in range(len(sources)):
+            if not fits_something(position):
                 raise MatchFailure(source=position)
         raise MatchFailure(source=0)
 
-    # cost[s][a] is the distance when sources[s] conforms to args[a], else
-    # None: the pairing cannot be made.
+    # cost[s][a] is the distance when sources[s] fits args[a], else None: the
+    # pairing cannot be made.
     cost: List[List[Optional[int]]] = []
     for position, source in enumerate(sources):
-        if not fits_something(source):
+        if not fits_something(position):
             raise MatchFailure(source=position)
         row: List[Optional[int]] = []
         for arg in args:
-            if not source.conforms_to(arg):
+            if not fits(position, arg):
                 row.append(None)
                 continue
-            # The specificity distance: how much more the source says than
-            # the arg asks. It is never negative — refining never scores
-            # lower (04 §Predicates, tagScore_monotone).
-            distance = source.specificity() - arg.specificity()
-            if distance < 0:
-                raise AssertionError(
-                    "a source that conforms to an arg is never less specific than it: "
-                    f"{source} conforms to {arg}"
-                )
-            row.append(distance)
+            # The signed specificity distance: how much more the source says
+            # than the arg asks. A complete source may say less than an arg it
+            # satisfies, so it may be negative.
+            row.append(source.specificity() - arg.specificity())
         cost.append(row)
 
     # An assignment binds the arg that MUST be bound. A cap that takes an

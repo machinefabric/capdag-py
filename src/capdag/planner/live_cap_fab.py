@@ -6,7 +6,8 @@ for efficient path finding and reachability queries.
 Design Principles:
 1. Typed URNs: Store MediaUrn and CapUrn directly, not strings.
 2. Exact matching: For target matching, use is_equivalent() not conforms_to().
-3. Conformance for traversal: Use conforms_to() for graph traversal.
+3. Satisfaction for traversal: a node, read complete, satisfies the next cap's
+   input (satisfies()).
 4. Deterministic ordering: paths sorted by cap step count (fewest first), then total specificity (highest first), then step order.
 5. ForEach is synthesized dynamically in get_outgoing_edges() when is_sequence=True
    and there are scalar consumers; it is never pre-inserted as a real graph edge.
@@ -602,7 +603,11 @@ class LiveCapFab:
           - Otherwise: include with out_is_sequence = edge.output_is_sequence.
 
         Synthesizes a ForEach edge when is_sequence=True and there is at least
-        one Cap edge with not input_is_sequence whose from_spec source conforms to.
+        one Cap edge with not input_is_sequence whose from_spec source satisfies.
+
+        A source is what a step gave or a file's detected type, a complete
+        thing: what it does not mention it does not have, so it takes an edge
+        whose input it satisfies.
         """
         results: List[Tuple[LiveMachinePlanEdge, bool]] = []
         needs_foreach = False
@@ -610,7 +615,7 @@ class LiveCapFab:
         for edge in self._edges:
             if edge.edge_type != LiveMachinePlanEdgeType.CAP:
                 continue
-            if not source.conforms_to(edge.from_spec):
+            if not source.satisfies(edge.from_spec):
                 continue
             if is_sequence and not edge.input_is_sequence:
                 # Sequence data reaching a scalar cap — ForEach must be synthesized.
@@ -701,6 +706,60 @@ class LiveCapFab:
         )
         return results
 
+    def _distances_to_exact_target(
+        self,
+        source: MediaUrn,
+        target: MediaUrn,
+        is_sequence: bool,
+        max_depth: int,
+    ) -> Optional[Dict[Tuple[str, bool, bool], int]]:
+        """How few steps each search state reachable from the source is from
+        the target, for the states the target is reachable from within
+        ``max_depth`` of the source; None when no step reaches the target at
+        all.
+
+        A state is ``(media, is_sequence, pending_foreach)``, as the path
+        search walks it. The states are found forward from the source over the
+        edges ``_get_outgoing_edges`` gives, and the distances backward over
+        those same steps from the states that are the target. A state missing
+        from the map cannot reach the target; one at distance d cannot reach
+        it in fewer than d steps.
+        """
+        start = (str(source), is_sequence, False)
+        steps_into: Dict[Tuple[str, bool, bool], List[Tuple[str, bool, bool]]] = defaultdict(list)
+        target_states: Set[Tuple[str, bool, bool]] = set()
+        seen = {start}
+        queue = deque([(source, is_sequence, False, 0)])
+        while queue:
+            current, current_is_seq, pending_foreach, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
+            from_state = (str(current), current_is_seq, pending_foreach)
+            for edge, out_seq in self._get_outgoing_edges(current, current_is_seq):
+                if pending_foreach and not self._can_follow_foreach(edge):
+                    continue
+                next_pending = edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH
+                next_state = (str(edge.to_spec), out_seq, next_pending)
+                steps_into[next_state].append(from_state)
+                # The target: its media, reached by a step, not waiting on a
+                # ForEach's cap.
+                if not next_pending and edge.to_spec.is_equivalent(target):
+                    target_states.add(next_state)
+                if next_state not in seen:
+                    seen.add(next_state)
+                    queue.append((edge.to_spec, out_seq, next_pending, depth + 1))
+        if not target_states:
+            return None
+        distances = {state: 0 for state in target_states}
+        backward = deque(target_states)
+        while backward:
+            state = backward.popleft()
+            for before in steps_into.get(state, []):
+                if before not in distances:
+                    distances[before] = distances[state] + 1
+                    backward.append(before)
+        return distances
+
     def find_paths_to_exact_target(
         self,
         source: MediaUrn,
@@ -709,7 +768,12 @@ class LiveCapFab:
         max_depth: int = 10,
         max_paths: int = 20,
     ) -> List[Strand]:
-        """Iterative deepening DFS path finding with exact target matching (is_equivalent)."""
+        """Iterative deepening DFS path finding with exact target matching
+        (is_equivalent). It steps only into states the target is within reach
+        of."""
+        distances = self._distances_to_exact_target(source, target, is_sequence, max_depth)
+        if distances is None:
+            return []
         results: List[Strand] = []
 
         for depth_limit in range(1, max_depth + 1):
@@ -721,6 +785,7 @@ class LiveCapFab:
                 current=source,
                 target=target,
                 is_sequence=is_sequence,
+                distances=distances,
                 path=[],
                 visited=visited,
                 depth_limit=depth_limit,
@@ -749,6 +814,9 @@ class LiveCapFab:
                   PathFindingEventPathFound for each found path (after sort),
                   and PathFindingEventComplete at the end.
         """
+        distances = self._distances_to_exact_target(source, target, is_sequence, max_depth)
+        if distances is None:
+            return []
         results: List[Strand] = []
         total_nodes_explored = 0
 
@@ -766,6 +834,7 @@ class LiveCapFab:
                 current=source,
                 target=target,
                 is_sequence=is_sequence,
+                distances=distances,
                 path=[],
                 visited=visited,
                 depth_limit=depth_limit,
@@ -802,13 +871,19 @@ class LiveCapFab:
         current: MediaUrn,
         target: MediaUrn,
         is_sequence: bool,
+        distances: Dict[Tuple[str, bool, bool], int],
         path: List[LiveMachinePlanEdge],
         visited: Set[Tuple[str, bool]],
         depth_limit: int,
         max_paths: int,
         results: List[Strand],
     ) -> None:
-        """Depth-limited DFS from current toward target."""
+        """Depth-limited DFS from current toward target.
+
+        ``distances`` is ``_distances_to_exact_target``'s: a step into a state
+        the target is not within the steps left of is not taken, since no
+        route through it ends at the target within the depth limit.
+        """
         if len(results) >= max_paths:
             return
 
@@ -862,6 +937,14 @@ class LiveCapFab:
                     return
                 if pending_foreach and not self._can_follow_foreach(edge):
                     continue
+                next_state = (
+                    str(edge.to_spec),
+                    out_seq,
+                    edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH,
+                )
+                distance = distances.get(next_state)
+                if distance is None or distance > depth_limit - 1:
+                    continue
                 next_key = (str(edge.to_spec), out_seq)
                 if next_key in visited and not edge.to_spec.is_equivalent(target):
                     continue
@@ -871,6 +954,7 @@ class LiveCapFab:
                     current=edge.to_spec,
                     target=target,
                     is_sequence=out_seq,
+                    distances=distances,
                     path=path,
                     visited=visited,
                     depth_limit=depth_limit - 1,

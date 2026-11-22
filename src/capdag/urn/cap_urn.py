@@ -429,14 +429,16 @@ class CapUrn:
 
     def accepts(self, cap: "CapUrn") -> bool:
         """Whether ``cap`` fits this cap read as a PATTERN over caps — what a
-        search asks: ``cap``'s input is within this pattern's, its output covers
-        the pattern's, its effect is the pattern's (a pattern's ``?effect`` fits
-        any), and its cap-tags — complete: a cap has the tags it has — satisfy the
-        pattern's.
+        search asks: ``cap``'s input is within this pattern's, its output is
+        within the pattern's — everything it gives is of the type the pattern
+        names, its declared output read complete — its effect is the pattern's
+        (a pattern's ``?effect`` fits any), and its cap-tags — complete: a cap
+        has the tags it has — satisfy the pattern's. ``cap:out="media:ext=pdf"``
+        fits caps giving ``media:ext=pdf`` or ``media:document;ext=pdf``, and
+        not one giving ``media:``, which gives a thing with no tags.
 
-        A side the pattern leaves open is not asked about. ``cap:candle`` fits
-        every cap tagged ``candle``, whatever it takes and gives: its open output
-        is "not established", not the type "anything".
+        An output the pattern leaves open asks nothing. ``cap:candle`` fits
+        every cap tagged ``candle``, whatever it gives.
 
         Decided by the proved model (``CapDAG.Exec.accepts``, which is
         ``CapDAG.fits``). For a question no cap URN can spell — "what gives this,
@@ -452,17 +454,20 @@ class CapUrn:
         """Whether this candidate SERVES ``request`` — the predicate routing and
         dispatch act on.
 
-        The candidate takes at least what the request sends, gives at least what
-        the request needs, has the effect asked for unless the request says
-        ``?effect``, and has the cap-tags asked for — its own tags being
-        complete, so a request for ``!x`` is served by a candidate that does not
-        mention ``x``, and a candidate may carry tags the request does not ask
-        about.
+        The request is a call: it sends what its input says and asks for its
+        output. The candidate takes at least what the call sends; what it gives
+        for that is inside what the call asks for; it has the effect asked for
+        unless the call says ``?effect``; and it has the cap-tags asked for —
+        its own tags being complete, so a request for ``!x`` is served by a
+        candidate that does not mention ``x``, and a candidate may carry tags
+        the request does not ask about.
 
-        An input the request leaves open is not established: the caller has not
-        said what it will send, and every candidate passes that side. That is
-        "some input", not "any input" — ``media:`` on a CANDIDATE's input does
-        mean it takes anything.
+        What the candidate gives is what its effect says: a declared output,
+        read complete — what it does not mention, the candidate does not give —
+        or, for ``effect=none`` and ``effect=patch``, what the call sends with
+        the effect applied. A call always says what it sends: one whose input
+        is ``media:`` (or omitted) sends anything, and only a candidate that
+        takes anything serves it.
 
         This is a guarantee. What only could serve does not; see
         :meth:`may_dispatch` and :meth:`capdag.CapQuery.grade`.
@@ -548,15 +553,14 @@ class CapUrn:
             raise CapUrnError(
                 f"Runtime input '{runtime_input}' does not conform to declared input '{declared_in}'"
             )
-        if self.effect_kind() == CapEffect.DECLARED:
-            runtime_out = declared_out
-        elif self.effect_kind() == CapEffect.NONE:
-            runtime_out = runtime_input
-        elif self.effect_kind() == CapEffect.PATCH:
-            delta = declared_out.delta_from(declared_in)
-            runtime_out = runtime_input.apply_delta(delta)
-        else:
+        if self.effect_kind() == CapEffect.ANY:
             raise CapUrnError("Cannot infer runtime output for an unconstrained effect request")
+        # What the cap gives for it is the proved model's (CapDAG.Exec.capGives,
+        # which is Cap.gives): its declared output, the input itself, or the
+        # input with the keys the declared input and output disagree on set to
+        # the output's.
+        given = _formal.cap_gives(self._formal, runtime_input.inner().formal)
+        runtime_out = MediaUrn(TaggedUrn("media", dict(given)))
         if not runtime_out.satisfies(declared_out):
             raise CapUrnError(
                 f"Inferred runtime output '{runtime_out}' does not conform to declared output '{declared_out}'"
@@ -566,39 +570,37 @@ class CapUrn:
     def is_conformant_runtime_output(
         self, runtime_input: MediaUrn, runtime_output: MediaUrn
     ) -> bool:
-        """Does an actually-emitted runtime output satisfy this cap's declared
-        effect contract for the given runtime input?
+        """Does an actually-emitted runtime output keep this cap's effect
+        contract for the given runtime input?
 
         This is THE effect-audit predicate: every check of "did the cap emit
-        what its effect promised" must go through it — never a hand-rolled
-        combination of ``infer_runtime_output_media`` with equality or
-        conformance checks, so the contract has exactly one definition.
+        what its effect promised" goes through it, so the contract has exactly
+        one definition — the proved model's (``CapDAG.Exec.audit``, which is
+        ``Cap.audits``). Both media are those of values that exist, read
+        complete:
 
-        The condition is deliberately asymmetric per effect:
+        - ``effect=declared`` promises its declared ``out=``, read complete —
+          what it does not mention, the cap does not give — so the emission
+          must be inside it, read complete: a cap declaring
+          ``out=media:record`` may emit ``media:record``, and not
+          ``media:enc=utf8;fmt=json;record``.
+        - ``effect=none`` and ``effect=patch`` give exactly what their effect
+          makes of the input (:meth:`infer_runtime_output_media`), so the
+          emission must be that.
 
-        - ``effect=none`` and ``effect=patch`` compute an EXACT runtime
-          output type, so the emission must be tag-equivalent to the
-          inference. A more specific emission would still be a lie: the
-          effect promises the type is fully determined by the input.
-        - ``effect=declared`` promises only the declared ``out=``, so an
-          emission that is MORE specific than the declaration is legal and
-          desirable; the emission must conform to the declared output. A
-          more generic emission breaks downstream plan refinement and fails.
-
-        Raises (rather than returning ``False``) when the inference itself
-        is impossible: the runtime input does not conform to the declared
-        input, the effect is the unconstrained request form (``?effect``),
-        or the URN state is internally inconsistent — those are upstream
-        contract breaks, not emission mismatches, and must surface as such.
+        Raises (rather than returning ``False``) when the input itself is
+        wrong: the runtime input does not conform to the declared input, the
+        effect is the unconstrained request form (``?effect``), or the URN
+        state is internally inconsistent — those are upstream contract breaks,
+        not emission mismatches, and must surface as such.
         """
-        inferred = self.infer_runtime_output_media(runtime_input)
-        effect = self.effect_kind()
-        if effect in (CapEffect.NONE, CapEffect.PATCH):
-            return runtime_output.is_equivalent(inferred)
-        if effect == CapEffect.DECLARED:
-            return runtime_output.satisfies(inferred)
-        raise CapUrnError(
-            "Cannot audit an emission against an unconstrained effect request"
+        if self.effect_kind() == CapEffect.ANY:
+            raise CapUrnError(
+                "Cannot audit an emission against an unconstrained effect request"
+            )
+        self.infer_runtime_output_media(runtime_input)
+        return _formal.audit(
+            self._formal, runtime_input.inner().formal, runtime_output.inner().formal
         )
 
     # Per-axis weights for cap-URN specificity. Two orders of
