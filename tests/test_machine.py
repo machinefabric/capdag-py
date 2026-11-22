@@ -1093,7 +1093,7 @@ def test_7217_a_given_node_binds_by_satisfaction_at_a_negative_distance():
 
     # Through the resolver: a step that gives the record feeds one whose input
     # refuses lists.
-    make = 'cap:in=media:enc=utf8;make-record;out="media:enc=utf8;ext=json;fmt=json;record"'
+    make = 'cap:in="media:enc=utf8";make-record;out="media:enc=utf8;ext=json;fmt=json;record"'
     to_yaml = 'cap:in="media:enc=utf8;fmt=json;record;!list";to-yaml;out="media:enc=utf8;fmt=yaml;record"'
     reg = _registry_with([
         _simple_cap(make, "media:enc=utf8", "media:enc=utf8;ext=json;fmt=json;record"),

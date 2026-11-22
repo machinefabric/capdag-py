@@ -42,7 +42,7 @@ async def test_7211_a_cap_naming_a_published_type_refined_by_absence_is_held():
     cap_key = normalize_cap_urn(CAP)
     json_key = normalize_media_urn(JSON)
     cap_body = json.dumps({
-        "urn": CAP, "version": 1, "title": "Reference probe", "aliases": [],
+        "urn": CAP, "version": 1, "title": "Reference probe", "aliases": ["reference-probe"],
         "args": [{"media_urn": CONTENT, "name": "input", "required": True,
                   "sources": [{"stdin": CONTENT}]}],
         "outputs": [{"media_urn": ANY_SHAPE, "name": "output", "output_description": "out"}],

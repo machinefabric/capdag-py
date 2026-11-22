@@ -560,7 +560,7 @@ class CapUrn:
         # input with the keys the declared input and output disagree on set to
         # the output's.
         given = _formal.cap_gives(self._formal, runtime_input.inner().formal)
-        runtime_out = MediaUrn(TaggedUrn("media", dict(given)))
+        runtime_out = MediaUrn(TaggedUrn.from_formal(given))
         if not runtime_out.satisfies(declared_out):
             raise CapUrnError(
                 f"Inferred runtime output '{runtime_out}' does not conform to declared output '{declared_out}'"
