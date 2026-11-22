@@ -187,6 +187,59 @@ def _build_switch_with_n_masters(n: int, capless: bool = False) -> RelaySwitch:
     return RelaySwitch(pairs, _FULL_POLICY)
 
 
+# TEST7199: Every RelayNotify carries all four limits as positive integers: a master whose first RelayNotify says max_chunk 0 is not taken (the switch fails naming max_chunk), and a later RelayNotify missing initial_credit is a protocol error naming it, leaving the limits the master last announced.
+def test_7199_relay_notify_limits_required_every_time():
+    def notify_with(change):
+        limits = Limits.default()
+        frame = Frame.relay_notify(
+            json.dumps({"installed_cartridges": []}).encode(),
+            limits.max_frame,
+            limits.max_chunk,
+            limits.max_reorder_buffer,
+            limits.initial_credit,
+        )
+        change(frame.meta)
+        return frame
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+
+    def broken_first():
+        writer = FrameWriter(slave_write.makefile('wb'))
+        writer.write(notify_with(lambda m: m.__setitem__("max_chunk", 0)))
+
+    threading.Thread(target=broken_first, daemon=True).start()
+    with pytest.raises(ProtocolError, match="max_chunk"):
+        RelaySwitch([SocketPair(id="m0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
+
+    engine_read, slave_write = socket.socketpair()
+    slave_read, engine_write = socket.socketpair()
+    sent = threading.Event()
+
+    def broken_update():
+        reader = FrameReader(slave_read.makefile('rb'))
+        writer = FrameWriter(slave_write.makefile('wb'))
+        writer.write(notify_with(lambda m: None))
+        expect_policy(reader)
+        writer.write(notify_with(lambda m: m.pop("initial_credit")))
+        sent.set()
+
+    threading.Thread(target=broken_update, daemon=True).start()
+    switch = RelaySwitch([SocketPair(id="m0", read=engine_read.makefile('rb'), write=engine_write.makefile('wb'))], _FULL_POLICY)
+    announced = switch.limits()
+    assert sent.wait(timeout=5)
+    switch.start_background_pump()
+    deadline = time.monotonic() + 5
+    while switch._masters[0].healthy and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not switch._masters[0].healthy, "a RelayNotify missing initial_credit ends the master"
+    assert "initial_credit" in (switch._masters[0].last_error or ""), switch._masters[0].last_error
+    kept = switch.limits()
+    assert (kept.max_frame, kept.max_chunk, kept.initial_credit) == (
+        announced.max_frame, announced.max_chunk, announced.initial_credit
+    ), "the limits last announced are kept"
+
+
 # TEST426: Single master REQ/response routing
 def test_426_single_master_req_response():
     """Verify basic single-master request/response flow"""
@@ -325,6 +378,80 @@ def test_427_multi_master_cap_routing():
 
     resp2 = switch.read_from_masters()
     assert resp2.payload == bytes([2])
+
+
+# TEST7193: A peer request takes no router admission permit. With the serving cartridge's `all` pool at capacity one and that one permit held by an engine call, a peer REQ for the same cap from another master's cartridge still reaches the serving master at once, while a second engine call stays queued.
+def test_7193_peer_request_takes_no_admission_permit():
+    from capdag.urn.cap_urn import CapUrn
+
+    served = 'cap:in="media:void";test;out="media:void"'
+    engine_read0, slave_write0 = socket.socketpair()
+    slave_read0, engine_write0 = socket.socketpair()
+    engine_read1, slave_write1 = socket.socketpair()
+    slave_read1, engine_write1 = socket.socketpair()
+    engine_seen = threading.Event()
+    peer_seen = []
+    peer_arrived = threading.Event()
+    send_peer = threading.Event()
+
+    def server_thread():
+        reader = FrameReader(slave_read0.makefile("rb"))
+        writer = FrameWriter(slave_write0.makefile("wb"))
+        capacity_one = make_manifest(served)
+        capacity_one["installed_cartridges"][0]["runtime_stats"]["pools"]["all"] = {
+            "declared": 1, "configured": 1, "active": 0, "queued": 0,
+        }
+        send_notify(writer, capacity_one, Limits.default())
+        complete_identity_verification(reader, writer)
+        reqs = 0
+        while True:
+            frame = reader.read()
+            if frame is None:
+                return
+            if frame.frame_type != FrameType.REQ:
+                continue
+            reqs += 1
+            if reqs == 1:
+                engine_seen.set()
+            elif reqs == 2:
+                peer_seen.append(frame)
+                peer_arrived.set()
+
+    def caller_thread():
+        reader = FrameReader(slave_read1.makefile("rb"))
+        writer = FrameWriter(slave_write1.makefile("wb"))
+        send_notify(writer, make_manifest(), Limits.default())
+        complete_identity_verification(reader, writer)
+        send_peer.wait()
+        writer.write(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+
+    threading.Thread(target=server_thread, daemon=True).start()
+    threading.Thread(target=caller_thread, daemon=True).start()
+
+    switch = RelaySwitch([
+        SocketPair(id="server", read=engine_read0.makefile("rb"), write=engine_write0.makefile("wb")),
+        SocketPair(id="caller", read=engine_read1.makefile("rb"), write=engine_write1.makefile("wb")),
+    ], _FULL_POLICY)
+    # The switch routes a peer REQ as it reads the masters.
+    switch.start_background_pump()
+
+    switch.send_to_master(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+    assert engine_seen.wait(timeout=5), "the first engine call reaches the serving master"
+    second_done = threading.Event()
+
+    def second_call():
+        switch.send_to_master(Frame.req(MessageId.new_uuid(), served, b"", "application/cbor"))
+        second_done.set()
+
+    threading.Thread(target=second_call, daemon=True).start()
+    assert not second_done.wait(timeout=0.2), "the second engine call waits for the one permit"
+
+    send_peer.set()
+    assert peer_arrived.wait(timeout=2), "a peer request must not wait for an admission permit"
+    assert CapUrn.from_string(peer_seen[0].cap).is_equivalent(CapUrn.from_string(served)), (
+        f"the peer REQ names the served cap: {peer_seen[0].cap}"
+    )
+    assert not second_done.is_set(), "the second engine call is still queued"
 
 
 # TEST428: Unknown cap returns error

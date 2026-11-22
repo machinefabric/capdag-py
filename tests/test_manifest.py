@@ -292,6 +292,27 @@ def test_476_validate_fails_without_identity():
     assert "CAP_IDENTITY" in str(exc_info.value)
 
 
+# TEST7195: validate() recognises the identity cap by equivalence: a wider
+# pattern the identity refines (`cap:?effect`) is not the identity, and the
+# identity spelled with its directions written out is.
+def test_7195_validate_recognises_identity_by_equivalence():
+    from capdag.standard.caps import identity_cap
+
+    transform = Cap(CapUrn.from_string(_test_urn("convert")), "Convert", ["convert"])
+    transform.add_output(CapOutput(MEDIA_OBJECT, "record", "The record"))
+
+    wide = Cap(CapUrn.from_string("cap:?effect"), "Any effect", ["any-effect"])
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([wide, transform])])
+    with pytest.raises(ValueError) as exc_info:
+        manifest.validate()
+    assert "CAP_IDENTITY" in str(exc_info.value)
+
+    spelled = identity_cap()
+    spelled.urn = CapUrn.from_string("cap:effect=none;in=media:;out=media:")
+    manifest = CapManifest("TestCartridge", "1.0.0", "release", None, "Test", [default_group([spelled, transform])])
+    manifest.validate()
+
+
 # TEST1284: Cap group with adapter URNs serializes and deserializes correctly
 def test_1284_cap_group_with_adapter_urns():
     urn = CapUrn.from_string(_test_urn("convert"))

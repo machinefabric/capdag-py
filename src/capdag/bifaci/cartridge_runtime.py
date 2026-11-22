@@ -894,8 +894,10 @@ class StreamEmitter(Protocol):
         ...
 
     def emit_cbor(self, value: Any) -> None:
-        """Emit a CBOR value as output.
-        The value is CBOR-encoded once and sent as raw CBOR bytes in CHUNK frames.
+        """Emit a CBOR value as output, each CHUNK one CBOR value: bytes
+        coalesce with earlier byte emissions, text is split at max_chunk on
+        character boundaries, an array goes as one chunk per element, a map
+        as one [key, value] chunk per entry, and anything else as one chunk.
         Raises: RuntimeError on write failure."""
         ...
 
@@ -2658,10 +2660,10 @@ def demux_multi_stream(
         lf_accumulators: Dict[str, Tuple[str, list]] = {}
         # stream_id -> remaining credit window (L10/L12). Starts at the
         # negotiated initial_credit; handler consumption (grants) extends
-        # it; a chunk arriving with the window at zero is a fatal
-        # CREDIT_VIOLATION. The demux itself never blocks on this — it only
-        # accounts, so control frames keep flowing regardless of data
-        # pressure.
+        # it; a chunk arriving with the window at zero is a CREDIT_VIOLATION
+        # that breaks that stream, and the request goes on. The demux itself
+        # never blocks on this — it only accounts, so control frames keep
+        # flowing regardless of data pressure.
         stream_windows: Dict[str, CreditWindow] = {}
         # stream_id -> item reassembly state for sequence-mode streams (see
         # `SeqReassembly` — frame payloads are RFC 8742 fragments, decoded
@@ -2682,6 +2684,7 @@ def demux_multi_stream(
                 _close_all_open_streams()
                 streams_queue.put(StreamAbandoned())
                 break
+
 
             if frame.frame_type == FrameType.STREAM_START:
                 stream_id = frame.stream_id
@@ -2740,8 +2743,10 @@ def demux_multi_stream(
                         lf_accumulators[stream_id][1].append(frame.payload)
                     continue
 
-                # Credit-violation check (L12): a chunk beyond the granted
-                # window is a fatal protocol error for this request.
+                # Credit-violation check (L12): a chunk arriving with nothing
+                # left of its window is a CREDIT_VIOLATION: that stream is
+                # broken and delivers the error to whoever reads it; the
+                # request goes on.
                 window = stream_windows.get(stream_id)
                 if window is not None:
                     if not window.arrive():
@@ -3078,6 +3083,18 @@ class OutputStream:
                         raise RuntimeError("Cannot split string on character boundary")
                     self._write_chunk_payload(cbor2.dumps(chunk_str))
                     offset += len(chunk_str.encode("utf-8"))
+                return
+
+            # An array goes as one chunk per element, and a map as one
+            # [key, value] chunk per entry, so a receiver reads each as it
+            # arrives (the Rust reference's `cbor_chunk_values`).
+            if isinstance(value, list):
+                for element in value:
+                    self._write_chunk_payload(cbor2.dumps(element))
+                return
+            if isinstance(value, dict):
+                for key, entry in value.items():
+                    self._write_chunk_payload(cbor2.dumps([key, entry]))
                 return
 
             self._write_chunk_payload(cbor2.dumps(value))
@@ -4170,13 +4187,10 @@ class CartridgeRuntime:
         IMPORTANT: Manifest MUST declare CAP_IDENTITY - fails hard if missing.
         """
         # Validate manifest - FAIL HARD if CAP_IDENTITY not declared
-        from capdag.standard.caps import CAP_IDENTITY
-        identity_urn = CapUrn.from_string(CAP_IDENTITY)
+        from capdag.standard.caps import identity_urn
+        identity = identity_urn()
 
-        has_identity = any(
-            identity_urn.conforms_to(cap.urn) or cap.urn.conforms_to(identity_urn)
-            for cap in manifest.all_caps()
-        )
+        has_identity = any(cap.urn.is_equivalent(identity) for cap in manifest.all_caps())
 
         if not has_identity:
             raise ValueError(

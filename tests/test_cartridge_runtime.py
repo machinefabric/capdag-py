@@ -2631,6 +2631,27 @@ def test_540_output_stream_close_sends_stream_end():
     assert chunk_pos < end_pos, "the flushed tail ships BEFORE STREAM_END"
 
 
+# TEST7189: An array emitted after bytes still in the coalescing buffer does not overtake them: the bytes ship first, then the array's elements, each its own chunk, and STREAM_END counts all three.
+def test_7189_array_emission_is_an_ordering_barrier():
+    mock_writer = MockFrameWriter()
+    stream = OutputStream(
+        writer=SyncFrameWriter(mock_writer),
+        request_id=MessageId.new_uuid(),
+        stream_id="stream-1",
+        media_urn="media:test",
+        max_chunk=256_000,
+    )
+    stream.start(False, None)
+    stream.write(b"abc")
+    stream.emit_cbor([1, 2])
+    stream.close()
+
+    payloads = [cbor2.loads(f.payload) for f in mock_writer.frames if f.frame_type == FrameType.CHUNK]
+    assert payloads == [b"abc", 1, 2], "the buffered bytes ship before the array's elements"
+    stream_end = next(f for f in mock_writer.frames if f.frame_type == FrameType.STREAM_END)
+    assert stream_end.chunk_count == 3
+
+
 # TEST8119: the coalescing AGE bound — an emission arriving after the
 # buffer's oldest byte crossed COALESCE_MAX_AGE flushes the accumulated
 # batch, so steady token emission lags the wire by at most one write-gap;
@@ -3442,36 +3463,77 @@ def test_7063_pending_grants_flush_before_blocking():
     assert granted == 8, f"pending grants must flush before blocking (L10 corollary): granted {granted} of 8"
 
 
-# TEST7053: A chunk received beyond the granted window is a fatal CREDIT_VIOLATION surfaced to the consumer (L12).
+# TEST7053: A chunk received beyond the granted window is a CREDIT_VIOLATION error on that stream; the request goes on: another stream of the same request is still delivered whole (L12).
 def test_7053_over_window_chunk_is_credit_violation():
     mock_writer = MockFrameWriter()
     sync_writer = SyncFrameWriter(mock_writer)
     rid = MessageId.new_uuid()
     raw = queue.Queue()
 
-    raw.put(Frame.stream_start(rid, "s1", "media:enc=utf8", False))
-    # Window is 2; a misbehaving sender pushes 3 chunks with no grants
-    # possible (nothing consumed yet).
+    for stream_id in ("s1", "s2"):
+        raw.put(Frame.stream_start(rid, stream_id, "media:enc=utf8", False))
+    # Window is 2; a misbehaving sender pushes 3 chunks on s1 with no grants
+    # possible (nothing consumed yet), and keeps to the window on s2.
     for i in range(3):
         raw.put(_mk_scalar_chunk(rid, "s1", i))
+    for i in range(2):
+        raw.put(_mk_scalar_chunk(rid, "s2", i))
+    raw.put(Frame.stream_end(rid, "s1", 3))
+    raw.put(Frame.stream_end(rid, "s2", 2))
     raw.put(Frame.end(rid, None))
 
     package = demux_multi_stream(
         raw, InputCreditContext(writer=sync_writer, rid=rid, xid=None, initial_credit=2),
     )
-    stream = package.recv()
-    # The premise is that nothing is consumed while the three chunks arrive,
-    # so no grant can extend the window. The demux runs on its own thread:
-    # the request's end is when it has seen all three, and consuming before
-    # that grants credit back and makes the third chunk legitimate.
-    assert package.recv() is None, "the request has one stream and then ends"
-    item0 = stream.recv()
-    assert not isinstance(item0, Exception), "chunk 0 is within the window"
-    item1 = stream.recv()
-    assert not isinstance(item1, Exception), "chunk 1 is within the window"
-    item2 = stream.recv()
+    s1 = package.recv()
+    s2 = package.recv()
+    # The premise is that nothing is consumed while the chunks arrive, so no
+    # grant can extend the window. The demux runs on its own thread: the
+    # request's end is when it has seen them all, and consuming before that
+    # grants credit back and makes the third chunk legitimate.
+    assert package.recv() is None, "the request has two streams and then ends: the violation breaks only s1"
+    assert not isinstance(s1.recv(), Exception), "chunk 0 is within the window"
+    assert not isinstance(s1.recv(), Exception), "chunk 1 is within the window"
+    item2 = s1.recv()
     assert isinstance(item2, Exception), "chunk 2 exceeds the granted window (L12)"
     assert "CREDIT_VIOLATION" in str(item2)
+    # The request goes on: s2 is delivered whole.
+    assert not isinstance(s2.recv(), Exception)
+    assert not isinstance(s2.recv(), Exception)
+    assert s2.recv() is None, "s2 ends after its two chunks"
+
+
+# TEST7202: A caller that does not read a peer's response grants nothing beyond the initial window; the chunks it then reads are granted back.
+def test_7202_unread_peer_response_is_not_granted():
+    mock_writer = MockFrameWriter()
+    rid = MessageId.new_uuid()
+    raw = queue.Queue()
+    raw.put(Frame.stream_start(rid, "r", "media:enc=utf8", False))
+    for i in range(4):
+        raw.put(_mk_scalar_chunk(rid, "r", i))
+    raw.put(Frame.stream_end(rid, "r", 4))
+    raw.put(Frame.end(rid, None))
+    raw.put(None)
+
+    response = demux_peer_response(raw, SyncFrameWriter(mock_writer), rid, initial_credit=4)
+
+    def granted():
+        return sum(
+            f.credit_count() or 0 for f in list(mock_writer.frames) if f.frame_type == FrameType.CREDIT
+        )
+
+    # The demux has every frame and nothing has been read.
+    time.sleep(0.1)
+    assert granted() == 0, "a response nobody has read is granted nothing beyond the initial window"
+    items = 0
+    while True:
+        item = response.recv()
+        if item is None:
+            break
+        if item.is_data:
+            items += 1
+    assert items == 4, "the caller reads the whole response"
+    assert granted() == 4, "the chunks the caller reads are granted back"
 
 
 # -----------------------------------------------------------------------

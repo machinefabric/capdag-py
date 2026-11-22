@@ -26,61 +26,33 @@ from capdag.bifaci.frame import (
 from capdag.bifaci.io import ProtocolError
 
 
-# TEST171: Test all FrameType discriminants roundtrip through u8 conversion preserving identity
+# TEST171: Every frame type's wire number, by the model, names it again
 def test_171_frame_type_roundtrip():
-    """Test all frame types roundtrip through u8 conversion"""
-    for t in [
-        FrameType.HELLO,
-        FrameType.REQ,
-        # RES (2) removed in Protocol v2
-        FrameType.CHUNK,
-        FrameType.END,
-        FrameType.LOG,
-        FrameType.ERR,
-        FrameType.HEARTBEAT,
-        FrameType.STREAM_START,
-        FrameType.STREAM_END,
-        FrameType.RELAY_NOTIFY,
-        FrameType.RELAY_STATE,
-        FrameType.CANCEL,
-        FrameType.CREDIT,
-    ]:
-        v = int(t)
-        recovered = FrameType.from_u8(v)
-        assert recovered is not None, f"should recover frame type {t}"
-        assert t == recovered
+    for t in FrameType.all():
+        assert FrameType.from_code(t.code()) == t, f"should recover frame type {t}"
 
 
-# TEST172: Test FrameType::from_u8 returns None for values outside the valid discriminant range
+# TEST172: A wire number that names no frame type is no frame type
 def test_172_invalid_frame_type():
-    """Test invalid frame type values return None"""
-    assert FrameType.from_u8(10) == FrameType.RELAY_NOTIFY
-    assert FrameType.from_u8(11) == FrameType.RELAY_STATE
-    assert FrameType.from_u8(12) == FrameType.CANCEL
-    assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
-    assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream (the tap-off)"
-    assert FrameType.from_u8(15) == FrameType.POLICY, "value 15 is Policy"
-    assert FrameType.from_u8(16) is None, "value 16 is one past Policy"
-    assert FrameType.from_u8(100) is None
-    assert FrameType.from_u8(255) is None
+    assert FrameType.from_code(14) == FrameType.CLOSE_STREAM, "14 is CloseStream (the tap-off)"
+    assert FrameType.from_code(15) == FrameType.POLICY, "value 15 is Policy"
+    assert FrameType.from_code(2) is None, "2 names no frame type"
+    assert FrameType.from_code(16) is None, "value 16 is one past Policy"
+    assert FrameType.from_code(255) is None
+    assert FrameType.from_code(2**64 - 1) is None
 
 
-# TEST173: Test FrameType discriminant values match the wire protocol specification exactly
+# TEST173: Each frame type's wire number is the one the wire protocol specifies
 def test_173_frame_type_discriminant_values():
-    """Test frame type values match protocol specification"""
-    assert FrameType.HELLO == 0
-    assert FrameType.REQ == 1
-    # RES (2) removed in Protocol v2
-    assert FrameType.CHUNK == 3
-    assert FrameType.END == 4
-    assert FrameType.LOG == 5
-    assert FrameType.ERR == 6
-    assert FrameType.HEARTBEAT == 7
-    assert FrameType.STREAM_START == 8
-    assert FrameType.STREAM_END == 9
-    assert FrameType.RELAY_NOTIFY == 10
-    assert FrameType.RELAY_STATE == 11
-    assert FrameType.CANCEL == 12
+    expected = {
+        FrameType.HELLO: 0, FrameType.REQ: 1, FrameType.CHUNK: 3, FrameType.END: 4,
+        FrameType.LOG: 5, FrameType.ERR: 6, FrameType.HEARTBEAT: 7, FrameType.STREAM_START: 8,
+        FrameType.STREAM_END: 9, FrameType.RELAY_NOTIFY: 10, FrameType.RELAY_STATE: 11,
+        FrameType.CANCEL: 12, FrameType.CREDIT: 13, FrameType.CLOSE_STREAM: 14, FrameType.POLICY: 15,
+    }
+    assert len(expected) == len(FrameType.all())
+    for frame_type, code in expected.items():
+        assert frame_type.code() == code, frame_type
 
 
 # TEST174: Test MessageId::new_uuid generates valid UUID that roundtrips through string conversion
@@ -479,22 +451,16 @@ def test_368_stream_start_with_empty_media_urn():
     assert frame.media_urn == ""
 
 
-# TEST399: Verify RelayNotify frame type discriminant roundtrips through u8 (value 10)
+# TEST399: Verify RelayNotify's wire number roundtrips (value 10)
 def test_399_relay_notify_discriminant_roundtrip():
-    """Test RelayNotify discriminant value is 10 and roundtrips"""
-    ft = FrameType.RELAY_NOTIFY
-    assert int(ft) == 10
-    recovered = FrameType.from_u8(10)
-    assert recovered == FrameType.RELAY_NOTIFY
+    assert FrameType.RELAY_NOTIFY.code() == 10
+    assert FrameType.from_code(10) == FrameType.RELAY_NOTIFY
 
 
-# TEST400: Verify RelayState frame type discriminant roundtrips through u8 (value 11)
+# TEST400: Verify RelayState's wire number roundtrips (value 11)
 def test_400_relay_state_discriminant_roundtrip():
-    """Test RelayState discriminant value is 11 and roundtrips"""
-    ft = FrameType.RELAY_STATE
-    assert int(ft) == 11
-    recovered = FrameType.from_u8(11)
-    assert recovered == FrameType.RELAY_STATE
+    assert FrameType.RELAY_STATE.code() == 11
+    assert FrameType.from_code(11) == FrameType.RELAY_STATE
 
 
 # TEST401: Verify relay_notify factory stores manifest and limits, and accessors extract them
@@ -519,10 +485,12 @@ def test_401_relay_notify_factory_and_accessors():
     assert extracted_limits.max_frame == max_frame
     assert extracted_limits.max_chunk == max_chunk
 
-    # Test accessors on wrong frame type return None
+    # Reading a RelayNotify field from another frame type is an error
     req = Frame.req(MessageId.new_uuid(), "cap:test", b"", "text/plain")
-    assert req.relay_notify_manifest() is None
-    assert req.relay_notify_limits() is None
+    with pytest.raises(ProtocolError):
+        req.relay_notify_manifest()
+    with pytest.raises(ProtocolError):
+        req.relay_notify_limits()
 
 
 # TEST402: Verify relay_state factory stores resource payload in frame payload field
@@ -536,13 +504,12 @@ def test_402_relay_state_factory_and_payload():
     assert frame.payload == resources
 
 
-# TEST403: Verify from_u8 returns None for values past the last valid frame type
+# TEST403: Verify from_code returns None for values past the last valid frame type
 def test_403_frame_type_one_past_cancel():
-    """Test that value 15 is invalid (one past CloseStream/14, the last frame type)"""
-    assert FrameType.from_u8(13) == FrameType.CREDIT, "13 is Credit (v3)"
-    assert FrameType.from_u8(14) == FrameType.CLOSE_STREAM, "14 is CloseStream"
-    assert FrameType.from_u8(15) == FrameType.POLICY, "value 15 is Policy"
-    assert FrameType.from_u8(16) is None, "value 16 is one past Policy"
+    assert FrameType.from_code(13) == FrameType.CREDIT, "13 is Credit"
+    assert FrameType.from_code(14) == FrameType.CLOSE_STREAM, "14 is CloseStream"
+    assert FrameType.from_code(15) == FrameType.POLICY, "value 15 is Policy"
+    assert FrameType.from_code(16) is None, "value 16 is one past Policy"
 
 
 # TEST667: verify_chunk_checksum detects corrupted payload
@@ -1440,6 +1407,30 @@ def test_520_reorder_buffer_per_flow_limit():
     # Flow B: also overflow
     with pytest.raises(Exception, match="overflow"):
         buf.accept(_flow_frame(FrameType.CHUNK, rid_b, 3))
+
+
+# TEST7198: relay_notify_limits refuses a RelayNotify whose limits are not all present and positive integers, naming the key: initial_credit missing, max_chunk zero, max_frame text. relay_notify_manifest refuses a RelayNotify with no manifest.
+def test_7198_relay_notify_limits_are_read_strictly():
+    def with_meta(change):
+        limits = Limits.default()
+        frame = Frame.relay_notify(
+            b"{}", limits.max_frame, limits.max_chunk, limits.max_reorder_buffer, limits.initial_credit
+        )
+        change(frame.meta)
+        return frame
+
+    cases = [
+        ("initial_credit", lambda m: m.pop("initial_credit")),
+        ("max_chunk", lambda m: m.__setitem__("max_chunk", 0)),
+        ("max_frame", lambda m: m.__setitem__("max_frame", "big")),
+    ]
+    for key, change in cases:
+        with pytest.raises(ProtocolError, match=key):
+            with_meta(change).relay_notify_limits()
+    with pytest.raises(ProtocolError, match="manifest"):
+        with_meta(lambda m: m.pop("manifest")).relay_notify_manifest()
+    whole = with_meta(lambda m: None).relay_notify_limits()
+    assert whole.initial_credit == Limits.default().initial_credit
 
 
 # TEST521: RelayNotify CBOR roundtrip preserves manifest and limits

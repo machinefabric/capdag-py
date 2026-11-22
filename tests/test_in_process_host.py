@@ -97,6 +97,44 @@ class EchoHandler(FrameHandler):
         output.emit_response("media:", data)
 
 
+# TEST7201: every response stream the in-process host opens states its cardinality: a handler's response stream and the identity echo each open with is_sequence false, so the engine's output audit can hold them to the declared shape.
+def test_7201_response_streams_state_is_sequence():
+    cap_urn = 'cap:in="media:text";echo;out="media:text"'
+    host = InProcessCartridgeHost(
+        InProcessHostIdentity.for_test("in-process-test"), [("echo", [make_test_cap(cap_urn)], EchoHandler())]
+    )
+    host_read, host_write, test_read, test_write, host_socks, test_socks = make_host_conn()
+    host_thread = threading.Thread(target=lambda: host.run(host_read, host_write), daemon=True)
+    host_thread.start()
+    reader = FrameReader(test_read)
+    writer = FrameWriter(test_write)
+    writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
+    _ = reader.read()
+
+    for xid, cap, stream, media, payload in [
+        (1, cap_urn, "arg0", "media:text", cbor_bytes_payload(b"hello")),
+        (2, CAP_IDENTITY, "identity-verify", "media:", identity_nonce()),
+    ]:
+        rid = MessageId.new_uuid()
+        req = Frame.req(rid, cap, b"", "application/cbor")
+        req.routing_id = MessageId(xid)
+        writer.write(req)
+        writer.write(Frame.stream_start(rid, stream, media))
+        writer.write(Frame.chunk(rid, stream, 0, payload, 0, compute_checksum(payload)))
+        writer.write(Frame.stream_end(rid, stream, 1))
+        writer.write(Frame.end(rid, None))
+
+        start = reader.read()
+        assert start.frame_type == FrameType.STREAM_START, cap
+        assert start.is_sequence is False, f"{cap}: the response stream states it is scalar"
+        while reader.read().frame_type != FrameType.END:
+            pass
+
+    close_socks(test_socks)
+    close_socks(host_socks)
+    host_thread.join(timeout=2)
+
+
 # TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response
 def test_6748_routes_req_to_handler():
     cap_urn = 'cap:in="media:text";echo;out="media:text"'
@@ -292,6 +330,54 @@ def test_6749_identity_verification():
 
     resp_end = reader.read()
     assert resp_end.frame_type == FrameType.END
+
+    close_socks(test_socks)
+    close_socks(host_socks)
+    host_thread.join(timeout=2)
+
+
+# TEST7197: The identity cap is recognised by equivalence, not by its text: a
+# REQ for the identity spelled with its directions written out, sent before any
+# policy, is served as the identity (the only request served before a policy),
+# and a REQ whose cap is no cap URN is refused as an invalid request naming it.
+def test_7197_identity_request_recognised_by_equivalence():
+    host = InProcessCartridgeHost(InProcessHostIdentity.for_test("in-process-test"), [])
+
+    host_read, host_write, test_read, test_write, host_socks, test_socks = make_host_conn()
+    host_thread = threading.Thread(target=lambda: host.run(host_read, host_write), daemon=True)
+    host_thread.start()
+
+    reader = FrameReader(test_read)
+    writer = FrameWriter(test_write)
+    _ = reader.read()
+
+    rid = MessageId.new_uuid()
+    req = Frame.req(rid, "cap:effect=none;in=media:;out=media:", b"", "application/cbor")
+    req.routing_id = MessageId(0)
+    writer.write(req)
+    nonce = identity_nonce()
+    writer.write(Frame.stream_start(rid, "identity-verify", "media:"))
+    writer.write(Frame.chunk(rid, "identity-verify", 0, nonce, 0, compute_checksum(nonce)))
+    writer.write(Frame.stream_end(rid, "identity-verify", 1))
+    writer.write(Frame.end(rid, None))
+
+    first = reader.read()
+    assert first.frame_type == FrameType.STREAM_START, (
+        f"the identity spelled out is served before any policy, got {first.error_code()} {first.error_message()}"
+    )
+    assert reader.read().payload == nonce
+    assert reader.read().frame_type == FrameType.STREAM_END
+    assert reader.read().frame_type == FrameType.END
+
+    bad = MessageId.new_uuid()
+    bad_req = Frame.req(bad, "cap:in=", b"", "application/cbor")
+    bad_req.routing_id = MessageId(1)
+    writer.write(bad_req)
+    err = reader.read()
+    assert err.frame_type == FrameType.ERR
+    assert err.id == bad
+    assert err.error_code() == "INVALID_REQUEST"
+    assert "cap:in=" in err.error_message()
 
     close_socks(test_socks)
     close_socks(host_socks)

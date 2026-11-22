@@ -18,7 +18,6 @@ The CBOR payload is a map with integer keys (see cbor_frame.py).
 
 import asyncio
 import io
-import os
 from typing import BinaryIO, Optional
 from dataclasses import dataclass
 
@@ -40,7 +39,6 @@ from capdag.bifaci.frame import (
     DEFAULT_INITIAL_CREDIT,
     PROTOCOL_VERSION,
     compute_checksum,
-    verify_chunk_checksum,
 )
 from capdag.standard.caps import CAP_IDENTITY
 from capdag.bifaci.pools import PoolStates, decode_pool_states
@@ -112,7 +110,7 @@ def encode_frame(frame: Frame) -> bytes:
 
     # Required fields
     frame_map[Keys.VERSION] = frame.version
-    frame_map[Keys.FRAME_TYPE] = int(frame.frame_type)
+    frame_map[Keys.FRAME_TYPE] = frame.frame_type.code()
 
     # Message ID
     if frame.id.is_uuid():
@@ -217,17 +215,27 @@ def decode_frame(data: bytes) -> Frame:
             lookup[k] = v
 
     # Extract required fields
+    # Every frame is of this protocol version: a frame of any other is
+    # refused here, not read as one.
     version = lookup.get(Keys.VERSION)
     if version is None:
         raise InvalidFrameError("missing version")
+    if not isinstance(version, int) or isinstance(version, bool) or not 0 <= version <= 255:
+        raise InvalidFrameError(f"version: {version} is not a protocol version")
+    if version != PROTOCOL_VERSION:
+        raise InvalidFrameError(
+            f"protocol version mismatch: ours {PROTOCOL_VERSION}, theirs {version}"
+        )
 
-    frame_type_u8 = lookup.get(Keys.FRAME_TYPE)
-    if frame_type_u8 is None:
+    # The frame type is read whole and named by the model's numbering.
+    frame_type_code = lookup.get(Keys.FRAME_TYPE)
+    if frame_type_code is None:
         raise InvalidFrameError("missing frame_type")
-
-    frame_type = FrameType.from_u8(frame_type_u8)
+    if not isinstance(frame_type_code, int) or isinstance(frame_type_code, bool) or frame_type_code < 0:
+        raise InvalidFrameError(f"invalid frame_type: {frame_type_code}")
+    frame_type = FrameType.from_code(frame_type_code)
     if frame_type is None:
-        raise InvalidFrameError(f"invalid frame_type: {frame_type_u8}")
+        raise InvalidFrameError(f"invalid frame_type: {frame_type_code}")
 
     # Extract ID — strict decode. A malformed or absent id must be a hard
     # DecodeError, never a fabricated MessageId(0)/MessageId.default(): a
@@ -848,59 +856,93 @@ def identity_nonce() -> bytes:
     return cbor2.dumps("bifaci")
 
 
-def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
-    """Verify a peer's CAP_IDENTITY handler by round-tripping a nonce."""
-    request_id = MessageId.new_uuid()
-    stream_id = "identity-verify"
-    nonce = os.urandom(32)
-
-    # CBOR-encode nonce (protocol v2: CHUNK payload = CBOR-encoded data)
+def identity_probe_frames(rid: MessageId, xid: MessageId) -> list:
+    """The identity probe for request ``rid`` on routing id ``xid``:
+    REQ(CAP_IDENTITY), STREAM_START, one CHUNK carrying the nonce wrapped as one
+    CBOR byte string, STREAM_END(1) and END. The handshake's verification and
+    every relay-switch probe send exactly these."""
     import cbor2
-    cbor_nonce = cbor2.dumps(nonce)
 
-    writer.write(Frame.req(request_id, CAP_IDENTITY, b"", "application/cbor"))
-    writer.write(Frame.stream_start(request_id, stream_id, "media:"))
-    writer.write(Frame.chunk(request_id, stream_id, 0, cbor_nonce, 0, compute_checksum(cbor_nonce)))
-    writer.write(Frame.stream_end(request_id, stream_id, 1))
-    writer.write(Frame.end(request_id, None))
+    stream_id = "identity-verify"
+    cbor_nonce = cbor2.dumps(identity_nonce())
+    frames = [
+        Frame.req(rid, CAP_IDENTITY, b"", "application/cbor"),
+        Frame.stream_start(rid, stream_id, "media:", is_sequence=False),
+        Frame.chunk(rid, stream_id, 0, cbor_nonce, 0, compute_checksum(cbor_nonce)),
+        Frame.stream_end(rid, stream_id, 1),
+        Frame.end(rid, None),
+    ]
+    for frame in frames:
+        frame.routing_id = xid
+    return frames
 
-    saw_stream_start = False
-    saw_stream_end = False
-    echoed = bytearray()
 
+class IdentityEcho:
+    """Judges an identity echo frame by frame: each CHUNK must carry a CBOR byte
+    string, their concatenation at END must be the nonce, and an ERR is the
+    probe failing. The handshake's verification and every relay-switch probe
+    judge the echo the same way."""
+
+    def __init__(self) -> None:
+        self._bytes = bytearray()
+
+    def accept(self, frame: Frame) -> bool:
+        """True when the echo is complete and right; raises HandshakeError
+        naming what is wrong otherwise."""
+        import cbor2
+
+        if frame.frame_type == FrameType.CHUNK:
+            try:
+                value = cbor2.loads(frame.payload or b"")
+            except Exception as e:
+                raise HandshakeError(f"Failed to decode CBOR chunk: {e}") from e
+            if not isinstance(value, bytes):
+                raise HandshakeError(f"Expected bytes chunk, got {value!r}")
+            self._bytes.extend(value)
+            return False
+        if frame.frame_type == FrameType.END:
+            nonce = identity_nonce()
+            if bytes(self._bytes) != nonce:
+                raise HandshakeError(
+                    f"Identity verification failed: payload mismatch "
+                    f"(expected {len(nonce)} bytes, got {len(self._bytes)})"
+                )
+            return True
+        if frame.frame_type == FrameType.ERR:
+            code = frame.error_code()
+            if not code:
+                raise HandshakeError("ERR frame missing required text code")
+            msg = frame.error_message()
+            if not msg:
+                raise HandshakeError("ERR frame missing required text message")
+            raise HandshakeError(f"Identity verification failed: [{code}] {msg}")
+        if frame.frame_type in (
+            FrameType.STREAM_START,
+            FrameType.STREAM_END,
+            FrameType.LOG,
+            FrameType.CREDIT,
+            FrameType.HEARTBEAT,
+        ):
+            # Control/side-channel frames are legal ANYWHERE during the probe
+            # (12.4: LOG interleaves without affecting data flow; CREDIT and
+            # HEARTBEAT are the control plane the writer gate itself exempts,
+            # L4). A cartridge crediting its probe input as it consumes (L10)
+            # must not fail identity verification.
+            return False
+        raise HandshakeError(f"Identity verification: unexpected frame type {frame.frame_type}")
+
+
+def verify_identity(reader: FrameReader, writer: FrameWriter) -> None:
+    """Verify a peer's CAP_IDENTITY handler: send the identity probe
+    (``identity_probe_frames``) and judge its echo (``IdentityEcho``)."""
+    for frame in identity_probe_frames(MessageId.new_uuid(), MessageId(0)):
+        writer.write(frame)
+    echo = IdentityEcho()
     while True:
         frame = reader.read()
         if frame is None:
-            raise HandshakeError("identity verification failed: connection closed before response")
-
-        if frame.frame_type == FrameType.STREAM_START:
-            saw_stream_start = True
-            continue
-        if frame.frame_type == FrameType.CHUNK:
-            verify_chunk_checksum(frame)
-            # Decode CBOR wrapper to extract raw bytes
-            payload = frame.payload or b""
-            decoded = cbor2.loads(payload)
-            if isinstance(decoded, bytes):
-                echoed.extend(decoded)
-            else:
-                raise HandshakeError(
-                    f"identity verification failed: expected bytes chunk, got {type(decoded)}"
-                )
-            continue
-        if frame.frame_type == FrameType.STREAM_END:
-            saw_stream_end = True
-            continue
-        if frame.frame_type == FrameType.ERR:
-            raise HandshakeError(
-                f"identity verification failed: "
-                f"{frame.error_code() or 'ERR'} {frame.error_message() or ''}".strip()
-            )
-        if frame.frame_type == FrameType.END:
-            if not saw_stream_start or not saw_stream_end:
-                raise HandshakeError("identity verification failed: incomplete response stream")
-            if bytes(echoed) != nonce:
-                raise HandshakeError("identity verification failed: nonce mismatch")
+            raise HandshakeError("Connection closed during identity verification")
+        if echo.accept(frame):
             return
 
 

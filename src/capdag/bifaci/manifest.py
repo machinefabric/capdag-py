@@ -280,11 +280,10 @@ class CapManifest:
 
         Raises ValueError naming what is wrong.
         """
-        from capdag.urn.cap_urn import CapUrn
-        from capdag.standard.caps import CAP_IDENTITY
+        from capdag.standard.caps import CAP_IDENTITY, identity_urn
 
-        identity_urn = CapUrn.from_string(CAP_IDENTITY)
-        has_identity = any(identity_urn.conforms_to(cap.urn) for cap in self.all_caps())
+        identity = identity_urn()
+        has_identity = any(cap.urn.is_equivalent(identity) for cap in self.all_caps())
         if not has_identity:
             raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")
         self.validate_definitions()

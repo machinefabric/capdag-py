@@ -1761,7 +1761,7 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
     elsewhere — the engine reads ``installed_cartridges[*].cap_groups``
     and derives its own.
     """
-    from capdag.standard.caps import CAP_IDENTITY
+    from capdag.standard.caps import CAP_IDENTITY, identity_urn
 
     if not manifest:
         return []
@@ -1771,14 +1771,21 @@ def _parse_cap_groups_from_manifest(manifest: bytes) -> List[Any]:
     if not cap_groups:
         raise ValueError("Manifest missing required cap_groups array")
 
+    # The identity cap, by equivalence: every declared cap is parsed, and one
+    # that is no cap URN is an error naming it.
+    identity = identity_urn()
     has_identity = False
     for group in cap_groups:
         for cap in group.get("caps", []):
-            if cap.get("urn", "") == CAP_IDENTITY:
+            text = cap.get("urn")
+            if not isinstance(text, str):
+                raise ValueError(f"Manifest cap has no urn text: {cap!r}")
+            try:
+                parsed_cap = CapUrn.from_string(text)
+            except CapUrnError as e:
+                raise ValueError(f"Manifest cap '{text}' is no cap URN: {e}") from e
+            if parsed_cap.is_equivalent(identity):
                 has_identity = True
-                break
-        if has_identity:
-            break
 
     if not has_identity:
         raise ValueError(f"Manifest missing required CAP_IDENTITY ({CAP_IDENTITY})")

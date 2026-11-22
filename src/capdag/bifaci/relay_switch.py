@@ -39,7 +39,8 @@ from capdag.bifaci.frame import (
     Frame, FrameType, Limits, MessageId, compute_checksum, DropReason,
     DEFAULT_MAX_FRAME, DEFAULT_MAX_CHUNK, DEFAULT_MAX_REORDER_BUFFER,
 )
-from capdag.bifaci.io import FrameReader, FrameWriter, CborError, verify_identity, identity_nonce
+from capdag.bifaci.io import FrameReader, FrameWriter, CborError, HandshakeError, IdentityEcho, identity_probe_frames, verify_identity
+from capdag.bifaci.io import ProtocolError as FrameProtocolError
 from capdag.bifaci.request_state import (
     AdmissionController,
     AdmissionError,
@@ -506,11 +507,7 @@ class RelaySwitch:
             if frame is None or frame.frame_type != FrameType.RELAY_NOTIFY:
                 raise ProtocolError("Expected RelayNotify during handshake")
 
-            manifest = frame.relay_notify_manifest()
-            limits = frame.relay_notify_limits()
-
-            if manifest is None or limits is None:
-                raise ProtocolError("RelayNotify missing manifest or limits")
+            manifest, limits = _read_relay_notify(frame, master_idx)
 
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
@@ -666,10 +663,7 @@ class RelaySwitch:
             frame = reader.read()
             if frame is None or frame.frame_type != FrameType.RELAY_NOTIFY:
                 raise ProtocolError("Expected RelayNotify during handshake")
-            manifest = frame.relay_notify_manifest()
-            limits = frame.relay_notify_limits()
-            if manifest is None or limits is None:
-                raise ProtocolError("RelayNotify missing manifest or limits")
+            manifest, limits = _read_relay_notify(frame, master_idx)
             caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
             reader.set_limits(limits)
             writer.set_limits(limits)
@@ -829,50 +823,52 @@ class RelaySwitch:
                 # whose RelayNotify branch returns the frame through to the
                 # engine after updating internal state.
                 if frame.frame_type == FrameType.RELAY_NOTIFY:
-                    manifest = frame.relay_notify_manifest()
-                    limits = frame.relay_notify_limits()
-                    if manifest is not None and limits is not None:
-                        caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
-                        probe_required = False
-                        with self._lock:
-                            if 0 <= master_idx < len(self._masters):
-                                master = self._masters[master_idx]
-                                # Detect the empty → non-empty transition. The
-                                # initial RelayNotify (during connect) skipped
-                                # the identity probe when caps were empty; if
-                                # the host now advertises a real handler chain
-                                # we must probe it end-to-end before letting the
-                                # new caps become routable. The master is held
-                                # unhealthy until the probe driver confirms
-                                # identity.
-                                prior_caps_empty = len(master.caps) == 0
-                                probe_required = prior_caps_empty and len(caps) > 0
-                                master.manifest = manifest
-                                master.limits = limits
-                                master.caps = caps
-                                master.installed_cartridges = installed_cartridges
-                                # Refresh admission from the fresh inventory: a
-                                # cartridge that left it goes unavailable
-                                # (starting its grace window), one that returned
-                                # is configured again, releasing anything queued.
-                                self._configure_master_admission_locked(
-                                    master_idx, installed_cartridges
+                    # The manifest and the limits are both read before anything
+                    # is changed: a RelayNotify missing either, or with a limit
+                    # that is not a positive integer, raises, which ends the
+                    # master and leaves what it last said.
+                    manifest, limits = _read_relay_notify(frame, master_idx)
+                    caps, installed_cartridges, host_protocol_stats = _parse_relay_notify_payload(manifest)
+                    probe_required = False
+                    with self._lock:
+                        if 0 <= master_idx < len(self._masters):
+                            master = self._masters[master_idx]
+                            # Detect the empty → non-empty transition. The
+                            # initial RelayNotify (during connect) skipped
+                            # the identity probe when caps were empty; if
+                            # the host now advertises a real handler chain
+                            # we must probe it end-to-end before letting the
+                            # new caps become routable. The master is held
+                            # unhealthy until the probe driver confirms
+                            # identity.
+                            prior_caps_empty = len(master.caps) == 0
+                            probe_required = prior_caps_empty and len(caps) > 0
+                            master.manifest = manifest
+                            master.limits = limits
+                            master.caps = caps
+                            master.installed_cartridges = installed_cartridges
+                            # Refresh admission from the fresh inventory: a
+                            # cartridge that left it goes unavailable
+                            # (starting its grace window), one that returned
+                            # is configured again, releasing anything queued.
+                            self._configure_master_admission_locked(
+                                master_idx, installed_cartridges
+                            )
+                            master.host_protocol_stats = host_protocol_stats
+                            if probe_required:
+                                master.healthy = False
+                                master.last_error = (
+                                    "runtime identity probe pending — "
+                                    "caps held back from routing"
                                 )
-                                master.host_protocol_stats = host_protocol_stats
-                                if probe_required:
-                                    master.healthy = False
-                                    master.last_error = (
-                                        "runtime identity probe pending — "
-                                        "caps held back from routing"
-                                    )
-                                self._rebuild_cap_table()
-                                self._rebuild_installed_cartridges()
-                                self._rebuild_capabilities()
-                                self._rebuild_limits()
-                        if probe_required:
-                            # Hand off to the probe driver. The queue is
-                            # unbounded so this never blocks the reader.
-                            self._pending_identity_probes.put(master_idx)
+                            self._rebuild_cap_table()
+                            self._rebuild_installed_cartridges()
+                            self._rebuild_capabilities()
+                            self._rebuild_limits()
+                    if probe_required:
+                        # Hand off to the probe driver. The queue is
+                        # unbounded so this never blocks the reader.
+                        self._pending_identity_probes.put(master_idx)
                     # Pass through to engine for visibility.
                     self._frame_queue.put(MasterFrame(master_idx, frame, None))
                     continue
@@ -1315,7 +1311,7 @@ class RelaySwitch:
 
             if master_frame.error is not None:
                 # Error reading from master
-                self._handle_master_death(master_frame.master_idx)
+                self._handle_master_death(master_frame.master_idx, master_frame.error)
                 continue
 
             if master_frame.frame is None:
@@ -1364,7 +1360,7 @@ class RelaySwitch:
         while not self._pump_stop:
             master_frame = self._frame_queue.get()
             if master_frame.error is not None:
-                self._handle_master_death(master_frame.master_idx)
+                self._handle_master_death(master_frame.master_idx, master_frame.error)
                 continue
             if master_frame.frame is None:
                 self._handle_master_death(master_frame.master_idx)
@@ -1450,8 +1446,6 @@ class RelaySwitch:
 
         rid = MessageId.new_uuid()
         rid_key = rid.to_string()
-        nonce = identity_nonce()
-        stream_id = "identity-verify-runtime"
         resp_q: "queue.Queue[Frame]" = queue.Queue()
 
         # Register the response channel and snapshot the writer under the lock.
@@ -1463,16 +1457,6 @@ class RelaySwitch:
             writer = self._masters[master_idx].socket_writer
 
         try:
-            req = Frame.req(rid, CAP_IDENTITY, b"", "application/cbor")
-            req.routing_id = xid
-            ss = Frame.stream_start(rid, stream_id, "media:")
-            ss.routing_id = xid
-            chunk = Frame.chunk(rid, stream_id, 0, nonce, 0, compute_checksum(nonce))
-            chunk.routing_id = xid
-            se = Frame.stream_end(rid, stream_id, 1)
-            se.routing_id = xid
-            end = Frame.end(rid, None)
-            end.routing_id = xid
 
             # Serialize the writes under the lock so the five probe frames
             # cannot interleave with an engine ``send_to_master`` writing to
@@ -1480,14 +1464,14 @@ class RelaySwitch:
             # echo wait below.
             try:
                 with self._lock:
-                    for fr in (req, ss, chunk, se, end):
+                    for fr in identity_probe_frames(rid, xid):
                         writer.write(fr)
             except Exception as e:
                 return f"identity probe send failed: {e}"
 
-            # Drain the echo: STREAM_START → CHUNK(nonce) → STREAM_END → END.
+            # Drain the echo, judged as the handshake judges it.
             deadline = time.monotonic() + RUNTIME_PROBE_TIMEOUT
-            accumulated = bytearray()
+            echo = IdentityEcho()
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1502,38 +1486,11 @@ class RelaySwitch:
                         f"runtime identity probe timed out after "
                         f"{RUNTIME_PROBE_TIMEOUT}s"
                     )
-                if frame.frame_type == FrameType.STREAM_START:
-                    continue
-                if frame.frame_type == FrameType.CHUNK:
-                    if frame.payload is not None:
-                        accumulated.extend(frame.payload)
-                    continue
-                if frame.frame_type == FrameType.STREAM_END:
-                    continue
-                if frame.frame_type == FrameType.END:
-                    if bytes(accumulated) != nonce:
-                        return (
-                            f"identity probe payload mismatch "
-                            f"(expected {len(nonce)} bytes, got {len(accumulated)})"
-                        )
-                    return None
-                if frame.frame_type == FrameType.ERR:
-                    code = frame.error_code() or "UNKNOWN"
-                    msg = frame.error_message() or "no message"
-                    return f"identity probe failed: [{code}] {msg}"
-                if frame.frame_type in (
-                    FrameType.LOG,
-                    FrameType.CREDIT,
-                    FrameType.HEARTBEAT,
-                ):
-                    # Control/side-channel frames are legal ANYWHERE during
-                    # the probe (spec 12.4: LOG interleaves without affecting
-                    # data flow; CREDIT/HEARTBEAT are the control plane the
-                    # writer gate itself exempts, L4). A v4 cartridge
-                    # crediting its probe input as it consumes (L10) must
-                    # not fail identity verification.
-                    continue
-                return f"identity probe: unexpected frame type {frame.frame_type}"
+                try:
+                    if echo.accept(frame):
+                        return None
+                except HandshakeError as e:
+                    return str(e)
         finally:
             with self._lock:
                 self._external_response_channels.pop(rid_key, None)
@@ -1786,9 +1743,14 @@ class RelaySwitch:
                 # Unknown frame type - return to engine
                 return frame
 
-    def _handle_master_death(self, master_idx: int):
-        """Handle master death: ERR pending requests, mark unhealthy, rebuild caps"""
+    def _handle_master_death(self, master_idx: int, error: Optional[BaseException] = None):
+        """Handle master death: ERR pending requests, mark unhealthy, rebuild caps.
+        A death caused by an error reading the master (a RelayNotify that
+        breaks the protocol, among others) records that error as the
+        master's ``last_error``, naming what was wrong."""
         with self._lock:
+            if error is not None:
+                self._masters[master_idx].last_error = str(error)
             # The slot is DETACHED from here on, whatever the health flag
             # said: the connection is declared dead, so the slot is
             # reattachable to ``add_master`` / ``slot_accepts_attach``.
@@ -2195,6 +2157,16 @@ def _admission_chain(
         )
         for name in names
     ]
+
+
+def _read_relay_notify(frame: Frame, master_idx: int) -> Tuple[bytes, Limits]:
+    """A RelayNotify's manifest and limits, read strictly: one missing or
+    malformed is this switch's protocol error, naming the master and the
+    field (12.2)."""
+    try:
+        return frame.relay_notify_manifest(), frame.relay_notify_limits()
+    except FrameProtocolError as e:
+        raise ProtocolError(f"master {master_idx}: {e}") from e
 
 
 def _parse_relay_notify_payload(

@@ -50,7 +50,7 @@ input stream(s) and let it drain; it is not a cancel.
 
 import uuid as uuid_module
 from typing import Optional, Dict, Any
-from enum import Enum, IntEnum
+from enum import Enum
 from dataclasses import dataclass
 
 
@@ -69,40 +69,60 @@ DEFAULT_MAX_FRAME = 3_670_016
 DEFAULT_MAX_CHUNK = 262_144
 
 
-class FrameType(IntEnum):
-    """Frame type discriminator"""
-    HELLO = 0  # Handshake frame for negotiating limits
-    REQ = 1  # Request to invoke a cap
-    # RES (2) removed in Protocol v2 — use STREAM_START/CHUNK/STREAM_END/END
-    CHUNK = 3  # Streaming data chunk
-    END = 4  # Stream complete marker
-    LOG = 5  # Log/progress message
-    ERR = 6  # Error message
-    HEARTBEAT = 7  # Health monitoring ping/pong
-    STREAM_START = 8  # Announce new stream for request (multiplexed streaming)
-    STREAM_END = 9  # End a specific stream (multiplexed streaming)
-    RELAY_NOTIFY = 10  # Relay capability advertisement (slave → master)
-    RELAY_STATE = 11   # Relay host system resources + cap demands (master → slave)
-    CANCEL = 12        # Cancel a specific in-flight request by RID
-    CREDIT = 13        # Grant per-stream flow-control credit, in CHUNK units (protocol v4).
-    CLOSE_STREAM = 14  # Close a request's live input stream(s) — the tap-off; not a cancel.
-                       # Non-flow: bypasses seq assignment and reorder buffers, and is
-                       # forwarded end-to-end by intermediaries (never originated or absorbed).
-    POLICY = 15        # What the host allows its cartridges to do now (12.2 §Policy): host →
+def _positive_limit(meta: dict, key: str) -> int:
+    """One limit of a RelayNotify: present, an integer, greater than zero;
+    anything else raises ProtocolError naming the key."""
+    from capdag.bifaci.io import ProtocolError
+
+    if key not in meta:
+        raise ProtocolError(f"RelayNotify limits: '{key}' is missing")
+    value = meta[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ProtocolError(f"RelayNotify limits: '{key}' is {value!r}, not a positive integer")
+    return value
+
+
+class FrameType(Enum):
+    """Frame type discriminator. A member's value is its name, an identity,
+    not a wire number: the wire number is the proved model's (``code`` and
+    ``from_code``)."""
+    HELLO = "HELLO"  # Handshake frame for negotiating limits
+    REQ = "REQ"  # Request to invoke a cap
+    CHUNK = "CHUNK"  # Streaming data chunk
+    END = "END"  # Stream complete marker
+    LOG = "LOG"  # Log/progress message
+    ERR = "ERR"  # Error message
+    HEARTBEAT = "HEARTBEAT"  # Health monitoring ping/pong
+    STREAM_START = "STREAM_START"  # Announce new stream for request (multiplexed streaming)
+    STREAM_END = "STREAM_END"  # End a specific stream (multiplexed streaming)
+    RELAY_NOTIFY = "RELAY_NOTIFY"  # Relay capability advertisement (slave → master)
+    RELAY_STATE = "RELAY_STATE"  # Relay host system resources + cap demands (master → slave)
+    CANCEL = "CANCEL"  # Cancel a specific in-flight request by RID
+    CREDIT = "CREDIT"  # Grant per-stream flow-control credit, in CHUNK units.
+    CLOSE_STREAM = "CLOSE_STREAM"  # Close a request's live input stream(s) — the tap-off; not a cancel.
+                                   # Non-flow: bypasses seq assignment and reorder buffers, and is
+                                   # forwarded end-to-end by intermediaries (never originated or absorbed).
+    POLICY = "POLICY"  # What the host allows its cartridges to do now (12.2 §Policy): host →
                        # cartridge only, after the handshake and on every change. Non-flow, id 0.
 
     @classmethod
-    def from_u8(cls, v: int) -> Optional["FrameType"]:
-        """Convert u8 to FrameType, returns None if invalid"""
-        try:
-            return cls(v)
-        except ValueError:
+    def from_code(cls, code: int) -> Optional["FrameType"]:
+        """The frame type a wire number names, by the model's
+        ``FrameType.ofCode``; None for a number that names none."""
+        from capdag import _formal
+
+        named = _formal.of_code(code)
+        if named is None:
             return None
+        return _frame_types_of_model()[type(named)]
+
+    def code(self) -> int:
+        """This frame type's wire number, by the model's ``FrameType.code``."""
+        return _frame_facts()[self][2]
 
     def model(self):
         """The proved model's frame type for this one (``capdag._formal``,
-        generated from ``formal/CapDAG/Bifaci``). The mapping is by hand; that
-        each type is the one the model means by its wire number is TEST12375."""
+        generated from ``formal/CapDAG/Bifaci``)."""
         return _model_frame_types()[self]
 
     def is_flow(self) -> bool:
@@ -148,6 +168,7 @@ class FrameType(IntEnum):
 
 _MODEL_FRAME_TYPES: Optional[dict] = None
 _FRAME_FACTS: Optional[dict] = None
+_FRAME_TYPES_OF_MODEL: Optional[dict] = None
 
 
 def _model_frame_types() -> dict:
@@ -175,15 +196,26 @@ def _model_frame_types() -> dict:
     return _MODEL_FRAME_TYPES
 
 
+def _frame_types_of_model() -> dict:
+    """The runtime frame type of each of the model's, the exact inverse of
+    ``FrameType.model``."""
+    global _FRAME_TYPES_OF_MODEL
+    if _FRAME_TYPES_OF_MODEL is None:
+        _FRAME_TYPES_OF_MODEL = {
+            type(model): frame_type for frame_type, model in _model_frame_types().items()
+        }
+    return _FRAME_TYPES_OF_MODEL
+
+
 def _frame_facts() -> dict:
-    """What the model says of each frame type — (flow, terminal) — asked once:
-    it is asked of every frame that moves."""
+    """What the model says of each frame type — (flow, terminal, wire number) —
+    asked once: it is asked of every frame that moves."""
     global _FRAME_FACTS
     if _FRAME_FACTS is None:
         from capdag import _formal
 
         _FRAME_FACTS = {
-            frame_type: (_formal.is_flow(model), _formal.is_terminal(model))
+            frame_type: (_formal.is_flow(model), _formal.is_terminal(model), _formal.code(model))
             for frame_type, model in _model_frame_types().items()
         }
     return _FRAME_FACTS
@@ -1110,43 +1142,40 @@ class Frame:
             return None
         return CreditDirection.from_str_name(raw)
 
-    def relay_notify_manifest(self) -> Optional[bytes]:
-        """Extract manifest from RelayNotify metadata.
-        Returns None if not a RelayNotify frame or no manifest present."""
-        if self.frame_type != FrameType.RELAY_NOTIFY:
-            return None
-        if self.meta is None:
-            return None
-        manifest = self.meta.get("manifest")
-        if isinstance(manifest, bytes):
-            return manifest
-        return None
+    def relay_notify_manifest(self) -> bytes:
+        """The manifest a RelayNotify carries. Every RelayNotify carries one: a
+        frame of another type, a RelayNotify with no meta, no manifest, or a
+        manifest that is not a byte string, raises ProtocolError naming it."""
+        from capdag.bifaci.io import ProtocolError
 
-    def relay_notify_limits(self) -> Optional["Limits"]:
-        """Extract limits from RelayNotify metadata.
-        Returns None if not a RelayNotify frame or limits are missing."""
-        if self.frame_type != FrameType.RELAY_NOTIFY:
-            return None
-        if self.meta is None:
-            return None
-        max_frame = self.meta.get("max_frame")
-        max_chunk = self.meta.get("max_chunk")
-        if not isinstance(max_frame, int) or not isinstance(max_chunk, int):
-            return None
-        if max_frame <= 0 or max_chunk <= 0:
-            return None
-        max_reorder_buffer = self.meta.get("max_reorder_buffer")
-        if not isinstance(max_reorder_buffer, int) or max_reorder_buffer <= 0:
-            max_reorder_buffer = DEFAULT_MAX_REORDER_BUFFER
-        initial_credit = self.meta.get("initial_credit")
-        if not isinstance(initial_credit, int) or initial_credit <= 0:
-            initial_credit = DEFAULT_INITIAL_CREDIT
+        meta = self._relay_notify_meta()
+        if "manifest" not in meta:
+            raise ProtocolError("RelayNotify carries no manifest")
+        manifest = meta["manifest"]
+        if not isinstance(manifest, bytes):
+            raise ProtocolError("RelayNotify manifest is not a byte string")
+        return manifest
+
+    def relay_notify_limits(self) -> "Limits":
+        """The four limits a RelayNotify carries. Every RelayNotify carries all
+        four, each a positive integer: one missing, or one that is not a
+        positive integer, raises ProtocolError naming the key."""
+        meta = self._relay_notify_meta()
         return Limits(
-            max_frame=max_frame,
-            max_chunk=max_chunk,
-            max_reorder_buffer=max_reorder_buffer,
-            initial_credit=initial_credit,
+            max_frame=_positive_limit(meta, "max_frame"),
+            max_chunk=_positive_limit(meta, "max_chunk"),
+            max_reorder_buffer=_positive_limit(meta, "max_reorder_buffer"),
+            initial_credit=_positive_limit(meta, "initial_credit"),
         )
+
+    def _relay_notify_meta(self) -> dict:
+        from capdag.bifaci.io import ProtocolError
+
+        if self.frame_type != FrameType.RELAY_NOTIFY:
+            raise ProtocolError(f"a RelayNotify field read from a {self.frame_type.name} frame")
+        if self.meta is None:
+            raise ProtocolError("RelayNotify carries no meta")
+        return self.meta
 
     def is_eof(self) -> bool:
         """Check if this is the final frame in a stream"""

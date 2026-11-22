@@ -107,18 +107,18 @@ class _Wire:
 # TEST12375: every frame type is the type the model means by its number, part
 # of a flow exactly when the model says, and an end exactly when the model
 # says. The runtime's own FrameType is mapped onto the model's by hand; a type
-# mapped to the wrong one would be numbered, ordered and gated as another.
+# mapped to the wrong one would be ordered and gated as another.
 def test_12375_frame_types_are_the_models():
     rows = _rows("frame_types")
     assert len(rows) == len(FrameType), "the model and the runtime name the same types"
     wrong = []
     for row in rows:
-        frame_type = FrameType.from_u8(row["code"])
+        frame_type = FrameType.from_code(row["code"])
         if frame_type is None:
             wrong.append(f"wire number {row['code']} names no frame type here")
             continue
-        if _formal.code(frame_type.model()) != row["code"]:
-            wrong.append(f"{frame_type!r} is mapped to the model's type {_formal.code(frame_type.model())}")
+        if frame_type.code() != row["code"]:
+            wrong.append(f"{frame_type!r} ({row['code']}) is numbered {frame_type.code()}")
         if frame_type.is_flow() != row["flow"]:
             wrong.append(f"{frame_type!r}: flow is {frame_type.is_flow()}")
         if frame_type.is_terminal() != row["terminal"]:
@@ -303,7 +303,7 @@ def test_12381_the_writer_gate_follows_the_model():
         wire = _Wire()
         writer = SyncFrameWriter(wire)
         written = [
-            writer.write(_frame_of(FrameType(code), rid)) == GatedWrite.WRITTEN
+            writer.write(_frame_of(FrameType.from_code(code), rid)) == GatedWrite.WRITTEN
             for code in script["frames"]
         ]
         if written != script["written"]:
@@ -376,7 +376,7 @@ def test_12382_request_table_follows_the_model():
     # does: one less for a chunk, more by a grant, and by nothing else.
     for row in _rows("ledger"):
         rid = MessageId(9)
-        frame_type = FrameType(row["frame"])
+        frame_type = FrameType.from_code(row["frame"])
         if frame_type == FrameType.CREDIT:
             frame = Frame.credit(rid, "s", row["granted"], CreditDirection.RESPONSE)
         else:
