@@ -1,7 +1,7 @@
 """Questions about caps: a side left unknown, and the tags a cap has."""
 
 from capdag import CapQuery, CapUrn, MatchGrade, MediaUrn
-from tagged_urn import ConstraintAbsent, ConstraintPresent
+from tagged_urn import absent, present
 
 
 def _pages() -> CapUrn:
@@ -82,11 +82,11 @@ def test_12368_a_question_may_leave_a_side_unknown():
 def test_12369_a_querys_tags_are_asked_of_the_tags_a_cap_has():
     any_image = MediaUrn.from_string("media:image")
 
-    converters = CapQuery.producing(any_image, {"convert-image": ConstraintPresent()})
+    converters = CapQuery.producing(any_image, {"convert-image": present()})
     assert converters.admits(_to_jpeg())
     assert not converters.admits(_some_image()), "it renders; it is not tagged convert-image"
 
-    not_converters = CapQuery.producing(any_image, {"convert-image": ConstraintAbsent()})
+    not_converters = CapQuery.producing(any_image, {"convert-image": absent()})
     assert not_converters.admits(_some_image()), "it does not have the tag"
     assert not not_converters.admits(_to_jpeg()), "it has it"
     assert not_converters.grade(_to_jpeg()) is MatchGrade.NONE

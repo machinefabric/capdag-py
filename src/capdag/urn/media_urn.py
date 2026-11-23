@@ -16,7 +16,9 @@ matching use standard tagged URN semantics.
 """
 
 from typing import List, Optional
-from tagged_urn import Constraint, ConstraintExact, TaggedUrn, TaggedUrnBuilder, TaggedUrnError
+from tagged_urn import Constraint, TaggedUrn, TaggedUrnBuilder, TaggedUrnError, exact_value
+
+from capdag import _formal
 
 
 # =============================================================================
@@ -357,8 +359,7 @@ class MediaUrn:
     def exact_value(self, key: str) -> Optional[str]:
         """The exact value this media writes for ``key`` (``key=value``); None
         when it does not mention the key or constrains it in another form."""
-        c = self._urn.get_tag(key)
-        return c.value if isinstance(c, ConstraintExact) else None
+        return exact_value(self._urn.get_tag(key))
 
     def has_tag(self, key: str, value: str) -> bool:
         """Whether this media writes the exact value ``value`` for ``key``."""
@@ -397,11 +398,10 @@ class MediaUrn:
         where branches of different media converge.
 
         Made by tagged-urn's proved model (``TaggedUrn.least_upper_bound``):
-        key by key, the bound allows every state some input allows, and where
-        no single form says exactly that, it is the least bound that excludes
-        only values the inputs name.
+        key by key, the bound allows exactly the states some input allows, and
+        a key some input allows every state of is left out.
 
-        - [media:document;ext=pdf, media:ext=png;image] -> media:ext
+        - [media:document;ext=pdf, media:ext=png;image] -> media:ext=pdf|png
         - [media:ext=png, media:ext!=pdf] -> media:ext!=pdf (one holds the other)
         - [media:enc=utf8;fmt=json;list, media:enc=utf8;fmt=json] -> media:enc=utf8;fmt=json
         - no inputs -> media:
@@ -409,6 +409,33 @@ class MediaUrn:
         from tagged_urn import TaggedUrn
 
         return MediaUrn(TaggedUrn.least_upper_bound("media", [u._urn for u in urns]))
+
+    def splits(self) -> "List[MediaUrn]":
+        """The shapes this media type may have: at every key it writes,
+        absence apart from presence, and each value of a finite set apart from
+        the others; a key allowing every value but some stays whole. Read
+        complete, the parts hold exactly what this type holds.
+
+        - media:enc=utf8;fmt=json;?list -> media:enc=utf8;fmt=json;!list, media:enc=utf8;fmt=json;list
+        - media:ext=jpeg|png;image -> media:ext=jpeg;image, media:ext=png;image
+        """
+        return [MediaUrn._from_formal(part) for part in _formal.splits(self._urn.formal)]
+
+    def ends_on(self, bookends: "List[MediaUrn]") -> "Optional[List[MediaUrn]]":
+        """The bookends a node of this type ends on: for each of its parts
+        (:meth:`splits`), the first of ``bookends`` that is the same as the part
+        read complete; None when some part is none of them. A route reaching a
+        node that ends on bookends may give a file of any of them."""
+        ends = _formal.ends_on([b._urn.formal for b in bookends], self._urn.formal)
+        if ends is None:
+            return None
+        return [MediaUrn._from_formal(end) for end in ends]
+
+    @staticmethod
+    def _from_formal(formal) -> "MediaUrn":
+        """A media URN the generated model gave back for media URNs it was
+        handed."""
+        return MediaUrn(TaggedUrn.from_formal(formal))
 
     def tags_to_string(self) -> str:
         """Serialize just the tags portion (without "media:" prefix)

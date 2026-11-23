@@ -25,6 +25,18 @@ def _media(urn_str: str) -> MediaUrn:
     return MediaUrn.from_string(urn_str)
 
 
+def _all_bookends(caps) -> set:
+    """Bookend set that treats every URN appearing in the supplied caps (in or
+    out direction) as bookend-eligible. Tests use this when they want graph
+    reachability without an extra "filter to file formats" constraint — the
+    planner's bookend filter is exercised elsewhere (TEST7229)."""
+    bookends = set()
+    for cap in caps:
+        bookends.add(_media(cap.urn.in_spec()))
+        bookends.add(_media(cap.urn.out_spec()))
+    return bookends
+
+
 def _make_test_cap(
     in_spec: str,
     out_spec: str,
@@ -81,8 +93,11 @@ def test_773_find_paths_returns_empty_when_no_path():
 # TEST774: Tests get_reachable_targets() returns all reachable targets Verifies that reachable targets include direct cap targets and cardinality variants (list versions via Collect)
 def test_774_get_reachable_targets_finds_all_targets():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:a", "media:b", "step1", "A to B"))
-    graph.add_cap(_make_test_cap("media:a", "media:d", "step3", "A to D"))
+    cap1 = _make_test_cap("media:a", "media:b", "step1", "A to B")
+    cap2 = _make_test_cap("media:a", "media:d", "step3", "A to D")
+    graph.add_cap(cap1)
+    graph.add_cap(cap2)
+    graph.set_bookends(_all_bookends([cap1, cap2]))
 
     targets = graph.get_reachable_targets(_media("media:a"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:b")) for t in targets)
@@ -124,8 +139,11 @@ def test_778_type_mismatch_png_cap_does_not_match_pdf_input():
 # TEST779: Tests get_reachable_targets() only returns targets reachable via type-compatible caps Verifies that PNG and PDF inputs reach different cap targets (not each other's)
 def test_779_get_reachable_targets_respects_type_matching():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:enc=utf8", "pdf2text", "PDF to Text"))
-    graph.add_cap(_make_test_cap("media:ext=png;image", "media:thumbnail", "png2thumb", "PNG to Thumbnail"))
+    pdf_to_text = _make_test_cap("media:document;ext=pdf", "media:enc=utf8", "pdf2text", "PDF to Text")
+    png_to_thumb = _make_test_cap("media:ext=png;image", "media:thumbnail", "png2thumb", "PNG to Thumbnail")
+    graph.add_cap(pdf_to_text)
+    graph.add_cap(png_to_thumb)
+    graph.set_bookends(_all_bookends([pdf_to_text, png_to_thumb]))
 
     png_targets = graph.get_reachable_targets(_media("media:ext=png;image"), False, 5)
     assert any(t.media_def.is_equivalent(_media("media:thumbnail")) for t in png_targets)
@@ -224,17 +242,17 @@ def test_7272_equal_paths_are_ordered_structurally_not_by_text():
 # TEST788: ForEach is only synthesized when is_sequence=true
 def test_788_foreach_only_with_sequence_input():
     graph = LiveCapFab()
-    graph.sync_from_caps(
-        [
-            _make_test_cap("media:document;ext=pdf", "media:enc=utf8;page", "disbind", "Disbind PDF"),
-            _make_test_cap(
-                "media:enc=utf8",
-                "media:decision;enc=utf8;fmt=json;record",
-                "choose",
-                "Make a Decision",
-            ),
-        ]
-    )
+    caps = [
+        _make_test_cap("media:document;ext=pdf", "media:enc=utf8;page", "disbind", "Disbind PDF"),
+        _make_test_cap(
+            "media:enc=utf8",
+            "media:decision;enc=utf8;fmt=json;record",
+            "choose",
+            "Make a Decision",
+        ),
+    ]
+    graph.sync_from_caps(caps, _all_bookends(caps))
+    assert graph.stats()[1] == 2, "Graph should contain exactly 2 Cap edges"
 
     source = _media("media:document;ext=pdf")
     target = _media("media:decision;enc=utf8;fmt=json;record")
@@ -351,8 +369,12 @@ async def test_791_sync_from_cap_urns_adds_edges():
     )
     registry.add_caps_to_cache([disbind, choose])
 
+    # The bookend set treats every URN appearing in either cap as eligible —
+    # this is a registry-graph sync test, not a bookend-filter test.
     graph = LiveCapFab()
-    await graph.sync_from_cap_urns([str(disbind.urn), str(choose.urn)], registry)
+    await graph.sync_from_cap_urns(
+        [str(disbind.urn), str(choose.urn)], registry, _all_bookends([disbind, choose])
+    )
 
     node_count, edge_count = graph.stats()
     assert edge_count == 2
@@ -362,22 +384,21 @@ async def test_791_sync_from_cap_urns_adds_edges():
 # TEST1289: BFS reachable targets includes the source itself when round-trip paths exist. A→B and B→A means A is reachable from A (via A→B→A).
 def test_1289_bfs_reachable_includes_source_roundtrip():
     graph = LiveCapFab()
-    graph.add_cap(
-        _make_test_cap(
-            "media:enc=utf8",
-            "media:integer;numeric",
-            "coerce-to-int",
-            "Coerce to Integer",
-        )
+    cap1 = _make_test_cap(
+        "media:enc=utf8",
+        "media:integer;numeric",
+        "coerce-to-int",
+        "Coerce to Integer",
     )
-    graph.add_cap(
-        _make_test_cap(
-            "media:integer;numeric",
-            "media:enc=utf8",
-            "coerce-to-text",
-            "Coerce to Text",
-        )
+    graph.add_cap(cap1)
+    cap2 = _make_test_cap(
+        "media:integer;numeric",
+        "media:enc=utf8",
+        "coerce-to-text",
+        "Coerce to Text",
     )
+    graph.add_cap(cap2)
+    graph.set_bookends(_all_bookends([cap1, cap2]))
 
     source = _media("media:enc=utf8")
     targets = graph.get_reachable_targets(source, False, 5)
@@ -442,6 +463,10 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
     graph.add_cap(_make_test_cap("media:a", "media:b", "a-to-b", "A to B"))
     graph.add_cap(_make_test_cap("media:b", "media:c", "b-to-c", "B to C"))
     graph.add_cap(_make_test_cap("media:c", "media:a", "c-to-a", "C to A"))
+    # The test declares A, B and C bookends so they are valid transmute
+    # sources/targets: get_reachable_targets gives bookends only (production
+    # wiring takes them from the live media registry).
+    graph.set_bookends({_media("media:a"), _media("media:b"), _media("media:c")})
 
     source = _media("media:a")
     bfs_targets = graph.get_reachable_targets(source, False, 5)
@@ -451,6 +476,50 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
     assert paths
     shortest = min(paths, key=lambda p: p.total_steps)
     assert shortest.total_steps == 3
+
+
+# TEST7229: a node that may have several shapes ends on the bookends its
+# shapes are, read complete. A save that gives JSON which may or may not be a
+# list and may or may not be a record ends on the four JSON file types: each is
+# a target of a route through it, and a search for one of them finds the
+# route. A node one of whose shapes is no file type ends on none, and no search
+# ends at it.
+def test_7229_a_node_of_several_shapes_ends_on_each_bookend_it_may_be():
+    saved = "media:enc=utf8;ext=json;fmt=json;?list;?record"
+    file_types = [
+        "media:enc=utf8;ext=json;fmt=json",
+        "media:enc=utf8;ext=json;fmt=json;list",
+        "media:enc=utf8;ext=json;fmt=json;record",
+        "media:enc=utf8;ext=json;fmt=json;list;record",
+    ]
+    graph = LiveCapFab()
+    graph.add_cap(_make_test_cap("media:enc=utf8;fmt=json;!ext", saved, "save-as-json", "Save as JSON"))
+    source = _media("media:enc=utf8;fmt=json;list;record")
+    record_file = _media("media:enc=utf8;ext=json;fmt=json;record")
+
+    graph.set_bookends({_media(f) for f in file_types})
+    files = sorted((_media(f) for f in file_types), key=MediaUrn.ordering_key)
+    assert graph.is_bookend(_media(saved))
+    assert graph.ends_on(_media(saved)) == files, "one bookend for each shape"
+
+    reached = graph.get_reachable_targets(source, False, 3)
+    for target in reached:
+        assert target.min_path_length == 1, f"{target.media_def} is one save away"
+    targets = sorted((t.media_def for t in reached), key=MediaUrn.ordering_key)
+    assert targets == files, "every file type the save may give is a target"
+
+    paths = graph.find_paths_to_exact_target(source, record_file, False, 3, 10)
+    assert len(paths) == 1, "the route through the save"
+    assert paths[0].cap_step_count == 1
+    assert paths[0].target_media_urn.is_equivalent(record_file)
+
+    # Without a file type for JSON that is neither a list nor a record, one of
+    # the save's shapes is no file: the node ends on nothing.
+    graph.set_bookends({_media(f) for f in file_types[1:]})
+    assert not graph.is_bookend(_media(saved))
+    assert graph.ends_on(_media(saved)) == []
+    assert graph.get_reachable_targets(source, False, 3) == []
+    assert graph.find_paths_to_exact_target(source, record_file, False, 3, 10) == []
 
 
 # TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded.
@@ -470,7 +539,9 @@ def test_1293_roundtrip_requires_cap_steps():
 # TEST1150: Adding one cap creates one edge and makes its output reachable in one step.
 def test_1150_add_cap_and_basic_traversal():
     graph = LiveCapFab()
-    graph.add_cap(_make_test_cap("media:document;ext=pdf", "media:digitized", "extract-text", "Extract Text"))
+    cap = _make_test_cap("media:document;ext=pdf", "media:digitized", "extract-text", "Extract Text")
+    graph.add_cap(cap)
+    graph.set_bookends(_all_bookends([cap]))
 
     assert len(graph._edges) == 1
     assert len(graph._nodes) == 2
@@ -492,14 +563,14 @@ def test_1150_add_cap_and_basic_traversal():
 # type it may be a list; a JSON list does not.
 def test_7216_a_source_takes_an_edge_it_satisfies():
     graph = LiveCapFab()
-    graph.add_cap(
-        _make_test_cap(
-            "media:enc=utf8;fmt=json;record;!list",
-            "media:enc=utf8;fmt=yaml;record",
-            "record-to-yaml",
-            "Record To YAML",
-        )
+    cap = _make_test_cap(
+        "media:enc=utf8;fmt=json;record;!list",
+        "media:enc=utf8;fmt=yaml;record",
+        "record-to-yaml",
+        "Record To YAML",
     )
+    graph.add_cap(cap)
+    graph.set_bookends(_all_bookends([cap]))
     yaml = _media("media:enc=utf8;fmt=yaml;record")
     record = _media("media:enc=utf8;ext=json;fmt=json;record")
     assert not record.conforms_to(_media("media:enc=utf8;fmt=json;record;!list")), "as a type the file may be a list"
@@ -616,13 +687,13 @@ def test_1154_sync_from_caps():
         _make_test_cap("media:document;ext=pdf", "media:digitized", "op1", "Op1"),
         _make_test_cap("media:digitized", "media:summary-text", "op2", "Op2"),
     ]
-    graph.sync_from_caps(caps)
+    graph.sync_from_caps(caps, _all_bookends(caps))
 
     assert len(graph._edges) == 2
     assert len(graph._nodes) == 3
 
     new_caps = [_make_test_cap("media:image", "media:digitized", "ocr", "OCR")]
-    graph.sync_from_caps(new_caps)
+    graph.sync_from_caps(new_caps, _all_bookends(new_caps))
 
     assert len(graph._edges) == 1
     assert len(graph._nodes) == 2
@@ -643,7 +714,7 @@ def test_1111_foreach_for_user_provided_list_source():
         "make-decision",
         "Make Decision",
     )
-    graph.sync_from_caps([make_decision])
+    graph.sync_from_caps([make_decision], _all_bookends([make_decision]))
 
     # Source is a user-provided list that no cap outputs
     source = _media("media:enc=utf8;ext=txt;list;plain-text")
@@ -687,7 +758,7 @@ def test_1112_no_collect_in_path_finding():
         "summarize",
         "Summarize",
     )
-    graph.sync_from_caps([summarize])
+    graph.sync_from_caps([summarize], _all_bookends([summarize]))
 
     source = _media("media:enc=utf8")
     # enc=utf8;list;summary is a different semantic type — can't reach it
@@ -710,7 +781,7 @@ def test_1113_multi_cap_path_no_collect():
         "summarize",
         "Summarize Page",
     )
-    graph.sync_from_caps([disbind, summarize])
+    graph.sync_from_caps([disbind, summarize], _all_bookends([disbind, summarize]))
 
     # Scalar path: pdf → disbind → enc=utf8;page → summarize → enc=utf8;summary
     source = _media("media:document;ext=pdf")
@@ -741,7 +812,7 @@ def test_1114_graph_stores_only_cap_edges():
         ),
     ]
 
-    graph.sync_from_caps(caps)
+    graph.sync_from_caps(caps, _all_bookends(caps))
 
     # All stored edges must be Cap edges
     assert len(graph._edges) == 3, "Should have exactly 3 Cap edges"
@@ -763,7 +834,7 @@ def test_1115_dynamic_foreach_with_is_sequence():
         "summarize",
         "Summarize",
     )
-    graph.sync_from_caps([cap])
+    graph.sync_from_caps([cap], _all_bookends([cap]))
 
     source = _media("media:enc=utf8")
     edges = graph._get_outgoing_edges(source, True)
@@ -814,7 +885,7 @@ def test_1117_no_foreach_when_not_sequence():
         "summarize",
         "Summarize",
     )
-    graph.sync_from_caps([cap])
+    graph.sync_from_caps([cap], _all_bookends([cap]))
 
     source = _media("media:enc=utf8")
     edges = graph._get_outgoing_edges(source, False)
@@ -960,6 +1031,7 @@ def test_12847_a_caps_other_outputs_are_reachable_by_planning():
     graph = LiveCapFab()
     graph.add_cap(split)
     graph.add_cap(count)
+    graph.set_bookends(_all_bookends([split, count]))
     assert graph.stats()[1] == 4, "split: head, rest, parts; count: one"
 
     text = _media("media:enc=utf8;ext=txt;plain-text")
@@ -1031,6 +1103,7 @@ def test_12877_a_sink_is_never_a_step_of_a_path():
     graph.add_cap(discard)
     graph.add_cap(render)
     graph.add_cap(thumbnail)
+    graph.set_bookends(_all_bookends([render, thumbnail]))
     assert graph.stats()[1] == 2, "the sink adds no edge"
 
     paths = graph.find_paths_to_exact_target(

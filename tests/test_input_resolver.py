@@ -31,7 +31,7 @@ from capdag.input_resolver.value_adapter import ValueAdapter, ValueAdapterError
 from capdag.input_resolver.value_adapter_registry import ValueAdapterRegistry
 from capdag.media.registry import FabricRegistry
 from capdag.urn.media_urn import MediaUrn
-from tagged_urn import ConstraintPresent
+from tagged_urn import present
 
 
 # TEST1000: Single existing file
@@ -332,7 +332,7 @@ def _media(text: str) -> MediaUrn:
 
 
 def _with_marker(base: str, marker: str) -> str:
-    return str(_media(base).with_tag(marker, ConstraintPresent()))
+    return str(_media(base).with_tag(marker, present()))
 
 
 class _SpecialAdapter(ValueAdapter):
