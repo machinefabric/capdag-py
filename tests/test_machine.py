@@ -1113,6 +1113,60 @@ def test_7217_a_given_node_binds_by_satisfaction_at_a_negative_distance():
         resolve_pre_interned([record, yaml], [_wiring(_cap_urn(to_yaml), [0], 1)], reg, 0)
 
 
+# JSON to YAML as the fabric publishes it: a patch that keeps the shape it is
+# given and gives content, not a file.
+_JSON_TO_YAML = (
+    'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;!ext;fmt=yaml"'
+)
+
+
+# TEST7244: a machine read back from its text types a patch step's nodes by
+# what the step gives: JSON to YAML then a save that takes a YAML list of
+# records types the node between them a YAML list of records, content and no
+# file, and the input of the machine a JSON list of records.
+def test_7244_a_patch_steps_nodes_are_typed_by_what_it_gives_when_read_back():
+    save = 'cap:in="media:enc=utf8;fmt=yaml;list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;list;record";save-as-yaml'
+    reg = _registry_with([
+        _simple_cap(_JSON_TO_YAML, "media:enc=utf8;fmt=json", "media:enc=utf8;!ext;fmt=yaml"),
+        _simple_cap(save, "media:enc=utf8;fmt=yaml;list;record;!ext", "media:enc=utf8;ext=yaml;fmt=yaml;list;record"),
+    ])
+    text = f"[to_yaml {_JSON_TO_YAML}][save {save}][json -> to_yaml -> yaml][yaml -> save -> file]"
+    strand = parse_machine(text, reg).strands()[0]
+    inputs = strand.input_anchors()
+    assert len(inputs) == 1
+    assert inputs[0].is_equivalent(_media("media:enc=utf8;fmt=json;list;record")), f"the input is {inputs[0]}"
+    to_yaml = next(edge for edge in strand.edges() if edge.cap_urn.is_equivalent(_cap_urn(_JSON_TO_YAML)))
+    middle = strand.node_urn(to_yaml.outputs[0].node)
+    assert middle.is_equivalent(_media("media:enc=utf8;!ext;fmt=yaml;list;record")), f"the node between the steps is {middle}"
+
+
+# TEST7245: what a patch gives a complete thing is a complete thing: a JSON
+# record a step gives, converted to YAML, is a YAML record and no list, and
+# feeds a save that takes a record and refuses lists, whether the machine is
+# read from text or is the strand a plan found.
+def test_7245_a_patch_of_a_complete_thing_is_a_complete_thing():
+    make = 'cap:in="media:enc=utf8";make-record;out="media:enc=utf8;fmt=json;record"'
+    save = 'cap:in="media:enc=utf8;fmt=yaml;!list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;record";save-as-yaml'
+    reg = _registry_with([
+        _simple_cap(make, "media:enc=utf8", "media:enc=utf8;fmt=json;record"),
+        _simple_cap(_JSON_TO_YAML, "media:enc=utf8;fmt=json", "media:enc=utf8;!ext;fmt=yaml"),
+        _simple_cap(save, "media:enc=utf8;fmt=yaml;!list;record;!ext", "media:enc=utf8;ext=yaml;fmt=yaml;record"),
+    ])
+    text = (
+        f"[make {make}][to_yaml {_JSON_TO_YAML}][save {save}]"
+        "[text -> make -> json][json -> to_yaml -> yaml][yaml -> save -> file]"
+    )
+    assert len(parse_machine(text, reg).strands()[0].edges()) == 3
+
+    yaml_record = "media:enc=utf8;!ext;fmt=yaml;record"
+    strand = _strand_with_cap_steps([
+        (make, "media:enc=utf8", "media:enc=utf8;fmt=json;record"),
+        (_JSON_TO_YAML, "media:enc=utf8;fmt=json;record", yaml_record),
+        (save, yaml_record, "media:enc=utf8;ext=yaml;fmt=yaml;record"),
+    ])
+    assert len(resolve_strand(strand, reg, 0).edges()) == 3
+
+
 # TEST1189: Strand resolution keeps canonical anchor ordering stable across equivalent inputs.
 def test_1189_resolve_strand_canonical_anchor_order_is_stable():
     urn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"'

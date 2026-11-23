@@ -317,8 +317,10 @@ def _resolve_wirings(
     # A node some wiring produces from a declared output holds what that step
     # gives, a complete thing. The main output of an effect=none or
     # effect=patch cap says how what it gives follows from what it takes, not
-    # what it gives, so a node it produces holds a type, as every node nothing
-    # produces does: one the text or an input anchor wrote.
+    # what it gives, so a node it produces holds what it gives for what it is
+    # sent: a complete thing when what it is sent is one (read below), and
+    # otherwise a type, as every node nothing produces holds: one the text or an
+    # input anchor wrote.
     node_is_sequence = [False] * len(nodes)
     node_is_given = [False] * len(nodes)
     definitions = []
@@ -362,6 +364,30 @@ def _resolve_wirings(
         # Canonical order, like the assignment's.
         outputs.sort(key=lambda each: each.output_media_urn.ordering_key())
         wiring_outputs.append(outputs)
+
+    # What an effect=none or effect=patch step gives a complete thing is a
+    # complete thing: its main output's node holds what the step gives for what
+    # it is sent, so it is given when the node it is sent on its main input is.
+    # Read again until nothing changes, so a chain of such steps is typed
+    # whatever order it is written in.
+    passes_through: List[Tuple[NodeId, NodeId]] = []
+    for wiring, definition in zip(wirings, definitions):
+        if main_output_is_given(definition):
+            continue
+        sent = main_input_node(wiring, definition)
+        if sent is None:
+            continue
+        for target in wiring.targets:
+            main = definition.main_output()
+            if target.name is None or (main is not None and main.name == target.name):
+                passes_through.append((sent, target.node))
+    changed = True
+    while changed:
+        changed = False
+        for sent, given in passes_through:
+            if node_is_given[sent] and not node_is_given[given]:
+                node_is_given[given] = True
+                changed = True
 
     # Step 1: per-wiring binding of sources to cap args. Named members bind
     # first; the rest are matched by type over the args no name bound.
@@ -651,6 +677,25 @@ def main_output_is_given(definition: "Cap") -> bool:
     none or patch, whose main output says how what it gives follows from what
     it takes (07 §What a cap gives)."""
     return definition.urn.effect_kind() not in (CapEffect.NONE, CapEffect.PATCH)
+
+
+def main_input_node(wiring: PreInternedWiring, definition: "Cap") -> Optional[NodeId]:
+    """The node a wiring sends on its cap's main input, when the wiring says
+    which: the member named for the main input, or the wiring's one unnamed
+    member. ``None`` when the cap takes no input, or when only matching by type
+    can tell."""
+    in_spec = MediaUrn.from_string(definition.urn.in_spec())
+    if in_spec.is_equivalent(_must_media(MEDIA_VOID, "media:void")):
+        return None
+    main = next((arg for arg in definition.args if arg.is_main_input(in_spec)), None)
+    if main is None:
+        return None
+    for name, source in wiring.named_sources:
+        if name == main.name:
+            return None if source.is_constant else source.node
+    if len(wiring.source_node_ids) == 1:
+        return wiring.source_node_ids[0]
+    return None
 
 
 def is_main_output(definition: "Cap", output: Any) -> bool:
