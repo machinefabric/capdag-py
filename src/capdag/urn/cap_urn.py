@@ -734,7 +734,9 @@ class CapUrn:
         )
 
     def __hash__(self) -> int:
-        return hash((self.in_urn, self.out_urn, self.effect, tuple(sorted(self.tags.items()))))
+        # The model's constraints hold their values in lists, which do not
+        # hash; equal caps write the same canonical text.
+        return hash(self.to_string())
 
     #: Where each effect stands in the order of caps: as the reference
     #: declares them, the unspecified effect last.
