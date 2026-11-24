@@ -32,6 +32,7 @@ from capdag.bifaci.io import FrameReader, FrameWriter, identity_nonce
 from capdag.bifaci import decode_chunk_payload
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MediaUrn
 from capdag.standard.caps import CAP_IDENTITY
 
 
@@ -94,7 +95,7 @@ class EchoHandler(FrameHandler):
             output.emit_error("ACCUMULATE_ERROR", str(e))
             return
         data = b"".join(a.value for a in args)
-        output.emit_response("media:", data)
+        output.emit_response(None, data)
 
 
 # TEST7201: every response stream the in-process host opens states its cardinality: a handler's response stream and the identity echo each open with is_sequence false, so the engine's output audit can hold them to the declared shape.
@@ -133,6 +134,87 @@ def test_7201_response_streams_state_is_sequence():
     close_socks(test_socks)
     close_socks(host_socks)
     host_thread.join(timeout=2)
+
+
+class LabellingHandler(FrameHandler):
+    """Answers every request with an empty JSON list, labelled as it is told."""
+
+    def __init__(self, label):
+        self.label = label
+
+    def handle_request(self, cap_urn, input_q, output, peer, network):
+        try:
+            accumulate_input(input_q)
+        except ValueError as e:
+            output.emit_error("ACCUMULATE_ERROR", str(e))
+            return
+        output.emit_response(self.label, b"[]")
+
+
+# TEST7274: a handler in the in-process host labels its response as a cartridge runtime's handler does. Stating no label sends the label the served cap's effect derives; a label inside a declared cap's out= is sent as stated; a label outside it, or any label for an effect=none cap, sends ERR HANDLER_ERROR naming both labels, and no response stream.
+def test_7274_in_process_handler_states_its_label_inside_the_cap():
+    save = 'cap:in="media:enc=utf8;fmt=json;!ext";save;out="media:enc=utf8;fmt=json;?list;?record"'
+    tidy = 'cap:effect=none;in="media:enc=utf8;fmt=json";tidy;out="media:enc=utf8;fmt=json"'
+    declared_out = str(MediaUrn.from_string("media:enc=utf8;fmt=json;?list;?record"))
+    list_of_records = MediaUrn.from_string("media:enc=utf8;fmt=json;list;record")
+    yaml = MediaUrn.from_string("media:enc=utf8;fmt=yaml")
+
+    def answer(cap_urn, label):
+        """The frames the host sends for one request to `cap_urn`, served by
+        a handler that states `label`, up to its terminal."""
+        host = InProcessCartridgeHost(
+            InProcessHostIdentity.for_test("in-process-test"),
+            [("labelling", [make_test_cap(cap_urn)], LabellingHandler(label))],
+        )
+        host_read, host_write, test_read, test_write, host_socks, test_socks = make_host_conn()
+        host_thread = threading.Thread(target=lambda: host.run(host_read, host_write), daemon=True)
+        host_thread.start()
+        reader = FrameReader(test_read)
+        writer = FrameWriter(test_write)
+        writer.write(Frame.policy(HostPolicy(NetworkPolicy.FULL)))
+        assert reader.read().frame_type == FrameType.RELAY_NOTIFY
+
+        rid = MessageId.new_uuid()
+        req = Frame.req(rid, cap_urn, b"", "application/cbor")
+        req.routing_id = MessageId(1)
+        payload = cbor_bytes_payload(b"[]")
+        writer.write(req)
+        writer.write(Frame.stream_start(rid, "arg0", "media:enc=utf8;fmt=json"))
+        writer.write(Frame.chunk(rid, "arg0", 0, payload, 0, compute_checksum(payload)))
+        writer.write(Frame.stream_end(rid, "arg0", 1))
+        writer.write(Frame.end(rid, None))
+
+        frames = []
+        while True:
+            frame = reader.read()
+            frames.append(frame)
+            if frame.frame_type in (FrameType.END, FrameType.ERR):
+                break
+        close_socks(test_socks)
+        close_socks(host_socks)
+        host_thread.join(timeout=2)
+        return frames
+
+    def label_of(frames):
+        assert frames[-1].frame_type == FrameType.END, frames
+        starts = [f for f in frames if f.frame_type == FrameType.STREAM_START]
+        assert starts, f"the response opens a stream: {frames}"
+        return starts[0].media_urn
+
+    def refusal(frames):
+        assert len(frames) == 1, f"the refusal is the request's only frame: {frames}"
+        assert frames[0].frame_type == FrameType.ERR
+        assert frames[0].error_code() == "HANDLER_ERROR"
+        return frames[0].error_message()
+
+    assert label_of(answer(save, None)) == declared_out, "no label: the derived one"
+    assert label_of(answer(save, list_of_records)) == str(list_of_records)
+
+    outside = refusal(answer(save, yaml))
+    assert str(yaml) in outside and declared_out in outside, outside
+    fixed = refusal(answer(tidy, list_of_records))
+    assert "fixed by its input" in fixed and str(list_of_records) in fixed, fixed
+    assert label_of(answer(tidy, None)) == str(MediaUrn.from_string("media:enc=utf8;fmt=json"))
 
 
 # TEST6748: InProcessCartridgeHost routes REQ to matching handler and returns response
@@ -553,7 +635,7 @@ def test_660_closest_specificity_routing():
                     break
                 if frame.frame_type == FrameType.END:
                     break
-            output.emit_response("media:text", self.name.encode("utf-8"))
+            output.emit_response(None, self.name.encode("utf-8"))
 
     handlers = [
         ("generic", [generic_cap], TaggedHandler("generic")),
@@ -566,8 +648,9 @@ def test_660_closest_specificity_routing():
     # Request for pdf thumbnail should match specific (pdf, specificity 3) over
     # generic (image, specificity 2).
     request = CapUrn.from_string('cap:in="media:document;ext=pdf";thumbnail;out="media:ext=png;image"')
-    result = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
-    assert result == 1  # specific handler
+    idx, served = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
+    assert idx == 1  # specific handler
+    assert served.is_equivalent(specific_cap.urn), "it is served with the specific handler's cap"
 
 
 # TEST7240: The in-process host chooses among tied handlers by the proved selection: the first registered, every time
@@ -580,9 +663,9 @@ def test_7240_in_process_host_ties_go_to_the_first_registered():
         handlers = [(name, [make_test_cap(urn)], AnswersAnywayHandler()) for name, urn in order]
         host = InProcessCartridgeHost(InProcessHostIdentity.for_test("ties"), handlers)
         caps, owners = InProcessCartridgeHost.registered_caps(host.handlers)
-        idx = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
-        assert idx is not None, "both handlers serve the request"
-        return host.handlers[idx].name
+        found = InProcessCartridgeHost.find_handler_for_cap(caps, owners, request)
+        assert found is not None, "both handlers serve the request"
+        return host.handlers[found[0]].name
 
     for _ in range(32):
         assert chosen([("first", first), ("second", second)]) == "first"
@@ -603,7 +686,7 @@ class AnswersAnywayHandler(FrameHandler):
             frame = input_q.get()
             if frame is None or frame.frame_type == FrameType.END:
                 break
-        output.emit_response("media:", b"an answer")
+        output.emit_response(None, b"an answer")
         self.answered.set()
 
 

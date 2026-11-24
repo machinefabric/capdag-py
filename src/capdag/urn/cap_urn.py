@@ -632,6 +632,26 @@ class CapUrn:
             self._formal, runtime_input.inner().formal, runtime_output.inner().formal
         )
 
+    def declared_output_holds(self, stated: MediaUrn) -> bool:
+        """Is ``stated``, what a handler says this ``effect=declared`` cap
+        gave, inside the declared ``out=`` read complete? The proved model's
+        audit (``CapDAG.Exec.audit``, which is ``Cap.audits``): a declared cap
+        gives its output whatever it is sent, so the answer does not depend
+        on the input.
+
+        Raises for any other effect: what an ``effect=none`` or
+        ``effect=patch`` cap gives is fixed by what it is sent, and
+        ``?effect`` says nothing of it.
+        """
+        if self.effect_kind() != CapEffect.DECLARED:
+            raise CapUrnError(
+                f"'{self}' has effect={self.effect_kind().value}: what it gives is "
+                "fixed by its input, not stated"
+            )
+        return _formal.audit(
+            self._formal, self.in_media_urn().inner().formal, stated.inner().formal
+        )
+
     # Per-axis weights for cap-URN specificity. Two orders of
     # magnitude separate each axis to keep them in distinct digit
     # slots while folding into a single comparable integer.

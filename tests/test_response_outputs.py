@@ -36,6 +36,7 @@ from capdag.cap.definition import Cap, CapArg, CapOutput, StdinSource
 from capdag.cap.validation import validate_cap_definition
 from capdag.standard.caps import identity_cap
 from capdag.urn.cap_urn import CapUrn
+from capdag.urn.media_urn import MediaUrn
 
 SERIES = "media:enc=utf8;series"
 FIT = "media:enc=utf8;fmt=json;record;regression"
@@ -117,6 +118,69 @@ def _empty_input():
     frames: queue.Queue = queue.Queue()
     frames.put(Frame.end(MessageId.new_uuid(), None))
     return demux_multi_stream(frames)
+
+
+# TEST7273: a handler may state what an output gave, inside what the output
+# declares, before its stream starts. A declared cap's main output takes a
+# label inside its declared out=, read complete, and its STREAM_START carries
+# it; another output takes one inside its own URN. A label outside the output,
+# one stated after the stream started, one on the main output of an
+# effect=none cap and one on an output that carries the input are each
+# refused, naming the stream's default label and the label stated.
+def test_7273_a_handler_states_what_an_output_gave_inside_what_it_declares():
+    declared_out = MediaUrn.from_string("media:enc=utf8;fmt=json;?list;?record")
+    save = f'cap:in="media:enc=utf8;fmt=json;!ext";save;out="{declared_out}"'
+    list_of_records = MediaUrn.from_string("media:enc=utf8;fmt=json;list;record")
+    yaml = MediaUrn.from_string("media:enc=utf8;fmt=yaml")
+
+    def refusal(stream, media):
+        with pytest.raises(HandlerError) as refused:
+            stream.label(media)
+        return str(refused.value)
+
+    # Inside the declared output: the stream opens with the stated label.
+    outputs, frames = _recorded_outputs(save, None)
+    outputs.main().label(list_of_records)
+    outputs.main().start(False, None)
+    assert _starts(frames)[0][1] == str(list_of_records)
+    # Once the stream has started, its label is said.
+    after = refusal(outputs.main(), list_of_records)
+    assert "before the stream starts" in after and str(list_of_records) in after, after
+
+    # Unstated, the stream opens with its default: the declared output.
+    outputs, frames = _recorded_outputs(save, None)
+    outputs.main().start(False, None)
+    assert _starts(frames)[0][1] == str(declared_out)
+
+    # Outside the declared output: refused, naming both, and nothing sent.
+    outputs, frames = _recorded_outputs(save, None)
+    outside = refusal(outputs.main(), yaml)
+    assert str(yaml) in outside and str(declared_out) in outside, outside
+    # A tag the declared output does not say, read complete, is outside it.
+    refusal(outputs.main(), MediaUrn.from_string("media:enc=utf8;fmt=json;record;table"))
+    outputs.main().start(False, None)
+    assert _starts(frames)[0][1] == str(declared_out), "a refused label is not kept"
+
+    # The main output of an effect=none cap is what it was sent.
+    tidy = 'cap:effect=none;in="media:enc=utf8;fmt=json";tidy;out="media:enc=utf8;fmt=json"'
+    outputs, _ = _recorded_outputs(tidy, None)
+    fixed = refusal(outputs.main(), list_of_records)
+    assert "fixed by its input" in fixed, fixed
+    assert str(list_of_records) in fixed and str(MediaUrn.from_string("media:enc=utf8;fmt=json")) in fixed, fixed
+
+    # Another output: inside its own URN it is stated, an output that carries
+    # the input takes none.
+    cap = _regress_cap()
+    outputs, frames = _recorded_outputs(cap.urn_string(), _manifest(cap))
+    short_note = MediaUrn.from_string("media:enc=utf8;note;short")
+    note = outputs.stream_for(NOTE)
+    note.label(short_note)
+    note.start(False, None)
+    sent = _starts(frames)
+    assert sent[0][0] == NOTE and sent[0][1] == str(short_note), sent
+    outside_note = refusal(outputs.stream_for(RESIDUALS), short_note)
+    assert RESIDUALS in outside_note and str(short_note) in outside_note, outside_note
+    assert "fixed by its input" in refusal(outputs.stream_for(REJECTED), MediaUrn.from_string(SERIES))
 
 
 # TEST12719: a request answers on every output its cap declares. Each has a

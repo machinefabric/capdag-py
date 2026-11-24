@@ -47,7 +47,9 @@ from capdag.bifaci.cartridge_repo import CartridgeChannel
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import Cap
 from capdag.urn.cap_urn import CapUrn, CapUrnError
+from capdag.urn.media_urn import MediaUrn
 from capdag.standard.caps import CAP_IDENTITY, identity_cap, identity_urn
+from capdag.bifaci.cartridge_runtime import HandlerError, LabelRule, derive_response_media
 
 
 # =============================================================================
@@ -96,6 +98,11 @@ class ResponseWriter:
 
     All frames sent via ResponseWriter get the correct request_id and routing_id
     for relay routing. Seq is left at 0 — the wire writer's SeqAssigner handles it.
+
+    A response is labelled as a cartridge runtime labels it (13.2 §Response
+    media labeling): by default with what the served cap's effect derives, and
+    with a label the handler states only when it is inside the cap's declared
+    output.
     """
 
     def __init__(
@@ -104,11 +111,24 @@ class ResponseWriter:
         routing_id: Optional[MessageId],
         tx: "queue.Queue",
         max_chunk: int,
+        served: CapUrn,
     ) -> None:
         self._request_id = request_id
         self._routing_id = routing_id
         self._tx = tx
         self._max_chunk = max_chunk
+        #: The cap the request is served with.
+        self._served = served
+
+    def _response_label(self, label: Optional[MediaUrn]) -> str:
+        """The label a response opens with: the default the served cap's
+        effect derives, or `label` when the cap lets a handler state it.
+        Raises ``HandlerError`` naming both labels when it may not."""
+        default = derive_response_media(str(self._served))
+        if label is None:
+            return default
+        LabelRule.for_main_output(self._served).check(default, label)
+        return str(label)
 
     def send(self, frame: Frame) -> None:
         """Send a frame, stamping it with the request_id and routing_id."""
@@ -121,9 +141,20 @@ class ResponseWriter:
     def max_chunk(self) -> int:
         return self._max_chunk
 
-    def emit_response(self, media_urn: str, data: bytes) -> None:
+    def emit_response(self, label: Optional[MediaUrn], data: bytes) -> None:
         """Send a complete data response: STREAM_START + CBOR-encoded CHUNK(s) +
-        STREAM_END + END."""
+        STREAM_END + END.
+
+        `label` is what the handler states the data is; None sends the label
+        the served cap's effect derives. A label the cap does not let the
+        handler state (outside a declared cap's out=, or any label for an
+        effect=none or effect=patch cap) sends ERR HANDLER_ERROR naming both
+        labels, in place of the response."""
+        try:
+            media_urn = self._response_label(label)
+        except HandlerError as refused:
+            self.emit_error("HANDLER_ERROR", str(refused))
+            return
         stream_id = "result"
         self.send(Frame.stream_start(MessageId(0), stream_id, media_urn, is_sequence=False))
 
@@ -495,14 +526,17 @@ class InProcessCartridgeHost:
         return caps, owners
 
     @staticmethod
-    def find_handler_for_cap(caps: List[CapUrn], owners: List[int], request: CapUrn) -> Optional[int]:
-        """The index of the handler that serves ``request``, or None.
+    def find_handler_for_cap(
+        caps: List[CapUrn], owners: List[int], request: CapUrn
+    ) -> Optional[Tuple[int, CapUrn]]:
+        """The index of the handler that serves ``request`` and the cap it
+        serves it with, or None.
 
         The proved selection (``CapUrn.select``): least ranking key; of equal
         keys, the first registered.
         """
         i = CapUrn.select(caps, request)
-        return None if i is None else owners[i]
+        return None if i is None else (owners[i], caps[i])
 
     def run(self, local_read, local_write) -> None:
         """Run the host. Returns when the local connection closes.
@@ -622,9 +656,10 @@ class InProcessCartridgeHost:
                         continue
                     if is_identity:
                         handler = identity_handler
+                        served = identity_urn()
                     else:
-                        idx = self.find_handler_for_cap(caps, owners, parsed_cap)
-                        if idx is None:
+                        found = self.find_handler_for_cap(caps, owners, parsed_cap)
+                        if found is None:
                             # No registered handler for a dispatched cap is
                             # a deployment mismatch — Environment.
                             err = Frame.err(
@@ -634,6 +669,7 @@ class InProcessCartridgeHost:
                             err.routing_id = xid
                             write_tx.put(err)
                             continue
+                        idx, served = found
                         handler = self.handlers[idx].handler
 
                     input_q: "queue.Queue" = queue.Queue()
@@ -642,7 +678,7 @@ class InProcessCartridgeHost:
                     peer = InProcessPeerInvoker(
                         write_tx, pending_peer_requests, pending_lock, rid, max_chunk
                     )
-                    output = ResponseWriter(rid, xid, write_tx, max_chunk)
+                    output = ResponseWriter(rid, xid, write_tx, max_chunk, served)
 
                     def run_handler(h=handler, c=cap_urn, iq=input_q, o=output, p=peer,
                                     n=NetworkAccess(policy)):

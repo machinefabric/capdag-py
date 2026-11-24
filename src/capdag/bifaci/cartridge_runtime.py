@@ -78,7 +78,7 @@ from capdag.bifaci.stats import (
 )
 from capdag.cap.caller import CapArgumentValue
 from capdag.cap.definition import ArgSource, Cap, CapArg, CliFlagSource, OUTPUT_CARRIES_INPUT
-from capdag.urn.cap_urn import CapUrn, CapUrnError as CapUrnParseError
+from capdag.urn.cap_urn import CapEffect, CapUrn, CapUrnError as CapUrnParseError
 from capdag.bifaci.manifest import CapManifest
 from capdag.urn.media_urn import MediaUrn, MediaUrnError, MEDIA_FILE_PATH, MEDIA_IDENTITY, MEDIA_VOID
 
@@ -721,7 +721,7 @@ class RemoteError(StreamError):
 
 
 def derive_response_media(cap_urn: str) -> str:
-    """The media URN a cap's response STREAM_START must carry, derived from
+    """The default label of a cap's main response STREAM_START, derived from
     the cap's declared effect over its declared main input — the label every
     engine-fed input stream carries (spec 13.2):
 
@@ -731,10 +731,10 @@ def derive_response_media(cap_urn: str) -> str:
 
     This is ``CapUrn.infer_runtime_output_media`` over the declared input —
     the SAME inference the engine's effect audit checks emissions against
-    (``CapUrn.is_conformant_runtime_output``), so a runtime-labeled response
-    is conformant by construction. Every runtime that labels a response must
-    go through this function; a hand-picked label is how a cap lies about
-    its effect. (matches Rust derive_response_media)
+    (``CapUrn.is_conformant_runtime_output``), so a response the handler does
+    not label is conformant by construction. A handler narrows it only by its
+    own statement, inside the declared output (``label``), and the engine
+    audits what it states. (matches Rust derive_response_media)
 
     Raises ``HandlerError`` when the cap URN does not parse or its effect
     cannot be applied to its declared input — a broken cap declaration
@@ -756,6 +756,83 @@ def derive_response_media(cap_urn: str) -> str:
     except Exception as e:
         raise HandlerError(
             f"response media derivation: cap '{cap_urn}' effect could not be applied to its declared input: {e}"
+        )
+
+
+class LabelRule:
+    """What a handler may state of what an output stream gave (13.2 §Response
+    media labeling): the rule a stream's ``label`` holds a stated label to.
+    The runtime opens every response stream with a default label; a handler
+    may narrow it, inside what the output declares, before the stream starts.
+    (matches Rust LabelRule)
+
+    - ``FIXED``: the stream's type is fixed by its input — the main output of
+      an effect=none or effect=patch cap, an output that carries the input,
+      and a stream that is no response (a peer call's argument). It takes no
+      stated label.
+    - ``DECLARED``: the main output of a declared cap. A stated label is inside
+      the declared out= read complete, as the proved model's audit decides
+      (``CapUrn.declared_output_holds``).
+    - ``WITHIN``: an output other than the main one. A stated label is inside
+      its media URN (``MediaUrn.satisfies``).
+    """
+
+    FIXED = "fixed"
+    DECLARED = "declared"
+    WITHIN = "within"
+
+    def __init__(self, kind: str, cap: Optional[CapUrn] = None, output: Optional[MediaUrn] = None) -> None:
+        self.kind = kind
+        self.cap = cap
+        self.output = output
+
+    @classmethod
+    def fixed(cls) -> "LabelRule":
+        return cls(cls.FIXED)
+
+    @classmethod
+    def within(cls, output: MediaUrn) -> "LabelRule":
+        return cls(cls.WITHIN, output=output)
+
+    @classmethod
+    def for_main_output(cls, cap: CapUrn) -> "LabelRule":
+        """The rule for the main output of `cap`. ``?effect`` says nothing of
+        what the cap gives, so no response is labelled for it at all
+        (``derive_response_media`` refuses it)."""
+        if cap.effect_kind() == CapEffect.DECLARED:
+            return cls(cls.DECLARED, cap=cap)
+        return cls.fixed()
+
+    def check(self, default_label: str, stated: MediaUrn) -> None:
+        """Raise ``HandlerError`` naming both labels unless `stated` may label
+        a stream whose default label is `default_label`."""
+        def refused(why: str) -> HandlerError:
+            return HandlerError(
+                f"the stream labelled '{default_label}' cannot be labelled '{stated}': {why}"
+            )
+        if self.kind == self.DECLARED:
+            try:
+                holds = self.cap.declared_output_holds(stated)
+            except Exception as e:
+                raise refused(str(e))
+            if not holds:
+                raise refused(f"it is not inside the declared output '{self.cap.out_spec()}'")
+        elif self.kind == self.WITHIN:
+            if not stated.satisfies(self.output):
+                raise refused(f"it is not inside the output '{self.output}'")
+        else:
+            raise refused("this output's type is fixed by its input")
+
+
+def _stated_label(default_label: str, media_urn: str) -> MediaUrn:
+    """A label a handler states, parsed; one that is no media URN is refused
+    with the stream's default label named."""
+    try:
+        return MediaUrn.from_string(media_urn)
+    except Exception as e:
+        raise HandlerError(
+            f"the stream labelled '{default_label}' cannot be labelled '{media_urn}': "
+            f"it is not a media URN: {e}"
         )
 
 
@@ -1404,13 +1481,21 @@ class CliStreamEmitter:
     Used when the cartridge is invoked via CLI (with arguments).
     """
 
-    def __init__(self, ndjson: bool = True):
+    def __init__(self, ndjson: bool = True, default_label: str = MEDIA_IDENTITY):
         """Create a new CLI emitter
 
         Args:
             ndjson: Whether to add newlines after each emit (NDJSON style)
+            default_label: the label the stream's output has unless its
+                handler states one (the output's own, for an output of a
+                declared cap; nothing is known of a stream made bare)
         """
         self.ndjson = ndjson
+        #: The stream's default label, and the rule a label its handler
+        #: states is held to — the same as on the wire, though a command line
+        #: has no STREAM_START to carry it.
+        self._default_label = default_label
+        self._label_rule = LabelRule.fixed()
         #: Whether `start` has been called. Nothing is transmitted for it in
         #: CLI mode, and it is tracked so the ordering contract can be enforced
         #: rather than silently ignored on this side.
@@ -1429,6 +1514,22 @@ class CliStreamEmitter:
         Its data is not printed."""
         self.output = output
         return self
+
+    def with_label_rule(self, rule: LabelRule) -> "CliStreamEmitter":
+        """Hold what the handler states of this stream to `rule`."""
+        self._label_rule = rule
+        return self
+
+    def label(self, media: MediaUrn) -> None:
+        """Hold what the handler states to its output's rule, as the wire
+        path does; with no stream framing there is nothing to carry it on. A
+        label stated after the stream started is refused the same way."""
+        if self._started or self._emitted:
+            raise HandlerError(
+                f"the stream labelled '{self._default_label}' cannot be labelled '{media}': "
+                "the label is stated before the stream starts"
+            )
+        self._label_rule.check(self._default_label, media)
 
     def output_urn(self) -> Optional[str]:
         """The output this stream names: None for the main output's stream."""
@@ -1625,12 +1726,50 @@ class ThreadSafeEmitter:
         self.output: Optional[str] = None
         # Whether STREAM_END was sent.
         self.closed = False
+        # What the handler may state of what this stream gave (`label`).
+        self._label_rule = LabelRule.fixed()
+        # The label the handler stated, which the STREAM_START carries in
+        # place of `media_urn` (the default). Guarded by stream_lock.
+        self._stated: Optional[str] = None
 
     def naming_output(self, output: str) -> "ThreadSafeEmitter":
         """Make this the stream of an output other than the cap's main one:
         the declared output `output` identifies. Its STREAM_START names it."""
         self.output = output
         return self
+
+    def with_label_rule(self, rule: LabelRule) -> "ThreadSafeEmitter":
+        """Hold what the handler states of this stream to `rule`."""
+        self._label_rule = rule
+        return self
+
+    def label(self, media: MediaUrn) -> None:
+        """State what this stream gives, more exactly than its default label:
+        for example what detection reads back from the file a save wrote. The
+        STREAM_START carries it in place of the default, and the engine
+        audits it and carries it on as the value's type (13.2 §Response media
+        labeling).
+
+        Raises ``HandlerError``, naming the default label and `media`, once
+        the stream has started; for an output whose type is fixed by its
+        input (the main output of an effect=none or effect=patch cap, an
+        output that carries the input); for the main output of a declared
+        cap, unless `media` is inside the declared out= read complete; and
+        for another output, unless `media` is inside its media URN. A
+        sequence output carries one label for the whole stream: the least
+        type holding every item (``MediaUrn.least_upper_bound``). (matches
+        Rust OutputStream::label)
+        """
+        # Held while the label is checked and kept, so a concurrent first
+        # emission either sends it or this call sees the stream started.
+        with self.stream_lock:
+            if self.stream_started:
+                raise HandlerError(
+                    f"the stream labelled '{self.media_urn}' cannot be labelled '{media}': "
+                    "the label is stated before the stream starts"
+                )
+            self._label_rule.check(self.media_urn, media)
+            self._stated = str(media)
 
     def output_urn(self) -> Optional[str]:
         """The output this stream names: None for the main output's stream."""
@@ -1670,13 +1809,15 @@ class ThreadSafeEmitter:
                 self.unbounded = unbounded
                 if self._credit_gate is not None and self._credit_router is not None:
                     self._credit_router.register(self.request_id, self.stream_id, self._credit_gate)
+                # The label the handler stated, else the default.
+                media_urn = self._stated if self._stated is not None else self.media_urn
                 if unbounded:
                     start_frame = Frame.stream_start_unbounded(
-                        self.request_id, self.stream_id, self.media_urn, is_sequence,
+                        self.request_id, self.stream_id, media_urn, is_sequence,
                     )
                 else:
                     start_frame = Frame.stream_start(
-                        self.request_id, self.stream_id, self.media_urn, is_sequence,
+                        self.request_id, self.stream_id, media_urn, is_sequence,
                     )
                 if meta is not None:
                     start_frame.meta = dict(meta)
@@ -2088,11 +2229,12 @@ class ResponseOutputs:
     ) -> "ResponseOutputs":
         """The outputs of `cap_urn` as `manifest` defines it.
 
-        `open` builds one stream from the media label its STREAM_START
-        carries. The main output carries the label the cap URN's effect
-        derives (`derive_response_media`) and names no output; another output
-        carries its own media URN, or the cap's declared input when it
-        carries the input, and names itself. A cap served without a
+        `open` builds one stream from the default label its STREAM_START
+        carries. The main output's default is the label the cap URN's effect
+        derives (`derive_response_media`) and it names no output; another
+        output's is its own media URN, or the cap's declared input when it
+        carries the input, and it names itself. Each stream holds what its
+        handler states of it to its `LabelRule`. A cap served without a
         definition in the manifest (a built-in the cartridge did not
         advertise) answers on the one output its URN states.
         """
@@ -2122,19 +2264,23 @@ class ResponseOutputs:
             # progress and logs, and is never opened on the handler's behalf.
             required=not out_is_void and not (declared_main is not None and declared_main.optional),
             is_sequence=declared_main.is_sequence if declared_main is not None else False,
-            stream=open(derive_response_media(cap_urn)),
+            stream=open(derive_response_media(cap_urn)).with_label_rule(LabelRule.for_main_output(cap)),
         )
 
         others: List[_ResponseOutput] = []
         for output in (definition.get_outputs() if definition is not None else []):
             if output is declared_main:
                 continue
-            label = str(cap.in_spec()) if output.carries == OUTPUT_CARRIES_INPUT else output.media_urn
+            urn = parse(output.media_urn)
+            if output.carries == OUTPUT_CARRIES_INPUT:
+                label, rule = str(cap.in_spec()), LabelRule.fixed()
+            else:
+                label, rule = output.media_urn, LabelRule.within(urn)
             others.append(_ResponseOutput(
-                urn=parse(output.media_urn),
+                urn=urn,
                 required=not output.optional,
                 is_sequence=output.is_sequence,
-                stream=open(label).naming_output(output.media_urn),
+                stream=open(label).naming_output(output.media_urn).with_label_rule(rule),
             ))
         return cls(cap_urn, main, others)
 
@@ -2941,6 +3087,19 @@ class OutputStream:
         # writes never wait.
         self._credit_gate = CreditGate(initial_credit) if credit_router is not None else None
         self._credit_router = credit_router
+
+    def label(self, media: MediaUrn) -> None:
+        """A stream of a peer call's argument is no response: it is labelled
+        with the URN its argument is delivered under, and takes no stated
+        label (``LabelRule.FIXED``). (matches Rust OutputStream::label on an
+        argument stream)"""
+        with self._lock:
+            if self.started:
+                raise HandlerError(
+                    f"the stream labelled '{self.media_urn}' cannot be labelled '{media}': "
+                    "the label is stated before the stream starts"
+                )
+            LabelRule.fixed().check(self.media_urn, media)
 
     def _start_unlocked(
         self, is_sequence: bool = False, meta: Optional[dict] = None, unbounded: bool = False,
@@ -4468,7 +4627,7 @@ class CartridgeRuntime:
             # is a stream the handler may write to, and its data is not
             # printed.
             outputs = ResponseOutputs.for_cap(
-                cap.urn_string(), self.manifest, lambda _label: CliStreamEmitter(),
+                cap.urn_string(), self.manifest, lambda label: CliStreamEmitter(default_label=label),
             )
             input_package = demux_multi_stream(frames)  # Uncredited: CLI mode has no wire peer.
             # No host: the person running the command decides for themselves

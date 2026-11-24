@@ -1403,7 +1403,7 @@ def test_132_add_master_dynamic():
                     break
                 if frame.frame_type == FrameType.END:
                     break
-            output.emit_response("media:", self.value.encode("utf-8"))
+            output.emit_response(None, self.value.encode("utf-8"))
 
     threads = []
 
