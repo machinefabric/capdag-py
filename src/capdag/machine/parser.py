@@ -34,7 +34,7 @@ member stands in its group never decides it (09 §The URN of a node):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from capdag.machine.error import (
     DefinitionUnavailableError,
@@ -693,6 +693,139 @@ def _give(node_media: Dict[str, MediaUrn], node: str, media: MediaUrn) -> None:
         node_media[node] = media
 
 
+class _Step(NamedTuple):
+    """One cap step of a strand, as the node passes read it: its wiring, its
+    cap and the media its main input accepts (None when it takes none)."""
+
+    wiring: _RawWiring
+    cap_urn: CapUrn
+    definition: object
+    in_media: Optional[MediaUrn]
+
+
+class _Binding(NamedTuple):
+    """One place a node is bound into: what it is accepted as there, and, when
+    the node is a cap step's main member, that step's index among the steps."""
+
+    accepts: MediaUrn
+    main_of: Optional[int]
+
+
+def _node_bindings(
+    wirings: List[_RawWiring],
+    steps: List[_Step],
+    machines: Dict[str, IncludedMachine],
+    media,
+) -> Dict[str, List[_Binding]]:
+    """Every place each node is bound into: by name into a cap's arg or a
+    machine's input, or unnamed into a cap's main input, as its one unnamed
+    member or as one of the members its main input gathers when it takes a
+    sequence. Only a member bound by the main arg's name, or the step's one
+    unnamed member, is the step's main member."""
+    bindings: Dict[str, List[_Binding]] = {}
+    for wiring in wirings:
+        machine = machines.get(wiring.cap_alias)
+        if machine is None:
+            continue
+        for member in wiring.sources:
+            if member.name is None or member.value.is_constant:
+                continue
+            accepts = machine.input(member.name)
+            if accepts is not None:
+                bindings.setdefault(member.value.node, []).append(_Binding(accepts, None))
+    for index, step in enumerate(steps):
+        main_arg = None
+        if step.in_media is not None:
+            main_arg = next((arg for arg in step.definition.get_args() if arg.is_main_input(step.in_media)), None)
+        main_named = False
+        for member in step.wiring.sources:
+            if member.name is None or member.value.is_constant:
+                continue
+            # A name no arg has was refused above.
+            arg = step.definition.arg_named(member.name)
+            if arg is None:
+                continue
+            main = main_arg is not None and main_arg.name == arg.name
+            main_named = main_named or main
+            bindings.setdefault(member.value.node, []).append(
+                _Binding(media(arg.accepted_urn()), index if main else None)
+            )
+        if step.in_media is None or main_arg is None or main_named:
+            continue
+        unnamed = step.wiring.unnamed_nodes()
+        if len(unnamed) == 1:
+            bindings.setdefault(unnamed[0], []).append(_Binding(step.in_media, index))
+        elif main_arg.is_sequence:
+            for node in unnamed:
+                bindings.setdefault(node, []).append(_Binding(step.in_media, None))
+    return bindings
+
+
+def _node_need(
+    node: str,
+    bindings: Dict[str, List[_Binding]],
+    steps: List[_Step],
+    need: Dict[str, Optional[MediaUrn]],
+    visiting: set,
+) -> Optional[MediaUrn]:
+    """What ``node`` must be for every step it is bound into: what each accepts
+    it as, and, where it is a step's main member, what that step requires of
+    what it is sent for what its own main output must be. None when nothing
+    binds it, or when none of those is inside every other. Worked out once per
+    node (``need``); a node met again on its own way back is a cycle, which the
+    resolver refuses, and says nothing here."""
+    if node in need:
+        return need[node]
+    if node in visiting:
+        return None
+    visiting.add(node)
+    needs: List[MediaUrn] = []
+    for binding in bindings.get(node, []):
+        needs.append(binding.accepts)
+        if binding.main_of is None:
+            continue
+        step = steps[binding.main_of]
+        for target in step.wiring.targets:
+            if not _is_main_target(step.definition, target):
+                continue
+            out_need = _node_need(target.node, bindings, steps, need, visiting)
+            if out_need is None:
+                continue
+            required = step.cap_urn.requires(out_need)
+            if required is not None:
+                needs.append(required)
+    visiting.discard(node)
+    narrowest = _narrowest_inside_all(needs)
+    need[node] = narrowest
+    return narrowest
+
+
+def _narrowest_inside_all(types: List[MediaUrn]) -> Optional[MediaUrn]:
+    """The one of ``types`` that is inside every other, or None when there are
+    none or no one of them is."""
+    if not types:
+        return None
+    narrowest = types[0]
+    for each in types[1:]:
+        narrower = narrower_of(narrowest, each)
+        if narrower is None:
+            return None
+        if narrower:
+            narrowest = each
+    if all(narrowest.conforms_to(each) for each in types):
+        return narrowest
+    return None
+
+
+def _carries_input(definition, target: _RawTarget) -> bool:
+    """Whether a target takes an output of the cap that carries the cap's
+    input."""
+    if target.name is None:
+        return False
+    output = definition.output_named(target.name)
+    return output is not None and output.carries is not None
+
+
 def _type_nodes(
     wirings: List[_RawWiring],
     alias_map: Dict[str, Tuple[CapUrn, int]],
@@ -853,87 +986,65 @@ def _type_nodes(
     for node, given in from_main_input:
         _give(node_media, node, given)
 
-    # What an effect=none or effect=patch cap gives follows from what it is
-    # sent (07 §What a cap gives), so the types on either side of one are read
-    # through it, both ways:
+    # The machine's text writes no types, so a node is read with the types its
+    # steps need (09 §The URN of a node), in two passes that only narrow a node
+    # along its chain; a type on no chain with the node's is left, for the
+    # binding check to report:
     #
-    # - forward, its main output's node holds what the cap gives for the type
-    #   of the node feeding its main input, which refines the declared output
-    #   it was given above: a JSON list of records sent to a patch to YAML
-    #   gives a YAML list of records;
-    # - backward, a step's main input says what the patches feeding it must
-    #   give, and so what the input of the machine at the start of them must
-    #   be: walked back through each, its input put back where its output
-    #   changes it. A YAML input of the machine converted to JSON for a step
-    #   that takes JSON lists of records is a YAML list of records.
-    #
-    # Read again until nothing changes, so a chain of such caps is typed
-    # whatever order it is written in.
-    steps = []
+    # - back: what a node must be is what every step it is bound into accepts
+    #   there, and where it is a step's main member, what that step requires of
+    #   what it is sent for what its own main output must be
+    #   (CapUrn.requires), all on one chain. An input of the machine is
+    #   narrowed to it: a YAML input converted to JSON for a step that gathers
+    #   JSON records that are not lists is a YAML record that is not a list.
+    # - forward: a step that passes on or patches what it is sent gives its main
+    #   output's node what it gives for what its main member holds, when that is
+    #   inside its input; an output that carries the input holds what the main
+    #   member holds. Read again until nothing changes, so a chain of such steps
+    #   is typed whatever order it is written in.
+    steps: List[_Step] = []
     for wiring in wirings:
         if wiring.cap_alias in machines:
             continue
         cap_urn, definition = cap_of(wiring)
-        steps.append((wiring, cap_urn, definition, main_input_of(wiring, cap_urn)))
-    patches = {
-        target.node: step
-        for step in steps
-        if not main_output_is_given(step[2])
-        for target in step[0].targets
-        if _is_main_target(step[2], target)
-    }
-    for _ in wirings:
+        steps.append(_Step(wiring, cap_urn, definition, main_input_of(wiring, cap_urn)))
+    bindings = _node_bindings(wirings, steps, machines, media)
+    need: Dict[str, Optional[MediaUrn]] = {}
+    for node in bindings:
+        _node_need(node, bindings, steps, need, set())
+    for node, must in need.items():
+        if must is None or node in produced:
+            continue
+        held = node_media.get(node)
+        if held is not None and narrower_of(held, must) is True:
+            node_media[node] = must
+    for _ in range(len(wirings) + 1):
         changed = False
-        for wiring, cap_urn, definition, in_media in steps:
-            if in_media is None:
+        for step in steps:
+            if main_output_is_given(step.definition) or step.in_media is None:
                 continue
-            source = _main_source(wiring, definition, in_media)
+            source = _main_source(step.wiring, step.definition, step.in_media)
             if source is None:
                 continue
-
-            # Backward, from this step's main input to the input of the
-            # machine at the start of the patches feeding it.
-            required = in_media
-            start = source
-            walked = 0
-            while start in patches and walked < len(wirings):
-                walked += 1
-                patch_wiring, patch_urn, patch_definition, patch_in = patches[start]
-                if patch_in is None:
-                    break
-                try:
-                    patch_out = patch_urn.out_media_urn()
-                except Exception as error:
-                    raise InvalidMediaUrnError(patch_wiring.cap_alias, f"out= spec: {error}") from error
-                required = required.apply_delta(patch_in.delta_from(patch_out))
-                feeding = _main_source(patch_wiring, patch_definition, patch_in)
-                if feeding is None:
-                    break
-                start = feeding
-            held = node_media.get(start)
-            if walked > 0 and start not in produced and held is not None and held.is_comparable(required):
-                before = held.to_string()
-                _give(node_media, start, required)
-                changed = changed or before != node_media[start].to_string()
-
-            # Forward, from what this step is sent to what it gives.
-            if main_output_is_given(definition):
-                continue
             sent = node_media.get(source)
-            # A member that does not fit the input is the resolver's to refuse.
-            if sent is None or not sent.satisfies(in_media):
+            # A member that is not inside the input is the resolver's to refuse.
+            if sent is None or not sent.conforms_to(step.in_media):
                 continue
             try:
-                given = cap_urn.infer_runtime_output_media(sent)
+                given = step.cap_urn.infer_runtime_output_media(sent)
             except Exception as error:
                 raise RuntimeMediaInferenceError(
-                    strand_index, cap_urn.to_string(), sent.to_string(), str(error)
+                    strand_index, step.cap_urn.to_string(), sent.to_string(), str(error)
                 ) from error
-            for target in wiring.targets:
-                if not _is_main_target(definition, target):
+            for target in step.wiring.targets:
+                if _is_main_target(step.definition, target):
+                    holds = given
+                elif _carries_input(step.definition, target):
+                    holds = sent
+                else:
                     continue
                 before = node_media.get(target.node)
-                _give(node_media, target.node, given)
+                _give(node_media, target.node, holds)
                 changed = changed or before is None or before.to_string() != node_media[target.node].to_string()
         if not changed:
             break

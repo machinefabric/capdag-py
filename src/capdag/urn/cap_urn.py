@@ -581,6 +581,21 @@ class CapUrn:
             )
         return runtime_out
 
+    def requires(self, need: MediaUrn) -> Optional[MediaUrn]:
+        """What a need on what this cap gives asks of what it is sent: the
+        widest type inside the cap's input whose things the cap gives inside
+        ``need``, or None when nothing it is sent could be. A declared cap gives
+        its output whatever it is sent, so it asks its input when its output is
+        inside ``need``; an ``effect=none`` cap asks its input met with
+        ``need``; a patch asks its input met with ``need`` at every key it does
+        not write, when what it writes is inside ``need``. Computed by the
+        proved model (``CapDAG.Exec.capRequires``, which is ``Cap.requires``,
+        sound and widest)."""
+        required = _formal.cap_requires(self._formal, need.inner().formal)
+        if required is None:
+            return None
+        return MediaUrn._from_formal(required)
+
     def is_conformant_runtime_output(
         self, runtime_input: MediaUrn, runtime_output: MediaUrn
     ) -> bool:

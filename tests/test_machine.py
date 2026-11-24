@@ -42,7 +42,7 @@ from capdag.machine.error import (
     UnmatchedSourceInCapArgsError,
     MachineSyntaxError,
 )
-from capdag.machine.parser import parse_machine
+from capdag.machine.parser import parse_machine, parse_machine_with_node_names
 from capdag.planner.live_cap_fab import (
     ArgSourceRef,
     CapInput,
@@ -1607,3 +1607,58 @@ def test_12837_the_resolver_refuses_names_a_definition_does_not_declare():
             2,
         )
     assert "declares no output named 'text' (it declares: output)" in str(out_info.value)
+
+
+# YAML to JSON as the fabric publishes it: a patch that keeps the shape it is
+# given and gives content, not a file.
+_YAML_TO_JSON = 'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=yaml";yaml-to-json;out="media:enc=utf8;fmt=json;!ext"'
+
+
+# TEST7246: a machine read back from its text types an input of the machine by
+# what the steps after it need, carried back through a patch: JSON to YAML,
+# then a save that takes a YAML list of records, types the input a JSON list of
+# records and the node between them a YAML list of records, content and no
+# file, whether its members are named or not.
+def test_7246_an_input_is_typed_by_what_the_steps_after_a_patch_need():
+    save = 'cap:in="media:enc=utf8;fmt=yaml;list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;list;record";save-as-yaml'
+    reg = _registry_with([
+        _simple_cap(_JSON_TO_YAML, "media:enc=utf8;fmt=json", "media:enc=utf8;!ext;fmt=yaml"),
+        _simple_cap(save, "media:enc=utf8;fmt=yaml;list;record;!ext", "media:enc=utf8;ext=yaml;fmt=yaml;list;record"),
+    ])
+    headers = f"[to_yaml {_JSON_TO_YAML}][save {save}]"
+    for wirings in [
+        "[(input=n0) -> to_yaml -> (output=n1)][(input=n1) -> save -> (output=n2)]",
+        "[n1 -> save -> n2][n0 -> to_yaml -> n1]",
+    ]:
+        machine, names = parse_machine_with_node_names(headers + wirings, reg)
+        strand = machine.strands()[0]
+        n0 = strand.node_urn(names[0]["n0"])
+        n1 = strand.node_urn(names[0]["n1"])
+        assert n0.is_equivalent(_media("media:enc=utf8;fmt=json;list;record")), f"{wirings}: n0 is {n0}"
+        assert n1.is_equivalent(_media("media:enc=utf8;!ext;fmt=yaml;list;record")), f"{wirings}: n1 is {n1}"
+
+
+# TEST7247: what an input of the machine must be is carried back from every
+# step its patch's output is bound into, a gather included: YAML converted to
+# JSON and gathered with JSON records that are not lists types the YAML input a
+# YAML record that is not a list, and what the patch gives a JSON record that
+# is not a list, content and no file.
+def test_7247_an_input_is_typed_through_a_patch_by_the_gather_after_it():
+    collect = 'cap:in="media:enc=utf8;fmt=json;!list;record";collect-json-objects;out="media:enc=utf8;fmt=json;list;record"'
+    collect_cap = _simple_cap(collect, "media:enc=utf8;fmt=json;!list;record", "media:enc=utf8;fmt=json;list;record")
+    collect_cap.args[0].is_sequence = True
+    reg = _registry_with([
+        _simple_cap(_YAML_TO_JSON, "media:enc=utf8;fmt=yaml", "media:enc=utf8;fmt=json;!ext"),
+        collect_cap,
+    ])
+    headers = f"[yaml_to_json {_YAML_TO_JSON}][collect {collect}]"
+    for wirings in [
+        "[from_yaml -> yaml_to_json -> converted][(converted, already_json) -> collect -> collected]",
+        "[(converted, already_json) -> collect -> collected][from_yaml -> yaml_to_json -> converted]",
+    ]:
+        machine, names = parse_machine_with_node_names(headers + wirings, reg)
+        strand = machine.strands()[0]
+        from_yaml = strand.node_urn(names[0]["from_yaml"])
+        converted = strand.node_urn(names[0]["converted"])
+        assert from_yaml.is_equivalent(_media("media:enc=utf8;fmt=yaml;!list;record")), f"{wirings}: from_yaml is {from_yaml}"
+        assert converted.is_equivalent(_media("media:enc=utf8;!ext;fmt=json;!list;record")), f"{wirings}: converted is {converted}"
