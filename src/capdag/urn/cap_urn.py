@@ -10,7 +10,7 @@ exact value is a media URN, and any other form is refused.
 """
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from tagged_urn import (
     Constraint,
     DuplicateValueError as TaggedUrnDuplicateValueError,
@@ -818,6 +818,21 @@ class CapUrn:
         if not isinstance(other, CapUrn):
             return NotImplemented
         return self._cmp_key() >= other._cmp_key()
+
+
+def routes_in_order(target: MediaUrn, routes: List[Tuple[List[CapUrn], MediaUrn]]) -> List[int]:
+    """The indices of the routes to ``target``, each its caps and what it
+    gives: the nearest to the target first, measured as dispatch ranks caps
+    (exactly as specific, then the nearest more specific, then the nearest
+    less specific), then fewer caps, then the more specific caps. Routes equal
+    in all three keep the order they are given in.
+
+    Decided by the proved model (``CapDAG.Exec.routesInOrder``).
+    """
+    return _formal.routes_in_order(
+        target._urn.formal,
+        [([c._formal for c in caps], gives._urn.formal) for caps, gives in routes],
+    )
 
 
 class CapMatcher:

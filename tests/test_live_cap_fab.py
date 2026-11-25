@@ -480,10 +480,11 @@ def test_1292_bfs_iddfs_roundtrip_consistency():
 
 # TEST7229: a node that may have several shapes ends on the bookends its
 # shapes are, read complete. A save that gives JSON which may or may not be a
-# list and may or may not be a record ends on the four JSON file types: each is
-# a target of a route through it, and a search for one of them finds the
-# route. A node one of whose shapes is no file type ends on none, and no search
-# ends at it.
+# list and may or may not be a record ends on the four JSON file types, each a
+# target of a route through it; a search for the JSON file type, which holds
+# all four, finds the route, and one for the JSON record file does not, since
+# the save may give a list or a value. A node one of whose shapes is no file
+# type ends on none.
 def test_7229_a_node_of_several_shapes_ends_on_each_bookend_it_may_be():
     saved = "media:enc=utf8;ext=json;fmt=json;?list;?record"
     file_types = [
@@ -508,10 +509,11 @@ def test_7229_a_node_of_several_shapes_ends_on_each_bookend_it_may_be():
     targets = sorted((t.media_def for t in reached), key=MediaUrn.ordering_key)
     assert targets == files, "every file type the save may give is a target"
 
-    paths = graph.find_paths_to_exact_target(source, record_file, False, 3, 10)
+    paths = graph.find_paths_to_exact_target(source, _media(file_types[0]), False, 3, 10)
     assert len(paths) == 1, "the route through the save"
     assert paths[0].cap_step_count == 1
-    assert paths[0].target_media_urn.is_equivalent(record_file)
+    assert paths[0].target_media_urn.is_equivalent(_media(saved)), "the route gives what the save may be"
+    assert graph.find_paths_to_exact_target(source, record_file, False, 3, 10) == []
 
     # Without a file type for JSON that is neither a list nor a record, one of
     # the save's shapes is no file: the node ends on nothing.
@@ -519,7 +521,111 @@ def test_7229_a_node_of_several_shapes_ends_on_each_bookend_it_may_be():
     assert not graph.is_bookend(_media(saved))
     assert graph.ends_on(_media(saved)) == []
     assert graph.get_reachable_targets(source, False, 3) == []
-    assert graph.find_paths_to_exact_target(source, record_file, False, 3, 10) == []
+
+
+def _cap_of_urn(cap_text: str, title: str, sequence: bool = False) -> Cap:
+    """A cap of the cap URN ``cap_text``, taking its input on stdin, as one
+    value or, with ``sequence``, as a sequence."""
+    urn = CapUrn.from_string(cap_text)
+    cap = Cap.with_description(urn, title, [title], f"{title} cap")
+    cap.add_arg(
+        CapArg(
+            media_urn=urn.in_spec(), name="input",
+            required=True,
+            sources=[StdinSource(urn.in_spec())],
+            is_sequence=sequence,
+        )
+    )
+    cap.add_output(CapOutput(urn.out_spec(), "output", f"{title} output"))
+    return cap
+
+
+# TEST7277: A patch cap's edge gives what it was sent with its change, not its declared output: JSON to YAML sent a JSON list of records file gives a YAML list of records, no file, which the save of a YAML list of records takes
+def test_7277_a_patch_edge_gives_what_it_was_sent_with_its_change():
+    source = _media("media:enc=utf8;ext=json;fmt=json;list;record")
+    target = _media("media:enc=utf8;ext=yaml;fmt=yaml;list;record")
+    graph = LiveCapFab()
+    graph.sync_from_caps([
+        _cap_of_urn('cap:convert-format;effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;fmt=yaml;!ext"', "Convert JSON to YAML"),
+        _cap_of_urn('cap:in="media:enc=utf8;fmt=yaml;list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;list;record";save-as-yaml', "Save as YAML List of Records"),
+    ], {source, target})
+
+    routes = graph.find_paths_to_exact_target(source, target, False, 4, 10)
+    assert len(routes) == 1, "JSON to YAML, then the save"
+    assert routes[0].cap_step_count == 2
+    converted = routes[0].steps[0].to_spec
+    assert converted.is_equivalent(_media("media:enc=utf8;!ext;fmt=yaml;list;record")), (
+        f"the patch gives a YAML list of records, no file, not {converted}"
+    )
+
+
+def _json_saves_graph() -> LiveCapFab:
+    """The graph a YAML record is planned to a JSON file in, as the fabric
+    declares its caps: YAML to JSON (a patch, keeping the record), the merge of
+    YAML mappings into a JSON array (taking a sequence), and the four JSON
+    saves, with the file types they read and write as bookends."""
+    caps = [
+        _cap_of_urn('cap:convert-format;effect=patch;in="media:enc=utf8;fmt=yaml";out="media:enc=utf8;fmt=json;!ext";yaml-to-json', "Convert YAML to JSON"),
+        _cap_of_urn('cap:collect-yaml-mappings-to-json-array;in="media:enc=utf8;fmt=yaml;!list;record";out="media:enc=utf8;fmt=json;list;record"', "Merge YAML Mappings into JSON Array", sequence=True),
+        _cap_of_urn('cap:in="media:enc=utf8;fmt=json;!ext";out="media:enc=utf8;ext=json;fmt=json;?list;?record";save-as-json', "Save as JSON"),
+        _cap_of_urn('cap:in="media:enc=utf8;fmt=json;!list;!record;!ext";out="media:enc=utf8;ext=json;fmt=json";save-as-json', "Save as JSON Value"),
+        _cap_of_urn('cap:in="media:enc=utf8;fmt=json;!list;record;!ext";out="media:enc=utf8;ext=json;fmt=json;record";save-as-json', "Save as JSON Record"),
+        _cap_of_urn('cap:in="media:enc=utf8;fmt=json;list;record;!ext";out="media:enc=utf8;ext=json;fmt=json;list;record";save-as-json', "Save as JSON List of Records"),
+    ]
+    graph = LiveCapFab()
+    graph.sync_from_caps(caps, {
+        _media("media:enc=utf8;ext=yaml;fmt=yaml;record"),
+        _media("media:enc=utf8;ext=json;fmt=json"),
+        _media("media:enc=utf8;ext=json;fmt=json;list"),
+        _media("media:enc=utf8;ext=json;fmt=json;record"),
+        _media("media:enc=utf8;ext=json;fmt=json;list;record"),
+    })
+    return graph
+
+
+def _last_titles(routes) -> list:
+    return [route.steps[-1].title() for route in routes]
+
+
+# TEST7275: A target is a search over what routes give: from a YAML record, every route whose output is inside the JSON file type reaches it, listed nearest to what was asked first, each with what it gives
+def test_7275_routes_to_a_target_are_every_route_inside_it_nearest_first():
+    graph = _json_saves_graph()
+    source = _media("media:enc=utf8;ext=yaml;fmt=yaml;record")
+    target = _media("media:enc=utf8;ext=json;fmt=json")
+
+    routes = graph.find_paths_to_exact_target(source, target, False, 4, 50)
+    titles = _last_titles(routes)
+    for title in ("Save as JSON", "Save as JSON Record", "Save as JSON List of Records"):
+        assert title in titles, f"a route ends with {title}: {titles}"
+    assert (
+        titles.index("Save as JSON")
+        < titles.index("Save as JSON Record")
+        < titles.index("Save as JSON List of Records")
+    ), f"the generic save (as specific as the target), then the record save, then the list-of-records save: {titles}"
+    for route in routes:
+        gives = route.steps[-1].to_spec
+        assert gives.satisfies(target), f"{gives} is inside {target}"
+        assert route.target_media_urn.is_equivalent(gives), (
+            f"the route names what it gives, {gives}, not {route.target_media_urn}"
+        )
+
+
+# TEST7276: A route whose output may fall outside the target does not reach it: none from a YAML record reaches a JSON file that is neither a list nor a record, and the generic save does not reach a JSON record file, which the record save does
+def test_7276_a_route_that_may_give_more_than_was_asked_does_not_reach_it():
+    graph = _json_saves_graph()
+    source = _media("media:enc=utf8;ext=yaml;fmt=yaml;record")
+
+    plain = _media("media:enc=utf8;ext=json;fmt=json;!list;!record")
+    assert _last_titles(graph.find_paths_to_exact_target(source, plain, False, 4, 50)) == [], (
+        "no save of a YAML record's content gives JSON that is surely neither a list nor a record"
+    )
+
+    record_file = _media("media:enc=utf8;ext=json;fmt=json;record")
+    titles = _last_titles(graph.find_paths_to_exact_target(source, record_file, False, 4, 50))
+    assert "Save as JSON Record" in titles, titles
+    assert "Save as JSON" not in titles, (
+        f"the generic save may write a list or a value, so it does not reach a JSON record file: {titles}"
+    )
 
 
 # TEST1293: IDDFS round-trip does not produce paths with 0 cap steps. Identity-only round trips (no real transformation) must be excluded.
@@ -620,8 +726,8 @@ def test_7219_search_skips_branches_that_cannot_reach_the_target():
     assert graph._distances_to_exact_target(finish, start, False, 8) is None
 
 
-# TEST1151: Exact target lookup prefers the direct singular or list-producing path over longer alternatives.
-def test_1151_exact_vs_conformance_matching():
+# TEST1151: A target is reached by every route giving something inside it, the nearest first: a singular result is reached by the singular route and then the list route, a list result only by the list route.
+def test_1151_a_target_is_reached_by_every_route_inside_it():
     singular = _media("media:analysis-result")
     lst = _media("media:analysis-result;list")
     assert not singular.is_equivalent(lst)
@@ -633,15 +739,17 @@ def test_1151_exact_vs_conformance_matching():
 
     source = _media("media:document;ext=pdf")
 
+    # The singular target, read open, holds the list as well: both routes reach
+    # it, the one giving exactly what was asked first.
     paths_singular = graph.find_paths_to_exact_target(source, singular, False, 5, 10)
-    assert len(paths_singular) >= 1
-    assert paths_singular[0].steps[0].title() == "Analyze PDF", \
-        "First path should be the direct cap (fewer total steps)"
+    assert [p.steps[0].title() for p in paths_singular] == ["Analyze PDF", "Analyze PDF Multi"], \
+        "the nearest route first"
 
+    # The list target does not hold a result that is no list: only the list
+    # route reaches it.
     paths_plural = graph.find_paths_to_exact_target(source, lst, False, 5, 10)
-    assert len(paths_plural) >= 1
-    assert paths_plural[0].steps[0].title() == "Analyze PDF Multi", \
-        "First path should be the direct cap (fewer total steps)"
+    assert [p.steps[0].title() for p in paths_plural] == ["Analyze PDF Multi"], \
+        "only the route giving a list"
 
 
 # TEST1152: Path finding returns the expected two-cap chain through an intermediate media type.

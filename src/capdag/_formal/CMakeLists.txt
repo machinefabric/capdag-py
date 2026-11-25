@@ -26,6 +26,7 @@ add_library(capdagFormal_lean SHARED
   program/modules/CapDAG-Query.c
   program/modules/CapDAG-Ranking.c
   program/modules/CapDAG-Route.c
+  program/modules/CapDAG-RouteOrder.c
   program/modules/CapDAG-Run-Control.c
   program/modules/CapDAG-Run-Step.c
   program/modules/Init-Core.c
@@ -37,8 +38,11 @@ add_library(capdagFormal_lean SHARED
   program/modules/Init-Data-Int-Basic.c
   program/modules/Init-Data-Int-Repr.c
   program/modules/Init-Data-List-Basic.c
+  program/modules/Init-Data-List-Impl.c
+  program/modules/Init-Data-List-Sort-Impl.c
   program/modules/Init-Data-Nat-Bitwise-Basic.c
   program/modules/Init-Data-Option-Basic.c
+  program/modules/Init-Data-Ord-Basic.c
   program/modules/Init-Data-Random.c
   program/modules/Init-Data-Repr.c
   program/modules/Init-Data-String-Basic.c

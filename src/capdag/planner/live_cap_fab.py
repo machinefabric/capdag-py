@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from capdag.urn.cap_urn import CapUrn
+from capdag.urn.cap_urn import CapUrn, CapUrnError, routes_in_order
 from capdag.urn.media_urn import MediaUrn
 
 
@@ -454,6 +454,20 @@ def _compare_paths(a: Strand, b: Strand) -> int:
     return _cmp(len(a.steps), len(b.steps))
 
 
+def _in_route_order(target: MediaUrn, routes: List[Strand]) -> List[Strand]:
+    """The routes to ``target`` in the proved model's order
+    (``routes_in_order``): the nearest to what was asked first, measured as
+    dispatch ranks caps, then fewer cap steps, then the higher total
+    specificity. Routes equal in all three keep ``_compare_paths``'
+    structural order, which they are handed to the model in."""
+    routes = sorted(routes, key=functools.cmp_to_key(_compare_paths))
+    order = routes_in_order(
+        target,
+        [([step.cap_urn for step in route.steps if step.is_cap()], route.target_media_urn) for route in routes],
+    )
+    return [routes[index] for index in order]
+
+
 class LiveCapFab:
     """Precomputed graph of capabilities for path finding.
 
@@ -505,12 +519,13 @@ class LiveCapFab:
         empty when it ends on none."""
         return list(self._bookend_nodes.get(node, []))
 
-    def _reaches(self, node: MediaUrn, target: MediaUrn) -> bool:
-        """Whether a route reaching ``node`` reaches ``target``: the node is
-        the target, or ends on bookends one of which is."""
-        return node.is_equivalent(target) or any(
-            bookend.is_equivalent(target) for bookend in self._bookend_nodes.get(node, [])
-        )
+    @staticmethod
+    def _reaches(node: MediaUrn, target: MediaUrn) -> bool:
+        """Whether a route reaching ``node`` reaches ``target``: what the node
+        holds, read complete, is inside the target, read open. A node that may
+        also be something outside the target (``…;?list;?record`` for a JSON
+        record target) does not reach it: a possibility is no guarantee."""
+        return node.satisfies(target)
 
     def sync_from_caps(self, caps, bookend_urns: Set[MediaUrn]) -> None:
         """Rebuild the graph from a list of Cap definitions.
@@ -735,7 +750,26 @@ class LiveCapFab:
                 # Sequence data reaching a scalar cap — ForEach must be synthesized.
                 needs_foreach = True
                 continue
-            results.append((edge, edge.output_is_sequence))
+            # The main output's runtime type follows the cap URN's effect: what
+            # the cap gives for what it is sent (an effect=patch cap keeps what
+            # it does not change). Any other output gives its own type.
+            taken = edge
+            if edge.output_urn is None:
+                try:
+                    given = edge.cap_urn.infer_runtime_output_media(source)
+                except CapUrnError:
+                    continue
+                taken = LiveMachinePlanEdge(
+                    from_spec=source,
+                    to_spec=given,
+                    edge_type=edge.edge_type,
+                    cap_urn=edge.cap_urn,
+                    cap_title=edge.cap_title,
+                    specificity_val=edge.specificity_val,
+                    input_is_sequence=edge.input_is_sequence,
+                    output_is_sequence=edge.output_is_sequence,
+                )
+            results.append((taken, taken.output_is_sequence))
 
         # Synthesize a ForEach edge so path finding can iterate into scalar caps.
         if is_sequence and needs_foreach:
@@ -861,7 +895,7 @@ class LiveCapFab:
         search walks it. The states are found forward from the source over the
         edges ``_get_outgoing_edges`` gives, and the distances backward over
         those same steps from the states that reach the target (``_reaches``:
-        the target, or a node ending on bookends one of which is). A state
+        media inside it). A state
         missing from the map cannot reach the target; one at distance d cannot
         reach it in fewer than d steps.
         """
@@ -881,7 +915,7 @@ class LiveCapFab:
                 next_pending = edge.edge_type == LiveMachinePlanEdgeType.FOR_EACH
                 next_state = (str(edge.to_spec), out_seq, next_pending)
                 steps_into[next_state].append(from_state)
-                # The target: a media that reaches it, reached by a step, not
+                # The target: a media inside it, reached by a step, not
                 # waiting on a ForEach's cap.
                 if not next_pending and self._reaches(edge.to_spec, target):
                     target_states.add(next_state)
@@ -908,10 +942,11 @@ class LiveCapFab:
         max_depth: int = 10,
         max_paths: int = 20,
     ) -> List[Strand]:
-        """Iterative deepening DFS path finding with exact target matching: a
-        path ends at a node that is the target (is_equivalent) or ends on
-        bookends one of which is. It steps only into states the target is
-        within reach of."""
+        """Iterative deepening DFS to the routes to ``target``, read open: a
+        route ends where its node, read complete, is inside the target
+        (``_reaches``), and names what it gives as its ``target_media_urn``.
+        It steps only into states the target is within reach of, and returns
+        the routes in ``_in_route_order``."""
         distances = self._distances_to_exact_target(source, target, is_sequence, max_depth)
         if distances is None:
             return []
@@ -934,9 +969,7 @@ class LiveCapFab:
                 results=results,
             )
 
-        results.sort(key=functools.cmp_to_key(_compare_paths))
-
-        return results
+        return _in_route_order(target, results)
 
     def find_paths_streaming(
         self,
@@ -994,7 +1027,7 @@ class LiveCapFab:
                 paths_found=paths_this_depth,
             ))
 
-        results.sort(key=functools.cmp_to_key(_compare_paths))
+        results = _in_route_order(target, results)
 
         on_event(PathFindingEventComplete(
             total_paths=len(results),
@@ -1032,8 +1065,7 @@ class LiveCapFab:
             path and path[-1].edge_type == LiveMachinePlanEdgeType.FOR_EACH
         )
 
-        # The node reaches the target: it is the target, or ends on bookends
-        # one of which is.
+        # The node reaches the target: it is inside it.
         if path and self._reaches(current, target):
             steps = []
             cap_count = 0
@@ -1056,7 +1088,8 @@ class LiveCapFab:
                     results.append(Strand(
                         steps=steps,
                         source_media_urn=original_source,
-                        target_media_urn=target,
+                        # What the route gives, inside the target asked for.
+                        target_media_urn=current,
                         total_steps=len(steps),
                         cap_step_count=cap_count,
                         description=desc,
