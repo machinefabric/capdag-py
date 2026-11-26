@@ -727,7 +727,8 @@ def test_047_matching_semantics_thumbnail_void_input():
 # are unknown, not the type "anything", so it fits a cap that takes text and
 # gives an object. Read as a type, its open output would be covered only by a
 # cap that gives `media:` — which is how a pattern search came to find nothing
-# (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits).
+# (capdag/formal, Query.ofPattern and fits_asks_what_the_cap_gives). The test is
+# kept so this path is not taken again.
 def test_6203_matching_semantics_wildcard_direction():
     cap = CapUrn.from_string("cap:generate")
     request = CapUrn.from_string(f'cap:ext=pdf;in="media:enc=utf8";generate;out="{MEDIA_OBJECT}"')
@@ -1322,6 +1323,11 @@ def test_7214_dispatch_compares_what_the_cap_gives_for_what_is_sent():
 # TEST7215: a pattern over caps fits a cap when everything the cap gives is of
 # the type the pattern's output names; a pattern that names no output asks
 # nothing of it
+#
+# It is kept so this path is not taken again: the old rule asked a cap's output
+# to cover the pattern's, and skipped a pattern's `media:` output. It accepted a
+# cap that gives nothing named for a pattern asking for pdfs, refused one that
+# gives pdf documents, and was not transitive (capdag/formal, fits_asks_what_the_cap_gives).
 def test_7215_a_pattern_fits_what_a_cap_gives():
     gives_pdf = CapUrn.from_string('cap:op=a;out="media:ext=pdf"')
     gives_pdf_document = CapUrn.from_string('cap:op=a;out="media:document;ext=pdf"')
@@ -1363,8 +1369,9 @@ def test_824_dispatch_contravariant_input():
 # anything, and only a candidate that takes anything serves it
 #
 # A call that did not say what it sent was routed to a candidate that might not
-# take it (capdag/formal, Legacy.wildcard_input_is_not_serves). An unknown input
-# is a search's (CapQuery.producing), never a call's.
+# take it (capdag/formal, serves_needs_what_is_sent). An unknown input is a
+# search's (CapQuery.producing), never a call's. The test is kept so this path
+# is not taken again.
 def test_825_dispatch_request_unconstrained_input():
     pdf_only = CapUrn.from_string(
         'cap:in="media:document;ext=pdf";analyze;out="media:enc=utf8;record"'
